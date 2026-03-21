@@ -30,13 +30,28 @@ const { recordStrategyOutcome } = require("./x_core");
 const { shouldScale }        = require("./x_allocator");
 
 // ── Config ───────────────────────────────────────────────────────────────────
-const CAPITAL         = 500000;
-const LOT_MULTIPLIER  = 5000;
-const MAX_LOTS        = 4;
-const MAX_TRADE_DUR   = 90 * 60 * 1000;  // 90 min max
-const MIN_HOLD_CANDLES = 2;               // min 2 closed 1H candles before pullback exit
-const MAX_TRADES_DAY  = 3;
-const MIN_TRADE_GAP   = 30 * 60 * 1000;  // 30 min min gap
+const CAPITAL          = 500000;
+const LOT_MULTIPLIER   = 5000;
+const MAX_LOTS         = 4;
+const MAX_TRADE_DUR    = 90 * 60 * 1000;
+const MIN_HOLD_CANDLES = 2;
+const MAX_TRADES_DAY   = 5;               // FIX 3: hard daily cap — covers ALLOW + LIMIT + PROBE
+const MIN_TRADE_GAP    = 30 * 60 * 1000;
+
+// ── Slippage model ────────────────────────────────────────────────────────────
+// FIX 1: Realistic fill price = livePrice ± slippage.
+// LONG entry / SHORT exit: pay the ask → price moves against you (add slippage).
+// SHORT entry / LONG exit: hit the bid → price moves against you (subtract).
+// Slippage = 0.02 × ATR — calibrated for MCX ZINC tick size (~0.05).
+// In paper mode: slippage is applied to PnL calc only (logged, not sent to broker).
+const SLIPPAGE_ATR_MULT = 0.02;
+
+function applySlippage(price, direction, atr, isBuy) {
+    const slip = (atr || 1) * SLIPPAGE_ATR_MULT;
+    // Buying (LONG entry or SHORT exit): fills above market
+    // Selling (SHORT entry or LONG exit): fills below market
+    return isBuy ? price + slip : price - slip;
+}
 
 // ── Injected utilities (set by index.js) ─────────────────────────────────────
 let _sendTelegram = () => {};
@@ -80,12 +95,19 @@ async function placeOrder(direction, lots, tag, strategy) {
     if (G.tradesToday >= MAX_TRADES_DAY) return;
     if (Date.now() - G.lastTradeTime < MIN_TRADE_GAP) return;
 
-    const price = G.livePrice || G.elite?.price || 0;
-    if (price === 0) { _log("❌ placeOrder: no live price"); return; }
+    const rawPrice = G.livePrice || G.elite?.price || 0;
+    if (rawPrice === 0) { _log("❌ placeOrder: no live price"); return; }
+
+    // FIX 1: Apply slippage — LONG buys above market, SHORT sells below
+    const isBuy  = direction === "LONG";
+    const atr    = G.elite?.atr || G.currentATR || 1;
+    const price  = applySlippage(rawPrice, direction, atr, isBuy);
+    const slipAmt = Math.abs(price - rawPrice);
+    _log(`📐 Slippage: raw ₹${rawPrice.toFixed(2)} → fill ₹${price.toFixed(2)} (±${slipAmt.toFixed(2)})`);
 
     // In production: call kc.placeOrder here
     // await _kc.placeOrder(_symbol.exchange, _symbol.tradingsymbol,
-    //   direction === "LONG" ? "BUY" : "SELL", lots, "MARKET", 0);
+    //   isBuy ? "BUY" : "SELL", lots, "MARKET", 0);
 
     const prevLots = G.lots;
     updateAvgPrice(price, lots);
@@ -105,9 +127,15 @@ async function placeOrder(direction, lots, tag, strategy) {
 
 // ── Exit ALL ──────────────────────────────────────────────────────────────────
 
-async function exitAll(price, reason) {
+async function exitAll(rawPrice, reason) {
     if (G.isExiting || !G.position) return;
     G.isExiting = true;
+
+    // FIX 1: Exit also suffers slippage — closing LONG = selling below market
+    const isBuy  = G.position !== "LONG";  // closing LONG = SELL, closing SHORT = BUY
+    const atr    = G.elite?.atr || G.currentATR || 1;
+    const price  = applySlippage(rawPrice, G.position, atr, isBuy);
+    _log(`📐 Exit slippage: raw ₹${rawPrice.toFixed(2)} → fill ₹${price.toFixed(2)}`);
 
     const pnl = calcPnL(price, G.position, G.avgPrice, G.lots);
     G.sessionPnL += pnl;
@@ -129,8 +157,12 @@ async function exitAll(price, reason) {
 
 // ── Exit partial (1 lot off) ───────────────────────────────────────────────────
 
-async function exitPartial(price, reason) {
+async function exitPartial(rawPrice, reason) {
     if (G.isExiting || G.lots <= 1 || !G.position) return;
+
+    const isBuy = G.position !== "LONG";
+    const atr   = G.elite?.atr || G.currentATR || 1;
+    const price = applySlippage(rawPrice, G.position, atr, isBuy);
 
     const pnl = calcPnL(price, G.position, G.avgPrice, 1);
     G.sessionPnL    += pnl;

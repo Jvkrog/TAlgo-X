@@ -66,22 +66,53 @@ function logEvent(obj) {
 G.equityHigh = CAPITAL;
 initExec({ sendTelegram, log, logEvent, kc, symbol: SYMBOL });
 
+// ── Daily reset ───────────────────────────────────────────────────────────────
+// FIX 2: Reset all per-session counters at market open each day.
+// Keyed on date string — fires exactly once per calendar day.
+let lastResetDate = null;
+
+function maybeDailyReset() {
+    const today = new Date().toDateString();
+    if (lastResetDate === today) return;
+    lastResetDate = today;
+
+    G.tradesToday   = 0;
+    G.sessionPnL    = 0;
+    G.equityHigh    = CAPITAL;
+    G.winStreak     = 0;
+    G.lossStreak    = 0;
+    G.recentResults = [];
+    G.riskState     = "NORMAL";
+    G.metaMode      = "TREND";
+    G.lifecycleClosed    = false;
+    G.lifecycleShutdown  = false;
+    last1HKey  = null;
+    last15mSlot = null;
+
+    log(`📅 Daily reset — ${today} | Capital: ₹${CAPITAL.toLocaleString()}`);
+    sendTelegram(`📅 New session — ${new Date().toLocaleDateString("en-IN", { weekday: "long", day: "2-digit", month: "short" })}`);
+}
+
+
+
 // ── Loop tracking ─────────────────────────────────────────────────────────────
 let last1HKey   = null;
 let last15mSlot = null;
 let loopRunning = false;
 
-// ── 1H candle loop ────────────────────────────────────────────────────────────
+
 async function run1HLoop() {
     const now    = new Date();
     const hour   = now.getHours();
     const minute = now.getMinutes();
 
-    if (hour < 9 || hour >= 23)    return;
-    if (minute !== 1)              return;
+    if (hour < 9 || hour >= 23) return;
+
+    // FIX 4: Accept minutes 1–2 — broker API can be up to 60s late on candle delivery
+    if (minute < 1 || minute > 2) return;
 
     const key = `${hour}-1H`;
-    if (last1HKey === key)          return;
+    if (last1HKey === key) return;
     last1HKey = key;
 
     log(`🕯 1H candle @ ${now.toLocaleTimeString()}`);
@@ -117,8 +148,11 @@ async function run15mLoop() {
         const hour = now.getHours();
         if (hour < 9 || hour >= 23) return;
 
-        // Fire at :01 of each 15m boundary
-        if ((now.getMinutes() - 1) % 15 !== 0) return;
+        // FIX 4: Allow a 2-minute window around each 15m boundary — handles API latency
+        // Candle fires at :00, :15, :30, :45. We trigger at :01–:02 after each.
+        const m = now.getMinutes();
+        const withinWindow = (m % 15 === 1 || m % 15 === 2);
+        if (!withinWindow) return;
 
         const slot = Math.floor(Date.now() / 900000);
         if (slot === last15mSlot) return;
@@ -142,6 +176,15 @@ async function run15mLoop() {
         // ── Run engines ─────────────────────────────────────────────────────
         const exec = runXExec(fastCandles, G.currentATR);
         if (!exec) return;
+
+        // FIX 5: Guard against elite being null (engine just started, 1H not yet fired)
+        // Allow exec-only operation for position management, block new entries.
+        if (!G.elite) {
+            log("⚠ Elite not ready yet — position management only, no new entries");
+            if (G.tradeState === "PROBATION") await handleProbation(price, null);
+            if (G.tradeState === "CONFIRMED") await handleConfirmed(price, null, exec);
+            return;
+        }
 
         // ── Risk state evaluation ────────────────────────────────────────────
         evaluateRiskState(G.elite);
@@ -201,6 +244,10 @@ async function run15mLoop() {
 // ── Main poll interval ────────────────────────────────────────────────────────
 setInterval(async () => {
     try {
+        // FIX 2: Check for new trading day on every tick
+        const now = new Date();
+        if (now.getHours() >= 9 && now.getHours() < 10) maybeDailyReset();
+
         await run1HLoop();
         await run15mLoop();
     } catch (err) {
@@ -227,6 +274,14 @@ ticker.on("ticks", ticks => {
     if (!tick) return;
 
     const price = tick.last_price;
+
+    // FIX 5: Guard against stale ticks (price unchanged for > 5 min = WS lag)
+    const now = Date.now();
+    if (!ticker._lastTickMs) ticker._lastTickMs = now;
+    if (now - ticker._lastTickMs > 5 * 60 * 1000 && G.livePrice === price) {
+        log("⚠ WS stale — no new ticks for 5m, prices may be frozen");
+    }
+    ticker._lastTickMs = now;
     onTick(price);                          // X-Exec pressure tracker
     onTickRiskCheck(G.elite);              // continuous HARD_HALT monitor
     checkTrapExit(price, G.elite);         // PROBATION trap exit
