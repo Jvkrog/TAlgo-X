@@ -216,8 +216,7 @@ Only the framework evolves.
 ---
 
 Author
-Vamshi Krishna (JVKROG)
-Embedded Systems | Trading Systems | Real-Time Systems
+
 
 Vamshi Krishna (JVKROG)
 Embedded Systems | Trading Systems | Real-Time Systems
