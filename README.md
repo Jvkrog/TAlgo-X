@@ -14,6 +14,8 @@ Each engine operates on:
 - instrument-specific behavior  
 ```
 This enables **adaptive execution across markets without rewriting strategy logic**.
+
+
 ![Version](https://img.shields.io/badge/version-v11-skyblue)
 ![Strategy](https://img.shields.io/badge/strategy-ColorBasedDecision-white)
 ![Market](https://img.shields.io/badge/market-MCX-darkred)
