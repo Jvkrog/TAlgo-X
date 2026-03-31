@@ -1,0 +1,78 @@
+//@version=6
+indicator("TAlgo — Pro Engine", overlay=true)
+
+// ─── INPUTS ───────────────────────────────────────────────
+fast_len = input.int(20, "Fast ALMA")
+slow_len = input.int(100, "Slow ALMA")
+band_len = input.int(50, "Band Length")
+
+offset = input.float(0.85)
+sigma  = input.float(6.0)
+
+atr_len       = input.int(14)
+compress_mult = input.float(0.4)
+slope_mult    = input.float(0.05)
+
+// ─── HEIKIN ASHI ──────────────────────────────────────────
+ha_close = request.security(
+    ticker.heikinashi(syminfo.tickerid),
+    timeframe.period,
+    close,
+    lookahead=barmerge.lookahead_off
+)
+
+// ─── ALMA CORE ────────────────────────────────────────────
+fast = ta.alma(ha_close, fast_len, offset, sigma)
+slow = ta.alma(ha_close, slow_len, offset, sigma)
+
+// ─── BAND ─────────────────────────────────────────────────
+high_band = ta.alma(high, band_len, offset, sigma)
+low_band  = ta.alma(low,  band_len, offset, sigma)
+band_width = high_band - low_band
+
+// ─── ATR ──────────────────────────────────────────────────
+atr = ta.atr(atr_len)
+is_sideways = band_width < atr * compress_mult
+
+// ─── SLOPE STRENGTH ───────────────────────────────────────
+slope = fast - fast[1]
+strong_up   = slope > atr * slope_mult
+strong_down = slope < -atr * slope_mult
+
+// ─── BREAKOUT CONFIRMATION ────────────────────────────────
+buffer = atr * 0.2
+above_band = close > high_band + buffer
+below_band = close < low_band  - buffer
+
+// ─── FINAL STATE ──────────────────────────────────────────
+var state = 0  // 1 = strong up, -1 = strong down, 0 = neutral
+
+if is_sideways
+    state := 0
+else
+    if strong_up and above_band
+        state := 1
+    else if strong_down and below_band
+        state := -1
+    else
+        state := 0
+
+// ─── COLOR SYSTEM ─────────────────────────
+fast_color = state == 1 ? color.lime : state == -1 ? color.red : color.gray
+
+// ─── PLOTS ────────────────────────────────
+plot(fast, "FAST", color=fast_color, linewidth=3)
+plot(slow, "SLOW", color=color.new(color.white, 30))
+
+plot(high_band, "Band High", color=color.orange)
+plot(low_band,  "Band Low",  color=color.blue)
+
+// ─── SIGNALS ──────────────────────────────────────────────
+long_entry  = state == 1 and state[1] != 1
+short_entry = state == -1 and state[1] != -1
+
+plotshape(long_entry,  location=location.belowbar, color=color.lime, style=shape.triangleup)
+plotshape(short_entry, location=location.abovebar, color=color.red,  style=shape.triangledown)
+
+// ─── SIDEWAYS VISUAL ──────────────────────────────────────
+bgcolor(is_sideways ? color.new(color.gray, 90) : na)
