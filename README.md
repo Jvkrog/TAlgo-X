@@ -126,7 +126,7 @@ This separation ensures:
 
 ## Key Differences (TAlgo vs TAlgo-X)
 ```
-| Aspect        | TAlgo                | TAlgo-X              |
+| Aspect       | TAlgo               | TAlgo-X            |
 |--------------|---------------------|---------------------|
 | Purpose      | Research            | Deployment          |
 | Structure    | Version-based       | Engine-based        |
