@@ -1,222 +1,153 @@
-# JVKROG — TAlgo X
+# TAlgo-X — Multi-Engine Trading Deployment
 
-Multi-Engine Adaptive Trading System
-
----
-
-![Version](https://img.shields.io/badge/version-Elite-blue)
-![Strategy](https://img.shields.io/badge/strategy-breakout-green)
-![Market](https://img.shields.io/badge/market-MCX-orange)
-![Language](https://img.shields.io/badge/language-Node.js-yellow)
----
-
-Philosophy
-
-Markets evolve continuously. No trading strategy remains profitable forever.
-
-Instead of searching for a permanent strategy, this system is built around a permanent framework.
-
-Strategies may fail. Market conditions may change.
-The framework adapts, protects capital, and evolves.
-
-No strategy is permanent. Only the framework survives.
+> Production-grade execution layer for TAlgo strategies with instrument-specific configurations.
 
 ---
 
-Contents
+## Overview
 
-- Overview
-- System Architecture
-- Execution Flow
-- Design Principles
-- Project Structure
-- Research Evolution
-
----
-
-Overview
-
-TAlgo X is a rule-based trading decision system designed to remove emotional bias and enforce structured execution in live markets.
-
-The system focuses on:
-
-- Decision consistency
-- Controlled behavior during transitions
-- Iterative learning through real execution
-- Explainability using structured logs
+TAlgo-X is the deployment layer of the TAlgo system, designed to run multiple trading engines with shared logic but different configurations.
+```
+Each engine operates on:
+- the same core framework  
+- different parameter tuning  
+- instrument-specific behavior  
+```
+This enables **adaptive execution across markets without rewriting strategy logic**.
 
 ---
 
-System Architecture
+## System Concept
 
-TAlgo X is built as a modular multi-engine system.
+```
 
-Market Data (WebSocket + Candles)
-        ↓
-Heikin Ashi Transformation
-        ↓
-Indicators (ALMA + ATR)
-        ↓
-SLOW Engine → Bias (Direction + Conviction)
-        ↓
-FAST Engine → Entry / Exit / Protection
-        ↓
-Execution Layer → Order Handling
-        ↓
-State Management → PnL / Position Tracking
+Core Engine (Shared Logic)
+↓
+Parameter Layer (Config)
+↓
+Instrument-Specific Engine
+
+```
 
 ---
 
-Engine Roles
+## Active Engines
 
-SLOW Engine
+###  Zinc Engine (MCX)
+```
+- **Strategy Base:** ALMA Fast Line  
+- **Decision Logic:** Color-based (trend direction)  
+- **Positioning:** Standard lot execution  
+- **Behavior:** Responsive, short-term trend capture  
+```
+---
 
-- Defines market direction
-- Uses ALMA (21 / 55)
-- Provides structural bias
+###  Natural Gas Engine (MCX)
+```
+- **Strategy Base:** Dual ALMA System  
+  - ALMA Fast → short-term signal  
+  - ALMA Slow → long-term bias  
 
-FAST Engine
+- **Positioning:**
+  - 5 mini lots → fast ALMA (scalping layer)  
+  - 1 full lot → slow ALMA (trend holding layer)  
 
-- Executes trades
-- Uses ALMA (9 / 21)
-- Protects profits and exits early
+- **Behavior:**
+  - Combines short-term reaction with long-term stability  
+  - Reduces overexposure during noise  
+```
+---
+
+## Engine Architecture
+
+```
+
+Market Data → Indicators → Signal Layer → Position Logic → Execution
+
+```
 
 ---
 
-Execution Flow
+## Core Design Principles
+```
+- Shared logic, different configurations  
+- Instrument-aware tuning  
+- Multi-layer position sizing  
+- Deterministic execution  
+- Real-time adaptability  
+```
+---
 
-1. Fetch real-time data
-2. Convert to Heikin Ashi
-3. Compute ALMA + ATR
-4. Generate SLOW bias
+## Repository Structure
 
-5. If no position:
-   → Wait for FAST alignment
-   → Enter (1 mini lot)
+```
 
-6. If in position:
-   → Track peak profit
-   → Detect reversals
-   → FAST exits before SLOW damage
+TAlgo-X/             
+├── engine/           # Instrument-specific 
+│   ├── zinc
+│   └── natgas
+├── logs/             # Execution logs
+├── docs/             # Engine-specific notes
+└── README.md
+
+```
 
 ---
 
-Core Principle
+## Why TAlgo-X Exists
 
-FAST protects SLOW.
+While TAlgo focuses on:
+```
+- research  
+- iteration  
+- strategy evolution  
+```
+TAlgo-X focuses on:
+```
+- execution  
+- deployment  
+- real-market behavior  
+```
+This separation ensures:
 
-- SLOW = direction
-- FAST = execution
-- FAST exits before structural breakdown
+```
+- clean architecture  
+- faster experimentation  
+- safer deployment  
+```
+---
+
+## Key Differences (TAlgo vs TAlgo-X)
+```
+| Aspect        | TAlgo                | TAlgo-X              |
+|--------------|---------------------|---------------------|
+| Purpose      | Research            | Deployment          |
+| Structure    | Version-based       | Engine-based        |
+| Focus        | Strategy evolution  | Execution stability |
+| Usage        | Backtesting / Dev   | Live trading        |
+```
+---
+
+## Future Extensions
+```
+- Multi-instrument orchestration  
+- Dynamic parameter tuning  
+- Risk engine integration  
+- Portfolio-level control  
+```
+---
+
+## Summary
+
+TAlgo-X transforms strategy logic into **real-world execution systems**.
+
+```
+
+Same brain → Different behavior → Multiple markets
+
+```
+
+The goal is not just strategy accuracy, but **adaptive, stable, and scalable execution**.
 
 ---
 
-Design Principles
-
-- Modular architecture
-- Separation of concerns
-- Minimal complexity (initial phase)
-- Real execution over simulation
-- Capital preservation first
-
----
-
-Project Structure
-
-core/
-│
-├── state.js         → Global state (position, pnl, session)
-├── x_core.js        → Core engine orchestration
-├── x_controller.js  → Decision controller (bias + signals)
-├── x_allocator.js   → Lot sizing / allocation logic
-├── x_execution.js   → Execution routing logic
-├── x_exec.js        → Order placement abstraction
-├── x_risk.js        → Risk management layer
-│
-indicators/
-│
-└── indicators.js    → ALMA, ATR calculations
-│
-index.js             → Entry point (WS + main loop)
-README.md            → Documentation
-
----
-
-Module Responsibilities
-
-state.js
-
-- Maintains global trading state
-- Position, PnL, exposure
-
-x_core.js
-
-- Central engine loop
-- Connects all modules
-
-x_controller.js
-
-- Signal logic
-- Bias + entry conditions
-
-x_allocator.js
-
-- Determines lot sizing
-- Handles allocation rules
-
-x_execution.js
-
-- Decides how orders are executed
-- Bridges logic → broker
-
-x_exec.js
-
-- Actual order placement
-- Supports live / paper mode
-
-x_risk.js
-
-- Risk control
-- Drawdown, limits, protections
-
-indicators.js
-
-- ALMA calculations
-- ATR calculations
-
----
-
-Version Focus
-
-V1 — Data + Execution Validation
-
-- Single FAST trade (1 mini lot)
-- No scaling
-- No complex risk states
-
-Goal:
-
-Validate execution behavior and collect real trade data.
-
----
-
-Research Evolution
-
-Development follows iterative refinement:
-
-Build → Execute → Observe → Refine
-
-Each version is derived from live behavior, not assumptions.
-
----
-
-No strategy is permanent.
-Only the framework evolves.
-
----
-
-Author
-
-
-Vamshi Krishna (JVKROG)
-Embedded Systems | Trading Systems | Real-Time Systems
