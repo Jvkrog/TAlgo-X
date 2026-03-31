@@ -1,0 +1,70 @@
+//@version=6
+indicator("TAlgo — Zinc Optimized v3", overlay=true, max_lines_count=500)
+
+// ─── INPUTS ───────────────────────────────────────────────
+fast_len      = input.int(14,  "Fast ALMA",  minval=5)
+band_len      = input.int(30,  "Band Length", minval=10)
+atr_len       = input.int(14,  "ATR Length")
+
+offset        = input.float(0.85, "ALMA Offset")
+sigma         = input.float(6.0,  "ALMA Sigma")
+
+compress_mult = input.float(0.78, "Compress Multiplier", step=0.01)   // Higher = easier Grey
+slope_mult    = input.float(0.020, "Slope Multiplier", step=0.001)
+
+// ─── HEIKIN ASHI ──────────────────────────────────────────
+ha_close = request.security(ticker.heikinashi(syminfo.tickerid), timeframe.period, close)
+
+// ─── ALMA CALCULATIONS ────────────────────────────────────
+fast = ta.alma(ha_close, fast_len, offset, sigma)
+
+// Band on raw high/low
+high_band = ta.alma(high, band_len, offset, sigma)
+low_band  = ta.alma(low,  band_len, offset, sigma)
+band_width = high_band - low_band
+
+// ─── ATR & FILTERS ────────────────────────────────────────
+atr_val = ta.atr(atr_len)
+
+is_sideways = band_width < atr_val * compress_mult
+
+slope = fast - fast[1]
+strong_up   = slope > atr_val * slope_mult
+strong_down = slope < -atr_val * slope_mult
+
+buffer = atr_val * 0.20
+
+above_band = close > high_band + buffer
+below_band = close < low_band  - buffer
+
+// ─── STATE ────────────────────────────────────────────────
+var int state = 0
+
+if is_sideways
+    state := 0
+else if strong_up and above_band
+    state := 1
+else if strong_down and below_band
+    state := -1
+else
+    // Improved: Go Grey if slope is weak OR price is inside the band
+    if math.abs(slope) < atr_val * 0.015 or (close > low_band and close < high_band)
+        state := 0
+    else
+        state := state   // only maintain if reasonably trending
+
+// ─── VISUALS ──────────────────────────────────────────────
+fast_color = state == 1 ? color.lime : state == -1 ? color.red : color.gray
+
+plot(fast,      "Fast ALMA", color=fast_color, linewidth=3)
+plot(high_band, "Band High", color=color.orange, linewidth=1)
+plot(low_band,  "Band Low",  color=color.blue,   linewidth=1)
+
+bgcolor(state == 0 ? color.new(color.gray, 85) : na, title="Sideways Background")
+
+// ─── SIGNALS ──────────────────────────────────────────────
+long_entry  = state == 1 and state[1] != 1
+short_entry = state == -1 and state[1] != -1
+
+plotshape(long_entry,  title="Long Entry",  location=location.belowbar, color=color.lime, style=shape.triangleup,   size=size.small)
+plotshape(short_entry, title="Short Entry", location=location.abovebar, color=color.red,  style=shape.triangledown, size=size.small)
