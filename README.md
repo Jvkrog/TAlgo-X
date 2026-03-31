@@ -16,7 +16,7 @@ Each engine operates on:
 This enables **adaptive execution across markets without rewriting strategy logic**.
 
 
-![Version](https://img.shields.io/badge/engines-Zn&natgas-skyblue)
+![Version](https://img.shields.io/badge/engines-natgas.zn-skyblue)
 ![Strategy](https://img.shields.io/badge/strategy-ColorBasedDecision-white)
 ![Market](https://img.shields.io/badge/market-MCX-darkred)
 ![Language](https://img.shields.io/badge/language-Node.js-lightgreen)
