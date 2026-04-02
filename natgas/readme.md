@@ -75,7 +75,7 @@ From code:
 - ALMA Fast = 20  
 - ALMA Slow = 100  
 - ATR-based volatility filter  
-- ALMA High/Low bands for structure :contentReference[oaicite:0]{index=0}  
+- ALMA High/Low bands for structure 
 ```
 ---
 
@@ -97,7 +97,7 @@ Based on:
 ```
 - ALMA slope
 - ATR strength
-- Band breakout :contentReference[oaicite:1]{index=1}  
+- Band breakout  
 ```
 ---
 
