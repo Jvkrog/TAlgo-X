@@ -131,9 +131,9 @@ FAST SHORT PROBATION → ENTRY CONFIRMED
 - Triggered on ALMA Slow crossover  
 - Only allowed when FAST aligns  
 ```
-``` 
+
 price crosses ALMA slow AND fast supports direction
-````
+
 
 ---
 
@@ -322,6 +322,3 @@ Fast mind + Slow conviction = Balanced execution
 This engine is designed not just to trade,
 but to **behave correctly under real market conditions**.
 
----
-
-```
