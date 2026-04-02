@@ -7,8 +7,9 @@
 ## Overview
 
 TAlgo-X is the deployment layer of the TAlgo system, designed to run multiple trading engines with shared logic but different configurations.
-```
+
 Each engine operates on:
+```
 - the same core framework  
 - different parameter tuning  
 - instrument-specific behavior  
