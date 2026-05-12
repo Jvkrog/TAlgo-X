@@ -1,0 +1,3359 @@
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 127 candles | Ready: true
+
+-- 9:00:00 pm --
+21:36:21  290.80   SLOW: 0   FAST: 0   Total: 0
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  override existing env vars with { override: true }
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 127 candles | Ready: true
+
+-- 9:00:00 pm --
+21:37:56  290.80   SLOW: 0   FAST: 0   Total: 0
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🛡️ auth for agents: https://vestauth.com
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 127 candles | Ready: true
+
+-- 9:00:00 pm --
+21:39:05  290.80   SLOW: 0   FAST: 0   Total: 0
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  override existing env vars with { override: true }
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 117 candles | Ready: true
+
+-- 7:00:00 am --
+07:40:25  289.60   SLOW: 0   FAST: 0   Total: 0
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 116 candles | Ready: true
+
+-- 7:00:00 am --
+07:50:03  289.60   SLOW: 0   FAST: 0   Total: 0
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 116 candles | Ready: true
+
+-- 7:00:00 am --
+07:57:18  289.60   SLOW: 0   FAST: 0   Total: 0
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 116 candles | Ready: true
+
+-- 7:00:00 am --
+07:57:43  289.60   SLOW: 0   FAST: 0   Total: 0
+
+-- 7:00:00 am --
+08:00:16  289.60   SLOW: 0   FAST: 0   Total: 0
+
+-- 8:00:00 am --
+09:00:01  278.10   SLOW: 0   FAST: 0   Total: 0
+→ SLOW SHORT ENTRY (CROSS) @ 278.10
+[DB] Saved SLOW position → SHORT
+Market Open 9:00 - Resuming from DB
+
+-- 9:00:00 am --
+10:00:00  279.10   SLOW: -1250   FAST: 0   Total: -1250
+→ FAST SHORT ENTRY @ 279.10
+[DB] Saved FAST position → SHORT
+
+-- 10:00:00 am --
+11:00:00  279.90   SLOW: -2250   FAST: -1000   Total: -3250
+→ SLOW SHORT EXIT (MAX_LOSS) @ 279.90   PnL: -2250
+[DB] Saved SLOW position → FLAT
+
+-- 11:00:00 am --
+12:00:00  279.40   SLOW: -1625   FAST: -375   Total: -2000
+
+-- 12:00:00 pm --
+13:00:01  279.60   SLOW: -1875   FAST: -625   Total: -2500
+
+-- 1:00:00 pm --
+14:00:01  279.70   SLOW: -2000   FAST: -750   Total: -2750
+
+-- 2:00:00 pm --
+15:00:00  280.20   SLOW: -2625   FAST: -1375   Total: -4000
+→ SLOW SHORT EXIT (MAX_LOSS) @ 280.20   PnL: -2625
+[DB] Saved SLOW position → FLAT
+
+-- 3:00:00 pm --
+16:00:00  281.50   SLOW: -4250   FAST: -3000   Total: -7250
+→ SLOW SHORT EXIT (MAX_LOSS) @ 281.50   PnL: -4250
+[DB] Saved SLOW position → FLAT
+→ SLOW SHORT STOP (SL_FAST_ALMA) @ 281.50   PnL: -4250
+[DB] Saved SLOW position → FLAT
+
+-- 4:00:00 pm --
+17:00:00  279.40   SLOW: -1625   FAST: -375   Total: -2000
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 121 candles | Ready: true
+
+-- 5:00:00 pm --
+17:58:21  277.50   SLOW: 0   FAST: 0   Total: 0
+→ FAST SHORT PROBATION STARTED @ 277.50
+
+-- 5:00:00 pm --
+18:00:00  277.70   SLOW: 0   FAST: 0   Total: 0
+→ FAST SHORT ENTRY CONFIRMED @ 277.70
+
+-- 6:00:00 pm --
+19:00:00  275.90   SLOW: 0   FAST: 2250   Total: 2250
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 123 candles | Ready: true
+
+-- 7:00:00 pm --
+19:04:53  277.10   SLOW: 0   FAST: 0   Total: 0
+→ FAST SHORT PROBATION STARTED @ 277.10
+
+-- 7:00:00 pm --
+20:00:00  274.20   SLOW: 0   FAST: 0   Total: 0
+→ FAST SHORT ENTRY CONFIRMED @ 274.20
+
+-- 8:00:00 pm --
+21:00:00  273.80   SLOW: 0   FAST: 500   Total: 500
+
+-- 9:00:00 pm --
+22:00:00  272.80   SLOW: 0   FAST: 1750   Total: 1750
+
+-- 10:00:00 pm --
+23:00:01  273.20   SLOW: 0   FAST: 1250   Total: 1250
+23:00 — Forcing close of all positions (EOD risk control)
+→ FAST SHORT EXIT (EOD_FORCE) @ 273.20   PnL: 1250
+SESSION SUMMARY
+Duration: 251m
+FAST: 1250 | SLOW: 0
+TOTAL: 1250
+Positions saved to DB for next session.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  override existing env vars with { override: true }
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 116 candles | Ready: true
+
+-- 7:00:00 am --
+07:53:43  274.50   SLOW: 0   FAST: 0   Total: 0
+→ FAST SHORT PROBATION STARTED @ 274.50
+
+-- 7:00:00 am --
+08:11:04  274.50   SLOW: 0   FAST: 0   Total: 0
+→ FAST SHORT ENTRY CONFIRMED @ 274.50
+Market Open 9:00 - Resuming from DB
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🤖 agentic secret storage: https://dotenvx.com/as2
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 112 candles | Ready: true
+
+-- 4:00:00 pm --
+16:59:44  274.50   SLOW: 0   FAST: 0   Total: 0
+→ FAST SHORT PROBATION STARTED @ 274.50
+
+-- 4:00:00 pm --
+17:00:01  269.50   SLOW: 0   FAST: 0   Total: 0
+→ FAST SHORT ENTRY CONFIRMED @ 269.50
+
+-- 5:00:00 pm --
+18:00:00  270.50   SLOW: 0   FAST: -1250   Total: -1250
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 114 candles | Ready: true
+
+-- 6:00:00 pm --
+18:02:43  272.50   SLOW: 0   FAST: 0   Total: 0
+→ FAST SHORT PROBATION STARTED @ 272.50
+
+-- 6:00:00 pm --
+19:00:00  281.70   SLOW: 0   FAST: 0   Total: 0
+→ SLOW LONG ENTRY (CROSS) @ 281.70
+
+-- 7:00:00 pm --
+20:00:00  279.00   SLOW: -3375   FAST: 0   Total: -3375
+→ SLOW LONG EXIT (MAX_LOSS) @ 279.00   PnL: -3375
+
+-- 8:00:00 pm --
+21:00:00  275.60   SLOW: -7625   FAST: 0   Total: -7625
+→ SLOW LONG EXIT (MAX_LOSS) @ 275.60   PnL: -7625
+
+-- 9:00:00 pm --
+22:00:00  276.80   SLOW: -6125   FAST: 0   Total: -6125
+→ SLOW LONG EXIT (MAX_LOSS) @ 276.80   PnL: -6125
+
+-- 10:00:00 pm --
+23:00:00  273.90   SLOW: -9750   FAST: 0   Total: -9750
+→ SLOW LONG EXIT (MAX_LOSS) @ 273.90   PnL: -9750
+→ SLOW LONG STOP (SL_FAST_ALMA) @ 273.90   PnL: -9750
+23:00 — Forcing close of all positions (EOD risk control)
+→ SLOW LONG EXIT (EOD_FORCE) @ 273.90   PnL: -9750
+SESSION SUMMARY
+Duration: 313m
+FAST: -46375 | SLOW: -46375
+TOTAL: -46375
+Positions saved to DB for next session.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 108 candles | Ready: true
+
+-- 7:00:00 am --
+07:54:52  274.30   SLOW: 0   FAST: 0   Total: 0
+
+-- 7:00:00 am --
+08:00:03  274.30   SLOW: 0   FAST: 0   Total: 0
+
+-- 8:00:00 am --
+09:00:01  272.60   SLOW: 0   FAST: 0   Total: 0
+→ FAST SHORT PROBATION STARTED @ 272.60
+Market Open 9:00 - Resuming from DB
+
+-- 9:00:00 am --
+10:00:00  274.60   SLOW: 0   FAST: 0   Total: 0
+
+-- 10:00:00 am --
+11:00:00  273.80   SLOW: 0   FAST: 0   Total: 0
+
+-- 11:00:00 am --
+12:00:00  271.40   SLOW: 0   FAST: 0   Total: 0
+→ FAST SHORT PROBATION STARTED @ 271.40
+
+-- 12:00:00 pm --
+13:00:00  270.70   SLOW: 0   FAST: 0   Total: 0
+→ FAST SHORT ENTRY CONFIRMED @ 270.70
+
+-- 1:00:00 pm --
+14:00:00  271.60   SLOW: 0   FAST: -1125   Total: -1125
+
+-- 2:00:00 pm --
+15:00:00  271.60   SLOW: 0   FAST: -1125   Total: -1125
+
+-- 3:00:00 pm --
+16:00:00  271.10   SLOW: 0   FAST: -500   Total: -500
+
+-- 4:00:00 pm --
+17:00:00  269.80   SLOW: 0   FAST: 1125   Total: 1125
+
+-- 5:00:00 pm --
+18:00:00  270.40   SLOW: 0   FAST: 375   Total: 375
+
+-- 6:00:00 pm --
+19:00:00  269.70   SLOW: 0   FAST: 1250   Total: 1250
+
+-- 7:00:00 pm --
+20:00:00  268.40   SLOW: 0   FAST: 2875   Total: 2875
+
+-- 8:00:00 pm --
+21:00:00  268.50   SLOW: 0   FAST: 2750   Total: 2750
+
+-- 9:00:00 pm --
+22:00:00  267.50   SLOW: 0   FAST: 4000   Total: 4000
+
+-- 10:00:00 pm --
+23:00:00  264.80   SLOW: 0   FAST: 7375   Total: 7375
+23:00 — Forcing close of all positions (EOD risk control)
+→ FAST SHORT EXIT (EOD_FORCE) @ 264.80   PnL: 7375
+SESSION SUMMARY
+Duration: 921m
+FAST: 7375 | SLOW: 0
+TOTAL: 7375
+Positions saved to DB for next session.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🤖 agentic secret storage: https://dotenvx.com/as2
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 108 candles | Ready: true
+
+-- 8:00:00 am --
+08:18:56  265.50   SLOW: 0   FAST: 0   Total: 0
+
+-- 8:00:00 am --
+09:00:01  270.80   SLOW: 0   FAST: 0   Total: 0
+Market Open 9:00 - Resuming from DB
+
+-- 9:00:00 am --
+10:00:00  271.70   SLOW: 0   FAST: 0   Total: 0
+
+-- 10:00:00 am --
+11:00:00  272.00   SLOW: 0   FAST: 0   Total: 0
+
+-- 11:00:00 am --
+12:00:00  270.10   SLOW: 0   FAST: 0   Total: 0
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 108 candles | Ready: true
+
+-- 12:00:00 pm --
+12:07:04  270.60   SLOW: 0   FAST: 0   Total: 0   TF: 1H
+→ Switched to 15min mode (Grey detected)
+
+-- 12:00:00 pm --
+13:00:00  269.70   SLOW: 0   FAST: 0   Total: 0   TF: 15min
+
+-- 1:00:00 pm --
+14:00:00  268.80   SLOW: 0   FAST: 0   Total: 0   TF: 15min
+
+-- 2:00:00 pm --
+15:00:00  268.30   SLOW: 0   FAST: 0   Total: 0   TF: 15min
+
+-- 3:00:00 pm --
+16:00:02  270.80   SLOW: 0   FAST: 0   Total: 0   TF: 15min
+
+-- 4:00:00 pm --
+17:00:00  268.00   SLOW: 0   FAST: 0   Total: 0   TF: 15min
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 113 candles | Ready: true
+
+-- 5:00:00 pm --
+17:45:33 268.20 SLOW:0 FAST:0 Total:0 TF:1H
+→ Regime → Grey (15min)
+
+-- 5:00:00 pm --
+18:00:01 268.60 SLOW:0 FAST:0 Total:0 TF:15min
+
+-- 6:00:00 pm --
+19:00:00 265.30 SLOW:0 FAST:0 Total:0 TF:15min
+
+-- 7:00:00 pm --
+20:00:01 263.90 SLOW:0 FAST:0 Total:0 TF:15min
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🤖 agentic secret storage: https://dotenvx.com/as2
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 116 candles | Ready: true
+
+-- 8:00:00 pm --
+20:26:37 264.00 SLOW:0 FAST:0 Total:0 TF:1H
+→ Regime → Grey (15min)
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 116 candles | Ready: true
+
+-- 8:00:00 pm --
+20:58:10 263.40 SLOW:0 FAST:0 Total:0 TF:1H
+→ Regime → Grey (15min)
+
+-- 8:00:00 pm --
+21:00:00 264.20 SLOW:0 FAST:0 Total:0 TF:15min
+
+-- 9:00:00 pm --
+22:00:00 265.20 SLOW:0 FAST:0 Total:0 TF:15min
+
+-- 10:00:00 pm --
+23:00:00 263.70 SLOW:0 FAST:0 Total:0 TF:15min
+23:00 — Forcing close of all positions (EOD risk control)
+SESSION SUMMARY
+Duration: 137m
+FAST: 0 | SLOW: 0
+TOTAL: 0
+Positions saved to DB for next session.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🤖 agentic secret storage: https://dotenvx.com/as2
+TAlgo-X booting... Token: access_code.txt
+
+=== REPLAY MODE ENABLED for 2026-04-02 ===
+[DB] Positions table ready
+WebSocket Connected
+Fetching 1H candles for 2026-04-02...
+Loaded 15 candles. Starting clean replay...
+
+
+-- Candle 1 | Close: 271.70 --
+[WARMUP] 1/20
+
+-- Candle 2 | Close: 272.00 --
+[WARMUP] 2/20
+
+-- Candle 3 | Close: 270.10 --
+[WARMUP] 3/20
+
+-- Candle 4 | Close: 269.70 --
+[WARMUP] 4/20
+
+-- Candle 5 | Close: 268.80 --
+[WARMUP] 5/20
+
+-- Candle 6 | Close: 268.30 --
+[WARMUP] 6/20
+
+-- Candle 7 | Close: 270.70 --
+[WARMUP] 7/20
+
+-- Candle 8 | Close: 268.10 --
+[WARMUP] 8/20
+
+-- Candle 9 | Close: 268.60 --
+[WARMUP] 9/20
+
+-- Candle 10 | Close: 265.30 --
+[WARMUP] 10/20
+
+-- Candle 11 | Close: 263.50 --
+[WARMUP] 11/20
+
+-- Candle 12 | Close: 264.30 --
+[WARMUP] 12/20
+
+-- Candle 13 | Close: 265.20 --
+[WARMUP] 13/20
+
+-- Candle 14 | Close: 263.60 --
+[WARMUP] 14/20
+
+-- Candle 15 | Close: 264.00 --
+[WARMUP] 15/20
+
+══════════════════════════════════════
+REPLAY SUMMARY - 2026-04-02
+══════════════════════════════════════
+Candles Processed : 15
+Total Trades      : 0 (0 Win | 0 Loss)
+
+PnL Breakdown:
+  FAST PnL     : +₹0
+  SLOW PnL     : +₹0
+  TOTAL PnL    : +₹0
+
+Performance Metrics:
+  Win Rate     : 0%
+  Avg Win      : +₹0
+  Avg Loss     : -₹0
+
+Final Positions:
+  FAST : FLAT
+  SLOW : FLAT
+══════════════════════════════════════
+
+
+=== Replay Finished ===
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+TAlgo-X booting... Token: access_code.txt
+
+=== REPLAY MODE ENABLED for 2026-04-02 ===
+[DB] Positions table ready
+WebSocket Connected
+Fetching 1H candles for 2026-04-02...
+Loaded 15 candles. Starting enhanced replay with debug...
+
+
+-- Replay Candle 1 | Close: 271.70 --
+[WARMUP] 1/20
+
+-- Replay Candle 2 | Close: 272.00 --
+[WARMUP] 2/20
+
+-- Replay Candle 3 | Close: 270.10 --
+[WARMUP] 3/20
+
+-- Replay Candle 4 | Close: 269.70 --
+[WARMUP] 4/20
+
+-- Replay Candle 5 | Close: 268.80 --
+[WARMUP] 5/20
+
+-- Replay Candle 6 | Close: 268.30 --
+[WARMUP] 6/20
+
+-- Replay Candle 7 | Close: 270.70 --
+[WARMUP] 7/20
+
+-- Replay Candle 8 | Close: 268.10 --
+[WARMUP] 8/20
+
+-- Replay Candle 9 | Close: 268.60 --
+[WARMUP] 9/20
+
+-- Replay Candle 10 | Close: 265.30 --
+[WARMUP] 10/20
+
+-- Replay Candle 11 | Close: 263.50 --
+[WARMUP] 11/20
+
+-- Replay Candle 12 | Close: 264.30 --
+[WARMUP] 12/20
+
+-- Replay Candle 13 | Close: 265.20 --
+[WARMUP] 13/20
+
+-- Replay Candle 14 | Close: 263.60 --
+[WARMUP] 14/20
+
+-- Replay Candle 15 | Close: 264.00 --
+[WARMUP] 15/20
+
+══════════════════════════════════════
+REPLAY SUMMARY - 2026-04-02
+══════════════════════════════════════
+Candles Processed : 15
+Total Trades      : 0 (0 Win | 0 Loss)
+
+PnL Breakdown:
+  FAST PnL     : +₹0
+  SLOW PnL     : +₹0
+  TOTAL PnL    : +₹0
+
+Performance:
+  Win Rate     : 0%
+  Avg Win      : +₹0
+  Avg Loss     : -₹0
+
+Final Positions:
+  FAST : FLAT
+  SLOW : FLAT
+══════════════════════════════════════
+
+
+=== Replay Finished ===
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+TAlgo-X booting... Token: access_code.txt
+
+=== REPLAY MODE ENABLED for 2026-04-02 (10s per candle) ===
+[DB] Positions table ready
+WebSocket Connected
+Fetching 1H candles for 2026-04-02...
+Loaded 15 candles. Starting realistic replay (10s per candle)...
+
+
+-- Replay Candle 1 | Close: 271.70 --
+[WARMUP] 1/20
+
+-- Replay Candle 2 | Close: 272.00 --
+[WARMUP] 2/20
+
+-- Replay Candle 3 | Close: 270.10 --
+[WARMUP] 3/20
+
+-- Replay Candle 4 | Close: 269.70 --
+[WARMUP] 4/20
+
+-- Replay Candle 5 | Close: 268.80 --
+[WARMUP] 5/20
+
+-- Replay Candle 6 | Close: 268.30 --
+[WARMUP] 6/20
+
+-- Replay Candle 7 | Close: 270.70 --
+[WARMUP] 7/20
+
+-- Replay Candle 8 | Close: 268.10 --
+[WARMUP] 8/20
+
+-- Replay Candle 9 | Close: 268.60 --
+[WARMUP] 9/20
+
+-- Replay Candle 10 | Close: 265.30 --
+[WARMUP] 10/20
+
+-- Replay Candle 11 | Close: 263.50 --
+[WARMUP] 11/20
+
+-- Replay Candle 12 | Close: 264.30 --
+[WARMUP] 12/20
+
+-- Replay Candle 13 | Close: 265.20 --
+[WARMUP] 13/20
+
+-- Replay Candle 14 | Close: 263.60 --
+[WARMUP] 14/20
+
+-- Replay Candle 15 | Close: 264.00 --
+[WARMUP] 15/20
+
+══════════════════════════════════════
+REPLAY SUMMARY - 2026-04-02
+══════════════════════════════════════
+Candles Processed : 15
+Total Trades      : 0 (0 Win | 0 Loss)
+
+PnL Breakdown:
+  FAST PnL     : +₹0
+  SLOW PnL     : +₹0
+  TOTAL PnL    : +₹0
+
+Performance:
+  Win Rate     : 0%
+  Avg Win      : +₹0
+  Avg Loss     : -₹0
+
+Final Positions:
+  FAST : FLAT
+  SLOW : FLAT
+══════════════════════════════════════
+
+
+=== Replay Finished ===
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🤖 agentic secret storage: https://dotenvx.com/as2
+TAlgo-X booting... Token: access_code.txt
+
+=== REPLAY MODE ENABLED for 2026-04-02 (10s per candle) ===
+[DB] Positions table ready
+WebSocket Connected
+Fetching 1H candles for 2026-04-02...
+Loaded 15 candles. Starting realistic replay (10s per candle)...
+
+
+-- Replay Candle 1 | Close: 271.70 --
+[WARMUP] 1/20
+
+-- Replay Candle 2 | Close: 272.00 --
+[WARMUP] 2/20
+
+-- Replay Candle 3 | Close: 270.10 --
+[WARMUP] 3/20
+
+-- Replay Candle 4 | Close: 269.70 --
+[WARMUP] 4/20
+
+-- Replay Candle 5 | Close: 268.80 --
+[WARMUP] 5/20
+
+-- Replay Candle 6 | Close: 268.30 --
+[WARMUP] 6/20
+
+-- Replay Candle 7 | Close: 270.70 --
+[WARMUP] 7/20
+
+-- Replay Candle 8 | Close: 268.10 --
+[WARMUP] 8/20
+
+-- Replay Candle 9 | Close: 268.60 --
+[WARMUP] 9/20
+
+-- Replay Candle 10 | Close: 265.30 --
+[WARMUP] 10/20
+
+-- Replay Candle 11 | Close: 263.50 --
+[WARMUP] 11/20
+
+-- Replay Candle 12 | Close: 264.30 --
+[WARMUP] 12/20
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+TAlgo-X booting... Token: access_code.txt
+
+=== REPLAY MODE ENABLED for 2026-04-02 (10s per candle) ===
+[DB] Positions table ready
+WebSocket Connected
+Fetching 1H candles for 2026-04-02...
+Loaded 15 candles. Starting realistic replay (10s per candle)...
+
+
+-- Replay Candle 1 | Close: 271.70 --
+[WARMUP] 1/20
+
+-- Replay Candle 2 | Close: 272.00 --
+[WARMUP] 2/20
+
+-- Replay Candle 3 | Close: 270.10 --
+[WARMUP] 3/20
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+TAlgo-X booting... Token: access_code.txt
+
+=== REPLAY MODE ENABLED for 2026-04-02 (10s per candle) ===
+[DB] Positions table ready
+WebSocket Connected
+Fetching 1H candles for 2026-04-02...
+Loaded 15 candles. Starting realistic replay (10s per candle)...
+
+
+-- Replay Candle 1 | Close: 271.70 --
+[WARMUP] 1/100
+
+-- Replay Candle 2 | Close: 272.00 --
+[WARMUP] 2/100
+
+-- Replay Candle 3 | Close: 270.10 --
+[WARMUP] 3/100
+
+-- Replay Candle 4 | Close: 269.70 --
+[WARMUP] 4/100
+
+-- Replay Candle 5 | Close: 268.80 --
+[WARMUP] 5/100
+
+-- Replay Candle 6 | Close: 268.30 --
+[WARMUP] 6/100
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 119 candles | Ready: true
+
+-- 5:00:00 pm --
+17:29:41 264.00 | SLOW:0 | Color:GREY | SlowDir:-1
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚡️ secrets for agents: https://dotenvx.com/as2
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 94 candles | Ready: false
+
+-- 7:00:00 am --
+[WARMUP] 95/100
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+TAlgo-X booting... Token: access_code.txt
+
+=== REPLAY MODE ENABLED for 2026-04-02 (10s per candle) ===
+[DB] Positions table ready
+WebSocket Connected
+Fetching 1H candles for 2026-04-02...
+Loaded 15 candles. Starting realistic replay (10s per candle)...
+
+
+-- Replay Candle 1 | Close: 271.70 --
+[WARMUP] 1/100
+
+-- Replay Candle 2 | Close: 272.00 --
+[WARMUP] 2/100
+
+-- Replay Candle 3 | Close: 270.10 --
+[WARMUP] 3/100
+
+-- Replay Candle 4 | Close: 269.70 --
+[WARMUP] 4/100
+
+-- Replay Candle 5 | Close: 268.80 --
+[WARMUP] 5/100
+
+-- Replay Candle 6 | Close: 268.30 --
+[WARMUP] 6/100
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  override existing env vars with { override: true }
+TAlgo-X booting... Token: access_code.txt
+[DB] Positions table ready
+WebSocket Connected
+ Preloading 200 historical 1H candles...
+ Preloaded 94 candles | Ready: false
+
+-- 7:00:00 am --
+[WARMUP] 95/100
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🤖 agentic secret storage: https://dotenvx.com/as2
+TAlgo-X booting... | NATGASMINI26APRFUT / NATGAS26APRFUT
+[DB] Positions table ready
+[WS] Connected
+[PRELOAD] Fetching 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed candles | Ready: true
+
+-- 7:00:00 am --
+07:28:52 264.00 | SLOW: 0 | Color: GREY | SlowDir: -1
+
+-- 7:00:00 am --
+08:00:19 264.00 | SLOW: 0 | Color: GREY | SlowDir: -1
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+TAlgo-X booting... | NATGASMINI26APRFUT / NATGAS26APRFUT
+[DB] Positions table ready
+[WS] Connected
+[PRELOAD] Fetching 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed candles | Ready: true
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+TAlgo-X booting... | NATGASMINI26APRFUT / NATGAS26APRFUT
+[DB] Positions table ready
+[WS] Connected
+[PRELOAD] Fetching 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed candles | Ready: true
+
+-- 8:00:00 am --
+08:49:48 264.00 | SLOW: 0 | Color: GREY | SlowDir: -1
+
+-- 8:00:00 am --
+09:00:01 268.90 | SLOW: 0 | Color: GREY | SlowDir: -1
+Market Open 9:00 - Resuming from DB
+
+-- 9:00:00 am --
+10:00:00 264.10 | SLOW: 0 | Color: GREY | SlowDir: -1
+
+-- 10:00:00 am --
+11:00:00 263.30 | SLOW: 0 | Color: GREY | SlowDir: -1
+
+-- 11:00:00 am --
+12:00:00 264.10 | SLOW: 0 | Color: GREY | SlowDir: -1
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+TAlgo-X booting... | NATGASMINI26APRFUT / NATGAS26APRFUT
+[DB] Positions table ready
+[WS] Connected
+[PRELOAD] Fetching 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed candles | Ready: true
+
+-- 12:00:00 pm --
+12:47:00 263.20 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 12:00:00 pm --
+13:00:00 263.10 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 1:00:00 pm --
+14:00:01 263.50 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 2:00:00 pm --
+15:00:00 266.60 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 3:00:00 pm --
+16:00:00 268.00 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 4:00:00 pm --
+17:00:01 266.70 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 5:00:00 pm --
+18:00:00 268.30 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 6:00:00 pm --
+19:00:00 269.20 | SLOW:0 | Color:GREY | SlowDir:-1
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+TAlgo-X booting... | NATGASMINI26APRFUT / NATGAS26APRFUT
+[DB] Positions table ready
+[WS] Connected
+[PRELOAD] Fetching 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed candles | Ready: true
+
+-- 7:00:00 pm --
+19:13:04 267.80 | SLOW:0 | Color:GREEN | SlowDir:-1
+
+-- 7:00:00 pm --
+20:00:00 264.20 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 8:00:00 pm --
+21:00:00 266.70 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 9:00:00 pm --
+22:00:00 265.20 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 10:00:00 pm --
+23:00:00 266.40 | SLOW:0 | Color:GREY | SlowDir:-1
+23:00 — Forcing close of all positions (EOD risk control)
+SESSION SUMMARY
+Duration: 242m
+FAST: 0 | SLOW: 0
+TOTAL: 0
+Positions saved to DB for next session.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+TAlgo-X booting... | NATGASMINI26APRFUT / NATGAS26APRFUT
+[DB] Positions table ready
+[WS] Connected
+[PRELOAD] Fetching 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed candles | Ready: true
+
+-- 12:00:00 pm --
+12:36:12 264.90 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 12:00:00 pm --
+13:00:00 264.80 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 1:00:00 pm --
+14:00:00 262.80 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 2:00:00 pm --
+15:00:00 261.20 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 3:00:00 pm --
+16:00:00 265.30 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 4:00:00 pm --
+17:00:00 267.70 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 5:00:00 pm --
+18:00:00 266.70 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 6:00:00 pm --
+19:00:00 269.90 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 7:00:00 pm --
+20:00:00 269.80 | SLOW:0 | Color:GREEN | SlowDir:1
+→ SLOW LONG ENTRY (Fast + Slow aligned)
+
+-- 8:00:00 pm --
+21:00:00 269.20 | SLOW:-750 | Color:GREEN | SlowDir:1
+
+-- 9:00:00 pm --
+22:00:00 269.50 | SLOW:-375 | Color:GREEN | SlowDir:1
+
+-- 10:00:00 pm --
+23:00:01 270.40 | SLOW:750 | Color:GREEN | SlowDir:1
+23:00 — Forcing close of all positions (EOD risk control)
+→ SLOW LONG EXIT (EOD_FORCE) @ 270.40   PnL: 750
+SESSION SUMMARY
+Duration: 639m
+FAST: 750 | SLOW: 750
+TOTAL: 750
+Positions saved to DB for next session.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+
+=== TAlgo-X STARTING ===
+Time    : 8/4/2026, 7:52:13 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Live Trading
+
+[DB] Positions table ready
+[WS] Connected
+[Startup] Waiting until 8:45 AM... (53 minutes left)
+
+-- 7:00:00 am --
+[WARMUP] 1/100
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 8/4/2026, 8:08:37 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[WS] Connected
+[Startup] Waiting until 8:45 AM... (36 minutes left)
+[Startup] 8:45 AM reached → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 8/4/2026, 8:45:00 am
+Status  : Ready for Market Open (Paper Trading)
+
+
+-- 8:00:00 am --
+09:00:01 259.20 | SLOW:0 | Color:GREY | SlowDir:1
+
+-- 9:00:00 am --
+10:00:00 257.70 | SLOW:0 | Color:RED | SlowDir:-1
+→ SLOW SHORT ENTRY (Fast + Slow aligned)
+
+-- 10:00:00 am --
+11:00:00 257.50 | SLOW:250 | Color:RED | SlowDir:-1
+
+-- 11:00:00 am --
+12:00:00 254.60 | SLOW:3875 | Color:RED | SlowDir:-1
+
+-- 12:00:00 pm --
+13:00:00 255.00 | SLOW:3375 | Color:RED | SlowDir:-1
+
+-- 1:00:00 pm --
+14:00:00 255.90 | SLOW:2250 | Color:RED | SlowDir:-1
+
+-- 2:00:00 pm --
+15:00:00 255.20 | SLOW:3125 | Color:RED | SlowDir:-1
+
+-- 3:00:00 pm --
+16:00:00 255.80 | SLOW:2375 | Color:RED | SlowDir:-1
+
+-- 4:00:00 pm --
+17:00:00 256.20 | SLOW:1875 | Color:RED | SlowDir:-1
+
+-- 5:00:00 pm --
+18:00:00 260.20 | SLOW:-3125 | Color:RED | SlowDir:-1
+→ SLOW SHORT EXIT (MAX_LOSS) @ 260.20   PnL: -3125
+
+-- 6:00:00 pm --
+19:00:00 256.50 | SLOW:1500 | Color:GREY | SlowDir:-1
+
+-- 7:00:00 pm --
+20:00:00 258.20 | SLOW:-625 | Color:GREY | SlowDir:-1
+→ SLOW SHORT STOP (FAST_REVERSAL_PROTECT) @ 258.20   PnL: -625
+
+-- 8:00:00 pm --
+21:00:00 258.10 | SLOW:-500 | Color:GREY | SlowDir:-1
+→ SLOW SHORT STOP (FAST_REVERSAL_PROTECT) @ 258.10   PnL: -500
+
+-- 9:00:00 pm --
+22:00:00 256.10 | SLOW:2000 | Color:GREY | SlowDir:-1
+→ SLOW SHORT STOP (FAST_REVERSAL_PROTECT) @ 256.10   PnL: 2000
+
+-- 10:00:00 pm --
+23:00:00 255.00 | SLOW:3375 | Color:GREY | SlowDir:-1
+→ SLOW SHORT STOP (FAST_REVERSAL_PROTECT) @ 255.00   PnL: 3375
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:00:00 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:00:30 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:01:00 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:01:30 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:02:00 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:02:30 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:03:00 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:03:30 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+TG error: 
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:04:00 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:04:30 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:05:00 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:05:30 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:06:00 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 8/4/2026, 11:06:30 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 257.70   PnL: 0
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 9/4/2026, 7:58:11 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[WS] Connected
+[Startup] Waiting until 8:45 AM... (47 minutes left)
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚡️ secrets for agents: https://dotenvx.com/as2
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 9/4/2026, 7:58:24 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[WS] Connected
+[Startup] Waiting until 8:45 AM... (47 minutes left)
+
+-- 7:00:00 am --
+[WARMUP] 1/100
+[Startup] 8:45 AM reached → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 9/4/2026, 8:45:00 am
+Status  : Ready for Market Open (Paper Trading)
+
+
+-- 8:00:00 am --
+09:00:01 254.60 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 9:00:00 am --
+10:00:00 255.30 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 10:00:00 am --
+11:00:01 255.60 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 11:00:00 am --
+12:00:00 255.90 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 12:00:00 pm --
+13:00:00 256.20 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 1:00:00 pm --
+14:00:00 256.80 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 2:00:00 pm --
+15:00:00 256.00 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 3:00:00 pm --
+16:00:00 256.80 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 4:00:00 pm --
+17:00:00 256.80 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 5:00:00 pm --
+18:00:00 254.90 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 6:00:00 pm --
+19:00:00 256.10 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 7:00:00 pm --
+20:00:00 254.70 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 8:00:00 pm --
+21:00:00 253.80 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 9:00:00 pm --
+22:00:00 250.90 | SLOW:0 | Color:RED | SlowDir:-1
+→ SLOW SHORT ENTRY (Fast + Slow aligned)
+
+=== EOD SHUTDOWN ===
+Time     : 9/4/2026, 11:00:00 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 250.90   PnL: 0
+
+-- 10:00:00 pm --
+23:00:01 251.10 | SLOW:-250 | Color:RED | SlowDir:-1
+
+=== EOD SHUTDOWN ===
+Time     : 9/4/2026, 11:00:30 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 250.90   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 9/4/2026, 11:01:00 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 250.90   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 9/4/2026, 11:01:30 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 250.90   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 9/4/2026, 11:02:00 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 250.90   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 9/4/2026, 11:02:30 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 250.90   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 9/4/2026, 11:03:00 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 250.90   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 9/4/2026, 11:03:30 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 250.90   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 9/4/2026, 11:04:00 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 250.90   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 9/4/2026, 11:04:30 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 250.90   PnL: 0
+
+=== EOD SHUTDOWN ===
+Time     : 9/4/2026, 11:05:00 pm
+Reason   : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 250.90   PnL: 0
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 10/4/2026, 7:09:42 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[WS] Connected
+[Startup] Waiting until 8:45 AM... (95 minutes left)
+
+-- 7:00:00 am --
+[WARMUP] 1/100
+[Startup] 8:45 AM reached → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 10/4/2026, 8:45:00 am
+Status  : Ready for Market Open (Paper Trading)
+
+
+-- 8:00:00 am --
+09:00:00 251.40 | SLOW:0 | Color:RED | SlowDir:-1
+→ SLOW SHORT ENTRY (Fast + Slow aligned)
+
+-- 9:00:00 am --
+10:00:00 250.10 | SLOW:1625 | Color:RED | SlowDir:-1
+
+-- 10:00:00 am --
+11:00:00 251.10 | SLOW:375 | Color:RED | SlowDir:-1
+
+-- 11:00:00 am --
+12:00:00 250.80 | SLOW:750 | Color:RED | SlowDir:-1
+
+-- 12:00:00 pm --
+13:00:00 252.20 | SLOW:-1000 | Color:GREY | SlowDir:-1
+
+-- 1:00:00 pm --
+14:00:00 250.80 | SLOW:750 | Color:GREY | SlowDir:-1
+→ SLOW SHORT STOP (FAST_REVERSAL_PROTECT) @ 250.80   PnL: 750
+
+-- 2:00:00 pm --
+15:00:01 250.60 | SLOW:1000 | Color:GREY | SlowDir:-1
+→ SLOW SHORT STOP (FAST_REVERSAL_PROTECT) @ 250.60   PnL: 1000
+
+-- 3:00:00 pm --
+16:00:00 250.70 | SLOW:875 | Color:GREY | SlowDir:-1
+→ SLOW SHORT STOP (FAST_REVERSAL_PROTECT) @ 250.70   PnL: 875
+
+-- 4:00:00 pm --
+17:00:00 250.60 | SLOW:1000 | Color:GREY | SlowDir:-1
+→ SLOW SHORT STOP (FAST_REVERSAL_PROTECT) @ 250.60   PnL: 1000
+
+-- 5:00:00 pm --
+18:00:00 250.10 | SLOW:1625 | Color:GREY | SlowDir:-1
+→ SLOW SHORT STOP (FAST_REVERSAL_PROTECT) @ 250.10   PnL: 1625
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 10/4/2026, 6:42:18 pm
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Trades table ready
+[WS] Connected
+[Startup] Already past 8:45 → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 10/4/2026, 6:42:18 pm
+Status  : Ready for Market Open (Paper Trading)
+
+
+-- 6:00:00 pm --
+19:00:00 249.60 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 7:00:00 pm --
+20:00:00 248.80 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 8:00:00 pm --
+21:00:00 250.40 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 9:00:00 pm --
+22:00:01 250.30 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 10:00:00 pm --
+23:00:00 248.90 | SLOW:0 | Color:GREY | SlowDir:-1
+
+=== EOD SHUTDOWN ===
+Time    : 10/4/2026, 11:00:18 pm
+Reason  : End of Day Risk Control
+
+
+=== SESSION SUMMARY ===
+Duration : 273 minutes
+PnL      : 0
+Positions: Saved to Database
+Status   : Shutdown Complete
+
+NatGas Engine Shutdown Complete.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 13/4/2026, 9:02:02 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Trades table ready
+[WS] Connected
+[Startup] Already past 8:45 → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 13/4/2026, 9:02:02 am
+Status  : Ready for Market Open (Paper Trading)
+
+
+-- 9:00:00 am --
+10:00:01 251.00 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 10:00:00 am --
+11:00:02 250.90 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 11:00:00 am --
+12:00:00 250.90 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 12:00:00 pm --
+13:00:00 250.60 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 1:00:00 pm --
+14:00:00 251.30 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 2:00:00 pm --
+15:00:01 251.70 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 3:00:00 pm --
+16:00:00 253.20 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 4:00:00 pm --
+17:00:00 254.90 | SLOW:0 | Color:GREEN | SlowDir:-1
+
+-- 5:00:00 pm --
+18:00:00 255.40 | SLOW:0 | Color:GREEN | SlowDir:-1
+
+-- 6:00:00 pm --
+19:00:00 254.10 | SLOW:0 | Color:GREEN | SlowDir:-1
+
+-- 7:00:00 pm --
+20:00:00 251.20 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 8:00:00 pm --
+21:00:00 250.10 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 9:00:00 pm --
+22:00:01 248.60 | SLOW:0 | Color:GREY | SlowDir:-1
+
+-- 10:00:00 pm --
+23:00:00 247.90 | SLOW:0 | Color:RED | SlowDir:-1
+→ SLOW SHORT ENTRY (Fast + Slow aligned)
+
+=== EOD SHUTDOWN ===
+Time    : 13/4/2026, 11:00:03 pm
+Reason  : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 247.90   PnL: 0
+→ SLOW null EXIT (EOD_FORCE) @ 247.90 | PnL: 0
+
+=== SESSION SUMMARY ===
+Duration : 853 minutes
+PnL      : 0
+Positions: Saved to Database
+Status   : Shutdown Complete
+
+NatGas Engine Shutdown Complete.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚡️ secrets for agents: https://dotenvx.com/as2
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 14/4/2026, 5:13:39 pm
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Trades table ready
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #1
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #2
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #3
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #4
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #5
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  specify custom .env file path with { path: '/custom/path/.env' }
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 14/4/2026, 5:15:25 pm
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Trades table ready
+[WS] Connected
+[Startup] Already past 8:45 → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 14/4/2026, 5:15:25 pm
+Status  : Ready for Market Open (Paper Trading)
+
+
+-- 5:00:00 pm --
+18:00:00 243.30 | SLOW:0 | Color:RED | SlowDir:-1
+→ SLOW SHORT ENTRY (Fast + Slow aligned)
+
+-- 6:00:00 pm --
+19:00:00 248.00 | SLOW:-5875 | Color:RED | SlowDir:-1
+→ SLOW SHORT EXIT (MAX_LOSS) @ 248.00   PnL: -5875
+
+-- 7:00:00 pm --
+20:00:00 246.30 | SLOW:0 | Color:RED | SlowDir:-1
+
+-- 8:00:00 pm --
+21:00:00 243.90 | SLOW:0 | Color:RED | SlowDir:-1
+→ SLOW SHORT ENTRY (Fast + Slow aligned)
+
+-- 9:00:00 pm --
+22:00:00 241.80 | SLOW:2625 | Color:RED | SlowDir:-1
+
+-- 10:00:00 pm --
+23:00:00 243.90 | SLOW:0 | Color:RED | SlowDir:-1
+
+=== EOD SHUTDOWN ===
+Time    : 14/4/2026, 11:00:25 pm
+Reason  : End of Day Risk Control
+
+→ SLOW SHORT EXIT (EOD_FORCE) @ 243.90   PnL: 0
+→ SLOW null EXIT (EOD_FORCE) @ 243.90 | PnL: 0
+
+=== SESSION SUMMARY ===
+Duration : 360 minutes
+PnL      : 0
+Positions: Saved to Database
+Status   : Shutdown Complete
+
+NatGas Engine Shutdown Complete.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 15/4/2026, 8:12:50 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Struct state table ready
+[DB] Trades table ready
+[WS] Connected
+[Startup] Waiting until 8:45 AM... (32 minutes left)
+[Startup] 8:45 AM reached → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 15/4/2026, 8:45:00 am
+Status  : Ready for Market Open (Paper Trading)
+
+
+-- 8:00:00 am --
+[EXP] Regime seeded from first candle: -1 | ref: 243.60
+[EXP] 09:00:01  ₹243.60  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.6517  grey<1.5457  sig>0.2125  f:244.90  s:250.23
+
+-- 9:00:00 am --
+[EXP] 10:00:00  ₹243.70  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.5198  grey<1.5114  sig>0.2078  f:244.38  s:250.00
+
+-- 10:00:00 am --
+[EXP] 11:00:00  ₹244.50  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.3230  grey<1.4143  sig>0.1945  f:244.06  s:249.78
+
+-- 11:00:00 am --
+[EXP] 12:00:00  ₹243.60  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.1860  grey<1.3771  sig>0.1894  f:243.87  s:249.56
+
+-- 12:00:00 pm --
+[EXP] 13:00:01  ₹243.60  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.1149  grey<1.3257  sig>0.1823  f:243.76  s:249.32
+
+-- 1:00:00 pm --
+[EXP] 14:00:00  ₹244.10  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.0342  grey<1.2686  sig>0.1744  f:243.73  s:249.09
+
+-- 2:00:00 pm --
+[EXP] 15:00:01  ₹244.40  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.0362  grey<1.2771  sig>0.1756  f:243.76  s:248.87
+
+-- 3:00:00 pm --
+[EXP] 16:00:01  ₹244.00  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.0391  grey<0.8886  sig>0.1222  f:243.80  s:248.65
+
+-- 4:00:00 pm --
+[EXP] 17:00:00  ₹244.00  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.0350  grey<0.7371  sig>0.1014  f:243.84  s:248.42
+
+-- 5:00:00 pm --
+[EXP] 18:00:00  ₹246.20  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.1062  grey<0.7429  sig>0.1021  f:243.94  s:248.21
+
+-- 6:00:00 pm --
+[EXP] 19:00:01  ₹243.80  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.1443  grey<0.7143  sig>0.0982  f:244.09  s:248.02
+
+-- 7:00:00 pm --
+[EXP] 20:00:00  ₹243.80  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.0519  grey<0.6543  sig>0.0900  f:244.14  s:247.80
+
+-- 8:00:00 pm --
+[EXP] 21:00:00  ₹244.50  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.0974  grey<0.6257  sig>0.0860  f:244.24  s:247.60
+
+-- 9:00:00 pm --
+[EXP] 22:00:00  ₹244.20  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.0605  grey<0.6514  sig>0.0896  f:244.30  s:247.40
+
+-- 10:00:00 pm --
+[EXP] 23:00:00  ₹244.20  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.0223  grey<0.7000  sig>0.0963  f:244.32  s:247.20
+
+=== EOD SHUTDOWN ===
+Time    : 15/4/2026, 11:00:00 pm
+Reason  : End of Day Risk Control
+
+
+=== SESSION SUMMARY ===
+Duration : 902 minutes
+PnL      : 0
+Positions: Saved to Database
+Status   : Shutdown Complete
+
+NatGas Engine Shutdown Complete.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 16/4/2026, 8:57:46 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Struct state table ready
+[DB] Trades table ready
+[WS] Connected
+[Startup] Already past 8:45 → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 16/4/2026, 8:57:46 am
+Status  : Ready for Market Open (Paper Trading)
+
+
+-- 8:00:00 am --
+[EXP] Regime seeded from first candle: -1 | ref: 243.40
+[EXP] 09:00:01  ₹243.40  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.0081  grey<0.6857  sig>0.0943  f:244.37  s:247.04
+
+-- 9:00:00 am --
+[EXP] 10:00:00  ₹243.50  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.0793  grey<0.6743  sig>0.0927  f:244.29  s:246.84
+
+-- 10:00:00 am --
+[EXP] 11:00:02  ₹243.40  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.1071  grey<0.6686  sig>0.0919  f:244.19  s:246.65
+
+-- 11:00:00 am --
+[EXP] 12:00:00  ₹243.30  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.1313  grey<0.6571  sig>0.0904  f:244.06  s:246.45
+
+-- 12:00:00 pm --
+[EXP] 13:00:00  ₹244.70  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:243.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.0691  grey<0.6829  sig>0.0939  f:243.99  s:246.28
+
+-- 1:00:00 pm --
+[EXP] 14:00:00  ₹246.50  Color:GREY  Regime:-1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:243.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.0955  grey<0.7086  sig>0.0974  f:244.08  s:246.15
+[EXP] SLOW CROSS ABOVE — Long regime armed | SwingHigh reset: 246.50
+
+-- 2:00:00 pm --
+[EXP] 15:00:00  ₹245.30  Color:GREY  Regime:1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:246.50  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.1850  grey<0.7200  sig>0.0990  f:244.27  s:246.03
+[EXP] SLOW CROSS BELOW — Short regime armed | SwingLow reset: 245.30
+
+-- 3:00:00 pm --
+[EXP] 16:00:01  ₹245.30  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:245.30  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.1834  grey<0.6143  sig>0.0845  f:244.45  s:245.90
+
+-- 4:00:00 pm --
+[EXP] 17:00:00  ₹245.00  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:245.30  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.1741  grey<0.5886  sig>0.0809  f:244.62  s:245.78
+
+-- 5:00:00 pm --
+[EXP] 18:00:00  ₹245.20  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:245.30  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2006  grey<0.6314  sig>0.0868  f:244.83  s:245.68
+
+-- 6:00:00 pm --
+[EXP] 19:00:00  ₹245.80  Color:GREY  Regime:-1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:245.30  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.1825  grey<0.6029  sig>0.0829  f:245.01  s:245.58
+[EXP] SLOW CROSS ABOVE — Long regime armed | SwingHigh reset: 245.80
+
+-- 7:00:00 pm --
+[EXP] 20:00:00  ₹247.70  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:245.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2623  grey<0.6200  sig>0.0853  f:245.27  s:245.52
+
+-- 8:00:00 pm --
+[EXP] 21:00:00  ₹247.80  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:245.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.3620  grey<0.6343  sig>0.0872  f:245.63  s:245.49
+
+-- 9:00:00 pm --
+[EXP] 22:00:00  ₹246.30  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:245.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2938  grey<0.6686  sig>0.0919  f:245.93  s:245.46
+
+-- 10:00:00 pm --
+[EXP] 23:00:00  ₹246.40  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:245.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2353  grey<0.6914  sig>0.0951  f:246.16  s:245.42
+
+=== EOD SHUTDOWN ===
+Time    : 16/4/2026, 11:00:17 pm
+Reason  : End of Day Risk Control
+
+
+=== SESSION SUMMARY ===
+Duration : 858 minutes
+PnL      : 0
+Positions: Saved to Database
+Status   : Shutdown Complete
+
+NatGas Engine Shutdown Complete.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 17/4/2026, 8:26:11 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Struct state table ready
+[DB] Trades table ready
+[WS] Connected
+[Startup] Waiting until 8:45 AM... (19 minutes left)
+[Startup] 8:45 AM reached → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 17/4/2026, 8:45:00 am
+Status  : Ready for Market Open (Paper Trading)
+
+
+-- 8:00:00 am --
+[EXP] Regime seeded from first candle: 1 | ref: 248.40
+[EXP] 09:00:01  ₹248.40  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:248.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.1866  grey<0.6914  sig>0.0951  f:246.56  s:245.48
+
+-- 9:00:00 am --
+[EXP] 10:00:00  ₹248.00  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:248.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2461  grey<0.7029  sig>0.0966  f:246.81  s:245.50
+
+-- 10:00:00 am --
+[EXP] 11:00:00  ₹247.60  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:248.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.1955  grey<0.6714  sig>0.0923  f:247.00  s:245.52
+
+-- 11:00:00 am --
+[EXP] 12:00:00  ₹248.70  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:248.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2091  grey<0.6343  sig>0.0872  f:247.21  s:245.55
+
+-- 12:00:00 pm --
+[EXP] 13:00:00  ₹248.90  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:248.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2687  grey<0.6143  sig>0.0845  f:247.48  s:245.61
+
+-- 1:00:00 pm --
+[EXP] 14:00:00  ₹250.00  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:248.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.3209  grey<0.6371  sig>0.0876  f:247.80  s:245.69
+
+-- 2:00:00 pm --
+[EXP] 15:00:01  ₹249.50  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:248.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.3511  grey<0.6114  sig>0.0841  f:248.15  s:245.78
+
+-- 3:00:00 pm --
+[EXP] 16:00:01  ₹248.70  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:248.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2706  grey<0.5600  sig>0.0770  f:248.42  s:245.86
+
+-- 4:00:00 pm --
+[EXP] 17:00:00  ₹249.90  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:248.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2555  grey<0.5600  sig>0.0770  f:248.68  s:245.96
+
+-- 5:00:00 pm --
+[EXP] 18:00:00  ₹249.00  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:248.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2559  grey<0.5657  sig>0.0778  f:248.94  s:246.07
+
+-- 6:00:00 pm --
+[EXP] 19:00:00  ₹244.70  Color:GREY  Regime:1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:248.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.0665  grey<0.6543  sig>0.0900  f:248.87  s:246.13
+[EXP] SLOW CROSS BELOW — Short regime armed | SwingLow reset: 244.70
+
+-- 7:00:00 pm --
+[EXP] 20:00:00  ₹246.60  Color:GREY  Regime:-1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:244.70  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.2612  grey<0.6743  sig>0.0927  f:248.61  s:246.17
+[EXP] SLOW CROSS ABOVE — Long regime armed | SwingHigh reset: 246.60
+
+-- 8:00:00 pm --
+[EXP] 21:00:00  ₹248.80  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:246.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.2220  grey<0.7543  sig>0.1037  f:248.39  s:246.25
+
+-- 9:00:00 pm --
+[EXP] 22:00:00  ₹248.90  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:246.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.1191  grey<0.7943  sig>0.1092  f:248.27  s:246.35
+
+-- 10:00:00 pm --
+[EXP] 23:00:00  ₹250.30  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:246.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.0008  grey<0.8514  sig>0.1171  f:248.27  s:246.47
+
+=== EOD SHUTDOWN ===
+Time    : 17/4/2026, 11:00:00 pm
+Reason  : End of Day Risk Control
+
+
+=== SESSION SUMMARY ===
+Duration : 889 minutes
+PnL      : 0
+Positions: Saved to Database
+Status   : Shutdown Complete
+
+NatGas Engine Shutdown Complete.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 20/4/2026, 7:09:31 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Struct state table ready
+[DB] Trades table ready
+[WS] Connected
+[Startup] Waiting until 8:45 AM... (95 minutes left)
+
+-- 7:00:00 am --
+[EXP][WARMUP] 1/100
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 20/4/2026, 8:40:33 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Struct state table ready
+[DB] Trades table ready
+[WS] Connected
+[Startup] Waiting until 8:45 AM... (4 minutes left)
+[Startup] 8:45 AM reached → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 20/4/2026, 8:45:00 am
+Status  : Ready for Market Open (Paper Trading)
+
+
+-- 8:00:00 am --
+[EXP] Regime seeded from first candle: 1 | ref: 252.80
+[EXP] 09:00:01  ₹252.80  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2935  grey<0.8486  sig>0.1167  f:248.72  s:246.69
+
+-- 9:00:00 am --
+[EXP] 10:00:05  ₹252.30  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.5156  grey<0.8600  sig>0.1183  f:249.24  s:246.87
+
+-- 10:00:00 am --
+[EXP] 11:00:02  ₹253.70  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.6405  grey<0.8857  sig>0.1218  f:249.88  s:247.06
+
+-- 11:00:00 am --
+[EXP] 12:00:00  ₹253.90  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.7154  grey<0.8543  sig>0.1175  f:250.60  s:247.27
+
+-- 12:00:00 pm --
+[EXP] 13:00:01  ₹253.30  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.6821  grey<0.8829  sig>0.1214  f:251.28  s:247.49
+
+-- 1:00:00 pm --
+[EXP] 14:00:00  ₹253.80  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.6176  grey<0.8771  sig>0.1206  f:251.90  s:247.70
+
+-- 2:00:00 pm --
+[EXP] 15:00:00  ₹254.20  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.5550  grey<0.8657  sig>0.1190  f:252.45  s:247.93
+
+-- 3:00:00 pm --
+[EXP] 16:00:00  ₹254.60  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.4916  grey<0.8057  sig>0.1108  f:252.94  s:248.16
+
+-- 4:00:00 pm --
+[EXP] 17:00:00  ₹254.70  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.4087  grey<0.6686  sig>0.0919  f:253.35  s:248.40
+
+-- 5:00:00 pm --
+[EXP] 18:00:00  ₹253.70  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.3007  grey<0.6486  sig>0.0892  f:253.65  s:248.64
+
+-- 6:00:00 pm --
+[EXP] 19:00:00  ₹250.90  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.0471  grey<0.6543  sig>0.0900  f:253.70  s:248.84
+
+-- 7:00:00 pm --
+[EXP] 20:00:00  ₹249.70  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.2546  grey<0.6514  sig>0.0896  f:253.44  s:249.00
+
+-- 8:00:00 pm --
+[EXP] 21:00:00  ₹251.10  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.3550  grey<0.6600  sig>0.0907  f:253.09  s:249.16
+
+-- 9:00:00 pm --
+[EXP] 22:00:00  ₹252.70  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.3025  grey<0.7029  sig>0.0966  f:252.79  s:249.34
+
+-- 10:00:00 pm --
+[EXP] 23:00:00  ₹251.80  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.80  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.2840  grey<0.7543  sig>0.1037  f:252.50  s:249.51
+
+=== EOD SHUTDOWN ===
+Time    : 20/4/2026, 11:00:00 pm
+Reason  : End of Day Risk Control
+
+
+=== SESSION SUMMARY ===
+Duration : 874 minutes
+PnL      : 0
+Positions: Saved to Database
+Status   : Shutdown Complete
+
+NatGas Engine Shutdown Complete.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 21/4/2026, 8:13:23 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Struct state table ready
+[DB] Trades table ready
+[WS] Connected
+[Startup] Waiting until 8:45 AM... (32 minutes left)
+[Startup] 8:45 AM reached → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 21/4/2026, 8:45:00 am
+Status  : Ready for Market Open (Paper Trading)
+
+
+-- 8:00:00 am --
+[EXP] Regime seeded from first candle: 1 | ref: 251.60
+[EXP] 09:00:00  ₹251.60  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:251.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.2180  grey<0.7000  sig>0.0963  f:252.01  s:249.71
+
+-- 9:00:00 am --
+[EXP] 10:00:00  ₹249.20  Color:GREY  Regime:1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:251.60  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.2801  grey<0.7657  sig>0.1053  f:251.73  s:249.84
+[EXP] SLOW CROSS BELOW — Short regime armed | SwingLow reset: 249.20
+
+-- 10:00:00 am --
+[EXP] 11:00:02  ₹248.30  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:249.20  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.3903  grey<0.7543  sig>0.1037  f:251.34  s:249.93
+
+-- 11:00:00 am --
+[EXP] 12:00:00  ₹247.90  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:249.20  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.4720  grey<0.7657  sig>0.1053  f:250.87  s:250.00
+
+-- 12:00:00 pm --
+[EXP] 13:00:03  ₹248.50  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:249.20  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.4862  grey<0.7771  sig>0.1069  f:250.38  s:250.06
+
+-- 1:00:00 pm --
+[EXP] 14:00:00  ₹249.00  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:249.20  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.4245  grey<0.7943  sig>0.1092  f:249.96  s:250.13
+
+-- 2:00:00 pm --
+[EXP] 15:00:00  ₹249.50  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:249.20  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.3335  grey<0.7857  sig>0.1080  f:249.63  s:250.19
+
+-- 3:00:00 pm --
+[EXP] 16:00:00  ₹249.70  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:249.20  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.2306  grey<0.7514  sig>0.1033  f:249.40  s:250.25
+
+-- 4:00:00 pm --
+[EXP] 17:00:00  ₹249.90  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:249.20  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-0.0930  grey<0.6743  sig>0.0927  f:249.30  s:250.30
+
+-- 5:00:00 pm --
+[EXP] 18:00:00  ₹251.10  Color:GREY  Regime:-1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:249.20  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.0565  grey<0.6771  sig>0.0931  f:249.36  s:250.36
+[EXP] SLOW CROSS ABOVE — Long regime armed | SwingHigh reset: 251.10
+TG error: 
+
+-- 6:00:00 pm --
+[EXP] 19:00:00  ₹250.50  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:251.10  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.1781  grey<0.6457  sig>0.0888  f:249.54  s:250.42
+
+-- 7:00:00 pm --
+[EXP] 20:00:00  ₹251.10  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:251.10  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2123  grey<0.6286  sig>0.0864  f:249.75  s:250.47
+
+-- 8:00:00 pm --
+[EXP] 21:00:00  ₹252.80  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:251.10  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.3575  grey<0.6371  sig>0.0876  f:250.11  s:250.54
+
+-- 9:00:00 pm --
+[EXP] 22:00:00  ₹253.20  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:251.10  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.4714  grey<0.6543  sig>0.0900  f:250.58  s:250.63
+
+-- 10:00:00 pm --
+[EXP] 23:00:00  ₹253.20  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:251.10  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.4933  grey<0.6800  sig>0.0935  f:251.07  s:250.72
+
+=== EOD SHUTDOWN ===
+Time    : 21/4/2026, 11:00:00 pm
+Reason  : End of Day Risk Control
+
+
+=== SESSION SUMMARY ===
+Duration : 902 minutes
+PnL      : 0
+Positions: Saved to Database
+Status   : Shutdown Complete
+
+NatGas Engine Shutdown Complete.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 22/4/2026, 8:09:59 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Struct state table ready
+[DB] Trades table ready
+[WS] Connected
+[Startup] Waiting until 8:45 AM... (35 minutes left)
+[Startup] 8:45 AM reached → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 22/4/2026, 8:45:00 am
+Status  : Ready for Market Open (Paper Trading)
+
+
+-- 8:00:00 am --
+[EXP] Regime seeded from first candle: 1 | ref: 252.40
+[EXP] 09:00:00  ₹252.40  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.3425  grey<0.6086  sig>0.0837  f:251.84  s:250.76
+
+-- 9:00:00 am --
+[EXP] 10:00:01  ₹254.90  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.3921  grey<0.6514  sig>0.0896  f:252.23  s:250.85
+
+-- 10:00:00 am --
+[EXP] 11:00:00  ₹254.60  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.4353  grey<0.6457  sig>0.0888  f:252.66  s:250.96
+
+-- 11:00:00 am --
+[EXP] 12:00:00  ₹254.70  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.4080  grey<0.6171  sig>0.0849  f:253.07  s:251.07
+
+-- 12:00:00 pm --
+[EXP] 13:00:01  ₹255.00  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.3857  grey<0.6257  sig>0.0860  f:253.46  s:251.18
+
+-- 1:00:00 pm --
+[EXP] 14:00:00  ₹255.30  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.3746  grey<0.6029  sig>0.0829  f:253.83  s:251.30
+
+-- 2:00:00 pm --
+[EXP] 15:00:00  ₹256.00  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.3835  grey<0.5914  sig>0.0813  f:254.21  s:251.43
+
+-- 3:00:00 pm --
+[EXP] 16:00:00  ₹255.70  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.3828  grey<0.5629  sig>0.0774  f:254.60  s:251.57
+
+-- 4:00:00 pm --
+[EXP] 17:00:00  ₹256.20  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.3376  grey<0.5457  sig>0.0750  f:254.93  s:251.71
+
+-- 5:00:00 pm --
+[EXP] 18:00:00  ₹255.80  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2541  grey<0.5743  sig>0.0790  f:255.19  s:251.84
+
+-- 6:00:00 pm --
+[EXP] 19:00:00  ₹256.90  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2835  grey<0.5743  sig>0.0790  f:255.47  s:251.99
+
+-- 7:00:00 pm --
+[EXP] 20:00:00  ₹256.80  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2705  grey<0.5657  sig>0.0778  f:255.74  s:252.15
+
+-- 8:00:00 pm --
+[EXP] 21:00:00  ₹257.80  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.2648  grey<0.6000  sig>0.0825  f:256.01  s:252.32
+
+-- 9:00:00 pm --
+[EXP] 22:00:00  ₹257.70  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.3253  grey<0.5971  sig>0.0821  f:256.33  s:252.51
+
+-- 10:00:00 pm --
+[EXP] 23:00:00  ₹255.40  Color:GREY  Regime:1  Cross:1
+[SLOW] pos:FLAT  upnl:0  ref:252.40  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:0.1723  grey<0.6800  sig>0.0935  f:256.51  s:252.67
+
+=== EOD SHUTDOWN ===
+Time    : 22/4/2026, 11:00:00 pm
+Reason  : End of Day Risk Control
+
+
+=== SESSION SUMMARY ===
+Duration : 905 minutes
+PnL      : 0
+Positions: Saved to Database
+Status   : Shutdown Complete
+
+NatGas Engine Shutdown Complete.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 24/4/2026, 8:24:37 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Struct state table ready
+[DB] Trades table ready
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #1
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #2
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #3
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #4
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #5
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #6
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #7
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #8
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #9
+[WS] Market closed (403) - Normal outside trading hours
+[WS] Closed
+[WS] Reconnect attempt #10
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 24/4/2026, 8:28:45 am
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Struct state table ready
+[DB] Trades table ready
+[WS] Connected
+[Startup] Waiting until 8:45 AM... (16 minutes left)
+[Startup] 8:45 AM reached → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 24/4/2026, 8:45:00 am
+Status  : Ready for Market Open (Paper Trading)
+
+
+-- 8:00:00 am --
+[EXP] Regime seeded from first candle: -1 | ref: 244.90
+[EXP] 09:00:01  ₹244.90  Color:RED  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:244.90  min:-  max:-
+[FAST] pos:FLAT  upnl:0  slope:-1.2849  grey<0.8971  sig>0.1234  f:247.93  s:253.41
+[EXP] → FAST SHORT ENTRY @ 244.90
+[EXP] SLOW SHORT BLOCKED — struct filter | price:244.90 ref:244.90 exitRef:undefined
+
+-- 9:00:00 am --
+[EXP] 10:00:00  ₹242.30  Color:RED  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:244.90  min:-  max:-
+[FAST] pos:SHORT  upnl:3250  slope:-1.1900  grey<0.9514  sig>0.1308  f:246.74  s:253.20
+[EXP] → SLOW SHORT ENTRY @ 242.30 | Ref: 244.90
+
+-- 10:00:00 am --
+[EXP] 11:00:02  ₹242.60  Color:RED  Regime:-1  Cross:-1
+[SLOW] pos:SHORT  upnl:-375  ref:244.90  min:242.30  max:-
+[FAST] pos:SHORT  upnl:2875  slope:-1.0528  grey<0.9600  sig>0.1320  f:245.69  s:252.96
+
+-- 11:00:00 am --
+[EXP] 12:00:03  ₹242.10  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:SHORT  upnl:250  ref:244.90  min:242.30  max:-
+[FAST] pos:SHORT  upnl:3500  slope:-0.8662  grey<0.9571  sig>0.1316  f:244.82  s:252.69
+
+-- 12:00:00 pm --
+[EXP] 13:00:01  ₹240.30  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:SHORT  upnl:2500  ref:244.90  min:242.10  max:-
+[FAST] pos:SHORT  upnl:5750  slope:-0.8005  grey<1.0229  sig>0.1406  f:244.02  s:252.39
+
+-- 1:00:00 pm --
+[EXP] 14:00:01  ₹243.20  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:SHORT  upnl:-1125  ref:244.90  min:240.30  max:-
+[FAST] pos:SHORT  upnl:2125  slope:-0.6141  grey<1.0686  sig>0.1469  f:243.41  s:252.09
+[EXP] SwingLow updated: 240.30
+→ SLOW SHORT EXIT (GREY_TIMEOUT) @ 243.20   PnL: -1125
+
+-- 2:00:00 pm --
+[EXP] 15:00:06  ₹241.40  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:240.30  min:-  max:-
+[FAST] pos:SHORT  upnl:4375  slope:-0.4367  grey<1.1000  sig>0.1513  f:242.97  s:251.78
+
+-- 3:00:00 pm --
+[EXP] 16:00:06  ₹241.50  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:240.30  min:-  max:-
+[FAST] pos:SHORT  upnl:4250  slope:-0.3960  grey<1.0086  sig>0.1387  f:242.58  s:251.44
+
+-- 4:00:00 pm --
+[EXP] 17:00:00  ₹238.90  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:240.30  min:-  max:-
+[FAST] pos:SHORT  upnl:7500  slope:-0.4157  grey<0.9686  sig>0.1332  f:242.16  s:251.08
+
+-- 5:00:00 pm --
+[EXP] 18:00:01  ₹240.30  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:240.30  min:-  max:-
+[FAST] pos:SHORT  upnl:5750  slope:-0.4306  grey<1.0000  sig>0.1375  f:241.73  s:250.68
+
+-- 6:00:00 pm --
+[EXP] 19:00:00  ₹239.20  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:240.30  min:-  max:-
+[FAST] pos:SHORT  upnl:7125  slope:-0.3667  grey<0.9514  sig>0.1308  f:241.36  s:250.29
+
+-- 7:00:00 pm --
+[EXP] 20:00:01  ₹238.30  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:240.30  min:-  max:-
+[FAST] pos:SHORT  upnl:8250  slope:-0.4582  grey<0.9343  sig>0.1285  f:240.91  s:249.86
+
+-- 8:00:00 pm --
+[EXP] 21:00:00  ₹236.60  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:240.30  min:-  max:-
+[FAST] pos:SHORT  upnl:10375  slope:-0.5806  grey<0.9400  sig>0.1293  f:240.33  s:249.40
+
+-- 9:00:00 pm --
+[EXP] 22:00:00  ₹236.80  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:240.30  min:-  max:-
+[FAST] pos:SHORT  upnl:10125  slope:-0.6533  grey<0.9371  sig>0.1289  f:239.67  s:248.92
+
+-- 10:00:00 pm --
+[EXP] 23:00:00  ₹238.80  Color:GREY  Regime:-1  Cross:-1
+[SLOW] pos:FLAT  upnl:0  ref:240.30  min:-  max:-
+[FAST] pos:SHORT  upnl:7625  slope:-0.5310  grey<0.9743  sig>0.1340  f:239.14  s:248.45
+
+=== EOD SHUTDOWN ===
+Time    : 24/4/2026, 11:00:00 pm
+Reason  : End of Day Risk Control
+
+
+=== SESSION SUMMARY ===
+Duration : 886 minutes
+PnL      : 0
+Positions: Saved to Database
+Status   : Shutdown Complete
+
+NatGas Engine Shutdown Complete.
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚙️  load multiple .env files with { path: ['.env.local', '.env'] }
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🤖 agentic secret storage: https://dotenvx.com/as2
+[dotenv@17.3.1] injecting env (4) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+[dotenv@17.3.1] injecting env (4) from .env -- tip: ⚡️ secrets for agents: https://dotenvx.com/as2
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 25/4/2026, 8:31:31 pm
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[DB] Struct state table ready
+[DB] Trades table ready
+[WS] Connected
+[Startup] Already past 8:45 → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 25/4/2026, 8:31:31 pm
+Status  : Ready for Market Open (Paper Trading)
+
+
+=== EOD SHUTDOWN ===
+Time    : 25/4/2026, 11:00:01 pm
+Reason  : End of Day Risk Control
+
+
+=== SESSION SUMMARY ===
+Duration : 164 minutes
+PnL      : 0
+Positions: Saved to Database
+Status   : Shutdown Complete
+
+NatGas Engine Shutdown Complete.
+[dotenv@17.2.3] injecting env (4) from .env -- tip: ⚙️  override existing env vars with { override: true }
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 26/4/2026, 2:50:05 pm
+Symbols : NATGASMINI26APRFUT / NATGAS26APRFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[WS] Connected
+[Startup] Already past 8:45 → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 26/4/2026, 2:50:05 pm
+Status  : Ready for Market Open (Paper Trading)
+
+[dotenv@17.2.3] injecting env (4) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 26/4/2026, 10:15:28 pm
+Symbols : NATGASMINI26MAYFUT / NATURALGAS26MAYFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[WS] Connected
+[Startup] Already past 8:45 → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 26/4/2026, 10:15:28 pm
+Status  : Ready for Market Open (Paper Trading)
+
+[dotenv@17.2.3] injecting env (4) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+
+=== TAlgo-X NATGAS STARTING ===
+Time    : 26/4/2026, 10:26:01 pm
+Symbols : NATGASMINI26MAYFUT / NATURALGAS26MAYFUT
+Mode    : Paper Trading
+
+[DB] Positions table ready
+[WS] Connected
+[Startup] Already past 8:45 → Starting preload
+[Startup] Preloading historical candles now...
+[PRELOAD] Fetching up to 200 historical 1H candles...
+[PRELOAD] Loaded 200 completed 1H candles | Ready: true
+
+=== SESSION STARTED ===
+Time    : 26/4/2026, 10:26:01 pm
+Status  : Ready for Market Open (Paper Trading)
+
+[dotenv@17.2.3] injecting env (4) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+TAlgo-X NatGas  26/4/2026, 10:30:33 pm  NATGASMINI26MAYFUT / NATURALGAS26MAYFUT  paper
+DB  positions table ready
+WS  connected
+past 8:45  starting preload
+preloading candles...
+PRELOAD  fetching 1H candles...
+PRELOAD  loaded 200 candles  ready true
+session started  26/4/2026, 10:30:34 pm
+[dotenv@17.2.3] injecting env (4) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+TAlgo-X NatGas  26/4/2026, 10:32:29 pm  NATGASMINI26MAYFUT / NATURALGAS26MAYFUT  paper
+DB  positions table ready
+WS  connected
+past 8:45  starting preload
+preloading candles...
+PRELOAD  fetching 1H candles...
+PRELOAD  loaded 200 candles  ready true
+session started  26/4/2026, 10:32:29 pm
+[dotenv@17.2.3] injecting env (4) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+TAlgo-X NatGas  27/4/2026, 7:28:54 am  NATGASMINI26MAYFUT / NATURALGAS26MAYFUT  paper
+DB  positions table ready
+WS  connected
+waiting until 8:45  76 min
+WARMUP  1/100
+8:45 reached  starting preload
+preloading candles...
+PRELOAD  fetching 1H candles...
+PRELOAD  loaded 200 candles  ready true
+session started  27/4/2026, 8:45:00 am
+Regime seeded  -1  ref 256.00
+10:00:00  255.70  GREY   S:FLAT       0  F:FLAT       0
+11:00:01  255.40  GREY   S:FLAT       0  F:FLAT       0
+12:00:01  255.20  GREY   S:FLAT       0  F:FLAT       0
+13:00:00  256.50  GREY   S:FLAT       0  F:FLAT       0
+14:00:00  256.60  GREY   S:FLAT       0  F:FLAT       0
+15:00:00  257.30  GREY   S:FLAT       0  F:FLAT       0
+16:00:00  259.00  GREY   S:FLAT       0  F:FLAT       0
+17:00:01  260.80  GREY   S:FLAT       0  F:FLAT       0
+SLOW CROSS ABOVE  long regime armed  SwingHigh 260.80
+18:00:00  263.90  GREEN  S:FLAT       0  F:FLAT       0
+SLOW CROSS ABOVE  long regime armed  SwingHigh 263.90
+19:00:00  263.80  GREEN  S:FLAT       0  F:FLAT       0
+SLOW CROSS ABOVE  long regime armed  SwingHigh 263.80
+20:00:01  264.80  GREEN  S:FLAT       0  F:FLAT       0
+SLOW CROSS ABOVE  long regime armed  SwingHigh 264.80
+[dotenv@17.2.3] injecting env (4) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+TAlgo-X NatGas  27/4/2026, 8:31:37 pm  NATGASMINI26MAYFUT / NATURALGAS26MAYFUT  paper
+DB  positions table ready
+WS  connected
+past 8:45  starting preload
+preloading candles...
+PRELOAD  fetching 1H candles...
+PRELOAD  loaded 800 candles  ready true
+session started  27/4/2026, 8:31:37 pm
+Regime seeded  1  ref 265.20
+21:00:00  264.80  GREY   S:FLAT       0  F:FLAT       0
+21:15:00  264.70  GREY   S:FLAT       0  F:FLAT       0
+21:30:01  262.50  GREY   S:FLAT       0  F:FLAT       0
+21:45:00  262.60  GREY   S:FLAT       0  F:FLAT       0
+22:00:00  263.40  GREY   S:FLAT       0  F:FLAT       0
+22:15:00  263.50  GREY   S:FLAT       0  F:FLAT       0
+22:30:00  263.00  GREY   S:FLAT       0  F:FLAT       0
+22:45:00  263.10  GREY   S:FLAT       0  F:FLAT       0
+23:00:01  262.20  GREY   S:FLAT       0  F:FLAT       0
+EOD shutdown  27/4/2026, 11:00:08 pm
+23:15:01  261.40  GREY   S:FLAT       0  F:FLAT       0
+SLOW CROSS BELOW  short regime armed  SwingLow 261.40
+session summary  duration 164m  pnl 0
+shutdown complete
+[dotenv@17.2.3] injecting env (4) from .env -- tip: 🔐 prevent committing .env to code: https://dotenvx.com/precommit
+TAlgo-X NatGas  28/4/2026, 8:02:05 am  NATGASMINI26MAYFUT / NATURALGAS26MAYFUT  paper
+DB  positions table ready
+WS  connected
+waiting until 8:45  43 min
+WARMUP  1/400
+WARMUP  2/400
+8:45 reached  starting preload
+preloading candles...
+PRELOAD  fetching 800 15minute candles...
+PRELOAD  loaded 800 15minute candles  ready true
+session started  28/4/2026, 8:45:00 am
+Regime seeded  -1  ref open
+09:15:00  259.30  RED    S:FLAT       0  F:FLAT       0
+FAST SHORT ENTRY @ 259.30
+09:30:01  259.10  RED    S:SHORT    250  F:SHORT    250
+09:45:00  259.20  RED    S:SHORT    125  F:SHORT    125
+10:00:02  259.00  RED    S:SHORT    375  F:SHORT    375
+[dotenv@17.2.3] injecting env (4) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+TAlgo-X NatGas  28/4/2026, 10:01:14 am  NATGASMINI26MAYFUT / NATURALGAS26MAYFUT  paper
+DB  positions table ready
+DB  struct_state table ready
+WS  connected
+past 8:45  starting preload
+preloading candles...
+PRELOAD  fetching 800 15minute candles...
+PRELOAD  loaded 800 15minute candles  ready true
+session started  28/4/2026, 10:01:14 am
+Regime seeded  -1  ref open
+10:15:00  258.80  GREY   S:FLAT       0  F:FLAT       0
+10:30:00  258.50  GREY   S:FLAT       0  F:FLAT       0
+10:45:01  258.70  GREY   S:FLAT       0  F:FLAT       0
+11:00:00  258.50  GREY   S:FLAT       0  F:FLAT       0
+[dotenv@17.2.3] injecting env (4) from .env -- tip: 📡 add observability to secrets: https://dotenvx.com/ops
+TAlgo-X NatGas  28/4/2026, 11:01:57 am  NATGASMINI26MAYFUT / NATURALGAS26MAYFUT  paper
+DB  positions table ready
+DB  struct_state table ready
+WS  connected
+INIT  struct restored from DB
+INIT  SLOW SHORT  FAST SHORT
+INIT  regime -1  shortExit null  longExit null  swingLow null  swingHigh null
+past 8:45  starting preload
+preloading candles...
+PRELOAD  fetching 800 15minute candles...
+PRELOAD  loaded 800 15minute candles  ready true
+session started  28/4/2026, 11:01:58 am
+11:15:00  259.10  GREY   S:SHORT    250  F:SHORT    250
+Resuming SLOW SHORT from DB  SwingRef null
+11:30:00  259.20  GREY   S:SHORT    125  F:SHORT    125
+11:45:00  259.10  GREY   S:SHORT    250  F:SHORT    250
+SwingLow updated  259.10
+SLOW SHORT EXIT (GREY_TIMEOUT) @ 259.10  pnl 250
+12:00:00  259.00  GREY   S:FLAT       0  F:SHORT    375
+12:15:00  259.00  GREY   S:FLAT       0  F:SHORT    375
+12:30:00  259.10  GREY   S:FLAT       0  F:SHORT    250
+12:45:01  258.90  GREY   S:FLAT       0  F:SHORT    500
+13:00:00  259.60  GREY   S:FLAT       0  F:SHORT -  375
+13:15:00  259.40  GREY   S:FLAT       0  F:SHORT -  125
+13:30:01  259.00  GREY   S:FLAT       0  F:SHORT    375
+13:45:00  258.80  GREY   S:FLAT       0  F:SHORT    625
+14:00:00  259.00  GREY   S:FLAT       0  F:SHORT    375
+14:15:00  258.50  GREY   S:FLAT       0  F:SHORT   1000
+14:30:00  258.30  GREY   S:FLAT       0  F:SHORT   1250
+14:45:00  258.30  GREY   S:FLAT       0  F:SHORT   1250
+15:00:00  258.20  GREY   S:FLAT       0  F:SHORT   1375
+15:15:01  257.80  GREY   S:FLAT       0  F:SHORT   1875
+15:30:00  257.60  GREY   S:FLAT       0  F:SHORT   2125
+15:45:01  257.00  GREY   S:FLAT       0  F:SHORT   2875
+16:00:00  257.20  GREY   S:FLAT       0  F:SHORT   2625
+16:15:00  255.90  RED    S:FLAT       0  F:SHORT   4250
+SLOW SHORT ENTRY @ 255.90  ref 259.10
+16:30:01  256.20  RED    S:SHORT -  375  F:SHORT   3875
+16:45:00  257.40  GREY   S:SHORT - 1875  F:SHORT   2375
+17:00:00  258.60  GREY   S:SHORT - 3375  F:SHORT    875
+17:15:00  259.90  GREY   S:SHORT - 5000  F:SHORT -  750
+SLOW CROSS ABOVE  long regime armed @ 259.90
+SwingLow updated  259.90
+SLOW SHORT EXIT (GREY_TIMEOUT) @ 259.90  pnl -5000
+17:30:00  260.40  GREY   S:FLAT       0  F:SHORT - 1375
+17:45:00  258.90  GREY   S:FLAT       0  F:SHORT    500
+SLOW CROSS BELOW  short regime armed @ 258.90
+18:00:00  260.60  GREY   S:FLAT       0  F:SHORT - 1625
+SLOW CROSS ABOVE  long regime armed @ 260.60
+18:15:00  260.50  GREY   S:FLAT       0  F:SHORT - 1500
+18:30:00  258.30  GREY   S:FLAT       0  F:SHORT   1250
+SLOW CROSS BELOW  short regime armed @ 258.30
+18:45:00  259.10  GREY   S:FLAT       0  F:SHORT    250
+19:00:00  258.40  GREY   S:FLAT       0  F:SHORT   1125
+19:15:00  258.70  GREY   S:FLAT       0  F:SHORT    750
+19:30:00  259.30  GREY   S:FLAT       0  F:SHORT      0
+SLOW CROSS ABOVE  long regime armed @ 259.30
+19:45:00  259.90  GREY   S:FLAT       0  F:SHORT -  750
+20:00:00  260.70  GREY   S:FLAT       0  F:SHORT - 1750
+20:15:00  261.10  GREY   S:FLAT       0  F:SHORT - 2250
+20:30:01  259.90  GREY   S:FLAT       0  F:SHORT -  750
+20:45:00  259.70  GREY   S:FLAT       0  F:SHORT -  500
+21:00:00  259.20  GREY   S:FLAT       0  F:SHORT    125
+SLOW CROSS BELOW  short regime armed @ 259.20
+21:15:00  259.60  GREY   S:FLAT       0  F:SHORT -  375
+SLOW CROSS ABOVE  long regime armed @ 259.60
+21:30:00  259.70  GREY   S:FLAT       0  F:SHORT -  500
+21:45:01  259.20  GREY   S:FLAT       0  F:SHORT    125
+SLOW CROSS BELOW  short regime armed @ 259.20
+22:00:01  259.10  GREY   S:FLAT       0  F:SHORT    250
+22:15:00  258.80  GREY   S:FLAT       0  F:SHORT    625
+22:30:00  259.30  GREY   S:FLAT       0  F:SHORT      0
+SLOW CROSS ABOVE  long regime armed @ 259.30
+22:45:00  258.50  GREY   S:FLAT       0  F:SHORT   1000
+SLOW CROSS BELOW  short regime armed @ 258.50
+23:00:00  258.40  GREY   S:FLAT       0  F:SHORT   1125
+EOD shutdown  28/4/2026, 11:00:28 pm
+23:15:00  257.30  GREY   S:FLAT       0  F:SHORT   2500
+session summary  duration 734m  pnl 0
+shutdown complete
+[dotenv@17.2.3] injecting env (4) from .env -- tip: 🔐 prevent building .env in docker: https://dotenvx.com/prebuild
+TAlgo-X NatGas  29/4/2026, 7:26:13 am  NATGASMINI26MAYFUT / NATURALGAS26MAYFUT  paper
+DB  positions table ready
+DB  struct_state table ready
+WS  connected
+INIT  struct restored from DB
+INIT  SLOW flat  FAST SHORT
+INIT  regime -1  shortExit null  longExit null  swingLow null  swingHigh null
+waiting until 8:45  79 min
+WARMUP  1/400
+WARMUP  2/400
+WARMUP  3/400
+WARMUP  4/400
+WARMUP  5/400
+8:45 reached  starting preload
+preloading candles...
+PRELOAD  fetching 800 15minute candles...
+PRELOAD  loaded 800 15minute candles  ready true
+session started  29/4/2026, 8:45:00 am
+09:00:00  255.00  GREY   S:FLAT       0  F:SHORT   5375  T:  5375
+09:15:00  254.70  RED    S:FLAT       0  F:SHORT   5750  T:  5750
+SLOW SHORT ENTRY @ 254.70  ref none
+09:30:02  255.10  RED    S:SHORT -  500  F:SHORT   5250  T:  4750
+09:45:00  254.90  RED    S:SHORT -  250  F:SHORT   5500  T:  5250
+10:00:02  254.70  RED    S:SHORT      0  F:SHORT   5750  T:  5750
+10:15:00  254.80  RED    S:SHORT -  125  F:SHORT   5625  T:  5500
+10:30:00  255.10  RED    S:SHORT -  500  F:SHORT   5250  T:  4750
+10:45:00  255.60  GREY   S:SHORT - 1125  F:SHORT   4625  T:  3500
+11:00:00  255.60  GREY   S:SHORT - 1125  F:SHORT   4625  T:  3500
+11:15:01  255.50  GREY   S:SHORT - 1000  F:SHORT   4750  T:  3750
+SwingLow updated  254.70
+SLOW SHORT EXIT (GREY_TIMEOUT) @ 255.50  pnl -1000
+11:30:00  255.80  GREY   S:FLAT       0  F:SHORT   4375  T:  3375
+11:45:00  255.80  GREY   S:FLAT       0  F:SHORT   4375  T:  3375
+12:00:00  256.40  GREY   S:FLAT       0  F:SHORT   3625  T:  2625
+12:15:00  256.50  GREY   S:FLAT       0  F:SHORT   3500  T:  2500
+12:30:00  256.20  GREY   S:FLAT       0  F:SHORT   3875  T:  2875
+12:45:00  256.20  GREY   S:FLAT       0  F:SHORT   3875  T:  2875
+13:00:00  255.70  GREY   S:FLAT       0  F:SHORT   4500  T:  3500
+[dotenv@17.2.3] injecting env (4) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+TAlgo-X NatGas  29/4/2026, 1:11:45 pm  NATGASMINI26MAYFUT / NATURALGAS26MAYFUT  paper
+DB  positions table ready
+DB  struct_state table ready
+WS  connected
+INIT  struct restored from DB
+INIT  SLOW flat  FAST SHORT
+INIT  regime -1  shortExit 255.5  longExit null  swingLow 254.7  swingHigh null
+past 8:45  starting preload
+preloading candles...
+PRELOAD  fetching 800 15minute candles...
+PRELOAD  loaded 800 15minute candles  ready true
+session started  29/4/2026, 1:11:45 pm
+13:15:00  256.20  GREY   S:FLAT       0  F:SHORT   3875  T:  3875
+13:30:01  256.30  GREY   S:FLAT       0  F:SHORT   3750  T:  3750
+13:45:01  256.60  GREY   S:FLAT       0  F:SHORT   3375  T:  3375
+14:00:00  256.90  GREY   S:FLAT       0  F:SHORT   3000  T:  3000
+14:15:00  256.30  GREY   S:FLAT       0  F:SHORT   3750  T:  3750
+14:30:00  255.70  GREY   S:FLAT       0  F:SHORT   4500  T:  4500
+14:45:00  256.10  GREY   S:FLAT       0  F:SHORT   4000  T:  4000
+15:00:01  255.70  GREY   S:FLAT       0  F:SHORT   4500  T:  4500
+15:15:00  255.70  GREY   S:FLAT       0  F:SHORT   4500  T:  4500
+15:30:00  255.70  GREY   S:FLAT       0  F:SHORT   4500  T:  4500
+15:45:00  254.50  GREY   S:FLAT       0  F:SHORT   6000  T:  6000
+16:00:00  254.30  GREY   S:FLAT       0  F:SHORT   6250  T:  6250
+16:15:01  254.80  GREY   S:FLAT       0  F:SHORT   5625  T:  5625
+16:30:00  255.00  GREY   S:FLAT       0  F:SHORT   5375  T:  5375
+16:45:00  254.00  GREY   S:FLAT       0  F:SHORT   6625  T:  6625
+17:00:00  253.30  GREY   S:FLAT       0  F:SHORT   7500  T:  7500
+17:15:00  254.40  GREY   S:FLAT       0  F:SHORT   6125  T:  6125
+17:30:00  254.30  GREY   S:FLAT       0  F:SHORT   6250  T:  6250
+17:45:00  253.50  GREY   S:FLAT       0  F:SHORT   7250  T:  7250
+18:00:00  253.20  GREY   S:FLAT       0  F:SHORT   7625  T:  7625
+18:15:00  252.30  GREY   S:FLAT       0  F:SHORT   8750  T:  8750
+18:30:00  251.90  GREY   S:FLAT       0  F:SHORT   9250  T:  9250
+18:45:00  250.70  GREY   S:FLAT       0  F:SHORT  10750  T: 10750
+19:00:00  253.30  GREY   S:FLAT       0  F:SHORT   7500  T:  7500
+19:15:00  254.30  GREY   S:FLAT       0  F:SHORT   6250  T:  6250
+19:30:00  253.20  GREY   S:FLAT       0  F:SHORT   7625  T:  7625
+19:45:00  253.10  GREY   S:FLAT       0  F:SHORT   7750  T:  7750
+20:00:01  253.10  GREY   S:FLAT       0  F:SHORT   7750  T:  7750
+20:15:00  253.40  GREY   S:FLAT       0  F:SHORT   7375  T:  7375
+20:30:00  252.90  GREY   S:FLAT       0  F:SHORT   8000  T:  8000
+20:45:00  252.50  GREY   S:FLAT       0  F:SHORT   8500  T:  8500
+21:00:00  253.20  GREY   S:FLAT       0  F:SHORT   7625  T:  7625
+21:15:00  253.00  GREY   S:FLAT       0  F:SHORT   7875  T:  7875
+21:30:00  253.20  GREY   S:FLAT       0  F:SHORT   7625  T:  7625
+21:45:00  252.60  GREY   S:FLAT       0  F:SHORT   8375  T:  8375
+22:00:01  252.80  GREY   S:FLAT       0  F:SHORT   8125  T:  8125
+22:15:00  252.70  GREY   S:FLAT       0  F:SHORT   8250  T:  8250
+22:30:00  252.10  GREY   S:FLAT       0  F:SHORT   9000  T:  9000
+22:45:00  252.30  GREY   S:FLAT       0  F:SHORT   8750  T:  8750
+23:00:00  252.10  GREY   S:FLAT       0  F:SHORT   9000  T:  9000
+EOD shutdown  29/4/2026, 11:00:16 pm
+FAST SHORT EXIT (EOD_FORCE) @ 252.10  pnl 9000
+23:15:00  252.40  GREY   S:FLAT       0  F:FLAT       0  T:  9000
+session summary  duration 604m  slow 0  fast 9000  total 9000
+shutdown complete
+[dotenv@17.2.3] injecting env (4) from .env -- tip: ⚙️  write to custom object with { processEnv: myObject }
+TAlgo-X NatGas  30/4/2026, 8:08:25 am  NATGASMINI26MAYFUT / NATURALGAS26MAYFUT  paper
+DB  positions table ready
+DB  struct_state table ready
+WS  connected
+INIT  struct restored from DB
+INIT  SLOW flat  FAST SHORT
+INIT  regime -1  shortExit 255.5  longExit null  swingLow 254.7  swingHigh null
+waiting until 8:45  37 min
+WARMUP  1/400
+WARMUP  2/400
+8:45 reached  starting preload
+preloading candles...
+PRELOAD  fetching 800 15minute candles...
+PRELOAD  loaded 800 15minute candles  ready true
+session started  30/4/2026, 8:45:00 am
+09:00:01 253.00 GREY S:-     0 F:↓  7875 T:  7875
+09:15:00 253.30 GREY S:-     0 F:↓  7500 T:  7500
+09:30:01 253.00 GREY S:-     0 F:↓  7875 T:  7875
+09:45:00 253.60 GREY S:-     0 F:↓  7125 T:  7125
+10:00:00 253.40 GREY S:-     0 F:↓  7375 T:  7375
+10:15:00 253.70 GREY S:-     0 F:↓  7000 T:  7000
+10:30:00 254.10 GREY S:-     0 F:↓  6500 T:  6500
+10:45:02 253.60 GREY S:-     0 F:↓  7125 T:  7125
+11:00:00 253.80 GREY S:-     0 F:↓  6875 T:  6875
+11:15:00 253.90 GREY S:-     0 F:↓  6750 T:  6750
+11:30:00 253.60 GREY S:-     0 F:↓  7125 T:  7125
+11:45:01 253.90 GREY S:-     0 F:↓  6750 T:  6750
+12:00:01 254.10 GREY S:-     0 F:↓  6500 T:  6500
+12:15:00 254.00 GREY S:-     0 F:↓  6625 T:  6625
+12:30:00 253.30 GREY S:-     0 F:↓  7500 T:  7500
+12:45:01 252.90 GREY S:-     0 F:↓  8000 T:  8000
+13:00:00 252.90 GREY S:-     0 F:↓  8000 T:  8000
+13:15:00 252.70 GREY S:-     0 F:↓  8250 T:  8250
+13:30:00 252.50 GREY S:-     0 F:↓  8500 T:  8500
+13:45:02 252.50 GREY S:-     0 F:↓  8500 T:  8500
+14:00:00 252.30 GREY S:-     0 F:↓  8750 T:  8750
+14:15:00 252.00 GREY S:-     0 F:↓  9125 T:  9125
+14:30:00 252.40 GREY S:-     0 F:↓  8625 T:  8625
+14:45:00 252.90 GREY S:-     0 F:↓  8000 T:  8000
+15:00:01 252.00 GREY S:-     0 F:↓  9125 T:  9125
+15:15:00 251.90 GREY S:-     0 F:↓  9250 T:  9250
+15:30:00 251.80 GREY S:-     0 F:↓  9375 T:  9375
+15:45:00 251.80 GREY S:-     0 F:↓  9375 T:  9375
+16:00:00 251.10 GREY S:-     0 F:↓ 10250 T: 10250
+16:15:00 251.20 GREY S:-     0 F:↓ 10125 T: 10125
+16:30:00 251.10 GREY S:-     0 F:↓ 10250 T: 10250
+16:45:01 251.40 GREY S:-     0 F:↓  9875 T:  9875
+17:00:00 250.80 GREY S:-     0 F:↓ 10625 T: 10625
+17:15:00 250.10 GREY S:-     0 F:↓ 11500 T: 11500
+17:30:00 249.30 GREY S:-     0 F:↓ 12500 T: 12500
+17:45:00 249.60 GREY S:-     0 F:↓ 12125 T: 12125
+18:00:00 249.60 GREY S:-     0 F:↓ 12125 T: 12125
+18:15:01 251.90 GREY S:-     0 F:↓  9250 T:  9250
+18:30:00 255.00 GREY S:-     0 F:↓  5375 T:  5375
+18:45:00 251.70 GREY S:-     0 F:↓  9500 T:  9500
+19:00:00 253.40 GREY S:-     0 F:↓  7375 T:  7375
+19:15:00 254.10 GREY S:-     0 F:↓  6500 T:  6500
+19:30:00 255.00 GREY S:-     0 F:↓  5375 T:  5375
+19:45:00 254.60 GREY S:-     0 F:↓  5875 T:  5875
+20:00:00 255.80 GREY S:-     0 F:↓  4375 T:  4375
+SLOW CROSS pending  above  confirming...
+20:15:00 257.60 GREY S:-     0 F:↓  2125 T:  2125
+20:30:00 256.30 GREY S:-     0 F:↓  3750 T:  3750
+20:45:00 257.40 GREY S:-     0 F:↓  2375 T:  2375
+21:00:00 257.00 GREY S:-     0 F:↓  2875 T:  2875
+21:15:00 256.70 GREY S:-     0 F:↓  3250 T:  3250
+21:30:00 257.60 GREY S:-     0 F:↓  2125 T:  2125
+21:45:00 258.80 GREY S:-     0 F:↓   625 T:   625
+22:00:00 260.80 GREY S:-     0 F:↓ -1875 T: -1875
+22:15:00 265.20 GREEN S:-     0 F:↓ -7375 T: -7375
+FAST SHORT EXIT (STATE_FLIP) @ 265.20  pnl -7375
+FAST LONG ENTRY @ 265.20
+22:30:00 262.70 GREEN S:-     0 F:↑ -3125 T:-10500
+22:45:00 262.90 GREEN S:-     0 F:↑ -2875 T:-10250
+23:00:00 263.10 GREY S:-     0 F:↑ -2625 T:-10000
+EOD shutdown  30/4/2026, 11:00:00 pm
+FAST LONG EXIT (EOD_FORCE) @ 263.10  pnl -2625
+23:15:00 263.30 GREY S:-     0 F:-     0 T:-10000
+session summary  duration 907m  slow 0  fast -10000  total -10000
+shutdown complete
+[dotenv@17.2.3] injecting env (4) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (4) from .env -- tip: 👥 sync secrets across teammates & machines: https://dotenvx.com/ops
+--- starting ---
+[dotenv@17.2.3] injecting env (4) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+--- starting ---
+[dotenv@17.2.3] injecting env (4) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
+--- starting ---
+INIT  S:-  F:LONG@265.2  R:↓  sL:254.70  sH:-
+waiting until 8:45  7 min
+--- starting ---
+INIT  S:-  F:LONG@265.2  R:↓  sL:254.70  sH:-
+waiting until 8:45  0 min
+08:45:00 NatGas  S:-  F:LONG@265.2  R:↓
+TAlgo-X NatGas  1/5/2026, 9:18:57 am  NATGASMINI26MAYFUT / NATURALGAS26MAYFUT  paper
+DB  positions table ready
+DB  struct_state table ready
+WS  connected
+INIT  struct restored from DB
+INIT  SLOW flat  FAST LONG
+INIT  regime -1  shortExit 255.5  longExit null  swingLow 254.7  swingHigh null
+past 8:45  starting preload
+preloading candles...
+PRELOAD  fetching 800 15minute candles...
+PRELOAD  loaded 800 15minute candles  ready true
+session started  1/5/2026, 9:18:57 am
+TAlgo-X NatGas  1/5/2026, 8:44:43 pm  NATGASMINI26MAYFUT / NATURALGAS26MAYFUT  paper
+DB  positions table ready
+DB  struct_state table ready
+WS  connected
+INIT  struct restored from DB
+INIT  SLOW flat  FAST LONG
+INIT  regime -1  shortExit 255.5  longExit null  swingLow 254.7  swingHigh null
+past 8:45  starting preload
+preloading candles...
+PRELOAD  fetching 800 15minute candles...
+PRELOAD  loaded 800 15minute candles  ready true
+session started  1/5/2026, 8:44:43 pm
+20:45:00 263.90 GREY S:-     0 F:↑ -1625 T: -1625
+SLOW CROSS pending  above  confirming...
+21:00:00 264.40 GREY S:-     0 F:↑ -1000 T: -1000
+21:15:00 263.50 GREY S:-     0 F:↑ -2125 T: -2125
+21:30:00 264.30 GREY S:-     0 F:↑ -1125 T: -1125
+21:45:00 262.90 GREY S:-     0 F:↑ -2875 T: -2875
+22:00:00 264.50 GREY S:-     0 F:↑  -875 T:  -875
+22:15:00 264.40 GREY S:-     0 F:↑ -1000 T: -1000
+22:30:00 264.40 GREY S:-     0 F:↑ -1000 T: -1000
+22:45:00 264.40 GREY S:-     0 F:↑ -1000 T: -1000
+23:00:00 264.20 GREY S:-     0 F:↑ -1250 T: -1250
+EOD shutdown  1/5/2026, 11:00:14 pm
+FAST LONG EXIT (EOD_FORCE) @ 264.20  pnl -1250
+23:15:01 264.80 GREY S:-     0 F:-     0 T: -1250
+session summary  duration 151m  slow 0  fast -1250  total -1250
+shutdown complete
+TAlgo-X NatGas  3/5/2026, 6:44:53 pm  NATGASMINI26MAYFUT / NATURALGAS26MAYFUT  paper
+DB  positions table ready
+DB  struct_state table ready
+WS  market closed
+WS  closed
+WS  reconnect #1
+WS  market closed
+WS  closed
+WS  reconnect #2
+WS  market closed
+WS  closed
+WS  reconnect #3
+WS  market closed
+WS  closed
+WS  reconnect #4
+WS  market closed
+WS  closed
+WS  reconnect #5
+WS  market closed
+WS  closed
+WS  reconnect #6
+--- starting ---
+INIT  S:-  F:LONG@265.2  R:↓  sL:254.70  sH:-
+waiting until 8:45  100 min
+WARMUP  1/400
+--- starting ---
+INIT  S:-  F:LONG@265.2  R:↓  sL:254.70  sH:-
+waiting until 8:45  15 min
+PRELOAD  fetching 800 15minute candles...
+PRELOAD  loaded 800 15minute candles  ready true
+08:45:00 NatGas  S:-  F:LONG@265.2  R:↓
+09:00:01 264.50 GREY S:-     0 F:↑  -875 T:  -875
+SLOW CROSS pending  above  confirming...
+09:15:00 270.60 GREEN S:-     0 F:↑  6750 T:  6750
+09:30:00 270.50 GREEN S:-     0 F:↑  6625 T:  6625
+09:45:00 269.90 GREEN S:-     0 F:↑  5875 T:  5875
+10:00:00 270.10 GREEN S:-     0 F:↑  6125 T:  6125
+10:15:00 270.60 GREEN S:-     0 F:↑  6750 T:  6750
+10:30:00 271.40 GREEN S:-     0 F:↑  7750 T:  7750
+10:45:01 270.90 GREEN S:-     0 F:↑  7125 T:  7125
+11:00:02 270.90 GREEN S:-     0 F:↑  7125 T:  7125
+11:15:00 270.80 GREY S:-     0 F:↑  7000 T:  7000
+11:30:00 270.70 GREY S:-     0 F:↑  6875 T:  6875
+11:45:00 270.90 GREY S:-     0 F:↑  7125 T:  7125
+12:00:00 271.10 GREY S:-     0 F:↑  7375 T:  7375
+12:15:00 271.60 GREY S:-     0 F:↑  8000 T:  8000
+12:30:00 271.70 GREY S:-     0 F:↑  8125 T:  8125
+12:45:00 272.00 GREY S:-     0 F:↑  8500 T:  8500
+13:00:02 271.90 GREY S:-     0 F:↑  8375 T:  8375
+13:15:04 271.70 GREY S:-     0 F:↑  8125 T:  8125
+13:30:00 272.00 GREY S:-     0 F:↑  8500 T:  8500
+13:45:00 271.80 GREY S:-     0 F:↑  8250 T:  8250
+14:00:00 271.40 GREY S:-     0 F:↑  7750 T:  7750
+14:15:00 270.90 GREY S:-     0 F:↑  7125 T:  7125
+14:30:00 271.30 GREY S:-     0 F:↑  7625 T:  7625
+14:45:00 270.80 GREY S:-     0 F:↑  7000 T:  7000
+15:00:00 270.90 GREY S:-     0 F:↑  7125 T:  7125
+15:15:00 270.50 GREY S:-     0 F:↑  6625 T:  6625
+15:30:00 269.70 GREY S:-     0 F:↑  5625 T:  5625
+15:45:00 271.60 GREY S:-     0 F:↑  8000 T:  8000
+16:00:00 270.40 GREY S:-     0 F:↑  6500 T:  6500
+16:15:00 268.90 GREY S:-     0 F:↑  4625 T:  4625
+FAST LONG EXIT (GIVEBACK) @ 268.90  pnl 4625
+16:30:00 268.60 GREY S:-     0 F:-     0 T:  4625
+16:45:00 268.30 GREY S:-     0 F:-     0 T:  4625
+17:00:00 269.00 GREY S:-     0 F:-     0 T:  4625
+17:15:00 268.60 GREY S:-     0 F:-     0 T:  4625
+17:30:00 269.70 GREY S:-     0 F:-     0 T:  4625
+17:45:00 267.50 GREY S:-     0 F:-     0 T:  4625
+18:00:00 266.90 GREY S:-     0 F:-     0 T:  4625
+18:15:00 266.10 GREY S:-     0 F:-     0 T:  4625
+18:30:00 268.10 GREY S:-     0 F:-     0 T:  4625
+18:45:01 269.00 GREY S:-     0 F:-     0 T:  4625
+19:00:00 270.40 GREY S:-     0 F:-     0 T:  4625
+19:15:01 274.40 GREY S:-     0 F:-     0 T:  4625
+19:30:00 272.90 GREY S:-     0 F:-     0 T:  4625
+19:45:01 272.70 GREY S:-     0 F:-     0 T:  4625
+20:00:00 273.00 GREY S:-     0 F:-     0 T:  4625
+20:15:00 274.00 GREY S:-     0 F:-     0 T:  4625
+20:30:00 274.20 GREY S:-     0 F:-     0 T:  4625
+20:45:00 273.90 GREY S:-     0 F:-     0 T:  4625
+21:00:00 274.70 GREY S:-     0 F:-     0 T:  4625
+21:15:00 273.20 GREY S:-     0 F:-     0 T:  4625
+21:30:00 274.30 GREY S:-     0 F:-     0 T:  4625
+21:45:01 274.10 GREY S:-     0 F:-     0 T:  4625
+22:00:01 274.70 GREY S:-     0 F:-     0 T:  4625
+22:15:01 275.20 GREY S:-     0 F:-     0 T:  4625
+22:30:00 275.90 GREY S:-     0 F:-     0 T:  4625
+22:45:01 275.50 GREY S:-     0 F:-     0 T:  4625
+EOD shutdown  4/5/2026, 11:00:00 pm
+23:00:01 274.70 GREY S:-     0 F:-     0 T:  4625
+23:15:00 274.70 GREY S:-     0 F:-     0 T:  4625
+session summary  duration 885m  slow 0  fast 4625  total 4625
+shutdown complete
+--- starting ---
+INIT  S:-  F:-  R:↓  sL:254.70  sH:-
+PRELOAD  fetching 800 15minute candles...
+PRELOAD  loaded 800 15minute candles  ready true
+09:03:31 NatGas  S:-  F:-  R:↓
+09:15:00 272.30 GREY S:-     0 F:-     0 T:     0
+SLOW CROSS pending  above  confirming...
+09:30:00 273.10 GREY S:-     0 F:-     0 T:     0
+09:45:00 272.60 GREY S:-     0 F:-     0 T:     0
+10:00:00 272.50 GREY S:-     0 F:-     0 T:     0
+10:15:00 272.30 GREY S:-     0 F:-     0 T:     0
+10:30:00 271.80 GREY S:-     0 F:-     0 T:     0
+10:45:00 271.90 GREY S:-     0 F:-     0 T:     0
+11:00:00 271.70 GREY S:-     0 F:-     0 T:     0
+11:15:01 271.40 GREY S:-     0 F:-     0 T:     0
+11:30:00 271.40 GREY S:-     0 F:-     0 T:     0
+11:45:00 272.80 GREY S:-     0 F:-     0 T:     0
+12:00:00 272.50 GREY S:-     0 F:-     0 T:     0
+12:15:00 272.20 GREY S:-     0 F:-     0 T:     0
+12:30:01 272.10 GREY S:-     0 F:-     0 T:     0
+12:45:00 271.90 GREY S:-     0 F:-     0 T:     0
+13:00:00 271.20 GREY S:-     0 F:-     0 T:     0
+13:15:00 270.20 GREY S:-     0 F:-     0 T:     0
+13:30:00 270.60 GREY S:-     0 F:-     0 T:     0
+13:45:00 270.40 GREY S:-     0 F:-     0 T:     0
+14:00:00 270.40 GREY S:-     0 F:-     0 T:     0
+14:15:01 270.40 GREY S:-     0 F:-     0 T:     0
+14:30:00 270.10 GREY S:-     0 F:-     0 T:     0
+14:45:01 271.00 GREY S:-     0 F:-     0 T:     0
+15:00:00 271.50 GREY S:-     0 F:-     0 T:     0
+15:15:00 271.30 GREY S:-     0 F:-     0 T:     0
+15:30:00 271.00 GREY S:-     0 F:-     0 T:     0
+15:45:02 270.90 GREY S:-     0 F:-     0 T:     0
+16:00:00 271.90 GREY S:-     0 F:-     0 T:     0
+16:15:00 270.90 GREY S:-     0 F:-     0 T:     0
+16:30:01 271.10 GREY S:-     0 F:-     0 T:     0
+16:45:00 273.00 GREY S:-     0 F:-     0 T:     0
+17:00:00 273.40 GREY S:-     0 F:-     0 T:     0
+17:15:00 270.90 GREY S:-     0 F:-     0 T:     0
+17:30:00 269.90 GREY S:-     0 F:-     0 T:     0
+17:45:00 270.90 GREY S:-     0 F:-     0 T:     0
+18:00:00 270.50 GREY S:-     0 F:-     0 T:     0
+18:15:00 271.30 GREY S:-     0 F:-     0 T:     0
+18:30:00 270.50 GREY S:-     0 F:-     0 T:     0
+18:45:00 271.80 GREY S:-     0 F:-     0 T:     0
+19:00:00 271.00 GREY S:-     0 F:-     0 T:     0
+19:15:00 271.60 GREY S:-     0 F:-     0 T:     0
+19:30:00 269.80 GREY S:-     0 F:-     0 T:     0
+19:45:00 269.10 GREY S:-     0 F:-     0 T:     0
+20:00:00 269.10 GREY S:-     0 F:-     0 T:     0
+20:15:00 266.80 GREY S:-     0 F:-     0 T:     0
+SLOW CROSS pending  below  confirming...
+20:30:00 266.70 GREY S:-     0 F:-     0 T:     0
+20:45:00 266.20 GREY S:-     0 F:-     0 T:     0
+21:00:00 265.60 GREY S:-     0 F:-     0 T:     0
+21:15:00 265.60 GREY S:-     0 F:-     0 T:     0
+21:30:00 265.30 GREY S:-     0 F:-     0 T:     0
+21:45:00 266.20 GREY S:-     0 F:-     0 T:     0
+22:00:00 266.50 GREY S:-     0 F:-     0 T:     0
+22:15:00 266.80 GREY S:-     0 F:-     0 T:     0
+22:30:00 266.80 GREY S:-     0 F:-     0 T:     0
+22:45:00 267.40 GREY S:-     0 F:-     0 T:     0
+23:00:00 267.10 GREY S:-     0 F:-     0 T:     0
+EOD shutdown  5/5/2026, 11:00:02 pm
+23:15:00 266.70 GREY S:-     0 F:-     0 T:     0
+session summary  duration 852m  slow 0  fast 0  total 0
+shutdown complete
+--- starting ---
+INIT  S:-  F:-  R:↓  sL:254.70  sH:-
+PRELOAD  fetching 800 15minute candles...
+PRELOAD  loaded 800 15minute candles  ready true
+08:57:59 NatGas  S:-  F:-  R:↓
+--- starting ---
+INIT  S:-  F:-  R:↓  sL:254.70  sH:-
+PRELOAD  fetching 800 15minute candles...
+PRELOAD  loaded 800 15minute candles  ready true
+08:58:12 NatGas  S:-  F:-  R:↓
+09:00:01 265.00 GREY S:-     0 F:-     0 T:     0
+09:15:00 264.60 GREY S:-     0 F:-     0 T:     0
+09:30:00 265.10 GREY S:-     0 F:-     0 T:     0
+09:45:01 265.30 GREY S:-     0 F:-     0 T:     0
+10:00:00 264.70 GREY S:-     0 F:-     0 T:     0
+10:15:01 265.30 GREY S:-     0 F:-     0 T:     0
+10:30:00 265.00 GREY S:-     0 F:-     0 T:     0
+10:45:00 265.10 GREY S:-     0 F:-     0 T:     0
+11:00:01 265.60 GREY S:-     0 F:-     0 T:     0
+11:15:00 265.30 GREY S:-     0 F:-     0 T:     0
+11:30:00 265.50 GREY S:-     0 F:-     0 T:     0
+11:45:01 265.20 GREY S:-     0 F:-     0 T:     0
+12:00:00 265.30 GREY S:-     0 F:-     0 T:     0
+12:15:00 265.50 GREY S:-     0 F:-     0 T:     0
+12:30:00 265.90 GREY S:-     0 F:-     0 T:     0
+12:45:00 265.80 GREY S:-     0 F:-     0 T:     0
+13:00:00 265.40 GREY S:-     0 F:-     0 T:     0
+13:15:00 265.40 GREY S:-     0 F:-     0 T:     0
+13:30:00 263.30 GREY S:-     0 F:-     0 T:     0
+13:45:04 264.10 GREY S:-     0 F:-     0 T:     0
+14:00:00 264.50 GREY S:-     0 F:-     0 T:     0
+14:15:00 264.60 GREY S:-     0 F:-     0 T:     0
+14:30:00 260.20 RED  S:-     0 F:-     0 T:     0
+FAST SHORT ENTRY @ 260.20
+SLOW SHORT BLOCKED  struct  price 260.20  ref 254.70
+14:45:00 260.60 RED  S:-     0 F:↓  -500 T:  -500
+SLOW SHORT BLOCKED  struct  price 260.60  ref 254.70
+15:00:00 260.00 RED  S:-     0 F:↓   250 T:   250
+SLOW SHORT BLOCKED  struct  price 260.00  ref 254.70
+15:15:00 261.40 GREY S:-     0 F:↓ -1500 T: -1500
+15:30:00 260.90 GREY S:-     0 F:↓  -875 T:  -875
+15:45:00 261.90 GREY S:-     0 F:↓ -2125 T: -2125
+16:00:00 261.70 GREY S:-     0 F:↓ -1875 T: -1875
+16:15:00 259.70 GREY S:-     0 F:↓   625 T:   625
+16:30:01 257.20 GREY S:-     0 F:↓  3750 T:  3750
+16:45:00 257.50 GREY S:-     0 F:↓  3375 T:  3375
+17:00:00 257.00 GREY S:-     0 F:↓  4000 T:  4000
+17:15:00 257.80 GREY S:-     0 F:↓  3000 T:  3000
+17:30:01 258.10 GREY S:-     0 F:↓  2625 T:  2625
+17:45:00 259.20 GREY S:-     0 F:↓  1250 T:  1250
+FAST RE-ENTRY armed  side:SHORT  ref:259.20
+FAST SHORT EXIT (GIVEBACK) @ 259.20  pnl 1250
+18:00:00 259.50 GREY S:-     0 F:-     0 T:  1250
+18:15:00 259.00 GREY S:-     0 F:-     0 T:  1250
+FAST RE-ENTRY cancelled  opposite signal @ 259.00
+18:30:00 260.60 GREY S:-     0 F:-     0 T:  1250
+18:45:00 258.70 GREY S:-     0 F:-     0 T:  1250
+19:00:00 258.70 GREY S:-     0 F:-     0 T:  1250
+19:15:00 257.50 GREY S:-     0 F:-     0 T:  1250
+19:30:00 256.70 GREY S:-     0 F:-     0 T:  1250
+19:45:00 257.40 GREY S:-     0 F:-     0 T:  1250
+20:00:00 257.20 GREY S:-     0 F:-     0 T:  1250
+20:15:00 257.40 GREY S:-     0 F:-     0 T:  1250
+20:30:00 257.70 GREY S:-     0 F:-     0 T:  1250
+20:45:01 257.70 GREY S:-     0 F:-     0 T:  1250
+21:00:00 256.60 GREY S:-     0 F:-     0 T:  1250
+21:15:00 256.90 GREY S:-     0 F:-     0 T:  1250
+21:30:00 257.70 GREY S:-     0 F:-     0 T:  1250
+21:45:01 257.90 GREY S:-     0 F:-     0 T:  1250
+
+6/5/2026, 21:56:09
+--- starting ---
+INIT  S:-  F:-  R:↓  sL:254.70  sH:-
+21:56:10 NatGas  S:-  F:-  R:↓
+
+22:00:00 257.40 GREY S:-     0 F:-     0 T:     0
+22:15:00 258.90 GREY S:-     0 F:-     0 T:     0
+22:30:00 259.10 GREY S:-     0 F:-     0 T:     0
+22:45:00 258.60 GREY S:-     0 F:-     0 T:     0
+23:00:00 258.60 GREY S:-     0 F:-     0 T:     0
+EOD shutdown  6/5/2026, 11:00:10 pm
+23:15:00 258.90 GREY S:-     0 F:-     0 T:     0
+session summary  duration 79m  slow 0  fast 0  total 0
+shutdown complete
+
+7/5/2026, 08:45:07
+--- starting ---
+INIT  S:-  F:-  R:↓  sL:254.70  sH:-
+08:45:07 NatGas  S:-  F:-  R:↓
+
+09:00:01 258.60 GREY S:-     0 F:-     0 T:     0
+09:15:00 258.80 GREY S:-     0 F:-     0 T:     0
+09:30:01 259.20 GREY S:-     0 F:-     0 T:     0
+09:45:00 259.20 GREY S:-     0 F:-     0 T:     0
+10:00:01 259.20 GREY S:-     0 F:-     0 T:     0
+10:15:00 259.50 GREY S:-     0 F:-     0 T:     0
+10:30:01 259.30 GREY S:-     0 F:-     0 T:     0
+10:45:00 259.20 GREY S:-     0 F:-     0 T:     0
+11:00:00 259.10 GREY S:-     0 F:-     0 T:     0
+11:15:00 259.30 GREY S:-     0 F:-     0 T:     0
+11:30:00 258.80 GREY S:-     0 F:-     0 T:     0
+11:45:01 258.60 GREY S:-     0 F:-     0 T:     0
+12:00:01 258.30 GREY S:-     0 F:-     0 T:     0
+12:15:00 257.20 GREY S:-     0 F:-     0 T:     0
+12:30:00 257.40 GREY S:-     0 F:-     0 T:     0
+12:45:01 255.20 RED  S:-     0 F:-     0 T:     0
+FAST SHORT ENTRY @ 255.20
+SLOW SHORT BLOCKED  struct  price 255.20  ref 254.70
+13:00:00 256.00 RED  S:-     0 F:↓ -1000 T: -1000
+SLOW SHORT BLOCKED  struct  price 256.00  ref 254.70
+13:15:00 256.40 RED  S:-     0 F:↓ -1500 T: -1500
+SLOW SHORT BLOCKED  struct  price 256.40  ref 254.70
+13:30:00 256.30 RED  S:-     0 F:↓ -1375 T: -1375
+SLOW SHORT BLOCKED  struct  price 256.30  ref 254.70
+13:45:00 256.90 GREY S:-     0 F:↓ -2125 T: -2125
+14:00:01 256.90 GREY S:-     0 F:↓ -2125 T: -2125
+14:15:00 256.80 GREY S:-     0 F:↓ -2000 T: -2000
+14:30:01 256.90 GREY S:-     0 F:↓ -2125 T: -2125
+14:45:00 257.40 GREY S:-     0 F:↓ -2750 T: -2750
+15:00:00 257.00 GREY S:-     0 F:↓ -2250 T: -2250
+15:15:00 257.20 GREY S:-     0 F:↓ -2500 T: -2500
+15:30:00 258.00 GREY S:-     0 F:↓ -3500 T: -3500
+15:45:00 258.20 GREY S:-     0 F:↓ -3750 T: -3750
+16:00:00 258.00 GREY S:-     0 F:↓ -3500 T: -3500
+16:15:00 257.60 GREY S:-     0 F:↓ -3000 T: -3000
+16:30:00 257.80 GREY S:-     0 F:↓ -3250 T: -3250
+16:45:00 257.10 GREY S:-     0 F:↓ -2375 T: -2375
+17:00:00 257.10 GREY S:-     0 F:↓ -2375 T: -2375
+17:15:00 256.20 GREY S:-     0 F:↓ -1250 T: -1250
+17:30:00 255.20 GREY S:-     0 F:↓     0 T:     0
+17:45:00 257.00 GREY S:-     0 F:↓ -2250 T: -2250
+18:00:00 255.80 GREY S:-     0 F:↓  -750 T:  -750
+18:15:00 253.60 GREY S:-     0 F:↓  2000 T:  2000
+18:30:00 254.10 GREY S:-     0 F:↓  1375 T:  1375
+18:45:00 255.40 GREY S:-     0 F:↓  -250 T:  -250
+FAST RE-ENTRY armed  side:SHORT  ref:255.40
+FAST SHORT EXIT (GIVEBACK) @ 255.40  pnl -250
+19:00:00 254.60 GREY S:-     0 F:-     0 T:  -250
+19:15:00 253.90 GREY S:-     0 F:-     0 T:  -250
+FAST SHORT RE-ENTRY @ 253.90
+19:30:00 254.00 GREY S:-     0 F:↓  -125 T:  -375
+19:45:00 254.30 GREY S:-     0 F:↓  -500 T:  -750
+20:00:00 255.90 GREY S:-     0 F:↓ -2500 T: -2750
+FAST RE-ENTRY failed  cooldown:4
+FAST SHORT EXIT (REENTRY_FAILED) @ 255.90  pnl -2500
+TG error: 
+20:15:00 263.30 GREY S:-     0 F:-     0 T: -2750
+SLOW CROSS pending  above  confirming...
+20:30:00 263.40 GREEN S:-     0 F:-     0 T: -2750
+FAST LONG ENTRY @ 263.40
+20:45:00 263.50 GREEN S:-     0 F:↑   125 T: -2625
+21:00:00 264.00 GREEN S:-     0 F:↑   750 T: -2000
+21:15:00 264.00 GREEN S:-     0 F:↑   750 T: -2000
+21:30:00 263.70 GREEN S:-     0 F:↑   375 T: -2375
+21:45:01 264.30 GREEN S:-     0 F:↑  1125 T: -1625
+22:00:00 265.30 GREY S:-     0 F:↑  2375 T:  -375
+22:15:00 264.70 GREY S:-     0 F:↑  1625 T: -1125
+22:30:00 263.80 GREY S:-     0 F:↑   500 T: -2250
+22:45:00 263.50 GREY S:-     0 F:↑   125 T: -2625
+FAST RE-ENTRY armed  side:LONG  ref:263.50
+FAST LONG EXIT (GIVEBACK) @ 263.50  pnl 125
+FAST RE-ENTRY blocked  regime mismatch  age:1
+23:00:00 263.90 GREY S:-     0 F:-     0 T: -2625
+FAST RE-ENTRY blocked  regime mismatch  age:2
+EOD shutdown  7/5/2026, 11:00:08 pm
+23:15:01 264.10 GREY S:-     0 F:-     0 T: -2625
+FAST RE-ENTRY blocked  regime mismatch  age:3
+session summary  duration 870m  slow 0  fast -2625  total -2625
+shutdown complete
+
+8/5/2026, 07:03:29
+--- starting ---
+INIT  re-entry armed  side:LONG  ref:263.50  age:3
+INIT  S:-  F:-  R:↓  sL:254.70  sH:-
+waiting until 8:45  102 min
+WARMUP  1/400
+WARMUP  2/400
+WARMUP  3/400
+WARMUP  4/400
+WARMUP  5/400
+WARMUP  6/400
+08:45:00 NatGas  S:-  F:-  R:↓
+
+09:00:00 263.80 GREY S:-     0 F:-     0 T:     0
+SLOW CROSS pending  above  confirming...
+FAST RE-ENTRY cancelled  opposite signal @ 263.80
+09:15:00 263.20 GREY S:-     0 F:-     0 T:     0
+09:30:01 263.10 GREY S:-     0 F:-     0 T:     0
+09:45:01 263.50 GREY S:-     0 F:-     0 T:     0
+10:00:00 263.70 GREY S:-     0 F:-     0 T:     0
+10:15:01 263.80 GREY S:-     0 F:-     0 T:     0
+10:30:00 262.80 GREY S:-     0 F:-     0 T:     0
+10:45:00 262.90 GREY S:-     0 F:-     0 T:     0
+11:00:01 263.70 GREY S:-     0 F:-     0 T:     0
+11:15:01 263.80 GREY S:-     0 F:-     0 T:     0
+11:30:00 263.50 GREY S:-     0 F:-     0 T:     0
+11:45:00 263.50 GREY S:-     0 F:-     0 T:     0
+12:00:00 263.00 GREY S:-     0 F:-     0 T:     0
+12:15:01 263.30 GREY S:-     0 F:-     0 T:     0
+12:30:00 263.10 GREY S:-     0 F:-     0 T:     0
+12:45:01 263.80 GREY S:-     0 F:-     0 T:     0
+13:00:00 263.90 GREY S:-     0 F:-     0 T:     0
+13:15:00 263.70 GREY S:-     0 F:-     0 T:     0
+13:30:01 264.30 GREY S:-     0 F:-     0 T:     0
+13:45:00 267.10 GREEN S:-     0 F:-     0 T:     0
+FAST LONG ENTRY @ 267.10
+14:00:00 265.50 GREY S:-     0 F:↑ -2000 T: -2000
+14:15:00 266.50 GREEN S:-     0 F:↑  -750 T:  -750
+14:30:00 265.50 GREY S:-     0 F:↑ -2000 T: -2000
+14:45:00 265.50 GREY S:-     0 F:↑ -2000 T: -2000
+15:00:00 265.20 GREY S:-     0 F:↑ -2375 T: -2375
+15:15:00 265.70 GREY S:-     0 F:↑ -1750 T: -1750
+15:30:00 266.70 GREY S:-     0 F:↑  -500 T:  -500
+15:45:00 267.30 GREY S:-     0 F:↑   250 T:   250
+16:00:00 266.60 GREY S:-     0 F:↑  -625 T:  -625
+16:15:00 266.70 GREY S:-     0 F:↑  -500 T:  -500
+16:30:00 267.10 GREY S:-     0 F:↑     0 T:     0
+16:45:00 266.80 GREY S:-     0 F:↑  -375 T:  -375
+17:00:00 265.80 GREY S:-     0 F:↑ -1625 T: -1625
+17:15:00 263.90 GREY S:-     0 F:↑ -4000 T: -4000
+17:30:00 264.50 GREY S:-     0 F:↑ -3250 T: -3250
+17:45:00 263.80 GREY S:-     0 F:↑ -4125 T: -4125
+18:00:00 265.00 GREY S:-     0 F:↑ -2625 T: -2625
+18:15:01 264.50 GREY S:-     0 F:↑ -3250 T: -3250
+18:30:00 265.00 GREY S:-     0 F:↑ -2625 T: -2625
+18:45:00 269.10 GREY S:-     0 F:↑  2500 T:  2500
+19:00:01 267.70 GREY S:-     0 F:↑   750 T:   750
+FAST RE-ENTRY armed  side:LONG  ref:267.70
+FAST LONG EXIT (GIVEBACK) @ 267.70  pnl 750
+FAST RE-ENTRY blocked  regime mismatch  age:1
+19:15:00 267.80 GREY S:-     0 F:-     0 T:   750
+FAST RE-ENTRY blocked  regime mismatch  age:2
+19:30:00 267.50 GREY S:-     0 F:-     0 T:   750
+FAST RE-ENTRY blocked  regime mismatch  age:3
+19:45:01 268.70 GREY S:-     0 F:-     0 T:   750
+FAST RE-ENTRY blocked  regime mismatch  age:4
+20:00:01 267.40 GREY S:-     0 F:-     0 T:   750
+FAST RE-ENTRY blocked  regime mismatch  age:5
+20:15:00 267.70 GREY S:-     0 F:-     0 T:   750
+FAST RE-ENTRY blocked  regime mismatch  age:6
+20:30:00 267.70 GREY S:-     0 F:-     0 T:   750
+FAST RE-ENTRY blocked  regime mismatch  age:7
+20:45:00 267.60 GREY S:-     0 F:-     0 T:   750
+FAST RE-ENTRY blocked  regime mismatch  age:8
+21:00:00 265.60 GREY S:-     0 F:-     0 T:   750
+FAST RE-ENTRY expired  age:8
+21:15:00 266.10 GREY S:-     0 F:-     0 T:   750
+21:30:00 265.80 GREY S:-     0 F:-     0 T:   750
+21:45:00 265.10 GREY S:-     0 F:-     0 T:   750
+22:00:00 264.80 GREY S:-     0 F:-     0 T:   750
+22:15:00 263.60 GREY S:-     0 F:-     0 T:   750
+22:30:00 263.70 GREY S:-     0 F:-     0 T:   750
+22:45:00 261.70 RED  S:-     0 F:-     0 T:   750
+SLOW CROSS pending  below  confirming...
+FAST SHORT ENTRY @ 261.70
+SLOW SHORT BLOCKED  struct  price 261.70  ref 254.70
+23:00:00 262.00 RED  S:-     0 F:↓  -375 T:   375
+SLOW CROSS pending  above  confirming...
+SLOW SHORT BLOCKED  struct  price 262.00  ref 254.70
+EOD shutdown  8/5/2026, 11:00:00 pm
+FAST SHORT EXIT (EOD_FORCE) @ 262.00  pnl -375
+session summary  duration 972m  slow 0  fast 375  total 375
+23:15:00 261.40 RED  S:-     0 F:-     0 T:   375
+SLOW CROSS pending  below  confirming...
+SLOW SHORT BLOCKED  struct  price 261.40  ref 254.70
+shutdown complete
+
+11/5/2026, 07:16:43
+--- starting ---
+INIT  S:-  F:SHORT@261.7  R:↓  sL:254.70  sH:-
+waiting until 8:45  88 min
+WARMUP  1/400
+WARMUP  2/400
+WARMUP  3/400
+WARMUP  4/400
+WARMUP  5/400
+08:45:00 NatGas  S:-  F:SHORT@261.7  R:↓
+
+09:00:00 269.00 GREY S:-     0 F:↓ -9125 T: -9125
+SLOW CROSS pending  above  confirming...
+09:15:00 268.10 GREY S:-     0 F:↓ -8000 T: -8000
+09:30:00 267.50 GREEN S:-     0 F:↓ -7250 T: -7250
+09:45:00 267.90 GREEN S:-     0 F:↓ -7750 T: -7750
+10:00:00 267.60 GREEN S:-     0 F:↓ -7375 T: -7375
+10:15:00 267.90 GREEN S:-     0 F:↓ -7750 T: -7750
+10:30:04 267.90 GREEN S:-     0 F:↓ -7750 T: -7750
+10:45:00 267.50 GREY S:-     0 F:↓ -7250 T: -7250
+11:00:00 267.60 GREY S:-     0 F:↓ -7375 T: -7375
+11:15:00 267.50 GREY S:-     0 F:↓ -7250 T: -7250
+11:30:04 267.60 GREY S:-     0 F:↓ -7375 T: -7375
+11:45:00 266.90 GREY S:-     0 F:↓ -6500 T: -6500
+12:00:01 267.10 GREY S:-     0 F:↓ -6750 T: -6750
+12:15:01 266.70 GREY S:-     0 F:↓ -6250 T: -6250
+12:30:00 266.60 GREY S:-     0 F:↓ -6125 T: -6125
+12:45:01 267.50 GREY S:-     0 F:↓ -7250 T: -7250
+13:00:00 268.10 GREY S:-     0 F:↓ -8000 T: -8000
+13:15:00 268.00 GREY S:-     0 F:↓ -7875 T: -7875
+13:30:00 268.50 GREY S:-     0 F:↓ -8500 T: -8500
+13:45:00 267.60 GREY S:-     0 F:↓ -7375 T: -7375
+14:00:00 266.90 GREY S:-     0 F:↓ -6500 T: -6500
+14:15:01 267.30 GREY S:-     0 F:↓ -7000 T: -7000
+14:30:00 267.10 GREY S:-     0 F:↓ -6750 T: -6750
+14:45:01 266.90 GREY S:-     0 F:↓ -6500 T: -6500
+15:00:02 267.20 GREY S:-     0 F:↓ -6875 T: -6875
+15:15:00 267.50 GREY S:-     0 F:↓ -7250 T: -7250
+15:30:00 266.90 GREY S:-     0 F:↓ -6500 T: -6500
+15:45:00 267.00 GREY S:-     0 F:↓ -6625 T: -6625
+16:00:00 266.70 GREY S:-     0 F:↓ -6250 T: -6250
+16:15:00 267.50 GREY S:-     0 F:↓ -7250 T: -7250
+16:30:00 267.80 GREY S:-     0 F:↓ -7625 T: -7625
+16:45:00 269.70 GREY S:-     0 F:↓ -10000 T:-10000
+17:00:00 270.30 GREY S:-     0 F:↓ -10750 T:-10750
+17:15:00 269.90 GREY S:-     0 F:↓ -10250 T:-10250
+17:30:01 271.10 GREEN S:-     0 F:↓ -11750 T:-11750
+17:45:01 271.20 GREEN S:-     0 F:↓ -11875 T:-11875
+18:00:00 270.00 GREY S:-     0 F:↓ -10375 T:-10375
+18:15:00 270.00 GREY S:-     0 F:↓ -10375 T:-10375
+18:30:00 270.80 GREY S:-     0 F:↓ -11375 T:-11375
+18:45:00 270.30 GREY S:-     0 F:↓ -10750 T:-10750
+19:00:00 271.50 GREY S:-     0 F:↓ -12250 T:-12250
+19:15:00 272.60 GREY S:-     0 F:↓ -13625 T:-13625
+19:30:00 273.10 GREY S:-     0 F:↓ -14250 T:-14250
+19:45:00 274.10 GREY S:-     0 F:↓ -15500 T:-15500
+20:00:01 274.10 GREY S:-     0 F:↓ -15500 T:-15500
+20:15:00 274.50 GREY S:-     0 F:↓ -16000 T:-16000
+20:30:00 275.10 GREY S:-     0 F:↓ -16750 T:-16750
+20:45:00 275.20 GREY S:-     0 F:↓ -16875 T:-16875
+21:00:00 276.80 GREY S:-     0 F:↓ -18875 T:-18875
+21:15:01 276.40 GREY S:-     0 F:↓ -18375 T:-18375
+21:30:00 276.00 GREY S:-     0 F:↓ -17875 T:-17875
+
+11/5/2026, 21:44:00
+--- starting ---
+INIT  S:-  F:SHORT@261.7  R:↓  sL:254.70  sH:-
+MONDAY VALIDATION armed  S:-  F:SHORT@261.7  — waiting 2 candles
+21:44:00 NatGas  S:-  F:SHORT@261.7  R:↓
+
+21:45:00 276.80 GREY S:-     0 F:↓ -18875 T:-18875
+MONDAY VALIDATION FAILED  FAST SHORT rejected @ 276.80
+FAST SHORT EXIT (MONDAY_REJECT) @ 276.80  pnl -18875
+22:00:00 276.00 GREY S:-     0 F:-     0 T:-18875
+MONDAY VALIDATION complete  positions accepted
+SLOW CROSS pending  above  confirming...
+22:15:01 276.70 GREY S:-     0 F:-     0 T:-18875
+22:30:00 276.50 GREY S:-     0 F:-     0 T:-18875
+22:45:00 276.70 GREY S:-     0 F:-     0 T:-18875
+EOD shutdown  11/5/2026, 11:00:00 pm
+23:00:01 277.70 GREY S:-     0 F:-     0 T:-18875
+23:15:00 277.60 GREY S:-     0 F:-     0 T:-18875
+session summary  duration 91m  slow 0  fast -18875  total -18875
+shutdown complete
+
+12/5/2026, 08:39:59
+--- starting ---
+INIT  S:-  F:-  R:↓  sL:254.70  sH:-
+waiting until 8:45  5 min
+08:45:00 NatGas  S:-  F:-  R:↓
+
+09:00:01 279.00 GREY S:-     0 F:-     0 T:     0
+SLOW CROSS pending  above  confirming...
+09:15:00 279.90 GREY S:-     0 F:-     0 T:     0
+09:30:01 280.10 GREEN S:-     0 F:-     0 T:     0
+FAST LONG ENTRY @ 280.10
+09:45:00 280.40 GREEN S:-     0 F:↑   375 T:   375
+10:00:00 279.90 GREEN S:-     0 F:↑  -250 T:  -250
+10:15:06 279.70 GREY S:-     0 F:↑  -500 T:  -500
+10:30:00 280.80 GREY S:-     0 F:↑   875 T:   875
