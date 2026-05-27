@@ -1,9 +1,9 @@
-// signals.js — NatGas Dual Engine
+// signals.js — USDINR
 //
-// SLOW: ALMA 20 on 1H HA — regime memory + dynamic ALMA SL
+// SLOW: Disabled
 // FAST: SuperTrend(10, 1.0) on 1H HA — structural containment + trail SL
 //
-// Entries only after 10:00. Engine boots at 9:00, fetches 9AM candle via API.
+// Entries only after 9:15. Engine boots at 9:00, fetches 9AM candle via API.
 // That candle naturally validates any carry position — no special Monday logic needed.
 "use strict";
 
