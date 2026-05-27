@@ -1,27 +1,38 @@
-# TAlgo-X — Multi-Engine Trading Infrastructure
+# TAlgo-X — Autonomous Multi-Engine Trading Infrastructure
 
-> Production-grade autonomous trading infrastructure with adaptive execution logic and instrument-aware runtime behavior.
+> Production-grade deterministic trading infrastructure designed for adaptive execution, runtime stability, and instrument-aware autonomous decision systems.
 
 ---
 
 ## Overview
 
-TAlgo-X is the deployment and execution layer of the TAlgo ecosystem, designed to run multiple trading engines using shared runtime architecture with instrument-specific configurations.
+TAlgo-X is the deployment and execution layer of the TAlgo ecosystem, built to operate multiple trading engines on top of a shared runtime and execution framework.
 
-Each engine operates on:
+The architecture separates:
 
 ```txt
-- Shared execution framework
-- Instrument-specific parameter tuning
-- Independent runtime behavior
-- Adaptive filtering logic
+- strategy logic
+- runtime orchestration
+- indicator computation
+- persistence
+- observability
 ```
 
-This enables scalable multi-market execution without rewriting core strategy infrastructure.
+This enables scalable multi-market execution without rewriting core infrastructure.
 
-![Version](https://img.shields.io/badge/engines-natgas,zn-skyblue)
-![Strategy](https://img.shields.io/badge/strategy-SuperTrend&ALMA%20Slow-white)
-![Market](https://img.shields.io/badge/market-MCX-darkred)
+Each engine operates with:
+
+```txt
+- shared runtime architecture
+- instrument-specific parameter tuning
+- independent signal behavior
+- adaptive filtering systems
+- deterministic candle evaluation
+```
+
+![Version](https://img.shields.io/badge/engines-natgas,zn,usdinr-skyblue)
+![Strategy](https://img.shields.io/badge/strategy-ST%20%2B%20ALMA%20%2B%20RSI%20%2B%20ADX-white)
+![Architecture](https://img.shields.io/badge/runtime-deterministic-darkblue)
 ![Language](https://img.shields.io/badge/language-Node.js-lightgreen)
 
 ---
@@ -33,35 +44,65 @@ Market Data API
         ↓
 Authoritative Candle Polling
         ↓
-Indicator Layer (ALMA / ST / RSI / ADX)
+Heikin Ashi Transformation
+        ↓
+Indicator Computation Layer
+(ST / ALMA / RSI / ADX)
         ↓
 Signal Validation Layer
         ↓
-Position & Risk Logic
+Execution & Position Logic
         ↓
-Execution Runtime
+Persistence Layer (SQLite)
+        ↓
+Observability & Alerts
 ```
 
 ---
 
-## Core Strategy Logic
+## Core Execution Philosophy
 
-TAlgo-X uses a multi-layer adaptive decision architecture built around:
+TAlgo-X is designed around deterministic evaluation instead of tick-driven candle construction.
+
+### Runtime Philosophy
 
 ```txt
-- SuperTrend FAST layer
-- ALMA SLOW trend bias
-- RSI momentum filtering
+API candles      → authoritative market state
+WebSocket ticks  → asynchronous SL monitoring
+Runtime          → execution coordination
+Engine           → directional decision logic
+```
+
+This architecture improves:
+
+```txt
+- execution consistency
+- signal reproducibility
+- runtime synchronization
+- debugging clarity
+- operational stability
+```
+
+---
+
+## Signal Architecture
+
+The execution stack combines:
+
+```txt
+- SuperTrend FAST directional layer
+- ALMA directional stabilization
+- RSI momentum validation
 - ADX trend-strength confirmation
 ```
 
 ### Signal Philosophy
 
 ```txt
-FAST Layer  → market reaction
-SLOW Layer  → directional bias
-RSI Filter  → momentum quality
-ADX Filter  → trend strength validation
+ST FAST   → directional trigger
+ALMA      → trend stabilization
+RSI       → momentum quality validation
+ADX       → trend-strength confirmation
 ```
 
 This structure helps:
@@ -70,83 +111,217 @@ This structure helps:
 - reduce false breakouts
 - avoid sideways overtrading
 - improve trend confirmation
+- reduce low-quality entries
 - stabilize execution behavior
 ```
 
 ---
 
-## Data Architecture
+## Runtime Architecture
 
-### API-Polled Candle System
+The runtime layer coordinates all live system behavior.
 
-Unlike traditional tick-built candle systems, TAlgo-X uses authoritative API-polled candle closes for deterministic execution timing.
+### Runtime Responsibilities
+
+```txt
+- candle synchronization
+- WebSocket monitoring
+- SL enforcement
+- lifecycle management
+- dashboard telemetry
+- execution scheduling
+- Telegram alerts
+- runtime observability
+```
+
+### Runtime Components
+
+```txt
+runtime/
+├── candlePoll.js
+├── candleBuilder.js
+├── preload.js
+├── lifecycle.js
+├── dashboard.js
+├── telegram.js
+├── executionRouter.js
+└── scheduler.js
+```
+
+---
+
+## Deterministic Candle System
+
+TAlgo-X uses authoritative API-polled candle closes instead of tick-built candle generation.
+
+### Execution Flow
+
+```txt
+API Polling
+      ↓
+Fetch Last Completed Candle
+      ↓
+Indicator Evaluation
+      ↓
+Signal Validation
+      ↓
+Execution Decision
+```
 
 ### Benefits
 
 ```txt
-- Stable candle synchronization
-- Reduced timing inconsistencies
-- Cleaner state transitions
-- Deterministic signal generation
-- Lower runtime drift
+- deterministic timing
+- reduced candle drift
+- cleaner state transitions
+- reproducible execution
+- lower runtime inconsistency
 ```
 
-WebSockets are primarily used for:
+WebSockets are used only for:
 
 ```txt
-- live monitoring
+- live price monitoring
+- SL checks
 - emergency handling
-- runtime alerts
+- observability updates
 ```
 
 ---
 
 ## Active Engines
 
-### Zinc Engine (MCX)
-
-```txt
-Strategy Stack:
-- SuperTrend FAST execution
-- ALMA SLOW trend confirmation
-- RSI momentum filter
-- ADX trend-strength validation
-
-Behavior:
-- Responsive short-term execution
-- Trend-following directional bias
-- Noise reduction through multi-filter validation
-```
-
----
-
 ### Natural Gas Engine (MCX)
 
 ```txt
 Strategy Stack:
-- SuperTrend FAST execution layer
-- ALMA SLOW directional bias
-- RSI market momentum filter
-- ADX strength confirmation
+- SuperTrend FAST execution
+- ALMA directional regime
+- RSI momentum filtering
+- ADX trend-strength validation
 
 Behavior:
-- Handles high-volatility market conditions
-- Reduces overtrading during unstable regimes
-- Combines fast reaction with slower trend stability
+- Designed for high-volatility environments
+- Combines rapid reaction with directional stability
+- Reduces unstable and low-conviction entries
 ```
 
 ---
 
-## Core Design Principles
+### Zinc Engine (MCX)
 
 ```txt
-- Shared runtime infrastructure
-- Deterministic execution behavior
-- Instrument-aware tuning
-- Explainable signal generation
-- Adaptive filtering systems
-- Failure-aware runtime design
+Strategy Stack:
+- SuperTrend FAST directional execution
+- ALMA stabilization layer
+- RSI momentum filter
+- ADX trend confirmation
+
+Behavior:
+- High-reactivity execution model
+- Rapid trend participation
+- Reduced noise through adaptive filtering
 ```
+
+---
+
+### USDINR Engine (Forex)
+
+```txt
+Strategy Stack:
+- SuperTrend FAST execution
+- ALMA trend stabilization
+- RSI momentum validation
+- ADX trend-strength filtering
+
+Behavior:
+- Stable directional participation
+- Controlled execution in lower-volatility conditions
+- Reduced overtrading through confirmation layers
+```
+
+---
+
+## Indicator Layer
+
+Indicators are fully separated from runtime and strategy logic.
+
+### Current Indicator Stack
+
+```txt
+indicators/
+└── indicators.js
+```
+
+Includes:
+
+```txt
+- Heikin Ashi
+- ALMA
+- ATR
+- SuperTrend
+- RSI
+- ADX
+```
+
+This separation enables:
+
+```txt
+- reusable computation logic
+- cleaner architecture
+- easier strategy iteration
+- deterministic calculations
+```
+
+---
+
+## Persistence Layer
+
+SQLite-based persistence ensures runtime continuity across restarts and crashes.
+
+### Database Responsibilities
+
+```txt
+- active position storage
+- regime persistence
+- restart recovery
+- execution continuity
+```
+
+### Database Structure
+
+```txt
+database/
+├── db.js
+└── talgo.db
+```
+
+---
+
+## Observability System
+
+TAlgo-X includes a built-in real-time observability layer.
+
+### Dashboard Features
+
+```txt
+- live runtime telemetry
+- position tracking
+- regime visualization
+- indicator monitoring
+- execution logs
+- WebSocket status
+- session PnL tracking
+```
+
+### Observability Stack
+
+```txt
+dashboard/
+└── dashboard.html
+```
+
+The observability server runs directly inside the runtime process using Socket.IO and Express.
 
 ---
 
@@ -154,26 +329,76 @@ Behavior:
 
 ```txt
 TAlgo-X/
-├── engine/           # Instrument-specific engines
+│
+├── engine/
+│   ├── natgas/
 │   ├── zinc/
-│   └── natgas/
-├── runtime/          # Shared execution/runtime logic
-├── logs/             # Runtime and execution logs
-├── docs/             # Architecture and strategy notes
+│   └── usdinr/
+│
+├── runtime/
+│   ├── candlePoll.js
+│   ├── candleBuilder.js
+│   ├── preload.js
+│   ├── lifecycle.js
+│   ├── dashboard.js
+│   ├── telegram.js
+│   └── executionRouter.js
+│
+├── indicators/
+│   └── indicators.js
+│
+├── database/
+│   ├── db.js
+│   └── talgo.db
+│
+├── dashboard/
+│   └── dashboard.html
+│
+├── logs/
+├── docs/
+├── config/
+├── index.js
 └── README.md
 ```
 
 ---
 
-## Why TAlgo-X Exists
-
-While TAlgo focuses on:
+## Core Design Principles
 
 ```txt
-- strategy research
-- experimentation
-- iteration
+- deterministic execution
+- explainable runtime behavior
+- adaptive signal filtering
+- failure-aware architecture
+- runtime observability
+- instrument-aware tuning
+- modular execution systems
+```
+
+---
+
+## TAlgo vs TAlgo-X
+
+| Aspect        | TAlgo               | TAlgo-X                   |
+| ------------- | ------------------- | ------------------------- |
+| Purpose       | Strategy Research   | Deployment & Execution    |
+| Structure     | Version-based       | Engine-based              |
+| Focus         | Strategy evolution  | Runtime stability         |
+| Environment   | Testing / Iteration | Live deployment           |
+| Architecture  | Experimental        | Deterministic             |
+| Candle System | Exploratory         | Authoritative API polling |
+
+---
+
+## Why TAlgo-X Exists
+
+TAlgo focuses on:
+
+```txt
+- strategy experimentation
 - architecture evolution
+- signal research
+- behavioral iteration
 ```
 
 TAlgo-X focuses on:
@@ -181,54 +406,46 @@ TAlgo-X focuses on:
 ```txt
 - deployment
 - execution stability
-- runtime consistency
+- runtime coordination
 - real-market behavior
+- autonomous operation
 ```
 
 This separation enables:
 
 ```txt
-- cleaner architecture
+- cleaner system architecture
 - safer deployment
 - faster experimentation
 - modular engine scaling
+- runtime reliability
 ```
-
----
-
-## TAlgo vs TAlgo-X
-
-| Aspect       | TAlgo                | TAlgo-X                |
-| ------------ | -------------------- | ---------------------- |
-| Purpose      | Research & Evolution | Deployment & Execution |
-| Structure    | Version-based        | Engine-based           |
-| Focus        | Strategy development | Runtime stability      |
-| Environment  | Testing / Dev        | Live market deployment |
-| Architecture | Experimental         | Deterministic          |
 
 ---
 
 ## Future Direction
 
 ```txt
-- Multi-instrument orchestration
-- Portfolio-level risk management
-- Runtime health monitoring
-- Adaptive parameter systems
-- AI-assisted execution diagnostics
+- multi-engine orchestration
+- portfolio-level risk systems
+- runtime health diagnostics
+- adaptive parameter management
+- AI-assisted observability
+- distributed execution infrastructure
 ```
 
 ---
 
 ## Summary
 
-TAlgo-X transforms trading logic into scalable autonomous execution infrastructure.
+TAlgo-X transforms trading strategies into deterministic autonomous execution systems.
 
 ```txt
-Shared architecture
-→ Adaptive behavior
-→ Instrument-aware execution
-→ Deterministic runtime systems
+Shared runtime
+→ Instrument-aware behavior
+→ Deterministic execution
+→ Persistent state management
+→ Real-time observability
 ```
 
-The focus is not only strategy accuracy, but building stable, explainable, and resilient execution systems for real-world market environments.
+The objective is not only trading performance, but building stable, explainable, and resilient execution infrastructure capable of operating reliably under real-world market conditions.
