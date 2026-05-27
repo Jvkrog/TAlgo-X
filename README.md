@@ -20,7 +20,7 @@ Each engine operates on:
 This enables scalable multi-market execution without rewriting core strategy infrastructure.
 
 ![Version](https://img.shields.io/badge/engines-natgas,zn-skyblue)
-![Strategy](https://img.shields.io/badge/strategy-SuperTrend&ALMA%20Adaptive-white)
+![Strategy](https://img.shields.io/badge/strategy-SuperTrend&ALMA%20Slow-white)
 ![Market](https://img.shields.io/badge/market-MCX-darkred)
 ![Language](https://img.shields.io/badge/language-Node.js-lightgreen)
 
