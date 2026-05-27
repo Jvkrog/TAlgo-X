@@ -1,324 +1,358 @@
-# NatGas Engine — Dual ALMA Execution System
+# NatGas Engine — Adaptive Multi-Filter Execution System
 
-> Multi-layer trading engine combining short-term reactivity and long-term stability using dual ALMA logic.
+> Regime-aware autonomous trading engine combining fast market reaction with slow directional confirmation using SuperTrend, ALMA, RSI, and ADX filtering.
 
 ---
 
 ## Overview
 
-The NatGas engine is a **dual-layer execution system** built on the TAlgo framework.
+The NatGas engine is a production-oriented execution system built on the TAlgo-X runtime architecture.
 
-It runs two independent but interacting engines:
+It combines:
+
+```txt
+- SuperTrend FAST execution logic
+- ALMA SLOW directional bias
+- RSI momentum filtering
+- ADX trend-strength validation
 ```
-- **FAST Engine → ALMA Fast (reactive, 5 mini lots)**
-- **SLOW Engine → ALMA Slow (trend-following, 1 full lot)**
-```
-Both share the same data pipeline but behave differently.
+
+The objective is not just signal generation, but stable behavior under highly volatile natural gas market conditions.
 
 ---
 
 ## Core Concept
 
-```
-
+```txt
 Same Market Data
-↓
-Two Decision Layers
-↓
-FAST (react) + SLOW (hold)
-
+        ↓
+Multi-Layer Signal Validation
+        ↓
+FAST Reaction + SLOW Confirmation
+        ↓
+Filtered Execution
 ```
 
-This creates:
-- quick response to momentum (FAST)
-- stability and trend capture (SLOW)
+This architecture helps:
+
+* react quickly to market movement
+* reduce overtrading in sideways conditions
+* avoid weak or low-conviction entries
+* maintain directional stability
 
 ---
 
-## Engine Structure
+## Engine Architecture
 
-###  FAST Engine (Short-Term Layer)
+```txt
+Market Data API
+        ↓
+Authoritative Candle Polling
+        ↓
+Heikin Ashi Transformation
+        ↓
+Indicator Layer
+(ST FAST + ALMA SLOW + RSI + ADX)
+        ↓
+Signal Validation Layer
+        ↓
+Position & Risk Logic
+        ↓
+Execution Runtime
+        ↓
+SQLite + Telegram
 ```
-- Instrument: NATGAS MINI  
-- Lots: 5 mini  
-- Logic: ALMA Fast color + state machine  
-- Purpose: capture short-term moves  
-```
----
 
-###  SLOW Engine (Long-Term Layer)
-```
-- Instrument: NATGAS FUT  
-- Lots: 1 full  
-- Logic: ALMA Slow crossover  
-- Purpose: hold directional bias  
-```
 ---
 
 ## Data Pipeline
 
+### API-Polled Candle System
+
+The engine uses authoritative API-polled candle closes instead of tick-built candles.
+
+```txt
+API Candle Close
+        ↓
+HA Candle
+        ↓
+Indicators
+        ↓
+Signal Evaluation
+        ↓
+Execution
 ```
 
-Tick → Candle (1H) → HA → ALMA → State → Signal → Execution
+### Why This Architecture
 
+```txt
+- deterministic candle timing
+- reduced synchronization drift
+- cleaner state transitions
+- stable runtime behavior
+- lower execution inconsistency
 ```
 
-- Only FAST token builds candles  
-- Both engines derive signals from same data  
+WebSockets are primarily used for:
 
----
-
-## Indicator System
-
-From code:
-```
-- ALMA Fast = 20  
-- ALMA Slow = 100  
-- ATR-based volatility filter  
-- ALMA High/Low bands for structure 
-```
----
-
-## FAST Engine Behavior
-
-### State Detection
-
-FAST engine classifies market into:
-
-```
-
-GREEN → Strong Uptrend
-RED   → Strong Downtrend
-GREY  → Sideways / Compression
-
-```
-
-Based on:
-```
-- ALMA slope
-- ATR strength
-- Band breakout  
-```
----
-
-### Entry Logic
-```
-- Strong slope → direct entry  
-- Weak slope → probation → confirmation  
-```
-Example from logs:
-
-```
-
-FAST SHORT PROBATION → ENTRY CONFIRMED
-
-````
-
----
-
-### Exit Logic
-```
-- Opposite state → exit  
-- GREY → exit (sideways protection)  
-- SL = based on slow ALMA  
-```
----
-
-## SLOW Engine Behavior
-
-### Entry
-```
-- Triggered on ALMA Slow crossover  
-- Only allowed when FAST aligns  
-```
-
-price crosses ALMA slow AND fast supports direction
-
-
----
-
-### Exit
-```
-* Max loss protection (hard stop)
-* FAST reversal protection
-* SL based on ATR
-```
-From logs:
-
-```
-SLOW SHORT EXIT (MAX_LOSS)
-SLOW EXIT (FAST_PROTECT)
+```txt
+- monitoring
+- emergency handling
+- runtime alerts
 ```
 
 ---
 
-### Reset Rule (Important)
+## Indicator Stack
 
-After SLOW exit:
-```
-* No re-entry allowed
-* Must wait for GREY state
-```
-This prevents:
-```
-* revenge trades
-* repeated losses
-```
----
+### SuperTrend FAST Layer
 
-## Positioning Model (Core Edge)
+Purpose:
 
-```
-FAST → 5 mini lots → reactive layer
-SLOW → 1 full lot → stable layer
+```txt
+- short-term reaction
+- execution timing
+- directional shifts
 ```
 
-Why:
-```
-* FAST captures quick moves
-* SLOW holds conviction trades
-* Risk is distributed across layers
-```
-From config :
-```
-* FAST_LOTS = 5
-* SLOW_LOTS = 1
-```
----
+Behavior:
 
-## Risk System
-
-### FAST
-```
-* SL based on SLOW ALMA
-* exits quickly in sideways
-```
-### SLOW
-```
-* MAX_LOSS limit
-* FAST_PROTECT (if fast reverses strongly)
-* ATR-based SL
-```
----
-
-## Database (Persistence Layer)
-
-The engine uses SQLite to persist positions.
-
-From DB schema :
-
-```
-positions:
-- engine (FAST / SLOW)
-- symbol
-- position (LONG / SHORT)
-- entry_price
-- sl_price
+```txt
+- reacts quickly to volatility
+- handles short-term momentum
+- drives immediate execution decisions
 ```
 
 ---
 
-### Why DB Matters
-```
-* survives restart
-* resumes position after crash
-* ensures continuity
-```
-From lifecycle:
+### ALMA SLOW Layer
 
-```
-Positions saved → resumed next session
+Purpose:
+
+```txt
+- long-term directional bias
+- trend stability
+- noise reduction
 ```
 
+Behavior:
 
+```txt
+- smooths market structure
+- filters unstable reversals
+- confirms broader trend direction
+```
 
 ---
 
-## Execution Flow
+### RSI Filter
 
-```
-WebSocket → Tick → Candle → Signal → Position → DB → Telegram
+Purpose:
+
+```txt
+- momentum quality validation
+- prevent weak entries
 ```
 
-From main engine :
+Behavior:
+
+```txt
+- blocks exhausted moves
+- filters low-quality momentum
+- reduces unnecessary entries
 ```
-* WebSocket feeds live data
-* Only FAST token drives execution
-* Signals processed per candle
-```
+
 ---
 
-## Lifecycle Control
+### ADX Filter
+
+Purpose:
+
+```txt
+- trend-strength confirmation
+- sideways market detection
 ```
-* 9:00 → session start
-* 23:00 → force close
-* 23:15 → shutdown + summary
+
+Behavior:
+
+```txt
+- avoids low-strength trends
+- reduces sideways overtrading
+- validates directional conviction
 ```
+
+---
+
+## Signal Philosophy
+
+```txt
+ST FAST   → reaction layer
+ALMA SLOW → directional bias
+RSI       → momentum validation
+ADX       → trend-strength confirmation
+```
+
+Execution occurs only when filters align with directional conditions.
+
+---
+
+## Execution Logic
+
+### Entry Conditions
+
+```txt
+- FAST direction aligns with SLOW bias
+- RSI confirms momentum quality
+- ADX confirms sufficient trend strength
+- Candle closes trigger evaluation
+```
+
+This creates:
+
+```txt
+- fewer low-quality trades
+- reduced noise participation
+- cleaner execution behavior
+```
+
+---
+
+## Exit Logic
+
+```txt
+- opposite directional confirmation
+- weakening trend strength
+- runtime risk protection
+- lifecycle-based force exits
+```
+
+Additional protection layers include:
+
+```txt
+- session controls
+- EOD forced exits
+- adaptive runtime protection
+```
+
+---
+
+## Position Persistence
+
+The engine uses SQLite-based persistence for runtime continuity.
+
+### Stored State
+
+```txt
+- active position
+- direction
+- entry price
+- stop-loss data
+- engine state
+```
+
+### Why Persistence Matters
+
+```txt
+- survives runtime restart
+- restores execution continuity
+- prevents state loss
+- improves operational reliability
+```
+
+---
+
+## Runtime Flow
+
+```txt
+API Polling
+      ↓
+Indicator Calculation
+      ↓
+Signal Validation
+      ↓
+Execution Decision
+      ↓
+Position Persistence
+      ↓
+Telegram Alerts
+```
+
+---
+
+## Lifecycle Management
+
+```txt
+09:00  → session initialization
+23:00  → force-close protection
+23:15  → runtime shutdown
+```
+
 Includes:
+
+```txt
+- session PnL tracking
+- controlled shutdown handling
+- runtime cleanup
+- execution safety controls
 ```
-* session PnL tracking
-* safe exit handling
-```
+
 ---
 
-## Real Behavior (From Logs)
+## Runtime Design Principles
 
-Example:
-
-```
-FAST SHORT ENTRY CONFIRMED @ 274.20
-FAST PnL → +1750
-EOD FORCE EXIT → secured profit
-```
-
-and
-
-```
-SLOW ENTRY → loss → MAX_LOSS exit
+```txt
+- deterministic execution
+- explainable decision flow
+- adaptive filtering
+- failure-aware runtime behavior
+- stable signal confirmation
 ```
 
- Insight:
-```
-* FAST captures momentum
-* SLOW can suffer in bad trends
-* protection layers prevent blow-up
-```
 ---
 
 ## Strengths
+
+```txt
+- strong sideways filtering
+- adaptive multi-filter validation
+- deterministic candle execution
+- reduced emotional/noise trading
+- runtime persistence and recovery
 ```
-* Dual-layer execution
-* Adaptive to volatility
-* Strong sideways protection
-* Position persistence (DB)
-```
+
 ---
 
 ## Limitations
+
+```txt
+- trend filters can delay entries
+- highly volatile spikes may bypass structure
+- performance depends on filter calibration
 ```
-* SLOW engine vulnerable to false trends
-* Depends on ATR tuning
-* FAST can overtrade without filters
-```
+
 ---
 
 ## System Behavior Summary
 
-```
-FAST → reacts
-SLOW → commits
-DB   → remembers
-Lifecycle → controls risk
+```txt
+FAST Layer  → reacts
+SLOW Layer  → stabilizes
+RSI         → validates momentum
+ADX         → validates trend strength
+SQLite      → preserves state
+Lifecycle   → controls runtime risk
 ```
 
 ---
 
 ## Final Concept
 
-```
-Fast mind + Slow conviction = Balanced execution
+```txt
+Fast reaction
++ Slow confirmation
++ Momentum validation
++ Trend-strength filtering
+= Stable adaptive execution
 ```
 
-This engine is designed not just to trade,
-but to **behave correctly under real market conditions**.
-
+The NatGas engine is designed not only to trade, but to maintain controlled and explainable behavior under real-world volatile market conditions.
