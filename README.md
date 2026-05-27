@@ -90,8 +90,8 @@ This architecture improves:
 The execution stack combines:
 
 ```txt
-- SuperTrend FAST directional layer
-- ALMA directional stabilization
+- SuperTrend FAST layer for short-term directional reaction
+- ALMA SLOW layer for long-term directional stabilization
 - RSI momentum validation
 - ADX trend-strength confirmation
 ```
@@ -99,8 +99,8 @@ The execution stack combines:
 ### Signal Philosophy
 
 ```txt
-ST FAST   → directional trigger
-ALMA      → trend stabilization
+ST FAST   → short-term market reaction
+ALMA SLOW → long-term directional bias
 RSI       → momentum quality validation
 ADX       → trend-strength confirmation
 ```
