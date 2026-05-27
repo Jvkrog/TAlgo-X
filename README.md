@@ -448,4 +448,14 @@ Shared runtime
 → Real-time observability
 ```
 
+---
+
+## Disclaimer
+
+This repository is for research and educational purposes only.  
+No financial advice is provided.  
+Live deployment configurations, credentials, and sensitive runtime data are excluded.
+
+---
+
 The objective is not only trading performance, but building stable, explainable, and resilient execution infrastructure capable of operating reliably under real-world market conditions.
