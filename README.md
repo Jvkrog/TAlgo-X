@@ -448,6 +448,8 @@ Shared runtime
 → Real-time observability
 ```
 
+The objective is not only trading performance, but building stable, explainable, and resilient execution infrastructure capable of operating reliably under real-world market conditions.
+
 ---
 
 ## Disclaimer
@@ -458,4 +460,3 @@ Live deployment configurations, credentials, and sensitive runtime data are excl
 
 ---
 
-The objective is not only trading performance, but building stable, explainable, and resilient execution infrastructure capable of operating reliably under real-world market conditions.
