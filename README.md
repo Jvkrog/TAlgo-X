@@ -1,103 +1,166 @@
-# TAlgo-X — Multi-Engine Trading Deployment
+# TAlgo-X — Multi-Engine Trading Infrastructure
 
-> Production-grade execution layer for TAlgo strategies with instrument-specific configurations.
+> Production-grade autonomous trading infrastructure with adaptive execution logic and instrument-aware runtime behavior.
 
 ---
 
 ## Overview
 
-TAlgo-X is the deployment layer of the TAlgo system, designed to run multiple trading engines with shared logic but different configurations.
+TAlgo-X is the deployment and execution layer of the TAlgo ecosystem, designed to run multiple trading engines using shared runtime architecture with instrument-specific configurations.
 
 Each engine operates on:
-```
-- the same core framework  
-- different parameter tuning  
-- instrument-specific behavior  
-```
-This enables **adaptive execution across markets without rewriting strategy logic**.
 
+```txt
+- Shared execution framework
+- Instrument-specific parameter tuning
+- Independent runtime behavior
+- Adaptive filtering logic
+```
+
+This enables scalable multi-market execution without rewriting core strategy infrastructure.
 
 ![Version](https://img.shields.io/badge/engines-natgas,zn-skyblue)
-![Strategy](https://img.shields.io/badge/strategy-ColorBasedDecision-white)
+![Strategy](https://img.shields.io/badge/strategy-ALMA%20Adaptive-white)
 ![Market](https://img.shields.io/badge/market-MCX-darkred)
 ![Language](https://img.shields.io/badge/language-Node.js-lightgreen)
 
+---
+
+## System Architecture
+
+```txt
+Market Data API
+        ↓
+Authoritative Candle Polling
+        ↓
+Indicator Layer (ALMA / ST / RSI / ADX)
+        ↓
+Signal Validation Layer
+        ↓
+Position & Risk Logic
+        ↓
+Execution Runtime
+```
 
 ---
 
-## System Concept
+## Core Strategy Logic
 
+TAlgo-X uses a multi-layer adaptive decision architecture built around:
+
+```txt
+- SuperTrend FAST layer
+- ALMA SLOW trend bias
+- RSI momentum filtering
+- ADX trend-strength confirmation
 ```
 
-Core Engine (Shared Logic)
-↓
-Parameter Layer (Config)
-↓
-Instrument-Specific Engine
+### Signal Philosophy
 
+```txt
+FAST Layer  → market reaction
+SLOW Layer  → directional bias
+RSI Filter  → momentum quality
+ADX Filter  → trend strength validation
+```
+
+This structure helps:
+
+```txt
+- reduce false breakouts
+- avoid sideways overtrading
+- improve trend confirmation
+- stabilize execution behavior
+```
+
+---
+
+## Data Architecture
+
+### API-Polled Candle System
+
+Unlike traditional tick-built candle systems, TAlgo-X uses authoritative API-polled candle closes for deterministic execution timing.
+
+### Benefits
+
+```txt
+- Stable candle synchronization
+- Reduced timing inconsistencies
+- Cleaner state transitions
+- Deterministic signal generation
+- Lower runtime drift
+```
+
+WebSockets are primarily used for:
+
+```txt
+- live monitoring
+- emergency handling
+- runtime alerts
 ```
 
 ---
 
 ## Active Engines
 
-###  Zinc Engine (MCX)
+### Zinc Engine (MCX)
+
+```txt
+Strategy Stack:
+- SuperTrend FAST execution
+- ALMA SLOW trend confirmation
+- RSI momentum filter
+- ADX trend-strength validation
+
+Behavior:
+- Responsive short-term execution
+- Trend-following directional bias
+- Noise reduction through multi-filter validation
 ```
-- **Strategy Base:** ALMA Fast Line  
-- **Decision Logic:** Color-based (trend direction)  
-- **Positioning:** Standard lot execution  
-- **Behavior:** Responsive, short-term trend capture  
-```
+
 ---
 
-###  Natural Gas Engine (MCX)
-```
-- **Strategy Base:** Dual ALMA System  
-  - ALMA Fast → short-term signal  
-  - ALMA Slow → long-term bias  
+### Natural Gas Engine (MCX)
 
-- **Positioning:**
-  - 5 mini lots → fast ALMA (scalping layer)  
-  - 1 full lot → slow ALMA (trend holding layer)  
+```txt
+Strategy Stack:
+- SuperTrend FAST execution layer
+- ALMA SLOW directional bias
+- RSI market momentum filter
+- ADX strength confirmation
 
-- **Behavior:**
-  - Combines short-term reaction with long-term stability  
-  - Reduces overexposure during noise  
-```
----
-
-## Engine Architecture
-
-```
-
-Market Data → Indicators → Signal Layer → Position Logic → Execution
-
+Behavior:
+- Handles high-volatility market conditions
+- Reduces overtrading during unstable regimes
+- Combines fast reaction with slower trend stability
 ```
 
 ---
 
 ## Core Design Principles
+
+```txt
+- Shared runtime infrastructure
+- Deterministic execution behavior
+- Instrument-aware tuning
+- Explainable signal generation
+- Adaptive filtering systems
+- Failure-aware runtime design
 ```
-- Shared logic, different configurations  
-- Instrument-aware tuning  
-- Multi-layer position sizing  
-- Deterministic execution  
-- Real-time adaptability  
-```
+
 ---
 
 ## Repository Structure
 
-```
-
-TAlgo-X/             
-├── engine/           # Instrument-specific 
-│   ├── zinc
-│   └── natgas
-├── logs/             # Execution logs
-├── docs/             # Engine-specific notes
+```txt
+TAlgo-X/
+├── engine/           # Instrument-specific engines
+│   ├── zinc/
+│   └── natgas/
+├── runtime/          # Shared execution/runtime logic
+├── logs/             # Runtime and execution logs
+├── docs/             # Architecture and strategy notes
 └── README.md
-
 ```
 
 ---
@@ -105,57 +168,67 @@ TAlgo-X/
 ## Why TAlgo-X Exists
 
 While TAlgo focuses on:
+
+```txt
+- strategy research
+- experimentation
+- iteration
+- architecture evolution
 ```
-- research  
-- iteration  
-- strategy evolution  
-```
+
 TAlgo-X focuses on:
-```
-- execution  
-- deployment  
-- real-market behavior  
-```
-This separation ensures:
 
+```txt
+- deployment
+- execution stability
+- runtime consistency
+- real-market behavior
 ```
-- clean architecture  
-- faster experimentation  
-- safer deployment  
+
+This separation enables:
+
+```txt
+- cleaner architecture
+- safer deployment
+- faster experimentation
+- modular engine scaling
 ```
+
 ---
 
-## Key Differences (TAlgo vs TAlgo-X)
-```
-| Aspect       | TAlgo               | TAlgo-X             |
-|--------------|---------------------|---------------------|
-| Purpose      | Research            | Deployment          |
-| Structure    | Version-based       | Engine-based        |
-| Focus        | Strategy evolution  | Execution stability |
-| Usage        | Backtesting / Dev   | Live trading        |
-```
+## TAlgo vs TAlgo-X
+
+| Aspect       | TAlgo                | TAlgo-X                |
+| ------------ | -------------------- | ---------------------- |
+| Purpose      | Research & Evolution | Deployment & Execution |
+| Structure    | Version-based        | Engine-based           |
+| Focus        | Strategy development | Runtime stability      |
+| Environment  | Testing / Dev        | Live market deployment |
+| Architecture | Experimental         | Deterministic          |
+
 ---
 
-## Future Extensions
+## Future Direction
+
+```txt
+- Multi-instrument orchestration
+- Portfolio-level risk management
+- Runtime health monitoring
+- Adaptive parameter systems
+- AI-assisted execution diagnostics
 ```
-- Multi-instrument orchestration  
-- Dynamic parameter tuning  
-- Risk engine integration  
-- Portfolio-level control  
-```
+
 ---
 
 ## Summary
 
-TAlgo-X transforms strategy logic into **real-world execution systems**.
+TAlgo-X transforms trading logic into scalable autonomous execution infrastructure.
 
+```txt
+Shared architecture
+→ Adaptive behavior
+→ Instrument-aware execution
+→ Deterministic runtime systems
 ```
 
-Same brain → Different behavior → Multiple markets
-
-```
-
-The goal is not just strategy accuracy, but **adaptive, stable, and scalable execution**.
-
----
-
+The focus is not only strategy accuracy, but building stable, explainable, and resilient execution systems for real-world market environments.
