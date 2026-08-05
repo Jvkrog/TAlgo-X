@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TALGO-X — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="lock-screen" id="lockScreen">
+  <div class="lock-glow" aria-hidden="true"></div>
+  <div class="lock-content">
+    <div class="lock-icon">◆</div>
+    <div class="lock-title">TALGO-X</div>
+    <div class="lock-subtitle" id="lockSubtitle">enter pin to continue</div>
+    <div class="lock-dots" id="lockDots"></div>
+    <div class="lock-error" id="lockError"></div>
+    <div class="lock-keypad" id="lockKeypad">
+      <button class="key" data-key="1">1</button>
+      <button class="key" data-key="2">2<span>ABC</span></button>
+      <button class="key" data-key="3">3<span>DEF</span></button>
+      <button class="key" data-key="4">4<span>GHI</span></button>
+      <button class="key" data-key="5">5<span>JKL</span></button>
+      <button class="key" data-key="6">6<span>MNO</span></button>
+      <button class="key" data-key="7">7<span>PQRS</span></button>
+      <button class="key" data-key="8">8<span>TUV</span></button>
+      <button class="key" data-key="9">9<span>WXYZ</span></button>
+      <button class="key key-ghost" tabindex="-1"></button>
+      <button class="key" data-key="0">0</button>
+      <button class="key key-del" data-key="del">⌫</button>
+    </div>
+    <div class="lock-success" id="lockSuccess">
+      <div class="success-ring-wrap">
+        <div class="success-particles" id="successParticles"></div>
+        <div class="success-ring">
+          <svg viewBox="0 0 24 24" class="success-check"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+      </div>
+      <div class="success-label">access granted</div>
+    </div>
+  </div>
+</div>
+
+<div class="scanlines" aria-hidden="true"></div>
+<div class="glow-field" aria-hidden="true"></div>
+
+<div id="appRoot" class="app-root">
+
+<header class="topbar">
+  <div class="topbar-row">
+    <div class="wordmark">
+      <span class="wordmark-text">TALGO<span class="wordmark-x">-X</span></span>
+      <span class="wordmark-sub">live operator dashboard</span>
+    </div>
+    <div class="conn-status" id="connStatus">
+      <span class="conn-dot"></span>
+      <span class="conn-label">connecting</span>
+    </div>
+  </div>
+
+  <div class="topbar-row topbar-row-secondary">
+    <div class="session-strip">
+      <div class="session-metric">
+        <span class="session-label">session pnl</span>
+        <span class="session-value" id="totalSessionPnl">+0</span>
+      </div>
+      <div class="session-metric">
+        <span class="session-label">engines</span>
+        <span class="session-value" id="engineCount">0</span>
+      </div>
+    </div>
+    <a class="token-btn" id="tokenBtn" href="#" target="_blank" rel="noopener">
+      <span class="token-dot" id="tokenDot"></span>
+      <span id="tokenLabel">generate token</span>
+    </a>
+  </div>
+
+  <div class="token-panel" id="tokenPanel">
+    <div class="token-panel-hint">
+      if your Kite app's Redirect URL points here, the token is captured
+      automatically after login. Otherwise paste the request_token (or full
+      redirect URL) below:
+    </div>
+    <div class="token-panel-row">
+      <input type="text" id="tokenInput" class="token-input" placeholder="request_token or redirect URL">
+      <button class="btn btn-restart" id="tokenExchangeBtn">exchange</button>
+    </div>
+  </div>
+</header>
+
+<div class="tabbar">
+  <button class="tab active" id="tabDashboard" data-tab="dashboard">dashboard</button>
+  <button class="tab" id="tabToolbox" data-tab="toolbox">toolbox</button>
+</div>
+
+<main class="layout" id="dashboardView">
+  <section class="panel instruments-panel">
+    <div class="panel-head">
+      <span class="panel-title">┌─ INSTRUMENTS ─┐</span>
+      <button class="btn btn-ghost" id="refreshBtn">refresh</button>
+    </div>
+    <div class="instrument-grid" id="instrumentGrid">
+      <div class="empty-state">no engines detected — waiting on PM2...</div>
+    </div>
+  </section>
+
+  <section class="panel log-panel">
+    <div class="panel-head">
+      <span class="panel-title">┌─ LIVE LOG ─┐</span>
+      <label class="autoscroll-toggle">
+        <input type="checkbox" id="autoscrollToggle" checked>
+        <span>auto-scroll</span>
+      </label>
+    </div>
+    <div class="log-stream" id="logStream"></div>
+  </section>
+</main>
+
+<main class="layout toolbox-layout" id="toolboxView" style="display:none">
+  <section class="panel toolbox-panel">
+    <div class="panel-head">
+      <span class="panel-title">┌─ TOOLBOX ─┐</span>
+      <button class="btn btn-ghost" id="toolboxRefreshBtn">refresh</button>
+    </div>
+
+    <div class="toolbox-bulkbar">
+      <label class="tb-selectall">
+        <input type="checkbox" id="tbSelectAll">
+        <span>select all</span>
+      </label>
+      <div class="tb-bulk-actions">
+        <button class="btn btn-start" id="tbStart">start</button>
+        <button class="btn btn-stop" id="tbStop">stop</button>
+        <button class="btn btn-restart" id="tbRestart">restart</button>
+        <button class="btn btn-mode" id="tbMode">mode</button>
+        <button class="btn btn-danger" id="tbDelete">delete</button>
+      </div>
+    </div>
+
+    <div class="toolbox-list" id="toolboxList">
+      <div class="empty-state">no engines detected</div>
+    </div>
+
+    <div class="toolbox-cli-only">
+      <div class="tb-cli-title">cli only — not yet ported to web</div>
+      <div class="tb-cli-grid">
+        <span>add instrument</span>
+        <span>roll contract</span>
+        <span>backtest</span>
+        <span>setup credentials</span>
+        <span>trending instruments</span>
+        <span>market status</span>
+      </div>
+      <div class="tb-cli-hint">run <code>talgox</code> on the server for these — they touch contract identity, broker CSV lookups, or the backtest engine directly, and deserve their own dedicated build rather than a rushed port.</div>
+    </div>
+  </section>
+</main>
+
+<!-- toolbox logs modal -->
+<div class="tb-modal" id="tbLogsModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span id="tbLogsTitle">logs</span>
+      <button class="btn btn-ghost" id="tbLogsClose">close</button>
+    </div>
+    <div class="tb-modal-body" id="tbLogsBody"></div>
+  </div>
+</div>
+
+<!-- mode-switch confirm modal -->
+<div class="tb-modal" id="tbModeModal">
+  <div class="tb-modal-content tb-modal-narrow">
+    <div class="tb-modal-head">
+      <span>switch mode</span>
+      <button class="btn btn-ghost" id="tbModeClose">close</button>
+    </div>
+    <div class="tb-modal-body" id="tbModeBody"></div>
+  </div>
+</div>
+
+</div>
+
+<!-- toolbox boot animation, played once per session on first entering the tab -->
+<div class="tb-boot" id="tbBoot">
+  <div class="tb-banner-wrap">
+    <pre class="tb-banner" id="tbBanner"></pre>
+    <div class="tb-banner-glow" aria-hidden="true"></div>
+  </div>
+  <div class="tb-checklist" id="tbChecklist"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
