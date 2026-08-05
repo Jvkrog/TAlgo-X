@@ -1,48 +1,45 @@
-# TAlgo-X — Autonomous Multi-Instrument Trading Infrastructure
+# TAlgo-X — Autonomous Trading Execution Platform
 
-> Production-grade deterministic trading infrastructure built around a single execution brain operating across multiple market instruments.
+> Production-grade deterministic trading infrastructure for deploying, operating, and monitoring autonomous trading engines through unified CLI and Web interfaces.
 
 ---
 
 ## Overview
 
-TAlgo-X is the deployment and execution layer of the TAlgo ecosystem.
+TAlgo-X is the deployment and execution platform of the TAlgo ecosystem.
 
-Instead of maintaining separate bots for every instrument, TAlgo-X separates:
+Rather than building separate trading bots for each instrument, TAlgo-X separates trading intelligence from runtime orchestration, allowing a single execution brain to operate multiple instruments through isolated runtime contexts.
 
-```text
-Brain
-→ Trading intelligence
+The platform provides two operator interfaces:
 
-Context
-→ Instrument configuration
-
-Runtime
-→ Execution orchestration
-
-Infrastructure
-→ Persistence, monitoring & lifecycle
-```
-
-A single deterministic brain executes multiple instruments through isolated runtime contexts.
+- **CLI Toolbox** — deployment, configuration, backtesting and runtime management
+- **Web Dashboard** — real-time monitoring, observability and engine control
 
 ---
 
-## Architecture
+## Platform Architecture
 
 ```text
-                TAlgo-X Toolbox
-                       │
-        ┌──────────────┼──────────────┐
-        │              │              │
-     NatGas         Zinc         USDINR
-     Context        Context       Context
-        │              │              │
-        └──────────────┼──────────────┘
-                       │
-              Deterministic Brain
-                       │
-          Signal → Risk → Orders
+                     TAlgo-X
+                         │
+          ┌──────────────┴──────────────┐
+          │                             │
+     CLI Toolbox                 Web Dashboard
+          │                             │
+          └──────────────┬──────────────┘
+                         │
+                 Runtime Orchestrator
+                         │
+        ┌────────────────┼────────────────┐
+        │                │                │
+     NatGas           Zinc           USDINR
+     Context          Context         Context
+        │                │                │
+        └────────────────┼────────────────┘
+                         │
+                 Deterministic Brain
+                         │
+        Market → Strategy → Risk → Orders
 ```
 
 ---
@@ -54,11 +51,9 @@ Market Data
       │
 Authoritative Candle Polling
       │
-Market State Evaluation
+Market State Engine
       │
-Indicator Computation
-      │
-Signal Validation
+Strategy Selection
       │
 Risk Management
       │
@@ -66,110 +61,126 @@ Order Execution
       │
 SQLite Persistence
       │
-Observability
+Runtime Observability
 ```
 
 ---
 
-## Trading Architecture
+## Operator Interfaces
 
-The execution engine combines multiple decision layers instead of relying on a single indicator.
+### CLI Toolbox
 
-### Market State
+The CLI serves as the operational control center for TAlgo-X.
 
-Determines whether the market is:
+Features include:
 
-- Trending
-- Neutral
-- Low-quality
+- Engine deployment
+- Instrument onboarding
+- Backtesting
+- Runtime lifecycle management
+- Configuration management
+- PM2 integration
+- Live execution
+- System diagnostics
 
-The detected market state determines which execution model is active.
+---
 
-### Strategy Layers
+### Web Dashboard
 
-Current execution combines:
+The browser interface provides live visibility into every running engine.
 
-- MA Slope regime detection
-- ALMA Band breakout execution
-- ALMA Band re-entry exits
-- SuperTrend confirmation
-- ATR-based risk management
+Features include:
 
-Exit hierarchy:
-
-```text
-Stop Loss
-      │
-ALMA Band Re-entry
-      │
-MA Slope Color Flip
-```
-
-This provides:
-
-- faster reversal response
-- momentum-based exits
-- deterministic behaviour
-- reduced profit give-back
+- Engine lifecycle management
+- Runtime telemetry
+- Position & PnL monitoring
+- Live execution logs
+- Broker connectivity status
+- Market state visualization
+- Multi-engine dashboard
+- Browser-based operator console
 
 ---
 
 ## Runtime
 
-The runtime coordinates all live system behaviour.
+The runtime coordinates every live execution process.
 
 Responsibilities include:
 
-- candle synchronization
+- deterministic candle synchronization
 - execution scheduling
-- position lifecycle
 - order routing
+- position lifecycle management
 - restart recovery
-- Telegram alerts
-- dashboard telemetry
-- runtime monitoring
+- SQLite persistence
+- Telegram notifications
+- dashboard synchronization
+- runtime health monitoring
 
 ---
 
-## Persistence
+## Trading Architecture
+
+Execution decisions are separated into independent layers.
+
+```text
+Market
+      │
+Market State
+      │
+Strategy Selection
+      │
+Signal Validation
+      │
+Risk Management
+      │
+Order Execution
+```
+
+This modular architecture allows strategies to evolve without changing the execution infrastructure.
+
+---
+
+## Active Engines
+
+Current runtime contexts include:
+
+- Natural Gas (MCX)
+- Zinc (MCX)
+- USDINR
+
+Each engine shares the same execution brain while maintaining independent configuration, runtime state and instrument-specific behaviour.
+
+---
+
+## Persistence & Recovery
 
 SQLite persistence provides:
 
 - active position storage
 - runtime recovery
 - execution continuity
+- crash recovery
 - restart safety
 
 ---
 
 ## Observability
 
-Built-in monitoring includes:
+TAlgo-X includes a built-in observability layer.
+
+Features include:
 
 - live execution logs
 - Telegram notifications
 - runtime telemetry
 - dashboard monitoring
-- execution history
 - position tracking
+- execution history
+- engine health monitoring
 
 Every execution decision is logged and traceable.
-
----
-
-## Active Engines
-
-### Zinc (MCX)
-
-High-reactivity execution using ALMA Bands and market-state-aware execution.
-
-### Natural Gas (MCX)
-
-Adaptive execution tuned for high volatility with deterministic runtime behaviour.
-
-### USDINR
-
-Stable execution profile optimized for lower-volatility market conditions.
 
 ---
 
@@ -188,17 +199,18 @@ index.js
 
 ---
 
-## Design Principles
+## Core Design Principles
 
 TAlgo-X is built around:
 
+- One Brain architecture
 - deterministic execution
-- one brain architecture
 - context-driven scalability
-- explainable decisions
-- runtime isolation
-- failure recovery
+- runtime orchestration
+- explainable execution
 - operational simplicity
+- failure recovery
+- production reliability
 
 ---
 
@@ -206,40 +218,43 @@ TAlgo-X is built around:
 
 | TAlgo | TAlgo-X |
 |--------|----------|
-| Strategy research | Live execution |
-| Experimental | Production-oriented |
-| Indicator experimentation | Runtime orchestration |
-| Strategy evolution | Deterministic deployment |
+| Strategy research | Execution platform |
+| Experimental algorithms | Production deployment |
+| Indicator development | Runtime orchestration |
+| Strategy evolution | Multi-engine management |
+| Research environment | Operator platform |
 
 ---
 
-## Current Focus
+## Current Development
 
-Current development focuses on:
+Current work focuses on:
 
 - One Brain architecture
-- Multi-instrument execution
+- Multi-engine execution
+- CLI & Web operator interfaces
+- Market-state driven execution
 - Runtime reliability
-- Market State Engine
+- Deployment tooling
 - Explainable execution
-- Adaptive strategy selection
-- Production stability
+- AI-assisted observability
 
 ---
 
-## Future Work
+## Future Roadmap
 
 - Portfolio-level execution
-- Cross-instrument orchestration
-- AI-assisted observability (TAlgo-AI)
-- Distributed execution
-- Runtime diagnostics
-- Deployment tooling
+- Distributed runtime orchestration
+- Cloud deployment platform
+- User-managed VPS deployment
+- AI-assisted operational insights
+- Multi-broker support
+- Plugin-based strategy framework
 
 ---
 
 ## Disclaimer
 
-TAlgo-X is a research and educational project exploring autonomous trading infrastructure and deterministic execution systems.
+TAlgo-X is a research and educational project focused on autonomous trading infrastructure, deterministic execution systems, and backend engineering.
 
 Live deployment credentials, proprietary configurations, and sensitive operational data are intentionally excluded.
