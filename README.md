@@ -142,17 +142,6 @@ This modular architecture allows strategies to evolve without changing the execu
 
 ---
 
-## Active Engines
-
-Current runtime contexts include:
-
-- Natural Gas (MCX)
-- Zinc (MCX)
-- USDINR
-
-Each engine shares the same execution brain while maintaining independent configuration, runtime state and instrument-specific behaviour.
-
----
 
 ## Persistence & Recovery
 
@@ -181,21 +170,6 @@ Features include:
 - engine health monitoring
 
 Every execution decision is logged and traceable.
-
----
-
-## Repository Structure
-
-```text
-engine/
-runtime/
-database/
-dashboard/
-logs/
-docs/
-config/
-index.js
-```
 
 ---
 
