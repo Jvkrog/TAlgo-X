@@ -174,6 +174,17 @@ async function main() {
     }
     console.log(c.dim(`[${context.tgPrefix}] carry overnight: ${context.carryOvernight ? c.yellow("ON — NRML, EOD will not force-close") : "off — MIS, EOD force-closes as usual"}`));
 
+    // Target points — set per-process by the toolbox's strategy-selection
+    // prompt, same override pattern as above. A blank/unset env means no
+    // fixed take-profit (strategy's own exits are the only way out, today's
+    // default). Applies uniformly to every strategy — see context.js and
+    // candlePoll.js's checkTarget() for how it's actually armed/monitored.
+    if (process.env.TARGET_POINTS_OVERRIDE !== undefined && process.env.TARGET_POINTS_OVERRIDE !== "") {
+        const parsedTarget = Number(process.env.TARGET_POINTS_OVERRIDE);
+        context.targetPoints = Number.isFinite(parsedTarget) && parsedTarget > 0 ? parsedTarget : null;
+    }
+    console.log(c.dim(`[${context.tgPrefix}] target: ${context.targetPoints ? c.yellow(`+${context.targetPoints} points from entry (tick-monitored)`) : "off — no fixed take-profit"}`));
+
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
 

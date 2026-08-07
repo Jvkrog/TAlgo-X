@@ -18,9 +18,366 @@ const { evaluateMarketQuality } = require("./marketQuality");
 const { emitEvent } = require("./eventBridge"); // web dashboard only, see eventBridge.js header
 
 // ════════════════════════════════════════════════════════════════════════
-// DPI_TREND_MEANREV — moved verbatim out of the old signals.js. Nothing
-// about the entry/exit/regime logic changed in this move; see the comments
-// inline for the full trading-logic explanation.
+// DPI_TREND_MEANREV (key name kept as-is for DB-filename/continuity reasons
+// — db.js derives each instrument's SQLite filename from this key, so
+// renaming it would silently orphan any live position's saved state) — as
+// of this change, this is now PURE DPI TREND ONLY. The MEANREV regime that
+// used to live in this function has been split out into its own strategy,
+// DPI_MEANREV (see createDpiMeanrevStrategy below, registered as the last
+// entry in STRATEGIES), which keeps the original combined TREND+MEANREV
+// logic unchanged. This function no longer has any RSI-fade regime, no
+// efficiency-based regime switch — everything below is the TREND half
+// only. A resumed position is always positionSource "TREND", EXCEPT an
+// orphaned pre-split MEANREV row (saved before this key stopped opening
+// MEANREV trades) — initSignals() flattens that on boot instead of
+// mislabeling it TREND, since this function no longer has any exit logic
+// that was ever meant for a mean-reversion trade.
+// ════════════════════════════════════════════════════════════════════════
+//
+// Direction: single SuperTrend (ST_FACTOR) on 15m HA candles. A flip sets
+//            pendingSide — a candidate direction waiting for DPI to confirm.
+//            ST1 no longer gates or exits anything by itself.
+// Entry:     fires when pendingSide is set AND DPI confirms it (dpiState
+//            resolves to STRONG_BULL/STRONG_BEAR matching pendingSide),
+//            plus any optional ADX/CHOP/RSI filters and the trading window.
+// Exit:      THREE independent triggers, any one closes the trade —
+//            a fast SMA9 reversal exit (catches a turn before DPI reacts),
+//            DPI giveback-from-peak (USE_DPI_GIVEBACK), and a forced exit
+//            when efficiency drops below DPI_EFF_THRESH.
+//
+// SL trail: ATR-based, sized off ST1's direction — pure risk management,
+//   not part of the entry/exit decision.
+function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+    // ─── PER-INSTANCE STATE ────────────────────────────────────────────────────
+    let prevSTDir   = 0;    // last ST1 direction: 1 | -1
+    let pendingSide = null; // candidate direction waiting on DPI confirmation
+
+    // ─── TRADING WINDOW ───────────────────────────────────────────────────────
+    function canEnter() {
+        const { hours, minutes } = istParts(clock.now());
+        return hours > engineConfig.TRADE_START_HOUR ||
+            (hours === engineConfig.TRADE_START_HOUR &&
+             minutes >= engineConfig.TRADE_START_MINUTE);
+    }
+
+    // ─── PERSIST ──────────────────────────────────────────────────────────────
+    function persist(position, entryPrice, positionSource) {
+        db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
+    }
+
+    // ─── SL TRAIL — ATR-based, direction from ST1. Risk management only. ─────
+    function computeTrail(livePrice, atrVal, side) {
+        if (atrVal === null) return null;
+        const offset = engineConfig.ATR_SL_MULT * atrVal;
+        return side === "LONG" ? livePrice - offset : livePrice + offset;
+    }
+
+    // ─── MAIN SIGNAL LOOP ─────────────────────────────────────────────────────
+    async function runSignals(price, stResult, atrVal, adxVal, rsiVal, chopVal, hmPrev, hmNow, dpiResult, haCloseVal, sma9Val) {
+        const livePrice = candles.getLivePrice() ?? price;
+
+        const stLast     = stResult[stResult.length - 1];
+        const stDir      = stLast ? stLast.dir : prevSTDir;
+        const stFlipping = stDir !== 0 && stDir !== prevSTDir;
+
+        const dpiState = dpiResult ? getDPIState(dpiResult.dpi, dpiResult.efficiency) : null;
+        // efficiency is signed (direction) now — strength/regime check uses
+        // magnitude. A strong bear move reads close to -1, still "trending."
+        const effOk    = dpiResult ? Math.abs(dpiResult.efficiency) >= engineConfig.DPI_EFF_THRESH : false;
+
+        // ── Gates (all optional, all off by default) ────────────────────────────
+        const adxOk      = !engineConfig.USE_ADX_FILTER  || (adxVal  !== null && adxVal  >= engineConfig.ADX_MIN);
+        const chopOk     = !engineConfig.USE_CHOP_FILTER || (chopVal !== null && chopVal <= engineConfig.CHOP_MAX);
+        const rsiLongOk  = !engineConfig.USE_RSI_FILTER  || (rsiVal  !== null && rsiVal  >  engineConfig.RSI_LONG_MIN);
+        const rsiShortOk = !engineConfig.USE_RSI_FILTER  || (rsiVal  !== null && rsiVal  <  engineConfig.RSI_SHORT_MAX);
+
+        // ── Candle close tick ─────────────────────────────────────────────────
+        const uPnL = positionsUnrealised(livePrice);
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const clr  = stDir === 1 ? "▲" : stDir === -1 ? "▼" : "●";
+        const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+
+        const session   = (state.pnl || 0) + uPnL;
+        const lineColor = !state.position
+            ? c.white
+            : uPnL > 0 ? c.green : uPnL < 0 ? c.red : c.white;
+        console.log(lineColor(`[${context.tgPrefix}] ${ts} ${clr} ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}`));
+        emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null });
+
+        // ── ENGINE ─────────────────────────────────────────────────────────────
+
+        // Exit #1: SMA9 reversal — fast, independent of DPI. TREND positions
+        // only — checked first, deliberately, since its whole purpose is to
+        // catch a reversal before DPI's smoothed math would react to it.
+        if (engineConfig.ENGINE_ENABLED && engineConfig.USE_SMA_EXIT && state.position && state.positionSource === "TREND" && sma9Val !== null) {
+            const reversed =
+                (state.position === "SHORT" && haCloseVal > sma9Val) ||
+                (state.position === "LONG"  && haCloseVal < sma9Val);
+            if (reversed) {
+                const closed = await orders.exit(state.position);
+                if (engineConfig.LIVE_ORDERS && closed === null) {
+                    console.log(c.yellow(`[${context.tgPrefix}] ${state.position} exit failed (SMA9_REVERSAL) — will retry next candle`));
+                } else {
+                    tg(`${state.position} EXIT (SMA9_REVERSAL) @ ₹${livePrice.toFixed(2)}\nHA close ${haCloseVal.toFixed(2)} crossed SMA9 ${sma9Val.toFixed(2)}`);
+                    await positionsClose(livePrice, "SMA9_REVERSAL");
+                    slStore.clearTrail();
+                    targetStore.clearTarget();
+                    persist(null, 0);
+                    pendingSide = stDir === 1 ? "LONG" : stDir === -1 ? "SHORT" : null;
+                }
+            }
+        }
+
+        // Exit #2: DPI giveback — favorable DPI pressure faded from its peak.
+        // TREND positions only — mean-reversion trades don't track peakDPI,
+        // they're not betting on directional persistence in the first place.
+        // Only arms once the peak reached STRONG threshold.
+        if (engineConfig.ENGINE_ENABLED && state.position && state.positionSource === "TREND" && dpiResult) {
+            const favor = state.position === "LONG" ? dpiResult.dpi : -dpiResult.dpi;
+            state.peakDPI = Math.max(state.peakDPI, favor);
+            if (engineConfig.USE_DPI_GIVEBACK) {
+                const armed = state.peakDPI >= engineConfig.DPI_BULL_THRESH;
+                if (armed && favor < state.peakDPI * engineConfig.DPI_GIVEBACK_RATIO) {
+                    const closed = await orders.exit(state.position);
+                    if (engineConfig.LIVE_ORDERS && closed === null) {
+                        console.log(c.yellow(`[${context.tgPrefix}] ${state.position} exit failed (DPI_GIVEBACK) — will retry next candle`));
+                    } else {
+                        tg(`${state.position} EXIT (DPI_GIVEBACK) @ ₹${livePrice.toFixed(2)}\npeak:${state.peakDPI.toFixed(2)}  now:${favor.toFixed(2)}`);
+                        await positionsClose(livePrice, "DPI_GIVEBACK");
+                        slStore.clearTrail();
+                        targetStore.clearTarget();
+                        persist(null, 0);
+                        pendingSide = stDir === 1 ? "LONG" : stDir === -1 ? "SHORT" : null;
+                    }
+                }
+            }
+        }
+
+        // Exit #3: DPI efficiency floor — forced exit regardless of giveback/peak
+        // state. TREND positions only — a MEANREV trade is already betting the
+        // market is choppy, low efficiency is the expected condition, not a
+        // reason to exit it.
+        if (engineConfig.ENGINE_ENABLED && state.position && state.positionSource === "TREND" && dpiResult && !effOk) {
+            const closed = await orders.exit(state.position);
+            if (engineConfig.LIVE_ORDERS && closed === null) {
+                console.log(c.yellow(`[${context.tgPrefix}] ${state.position} exit failed (DPI_EFF_LOW) — will retry next candle`));
+            } else {
+                tg(`${state.position} EXIT (DPI_EFF_LOW) @ ₹${livePrice.toFixed(2)}\n|efficiency|: ${Math.abs(dpiResult.efficiency).toFixed(2)} < ${engineConfig.DPI_EFF_THRESH}`);
+                await positionsClose(livePrice, "DPI_EFF_LOW");
+                slStore.clearTrail();
+                targetStore.clearTarget();
+                persist(null, 0);
+                pendingSide = stDir === 1 ? "LONG" : stDir === -1 ? "SHORT" : null;
+            }
+        }
+
+        // Exit: HM momentum reversal — independent of ST/DPI, off by default.
+        // TREND positions only.
+        if (engineConfig.ENGINE_ENABLED && engineConfig.USE_HM_EXIT && state.position && state.positionSource === "TREND" && hmPrev && hmNow) {
+            const hmCrossExit =
+                (state.position === "LONG"  && hmPrev.ema3 >= hmPrev.wma21 && hmNow.ema3 < hmNow.wma21) ||
+                (state.position === "SHORT" && hmPrev.ema3 <= hmPrev.wma21 && hmNow.ema3 > hmNow.wma21);
+            if (hmCrossExit) {
+                const closed = await orders.exit(state.position);
+                if (engineConfig.LIVE_ORDERS && closed === null) {
+                    console.log(c.yellow(`[${context.tgPrefix}] ${state.position} exit failed (HM_EXIT) — will retry next candle`));
+                } else {
+                    const e3 = hmNow.ema3.toFixed(1), w21 = hmNow.wma21.toFixed(1);
+                    tg(`${state.position} EXIT (HM_EXIT) @ ₹${livePrice.toFixed(2)}\nEMA3:${e3}  WMA21:${w21}`);
+                    await positionsClose(livePrice, "HM_EXIT");
+                    slStore.clearTrail();
+                    targetStore.clearTarget();
+                    persist(null, 0);
+                    pendingSide = stDir === 1 ? "LONG" : stDir === -1 ? "SHORT" : null;
+                }
+            }
+        }
+
+        // Set or cancel pending side on ST1 flip — direction only, no gating.
+        if (engineConfig.ENGINE_ENABLED && !state.position) {
+            if (stFlipping) {
+                pendingSide = stDir === 1 ? "LONG" : "SHORT";
+            } else if (pendingSide) {
+                const pendingMatchesST =
+                    (pendingSide === "LONG"  && stDir === 1) ||
+                    (pendingSide === "SHORT" && stDir === -1);
+                if (!pendingMatchesST) pendingSide = null;
+            }
+        }
+
+        // Entry: direction from ST1 (pendingSide), confirmed by DPI.
+        // Naturally can't fire below DPI_EFF_THRESH — STRONG_BULL/BEAR
+        // already requires it.
+        if (engineConfig.ENGINE_ENABLED && !state.position && pendingSide && canEnter() && adxOk && chopOk) {
+            const side  = pendingSide;
+            const rsiOk = side === "LONG" ? rsiLongOk : rsiShortOk;
+            const dpiOk = side === "LONG" ? dpiState === "STRONG_BULL" : dpiState === "STRONG_BEAR";
+            if (rsiOk && dpiOk) {
+                const ordered = await orders.enter(side);
+                if (engineConfig.LIVE_ORDERS && ordered === null) {
+                    console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
+                } else {
+                    const slTrail = computeTrail(livePrice, atrVal, side);
+
+                    state.position    = side;
+                    state.entryPrice  = livePrice;
+                    state.positionSource = "TREND";
+                    state.peakDPI     = dpiResult ? (side === "LONG" ? dpiResult.dpi : -dpiResult.dpi) : 0;
+                    state.openTradeId = await db.insertOpenTrade(
+                        context.tgPrefix, context.symbol, side, context.lots, livePrice
+                    );
+
+                    const trailValid =
+                        slTrail !== null &&
+                        ((side === "LONG"  && slTrail < livePrice) ||
+                         (side === "SHORT" && slTrail > livePrice));
+                    if (trailValid) slStore.setTrail(slTrail, stDir);
+
+                    persist(side, livePrice, "TREND");
+                    pendingSide = null;
+                    console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  DPI:${dpiState}`));
+                    emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
+                    tg(`${side} ENTRY @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}  DPI:${dpiState}`);
+                }
+            }
+        }
+
+        // Refresh SL every candle — trail tightens as price moves in favour
+        if (engineConfig.ENGINE_ENABLED && state.position && atrVal !== null) {
+            const slTrail      = computeTrail(livePrice, atrVal, state.position);
+            const refreshValid =
+                (state.position === "LONG"  && slTrail < livePrice) ||
+                (state.position === "SHORT" && slTrail > livePrice);
+            if (refreshValid) slStore.setTrail(slTrail, stDir);
+        }
+
+        prevSTDir = stDir;
+    }
+
+    // ─── PROCESS CANDLE — called by candlePoll on every completed 15m candle ──
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown()) return;
+        const rawCandles = candles.getRawCandles();
+
+        const warmupNeeded = Math.max(engineConfig.DPI_LEN, engineConfig.ST_ATR_LEN, engineConfig.SMA_LEN, engineConfig.RSI_LEN) + 5;
+        if (rawCandles.length < warmupNeeded) {
+            console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${rawCandles.length}/${warmupNeeded}`));
+            return;
+        }
+
+        const haCandles = toHA(rawCandles);
+        const haCloses  = haCandles.map(cd => cd.close);
+
+        const stResult = supertrend(haCandles, engineConfig.ST_ATR_LEN, engineConfig.ST_FACTOR);
+        if (!stResult) return;
+
+        const adxArr = adx(rawCandles, engineConfig.ADX_LEN);
+        const adxVal = adxArr[adxArr.length - 1];
+
+        const rsiArr = rsi(haCloses, engineConfig.RSI_LEN);
+        const rsiVal = rsiArr[rsiArr.length - 1];
+
+        const chopArr = choppinessIndex(rawCandles, engineConfig.CHOP_LEN);
+        const chopVal = chopArr[chopArr.length - 1];
+
+        const hmArr = hmIndicator(haCloses);
+        let hmNow = null, hmPrev = null;
+        for (let i = hmArr.length - 1; i >= 0 && (!hmNow || !hmPrev); i--) {
+            if (hmArr[i] !== null) {
+                if (!hmNow)       hmNow  = hmArr[i];
+                else if (!hmPrev) hmPrev = hmArr[i];
+            }
+        }
+
+        const atrVal = atr(haCandles, engineConfig.ST_ATR_LEN);
+
+        const atrArr    = atrSeries(haCandles, engineConfig.ST_ATR_LEN);
+        const dpiResult = dpi(haCandles, atrArr, engineConfig.DPI_LEN, engineConfig.DPI_STREAK_MULT, engineConfig.DPI_STREAK_CAP);
+
+        const sma9Arr  = sma(haCloses, engineConfig.SMA_LEN);
+        const sma9Val  = sma9Arr[sma9Arr.length - 1];
+        const haCloseVal = haCloses[haCloses.length - 1];
+
+        // Boot seed — first candle after restart, prevSTDir still 0. Seed from
+        // computed ST so runSignals doesn't see current direction as a flip
+        // from nothing, and arm pendingSide so a mid-session restart doesn't
+        // wait for the next ST flip to re-engage.
+        if (prevSTDir === 0) {
+            const bootDir = stResult[stResult.length - 1]?.dir ?? 0;
+            prevSTDir = bootDir;
+            if (!state.position && bootDir !== 0) {
+                pendingSide = bootDir === 1 ? "LONG" : "SHORT";
+            }
+        }
+
+        await runSignals(rawCandle.close, stResult, atrVal, adxVal, rsiVal, chopVal, hmPrev, hmNow, dpiResult, haCloseVal, sma9Val);
+    }
+
+    // ─── INIT — restore from DB on startup ────────────────────────────────────
+    async function initSignals() {
+        try {
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+            const today = clock.now().toISOString().split("T")[0];
+
+            if (engineConfig.RESUME_INTRADAY_ONLY && saved?.position) {
+                // CHANGED: carry-overnight support — a position opened with
+                // context.carryOvernight=true is allowed to resume on a LATER
+                // calendar day too, not just same-day. Without this, the
+                // RESUME_INTRADAY_ONLY safety gate below would silently wipe
+                // an intentionally-carried position the next time this process
+                // boots, since entry_date would no longer match today.
+                const sameDay     = (saved.entry_date ?? null) === today;
+                const shouldResume = sameDay || context.carryOvernight;
+                if (shouldResume && saved.position_source === "MEANREV") {
+                    // Orphaned leftover from before the DPI split — this key
+                    // can no longer open a MEANREV trade at all, and this
+                    // strategy has no MEANREV exit logic anymore (removed,
+                    // see DPI_MEANREV for where it lives now). Silently
+                    // relabeling it "TREND" would apply SMA9/giveback/
+                    // eff-floor exits to a trade that was never opened under
+                    // that logic — wrong regardless of size, and this
+                    // instrument is paper-only right now, so the safe fix is
+                    // to flatten it on boot rather than mismanage it.
+                    console.warn(c.yellow(`[${context.tgPrefix}] orphaned MEANREV position from before the DPI split (${saved.position}@${saved.entry_price}) — this strategy can no longer manage it, flattening on boot instead of misrouting its exits`));
+                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                } else if (shouldResume) {
+                    state.position   = saved.position;
+                    state.entryPrice = saved.entry_price;
+                    state.positionSource = "TREND";
+                    prevSTDir = saved.position === "LONG" ? 1 : -1;
+
+                    const openTrade = await db.getOpenTrade(context.tgPrefix);
+                    state.openTradeId = openTrade ? openTrade.id : null;
+                } else {
+                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                }
+            }
+
+            // Session PnL is rebuilt from the ledger, not trusted from RAM —
+            // a crash/restart must change nothing about the day's numbers.
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+
+            const info = state.position ? `${state.position}@${state.entryPrice}` : "flat";
+            console.log();
+            console.log(c.green(`[${context.tgPrefix}] ${info}`));
+            console.log();
+
+            await orders.reconcile(state);
+
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// DPI_MEANREV — the original combined DPI_TREND_MEANREV logic, split out
+// unchanged into its own strategy (see createDpiTrendMeanrevStrategy above,
+// which now only keeps the TREND half). Registered as the last entry in
+// STRATEGIES. Nothing about the entry/exit/regime logic differs from the
+// original — this is the full TREND+MEANREV combo.
 // ════════════════════════════════════════════════════════════════════════
 //
 // TWO REGIMES, split by |DPI efficiency| (signed ratio, roughly [-1,1] —
@@ -59,7 +416,7 @@ const { emitEvent } = require("./eventBridge"); // web dashboard only, see event
 //
 // SL trail (both regimes): ATR-based, sized off ST1's direction — pure risk
 //   management, not part of either regime's entry/exit decision.
-function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candles, slStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
     // ─── PER-INSTANCE STATE ────────────────────────────────────────────────────
     let prevSTDir   = 0;    // last ST1 direction: 1 | -1
     let pendingSide = null; // candidate direction waiting on DPI confirmation
@@ -137,6 +494,7 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
                     tg(`${state.position} EXIT (SMA9_REVERSAL) @ ₹${livePrice.toFixed(2)}\nHA close ${haCloseVal.toFixed(2)} crossed SMA9 ${sma9Val.toFixed(2)}`);
                     await positionsClose(livePrice, "SMA9_REVERSAL");
                     slStore.clearTrail();
+                    targetStore.clearTarget();
                     persist(null, 0);
                     pendingSide = stDir === 1 ? "LONG" : stDir === -1 ? "SHORT" : null;
                 }
@@ -160,6 +518,7 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
                         tg(`${state.position} EXIT (DPI_GIVEBACK) @ ₹${livePrice.toFixed(2)}\npeak:${state.peakDPI.toFixed(2)}  now:${favor.toFixed(2)}`);
                         await positionsClose(livePrice, "DPI_GIVEBACK");
                         slStore.clearTrail();
+                        targetStore.clearTarget();
                         persist(null, 0);
                         pendingSide = stDir === 1 ? "LONG" : stDir === -1 ? "SHORT" : null;
                     }
@@ -179,6 +538,7 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
                 tg(`${state.position} EXIT (DPI_EFF_LOW) @ ₹${livePrice.toFixed(2)}\n|efficiency|: ${Math.abs(dpiResult.efficiency).toFixed(2)} < ${engineConfig.DPI_EFF_THRESH}`);
                 await positionsClose(livePrice, "DPI_EFF_LOW");
                 slStore.clearTrail();
+                targetStore.clearTarget();
                 persist(null, 0);
                 pendingSide = stDir === 1 ? "LONG" : stDir === -1 ? "SHORT" : null;
             }
@@ -199,6 +559,7 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
                     tg(`${state.position} EXIT (HM_EXIT) @ ₹${livePrice.toFixed(2)}\nEMA3:${e3}  WMA21:${w21}`);
                     await positionsClose(livePrice, "HM_EXIT");
                     slStore.clearTrail();
+                    targetStore.clearTarget();
                     persist(null, 0);
                     pendingSide = stDir === 1 ? "LONG" : stDir === -1 ? "SHORT" : null;
                 }
@@ -222,6 +583,7 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
                     tg(`${state.position} EXIT (MEANREV_RSI_FLIP) @ ₹${livePrice.toFixed(2)}\nRSI ${rsiVal.toFixed(1)}`);
                     await positionsClose(livePrice, "MEANREV_RSI_FLIP");
                     slStore.clearTrail();
+                    targetStore.clearTarget();
                     persist(null, 0);
                 }
             }
@@ -491,7 +853,7 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
 // state.positionSource = "DPI_SMA5_EXIT" — keeps this strategy's exits
 //         from ever acting on a position a different strategy opened.
 // ════════════════════════════════════════════════════════════════════════
-function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, slStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
     function canEnter() {
         const { hours, minutes } = istParts(clock.now());
         return hours > engineConfig.TRADE_START_HOUR ||
@@ -535,6 +897,7 @@ function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, 
                     tg(`${state.position} EXIT (SMA5_EXIT) @ ₹${livePrice.toFixed(2)}\nclose ${closeVal.toFixed(2)} crossed SMA5 ${sma5Val.toFixed(2)}`);
                     await positionsClose(livePrice, "SMA5_EXIT");
                     slStore.clearTrail();
+                    targetStore.clearTarget();
                     persist(null, 0);
                 }
             }
@@ -702,7 +1065,7 @@ function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, 
 //   this port's own addition, no Pine equivalent specified.
 // state.positionSource = "ALMA_DUAL_BAND_SMA5".
 // ════════════════════════════════════════════════════════════════════════
-function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles, slStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
     function canEnter() {
         const { hours, minutes } = istParts(clock.now());
         return hours > engineConfig.TRADE_START_HOUR ||
@@ -747,6 +1110,7 @@ function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles,
                     tg(`${state.position} EXIT (SMA5_EXIT) @ ₹${livePrice.toFixed(2)}\nclose ${closeVal.toFixed(2)} crossed SMA5 ${sma5Val.toFixed(2)}`);
                     await positionsClose(livePrice, "SMA5_EXIT");
                     slStore.clearTrail();
+                    targetStore.clearTarget();
                     persist(null, 0);
                 }
             }
@@ -929,7 +1293,7 @@ function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles,
 //         mid-position can never let the wrong strategy's exit logic act on
 //         a position it didn't open.
 // ════════════════════════════════════════════════════════════════════════
-function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
     function canEnter() {
         const { hours, minutes } = istParts(clock.now());
         return hours > engineConfig.TRADE_START_HOUR ||
@@ -973,6 +1337,7 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
                     tg(`${state.position} EXIT (ALMA_REENTRY) @ ₹${livePrice.toFixed(2)}\nHA close ${closeVal.toFixed(2)} re-entered band [${almaLow.toFixed(2)}, ${almaHigh.toFixed(2)}]`);
                     await positionsClose(livePrice, "ALMA_REENTRY");
                     slStore.clearTrail();
+                    targetStore.clearTarget();
                     persist(null, 0);
                 }
             }
@@ -1140,7 +1505,7 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
 //          entry/exit decision.
 // state.positionSource = "ALMA_FAST" — keeps this strategy's exits from
 //          ever acting on a position a different strategy opened.
-function createAlmaFastStrategy({ context, engineConfig, state, db, candles, slStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+function createAlmaFastStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
     // Persists across candles — grey periods don't reset "what direction
     // were we last decisively in", that's the whole point of the deadband.
     let lastDecisiveState = null; // "BULL" | "BEAR" | null (never decided yet)
@@ -1188,6 +1553,7 @@ function createAlmaFastStrategy({ context, engineConfig, state, db, candles, slS
                 tg(`${state.position} EXIT (ALMA_FAST_FLIP) @ ₹${livePrice.toFixed(2)}`);
                 await positionsClose(livePrice, "ALMA_FAST_FLIP");
                 slStore.clearTrail();
+                targetStore.clearTarget();
                 persist(null, 0);
             }
         }
@@ -1416,13 +1782,10 @@ function createMaSlopeStrategy({ context, engineConfig, state, db, candles, slSt
         return side === "LONG" ? livePrice - offset : livePrice + offset;
     }
 
-    // Fixed favorable-exit level, MA_SLOPE_TARGET_POINTS from entry — set
-    // once at entry, tick-checked by candlePoll.js's checkTarget(), same
-    // fixed-not-trailed design as MA_SLOPE_SCALP's original scalp target.
-    function computeTarget(entryPrice, side) {
-        return side === "LONG" ? entryPrice + engineConfig.MA_SLOPE_TARGET_POINTS
-                                : entryPrice - engineConfig.MA_SLOPE_TARGET_POINTS;
-    }
+    // Fixed favorable-exit target — now armed generically by candlePoll.js's
+    // checkTarget() off context.targetPoints (toolbox prompt), same as every
+    // other strategy, not by this function anymore. MA_SLOPE_TARGET_POINTS
+    // (engineConfig.js) is superseded — left in place for reference only.
 
     async function runSignals(price, flipSide, entrySide, entryReason, atrVal, currentState, almaHigh, almaLow, haCloseVal) {
         const livePrice = candles.getLivePrice() ?? price;
@@ -1517,16 +1880,14 @@ function createMaSlopeStrategy({ context, engineConfig, state, db, candles, slSt
                      (side === "SHORT" && slTrail > livePrice));
                 if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
 
-                // Arm the tick-level fixed target — every entry, both entry
-                // modes, per instruction ("all three" get the reversal +
-                // target feature). checkTarget() in candlePoll.js fires it.
-                const target = computeTarget(livePrice, side);
-                targetStore?.setTarget(target, side === "LONG" ? 1 : -1);
+                // Target no longer armed here — candlePoll.js's checkTarget()
+                // arms it generically off context.targetPoints on the next
+                // tick, same mechanism every other strategy now uses.
 
                 persist(side, livePrice, "MA_SLOPE");
-                console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (${entryReason}) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  Tgt:${target.toFixed(2)}`));
+                console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (${entryReason}) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
                 emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
-                tg(`${side} ENTRY (${entryReason}) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}\nTarget: ₹${target.toFixed(2)}`);
+                tg(`${side} ENTRY (${entryReason}) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
             }
         }
 
@@ -2116,9 +2477,16 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
 // SL:     same ATR_SL_MULT x ATR(ST_ATR_LEN) trail every other strategy in
 //         this file uses — the underlying Pine script has no stop-loss of
 //         its own, same reasoning as MA_SLOPE's own SL addition.
+// SMA9:   a second, independent exit — HA close crosses SMA(9) against the
+//         position, but ONLY once the slope angle already confirms a
+//         clearly one-sided move (> MA_SLOPE_PURE_SMA9_EXIT_ANGLE degrees
+//         for a LONG, < -that for a SHORT — a stronger bar than the plain
+//         +-2 degree BULL/BEAR split used for entries). Either this or the
+//         flip/GREY exit above can close the position, whichever fires
+//         first on a given candle.
 // state.positionSource = "MA_SLOPE_PURE".
 // ════════════════════════════════════════════════════════════════════════
-function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, slStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
     let lastDecisiveState = null; // "BULL" | "BEAR" | null (never decided yet)
 
     function canEnter() {
@@ -2138,7 +2506,7 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
         return side === "LONG" ? livePrice - offset : livePrice + offset;
     }
 
-    async function runSignals(price, flipSide, entrySide, atrVal, currentState) {
+    async function runSignals(price, flipSide, entrySide, atrVal, currentState, angle, haCloseVal, sma9Val) {
         const livePrice = candles.getLivePrice() ?? price;
 
         const uPnL = positionsUnrealised(livePrice);
@@ -2151,6 +2519,33 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
             : uPnL > 0 ? c.green : uPnL < 0 ? c.red : c.white;
         console.log(lineColor(`[${context.tgPrefix}] ${ts} PURE ${clr} ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}`));
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null });
+
+        // Exit: SMA9 reversal — a second, faster exit alongside the opposite-
+        // color-flip/GREY exit below, gated by MA_SLOPE_PURE_SMA9_EXIT_ANGLE
+        // so it only checks once the slope has already confirmed a clearly
+        // one-sided move (not on a marginal decisive-but-barely candle).
+        // Independent trigger — either this or the flip/GREY exit below can
+        // close the position, whichever fires first.
+        if (engineConfig.ENGINE_ENABLED && state.position && state.positionSource === "MA_SLOPE_PURE" && sma9Val !== null) {
+            const angleConfirms =
+                (state.position === "LONG"  && angle >  engineConfig.MA_SLOPE_PURE_SMA9_EXIT_ANGLE) ||
+                (state.position === "SHORT" && angle < -engineConfig.MA_SLOPE_PURE_SMA9_EXIT_ANGLE);
+            const smaReversed =
+                (state.position === "SHORT" && haCloseVal > sma9Val) ||
+                (state.position === "LONG"  && haCloseVal < sma9Val);
+            if (angleConfirms && smaReversed) {
+                const closed = await orders.exit(state.position);
+                if (engineConfig.LIVE_ORDERS && closed === null) {
+                    console.log(c.yellow(`[${context.tgPrefix}] ${state.position} exit failed (MA_SLOPE_PURE_SMA9) — will retry next candle`));
+                } else {
+                    tg(`${state.position} EXIT (MA_SLOPE_PURE_SMA9) @ ₹${livePrice.toFixed(2)}\nangle:${angle.toFixed(1)}°  HA close ${haCloseVal.toFixed(2)} crossed SMA9 ${sma9Val.toFixed(2)}`);
+                    await positionsClose(livePrice, "MA_SLOPE_PURE_SMA9");
+                    slStore.clearTrail();
+                    targetStore.clearTarget();
+                    persist(null, 0);
+                }
+            }
+        }
 
         // Exit: color change to the opposite decisive state, OR a flip into
         // GREY — both close the position now. CHANGED (this session, live
@@ -2173,6 +2568,7 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
                     tg(`${state.position} EXIT (${exitTag}) @ ₹${livePrice.toFixed(2)}`);
                     await positionsClose(livePrice, exitTag);
                     slStore.clearTrail();
+                    targetStore.clearTarget();
                     persist(null, 0);
                 }
             }
@@ -2224,7 +2620,8 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
         const rawCandles = candles.getRawCandles();
 
         // No ALMA_LEN in this warmup — this strategy never touches the band.
-        const warmupNeeded = Math.max(engineConfig.MA_SLOPE_LEN + 1, engineConfig.MA_SLOPE_ATR_LEN, engineConfig.ST_ATR_LEN) + 5;
+        // SMA_LEN added for the new SMA9 reversal exit's warmup requirement.
+        const warmupNeeded = Math.max(engineConfig.MA_SLOPE_LEN + 1, engineConfig.MA_SLOPE_ATR_LEN, engineConfig.ST_ATR_LEN, engineConfig.SMA_LEN) + 5;
         if (rawCandles.length < warmupNeeded) {
             console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${rawCandles.length}/${warmupNeeded}`));
             return;
@@ -2286,7 +2683,17 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
 
         const atrForTrail = atr(rawCandles, engineConfig.ST_ATR_LEN);
 
-        await runSignals(rawCandle.close, flipSide, entrySide, atrForTrail, currentState);
+        // SMA9 reversal exit inputs — HA close vs SMA(9) on HA closes, same
+        // basis DPI_TREND_MEANREV's own SMA9 exit uses. Only computed here
+        // for the exit gate above; entries/currentState above are unaffected
+        // (still plain-close ema/atan, "pure" color logic untouched).
+        const haCandles = toHA(rawCandles);
+        const haCloses  = haCandles.map(cd => cd.close);
+        const sma9Arr   = sma(haCloses, engineConfig.SMA_LEN);
+        const sma9Val   = sma9Arr[sma9Arr.length - 1];
+        const haCloseVal = haCloses[haCloses.length - 1];
+
+        await runSignals(rawCandle.close, flipSide, entrySide, atrForTrail, currentState, angle, haCloseVal, sma9Val);
     }
 
     async function initSignals() {
@@ -2348,7 +2755,7 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
 // strategy's ONLY exit — not gated behind that toggle, since here it's the
 // whole point rather than an optional extra.
 // ════════════════════════════════════════════════════════════════════════
-function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, slStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
     function canEnter() {
         const { hours, minutes } = istParts(clock.now());
         return hours > engineConfig.TRADE_START_HOUR ||
@@ -2396,6 +2803,7 @@ function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, sl
                     tg(`${state.position} EXIT (HM_EXIT) @ ₹${livePrice.toFixed(2)}\nEMA3:${e3}  WMA21:${w21}`);
                     await positionsClose(livePrice, "HM_EXIT");
                     slStore.clearTrail();
+                    targetStore.clearTarget();
                     persist(null, 0);
                 }
             }
@@ -2569,7 +2977,7 @@ function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, sl
 //         than assumed from anything strategy-specific. Easy one-line
 //         change there if a different cadence was actually intended.
 // ════════════════════════════════════════════════════════════════════════
-function createDualStChopStrategy({ context, engineConfig, state, db, candles, slStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+function createDualStChopStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
     function canEnter() {
         const { hours, minutes } = istParts(clock.now());
         return hours > engineConfig.TRADE_START_HOUR ||
@@ -2612,6 +3020,7 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
                 tg(`${state.position} EXIT (ST_DISAGREE) @ ₹${livePrice.toFixed(2)}\nST1 dir ${st1Dir}, ST2 dir ${st2Dir} — no longer agree`);
                 await positionsClose(livePrice, "ST_DISAGREE");
                 slStore.clearTrail();
+                targetStore.clearTarget();
                 persist(null, 0);
             }
         }
@@ -2759,7 +3168,7 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
 // ported script here). No target, no quality gate — "otherwise plain",
 // matching this project's default shape unless told to add more.
 // ════════════════════════════════════════════════════════════════════════
-function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles, slStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
     function canEnter() {
         const { hours, minutes } = istParts(clock.now());
         return hours > engineConfig.TRADE_START_HOUR ||
@@ -2807,6 +3216,7 @@ function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles
                     tg(`${state.position} EXIT (${exitTag}) @ ₹${livePrice.toFixed(2)}`);
                     await positionsClose(livePrice, exitTag);
                     slStore.clearTrail();
+                    targetStore.clearTarget();
                     persist(null, 0);
                 }
             }
@@ -2937,6 +3347,7 @@ const STRATEGIES = {
     MA_SLOPE_PURE:       createMaSlopePureStrategy,
     MA_SLOPE_HM:          createMaSlopeHmStrategy,
     ADAPTIVE_TREND:       createAdaptiveTrendStrategy,
+    DPI_MEANREV:          createDpiMeanrevStrategy,
 };
 
 // Toolbox-facing labels only — not a full param schema yet (that's a later
@@ -2944,7 +3355,7 @@ const STRATEGIES = {
 // Object.keys(STRATEGIES) and look up a label here, with a plain fallback
 // to the raw key for anything added without an entry here.
 const STRATEGY_INFO = {
-    DPI_TREND_MEANREV: { label: "DPI Trend + Mean Reversion", description: "ST1-confirmed DPI trend, RSI mean-reversion in the chop between", short: "DPI" },
+    DPI_TREND_MEANREV: { label: "DPI Trend (pure)", description: "ST1-confirmed DPI trend only — the MEANREV regime that used to live here has moved to DPI_MEANREV; key name kept for DB-filename continuity", short: "DPI" },
     ALMA_BAND:          { label: "ALMA Band",                  description: "ta.alma(high/low) breakout bands, HA-close signal, HA-candle bands", short: "ALMAB" },
     ALMA_FAST:          { label: "ALMA Fast (Color Flip)",     description: "single fast ALMA on HA close, entry on slope-direction flip",       short: "ALMAF" },
     DUAL_ST_CHOP:       { label: "Dual SuperTrend + Chop",     description: "ST1+ST2 agree on direction, Choppiness Index gates entry",          short: "DST" },
@@ -2952,9 +3363,10 @@ const STRATEGY_INFO = {
     ALMA_DUAL_BAND_SMA5: { label: "ALMA Dual + Band + SMA5",    description: "dual-ALMA (9/50) trend agreement, falls back to ALMA_BAND breakout when they disagree, SMA5 exit", short: "ADB" },
     MA_SLOPE:            { label: "MA Slope",                    description: "ema(ohlc4,56) angle vs ATR(14) — grey zone falls back to ALMA_BAND breakout; exits on opposite flip OR band reentry (either entry path)", short: "SLOPE" },
     MA_SLOPE_SCALP:      { label: "MA Slope Scalp",              description: "trend-capture on BULL/BEAR flip + scalp on GREY ALMA_BAND breakout — both exit on opposite flip OR band reentry; only scalp also has a tick-level +SCALP_TARGET_POINTS take-profit", short: "SCALP" },
-    MA_SLOPE_PURE:       { label: "MA Slope Pure",               description: "color-only ema(56) slope, no ALMA band at all — enter on BULL/BEAR, no trade in GREY, exit on either a flip to the opposite decisive color OR a flip into GREY", short: "PURE" },
+    MA_SLOPE_PURE:       { label: "MA Slope Pure",               description: "color-only ema(56) slope, no ALMA band at all — enter on BULL/BEAR, no trade in GREY, exit on either a flip to the opposite decisive color, a flip into GREY, or an SMA9 reversal once the slope angle is beyond ±MA_SLOPE_PURE_SMA9_EXIT_ANGLE", short: "PURE" },
     MA_SLOPE_HM:          { label: "MA Slope + Hilega-Milega",    description: "same entry as MA Slope Pure (color-only, no ALMA band) — exit is a Hilega-Milega RSI9/WMA21/EMA3 crossover against position direction, not a color flip", short: "HM" },
     ADAPTIVE_TREND:       { label: "Adaptive Trend Envelope",     description: "port of BackQuant's Pine script — volatility-adaptive EMA blend spine wrapped in an EWMA-vol envelope; enter on regime flip to bull/bear, exit when regime no longer matches (flat or opposite)", short: "ATE" },
+    DPI_MEANREV:          { label: "DPI Trend + Mean Reversion",  description: "the original DPI_TREND_MEANREV combo — ST1-confirmed DPI trend, RSI mean-reversion in the chop between", short: "DPIMR" },
 };
 
 // Each strategy's live/paper candle interval — this is a property of the
@@ -2996,8 +3408,11 @@ const STRATEGY_TIMEFRAME = {
     // No timeframe guidance from the Pine script itself (author didn't
     // specify one) — 15m for consistency with everything else in this file.
     ADAPTIVE_TREND:       "15m",
+    // Same 15m as DPI_TREND_MEANREV always ran at — unchanged, this is the
+    // same combo logic, just under its own key now.
+    DPI_MEANREV:          "15m",
 };
 
 const DEFAULT_STRATEGY = "DPI_TREND_MEANREV";
 
-module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy };
+module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy };

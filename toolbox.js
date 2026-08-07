@@ -130,6 +130,7 @@ async function getEngineProcesses() {
             lotMult:   p.pm2_env.env?.LOTMULT_OVERRIDE || null,
             live:      p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             carryOvernight: p.pm2_env.env?.CARRY_OVERNIGHT_OVERRIDE === "true",
+            targetPoints: p.pm2_env.env?.TARGET_POINTS_OVERRIDE ? Number(p.pm2_env.env.TARGET_POINTS_OVERRIDE) : null,
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -201,6 +202,29 @@ async function pickExchangeAndRepo() {
     }
     const repo = await ensureCsvLoaded();
     return { exchange: "MCX", repo, list: repo.listUnderlyings() };
+}
+
+// Word-wraps text to the terminal's actual width (falls back to 80 cols
+// when not a TTY / width unknown) and returns pre-indented lines — used
+// anywhere the source text is a full sentence long enough to hard-wrap
+// mid-word with no indent on a narrow mobile SSH terminal otherwise (the
+// strategy picker's descriptions are the main case, see configureAndStartInstrument).
+function wrapText(text, indent = "      ") {
+    const width = Math.max(20, (process.stdout.columns || 80) - indent.length);
+    const words = text.split(" ");
+    const lines = [];
+    let line = "";
+    for (const word of words) {
+        const next = line ? `${line} ${word}` : word;
+        if (next.length > width && line) {
+            lines.push(line);
+            line = word;
+        } else {
+            line = next;
+        }
+    }
+    if (line) lines.push(line);
+    return lines.map(l => indent + l);
 }
 
 // ─── SCREENS ──────────────────────────────────────────────────────────────────
@@ -341,6 +365,7 @@ function buildProcessEnv(p, overrides = {}) {
     const env = { UNDERLYING: p.underlying, LIVE_ORDERS_OVERRIDE: String(!!p.live), CARRY_OVERNIGHT_OVERRIDE: String(!!p.carryOvernight), STRATEGY_OVERRIDE: p.strategy || DEFAULT_STRATEGY, TIMEFRAME_OVERRIDE: p.timeframe || STRATEGY_TIMEFRAME[p.strategy || DEFAULT_STRATEGY] || "15m" };
     if (p.lots !== "default") env.LOTS_OVERRIDE = String(p.lots);
     if (p.lotMult) env.LOTMULT_OVERRIDE = String(p.lotMult);
+    if (p.targetPoints) env.TARGET_POINTS_OVERRIDE = String(p.targetPoints);
     return { ...env, ...overrides };
 }
 
@@ -433,7 +458,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // should still simulate the same restore-across-days behavior a live
     // carry would have. Default is NO (MIS, EOD force-close) — carrying
     // overnight is a deliberate opt-in, not the safe default.
-    const carryInput = (await ask(`  carry position overnight instead of EOD close? [y/N]: `)).trim().toUpperCase();
+    const carryInput = (await ask(`  carry position overnight instead of EOD close? [y/N] (default: N): `)).trim().toUpperCase();
     const carryOvernight = carryInput === "Y";
     if (carryOvernight) {
         console.log(c.yellow(`  ⚠ carry-overnight ON — entries will use NRML (not MIS), EOD will hold the position instead of closing it.`));
@@ -450,7 +475,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const info = STRATEGY_INFO[key] || { label: key, description: "" };
         const defTag = key === DEFAULT_STRATEGY ? c.dim(" (default)") : "";
         console.log(`  ${String(i + 1).padStart(2)}. ${info.label}${defTag}`);
-        if (info.description) console.log(c.dim(`      ${info.description}`));
+        if (info.description) wrapText(info.description, "      ").forEach(line => console.log(c.dim(line)));
     });
     console.log();
     const stratInput = await ask(`  select number (blank = default): `);
@@ -486,6 +511,24 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     }
 
+    // Target points — optional, asked after strategy is picked so it's
+    // clear this is a per-instrument choice, not a strategy setting. Blank
+    // = no fixed take-profit (strategy's own exits are the only way out,
+    // today's default). A positive number arms a tick-monitored favorable-
+    // exit level at entryPrice ± this many points, same for LONG/SHORT —
+    // checked on every WebSocket tick (candlePoll.js's checkTarget), applies
+    // regardless of which strategy is running.
+    const targetInput = await ask(`  profit target in points (tick-monitored, blank = none): `);
+    let targetPoints = null;
+    if (targetInput) {
+        const parsedTarget = Number(targetInput);
+        if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) {
+            console.log(c.yellow(`  "${targetInput}" isn't a valid positive number — starting with no target instead`));
+        } else {
+            targetPoints = parsedTarget;
+        }
+    }
+
     const name = toProcessName(underlying, strategy);
 
     // Exact duplicate check — same underlying AND same strategy produces
@@ -502,12 +545,14 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
 
     const env  = { UNDERLYING: underlying, EXCHANGE_OVERRIDE: exchange, LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), CARRY_OVERNIGHT_OVERRIDE: String(carryOvernight), STRATEGY_OVERRIDE: strategy, TIMEFRAME_OVERRIDE: timeframe };
     if (lotMultOverride !== null) env.LOTMULT_OVERRIDE = String(lotMultOverride);
+    if (targetPoints !== null) env.TARGET_POINTS_OVERRIDE = String(targetPoints);
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name, cwd: __dirname, env });
         const modeTag = isLive ? c.red("LIVE") : c.cyan("PAPER");
         const carryTag = carryOvernight ? c.yellow(" CARRY") : "";
         const stratLabel = (STRATEGY_INFO[strategy] || { label: strategy }).label;
-        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}`));
+        const targetTag = targetPoints !== null ? c.yellow(` +${targetPoints}pt target`) : "";
+        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}`));
     } catch (err) {
         console.log(c.red(`  failed to start ${name}: ${err.message}`));
     }

@@ -154,6 +154,19 @@ function buildContext(def, resolvedContract) {
         // orders.js (MIS vs NRML product), lifecycle.js (EOD skip), and
         // strategies.js (initSignals' shouldResume gate) for what this drives.
         carryOvernight: false,
+        // Overridden per-process by engine.js from TARGET_POINTS_OVERRIDE
+        // (toolbox prompt, asked right after strategy selection — see
+        // configureAndStartInstrument in toolbox.js). null = no fixed
+        // take-profit, strategy's own exits are the only way out (today's
+        // default, unchanged behavior). A positive number arms a tick-
+        // monitored favorable-exit target at entryPrice ± this many points,
+        // the same distance for LONG and SHORT — checked on every WebSocket
+        // tick by candlePoll.js's checkTarget(), same mechanism as the SL
+        // trail (checkSL), just the opposite direction. Applies uniformly
+        // to ALL strategies, not just the MA_SLOPE family that used to have
+        // its own bespoke version of this (MA_SLOPE_TARGET_POINTS in
+        // engineConfig.js — superseded, see that file).
+        targetPoints: null,
     };
 }
 

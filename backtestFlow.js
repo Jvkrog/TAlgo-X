@@ -73,6 +73,16 @@ const STRATEGY_PARAMS = {
         { key: "MA_SLOPE_FILTER_BOTTOM",  label: "Angle threshold for decisive bear (degrees)" },
         { key: "ATR_SL_MULT",             label: "ATR stop-loss multiplier (this port's own addition \u2014 source script has no SL)" },
     ],
+    // Same params as DPI_TREND_MEANREV — this is that same combo logic,
+    // just registered under its own key now (see strategies.js).
+    DPI_MEANREV: [
+        { key: "DPI_EFF_THRESH",   label: "DPI efficiency threshold (TREND/MEANREV split)" },
+        { key: "MEANREV_RSI_BUY",  label: "MEANREV RSI buy level" },
+        { key: "MEANREV_RSI_SELL", label: "MEANREV RSI sell level" },
+        { key: "ST_ATR_LEN",       label: "SuperTrend ATR length" },
+        { key: "ST_FACTOR",        label: "SuperTrend factor" },
+        { key: "ATR_SL_MULT",      label: "ATR stop-loss multiplier" },
+    ],
 };
 
 function fmtMoney(n) { return (n < 0 ? "-₹" : "₹") + Math.abs(n).toFixed(2); }

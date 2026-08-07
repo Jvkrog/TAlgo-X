@@ -237,6 +237,20 @@ module.exports = {
     // bad, reverted per instruction). MA_SLOPE_TARGET_POINTS below is
     // unaffected/unrelated and stays.
     MA_SLOPE_TARGET_POINTS:     3,   // fixed favorable-exit target, points from entry, tick-checked
+    // superseded by context.targetPoints (toolbox prompt) — applies to ALL
+    // strategies now, not just the MA_SLOPE family. Left here unread, for
+    // reference only.
+
+    // MA_SLOPE_PURE (#9) SMA9 reversal exit — added on top of the existing
+    // opposite-color-flip exit. Gated by a STRONGER slope threshold than
+    // the +-2 degree GREY/decisive split (MA_SLOPE_FILTER_TOP/BOTTOM) used
+    // for entries: only checked once the slope has already confirmed a
+    // clearly one-sided move (angle beyond this many degrees, same sign as
+    // the open position), not on every decisive-but-marginal candle. Same
+    // HA-close-vs-SMA(9) crossover DPI_TREND_MEANREV's own SMA9 exit uses
+    // (reuses engineConfig.SMA_LEN), candle-close driven like every other
+    // MA_SLOPE_PURE exit — not a tick check.
+    MA_SLOPE_PURE_SMA9_EXIT_ANGLE: 4,
 
     // Market-quality gate (marketQuality.js) — applies to strategies 7/8's
     // ALMA-band-driven entries only (MA_SLOPE_TREND and ALMA_BAND_BREAKOUT),

@@ -67,16 +67,37 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
     }
 
     // ─── TARGET MONITOR — every WebSocket tick ───────────────────────────────
-    // Companion to checkSL above: same tick-driven pattern, opposite
-    // direction — closes on FAVORABLE movement instead of adverse. Only
-    // MA_SLOPE_SCALP ever populates targetStore (see strategies.js), so this
-    // is a no-op for every other strategy (getTarget() returns target: null).
-    // Runs ALONGSIDE checkSL, not instead of it — whichever fires first on a
-    // given tick closes the position; targetStore is optional chained off
-    // createCandlePoll's deps so existing call sites that don't pass it don't
-    // break (targetStore?.getTarget() below).
+    // Two jobs, both strategy-agnostic:
+    //   1. Auto-arm — the moment an open position has no target yet and the
+    //      instrument was configured with context.targetPoints (toolbox
+    //      prompt, TARGET_POINTS_OVERRIDE), arm one at entryPrice ± that many
+    //      points. Works for ALL 12 strategies uniformly — nothing
+    //      strategy-specific here, it only reads state.position/entryPrice.
+    //      Every strategy's exit paths already clear targetStore alongside
+    //      slStore.clearTrail() (see strategies.js), so target is guaranteed
+    //      null again by the time a fresh position opens, whatever direction
+    //      — this never arms a stale level left over from a prior trade.
+    //   2. Check — same tick-driven pattern as checkSL, opposite direction:
+    //      closes on FAVORABLE movement instead of adverse. Runs ALONGSIDE
+    //      checkSL, not instead of it — whichever fires first on a given
+    //      tick closes the position.
+    // No-op (both steps) whenever context.targetPoints is unset — the
+    // pre-existing behavior (no fixed take-profit) is unchanged unless the
+    // instrument was explicitly configured with one.
     async function checkTarget(price) {
         if (!price || !targetStore) return;
+
+        if (engineConfig.ENGINE_ENABLED && state.position && state.entryPrice && context.targetPoints) {
+            const { target: armedTarget } = targetStore.getTarget();
+            if (armedTarget === null) {
+                const dir   = state.position === "LONG" ? 1 : -1;
+                const level = state.position === "LONG"
+                    ? state.entryPrice + context.targetPoints
+                    : state.entryPrice - context.targetPoints;
+                targetStore.setTarget(level, dir);
+                console.log(c.dim(`[${context.tgPrefix}] TARGET ARMED  ${state.position} @ ${level.toFixed(2)}  (entry ${state.entryPrice.toFixed(2)} +${context.targetPoints})`));
+            }
+        }
 
         const { target, dir } = targetStore.getTarget();
         if (engineConfig.ENGINE_ENABLED && state.position && target !== null) {
