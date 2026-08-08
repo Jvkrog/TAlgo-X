@@ -131,6 +131,7 @@ async function getEngineProcesses() {
             live:      p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             carryOvernight: p.pm2_env.env?.CARRY_OVERNIGHT_OVERRIDE === "true",
             targetPoints: p.pm2_env.env?.TARGET_POINTS_OVERRIDE ? Number(p.pm2_env.env.TARGET_POINTS_OVERRIDE) : null,
+            smaExitEnabled: p.pm2_env.env?.SMA9_EXIT_OVERRIDE !== undefined ? p.pm2_env.env.SMA9_EXIT_OVERRIDE === "true" : true,
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -366,6 +367,7 @@ function buildProcessEnv(p, overrides = {}) {
     if (p.lots !== "default") env.LOTS_OVERRIDE = String(p.lots);
     if (p.lotMult) env.LOTMULT_OVERRIDE = String(p.lotMult);
     if (p.targetPoints) env.TARGET_POINTS_OVERRIDE = String(p.targetPoints);
+    if (p.strategy === "MA_SLOPE_PURE") env.SMA9_EXIT_OVERRIDE = String(p.smaExitEnabled !== false);
     return { ...env, ...overrides };
 }
 
@@ -529,6 +531,16 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     }
 
+    // SMA9 exit toggle — only meaningful for MA_SLOPE_PURE (the only
+    // strategy with this exit right now), so only asked when that's the
+    // strategy picked. Default ON (blank = Y), matches today's behavior;
+    // OFF leaves the opposite-color-flip/GREY exit as the only way out.
+    let smaExitEnabled = true;
+    if (strategy === "MA_SLOPE_PURE") {
+        const smaExitInput = (await ask(`  enable SMA9 reversal exit? [Y/n] (default: Y): `)).trim().toUpperCase();
+        smaExitEnabled = smaExitInput !== "N";
+    }
+
     const name = toProcessName(underlying, strategy);
 
     // Exact duplicate check — same underlying AND same strategy produces
@@ -546,13 +558,15 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     const env  = { UNDERLYING: underlying, EXCHANGE_OVERRIDE: exchange, LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), CARRY_OVERNIGHT_OVERRIDE: String(carryOvernight), STRATEGY_OVERRIDE: strategy, TIMEFRAME_OVERRIDE: timeframe };
     if (lotMultOverride !== null) env.LOTMULT_OVERRIDE = String(lotMultOverride);
     if (targetPoints !== null) env.TARGET_POINTS_OVERRIDE = String(targetPoints);
+    if (strategy === "MA_SLOPE_PURE") env.SMA9_EXIT_OVERRIDE = String(smaExitEnabled);
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name, cwd: __dirname, env });
         const modeTag = isLive ? c.red("LIVE") : c.cyan("PAPER");
         const carryTag = carryOvernight ? c.yellow(" CARRY") : "";
         const stratLabel = (STRATEGY_INFO[strategy] || { label: strategy }).label;
         const targetTag = targetPoints !== null ? c.yellow(` +${targetPoints}pt target`) : "";
-        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}`));
+        const smaExitTag = strategy === "MA_SLOPE_PURE" && !smaExitEnabled ? c.yellow(" SMA9-exit:off") : "";
+        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${smaExitTag}`));
     } catch (err) {
         console.log(c.red(`  failed to start ${name}: ${err.message}`));
     }

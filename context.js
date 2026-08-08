@@ -167,6 +167,14 @@ function buildContext(def, resolvedContract) {
         // its own bespoke version of this (MA_SLOPE_TARGET_POINTS in
         // engineConfig.js — superseded, see that file).
         targetPoints: null,
+        // Overridden per-process by engine.js from SMA9_EXIT_OVERRIDE
+        // (toolbox prompt, asked right after strategy selection, ONLY when
+        // MA_SLOPE_PURE is picked — that's the only strategy with this exit
+        // right now). Default true = today's behavior unchanged. false
+        // turns the SMA9 reversal exit off for this instrument, leaving the
+        // opposite-color-flip/GREY exit as the only way out. See
+        // createMaSlopePureStrategy in strategies.js for where it's read.
+        smaExitEnabled: true,
     };
 }
 

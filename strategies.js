@@ -2465,7 +2465,14 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
 //         SHORT, fires every candle the color reads decisively either way
 //         (not just on the flip edge — same level-based choice made for
 //         MA_SLOPE/MA_SLOPE_SCALP's trend entries, for the same reason: if
-//         flat while the color is already decisive, still enter).
+//         flat while the color is already decisive, still enter). ALSO
+//         requires HA close to already be on the entry side of SMA9 (above
+//         it for a LONG, below for a SHORT) — added after a live flip-flop
+//         where the SMA9 exit closed a LONG on a below-SMA9 candle and
+//         entry fired right back into a LONG same-candle off the
+//         still-bullish color, ignoring that price had just confirmed the
+//         opposite. Color decides direction, the candle has to agree
+//         before a fresh entry actually fires.
 // Exit:   EDGE-triggered — only when the color actually CHANGES to the
 //         opposite decisive state ("exit if color changes"), same
 //         flipSide mechanism MA_SLOPE originally had before the band
@@ -2483,7 +2490,11 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
 //         for a LONG, < -that for a SHORT — a stronger bar than the plain
 //         +-2 degree BULL/BEAR split used for entries). Either this or the
 //         flip/GREY exit above can close the position, whichever fires
-//         first on a given candle.
+//         first on a given candle. Toggleable per-instrument (toolbox
+//         prompt when this strategy is picked, context.smaExitEnabled,
+//         default ON) — OFF leaves flip/GREY as the only way out. The
+//         entry-side SMA9 alignment gate above is separate and always on
+//         regardless of this toggle.
 // state.positionSource = "MA_SLOPE_PURE".
 // ════════════════════════════════════════════════════════════════════════
 function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
@@ -2526,7 +2537,7 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
         // one-sided move (not on a marginal decisive-but-barely candle).
         // Independent trigger — either this or the flip/GREY exit below can
         // close the position, whichever fires first.
-        if (engineConfig.ENGINE_ENABLED && state.position && state.positionSource === "MA_SLOPE_PURE" && sma9Val !== null) {
+        if (engineConfig.ENGINE_ENABLED && context.smaExitEnabled && state.position && state.positionSource === "MA_SLOPE_PURE" && sma9Val !== null) {
             const angleConfirms =
                 (state.position === "LONG"  && angle >  engineConfig.MA_SLOPE_PURE_SMA9_EXIT_ANGLE) ||
                 (state.position === "SHORT" && angle < -engineConfig.MA_SLOPE_PURE_SMA9_EXIT_ANGLE);
@@ -2576,8 +2587,19 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
 
         // Entry: level-based on currentState while flat — no trade in grey
         // (entrySide is only ever non-null when currentState is decisively
-        // BULL/BEAR — see processCandle below; grey never sets it).
-        if (engineConfig.ENGINE_ENABLED && !state.position && entrySide && canEnter()) {
+        // BULL/BEAR — see processCandle below; grey never sets it). ALSO
+        // gated by HA close vs SMA9 matching the entry side ("green candle"
+        // for a LONG, "red candle" for a SHORT) — added after a live flip-
+        // flop: the SMA9 exit above can close a LONG the instant HA close
+        // drops below SMA9, but the slope color itself doesn't flip that
+        // fast — without this gate, entry would fire again same-candle off
+        // the still-bullish color even though price is now on the wrong
+        // side of SMA9. This makes the color and the candle agree before
+        // a fresh entry, not just the color alone.
+        const smaAligned = sma9Val === null ? true :
+            (entrySide === "LONG"  && haCloseVal > sma9Val) ||
+            (entrySide === "SHORT" && haCloseVal < sma9Val);
+        if (engineConfig.ENGINE_ENABLED && !state.position && entrySide && smaAligned && canEnter()) {
             const side = entrySide;
             const ordered = await orders.enter(side);
             if (engineConfig.LIVE_ORDERS && ordered === null) {
@@ -3363,7 +3385,7 @@ const STRATEGY_INFO = {
     ALMA_DUAL_BAND_SMA5: { label: "ALMA Dual + Band + SMA5",    description: "dual-ALMA (9/50) trend agreement, falls back to ALMA_BAND breakout when they disagree, SMA5 exit", short: "ADB" },
     MA_SLOPE:            { label: "MA Slope",                    description: "ema(ohlc4,56) angle vs ATR(14) — grey zone falls back to ALMA_BAND breakout; exits on opposite flip OR band reentry (either entry path)", short: "SLOPE" },
     MA_SLOPE_SCALP:      { label: "MA Slope Scalp",              description: "trend-capture on BULL/BEAR flip + scalp on GREY ALMA_BAND breakout — both exit on opposite flip OR band reentry; only scalp also has a tick-level +SCALP_TARGET_POINTS take-profit", short: "SCALP" },
-    MA_SLOPE_PURE:       { label: "MA Slope Pure",               description: "color-only ema(56) slope, no ALMA band at all — enter on BULL/BEAR, no trade in GREY, exit on either a flip to the opposite decisive color, a flip into GREY, or an SMA9 reversal once the slope angle is beyond ±MA_SLOPE_PURE_SMA9_EXIT_ANGLE", short: "PURE" },
+    MA_SLOPE_PURE:       { label: "MA Slope Pure",               description: "color-only ema(56) slope, no ALMA band at all — enter on BULL/BEAR only once HA close agrees with SMA9, no trade in GREY, exit on a flip to the opposite decisive color, a flip into GREY, or (toggleable at setup, default ON) an SMA9 reversal once the slope angle is beyond ±MA_SLOPE_PURE_SMA9_EXIT_ANGLE", short: "PURE" },
     MA_SLOPE_HM:          { label: "MA Slope + Hilega-Milega",    description: "same entry as MA Slope Pure (color-only, no ALMA band) — exit is a Hilega-Milega RSI9/WMA21/EMA3 crossover against position direction, not a color flip", short: "HM" },
     ADAPTIVE_TREND:       { label: "Adaptive Trend Envelope",     description: "port of BackQuant's Pine script — volatility-adaptive EMA blend spine wrapped in an EWMA-vol envelope; enter on regime flip to bull/bear, exit when regime no longer matches (flat or opposite)", short: "ATE" },
     DPI_MEANREV:          { label: "DPI Trend + Mean Reversion",  description: "the original DPI_TREND_MEANREV combo — ST1-confirmed DPI trend, RSI mean-reversion in the chop between", short: "DPIMR" },

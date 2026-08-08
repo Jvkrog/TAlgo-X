@@ -272,4 +272,4 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     await pauseForReview();
 }
 
-module.exports = { backtestFlow };
+module.exports = { backtestFlow, STRATEGY_PARAMS };

@@ -12,6 +12,7 @@ const { createBacktestCandleFeed } = require("./backtestCandleFeed");
 const { createBacktestSL }        = require("./backtestSL");
 const { createState }             = require("./state");
 const { createSLStore }           = require("./sl");
+const { createTargetStore }       = require("./target");
 const positions                    = require("./positions");
 const engineConfigDefaults        = require("./engineConfig");
 const { computeMetrics }          = require("./backtestMetrics");
@@ -68,6 +69,25 @@ async function runBacktest({ strategyKey, strategyLabel, context, timeframe, fro
 
     const state   = createState();
     const slStore = createSLStore();
+    // Every strategy's exit paths now unconditionally call
+    // targetStore.clearTarget()/.setTarget() (added this session's universal
+    // tick-monitored profit target) — factory() crashes without one.
+    // createTargetStore() is the same dependency-free factory candlePoll.js
+    // uses live, so setTarget()/clearTarget()/getTarget() all work correctly
+    // as in-memory state here too.
+    //
+    // Known scope limit, unchanged from the earlier MA_SLOPE_SCALP-only
+    // version of this gap: nothing in the replay loop below checks the
+    // target against each bar's OHLC (no backtestTarget.js equivalent to
+    // backtestSL.js exists yet), so a target that WAS armed would silently
+    // never trigger a take-profit exit in a backtest. This is a non-issue
+    // for now — buildContext() defaults context.targetPoints to null, and
+    // neither the CLI's backtest flow nor webdash's /api/toolbox/backtest
+    // exposes a way to set it — so target stays un-armed and this store's
+    // job here is purely to stop the crash. Needs the bar-level check
+    // adding before backtesting can be trusted for a strategy run WITH a
+    // target configured.
+    const targetStore = createTargetStore();
     const feed    = createBacktestCandleFeed(historicalCandles);
 
     // clock reads whichever candle the replay loop is currently on — this
@@ -89,7 +109,7 @@ async function runBacktest({ strategyKey, strategyLabel, context, timeframe, fro
     const slCheck = createBacktestSL({ context, engineConfig, state, slStore, orders: broker, positionsClose, db: ledger, tg });
 
     const strategy = factory({
-        context, engineConfig, state, db: ledger, candles: feed, slStore,
+        context, engineConfig, state, db: ledger, candles: feed, slStore, targetStore,
         orders: broker, positionsClose, positionsUnrealised, lifecycle, tg, clock,
     });
 
