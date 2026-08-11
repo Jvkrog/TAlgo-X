@@ -146,16 +146,15 @@
     </div>
 
     <div class="toolbox-cli-only">
-      <div class="tb-cli-title">cli only — not yet ported to web</div>
+      <div class="tb-cli-title">toolbox actions</div>
       <div class="tb-cli-grid">
-        <span>add instrument</span>
-        <span>roll contract</span>
-        <span>backtest</span>
-        <span>setup credentials</span>
-        <span>trending instruments</span>
-        <span>market status</span>
+        <button class="tb-cli-action" id="tbOpenAddInstrument">+ add instrument</button>
+        <button class="tb-cli-action" id="tbOpenBacktest">▸ backtest</button>
+        <button class="tb-cli-action" id="tbOpenCredentials">⚙ setup credentials</button>
+        <button class="tb-cli-action" id="tbOpenTrending">↗ trending instruments</button>
+        <button class="tb-cli-action" id="tbOpenMarketStatus">◎ market status</button>
+        <button class="tb-cli-action" id="tbOpenRoll">↻ roll contract</button>
       </div>
-      <div class="tb-cli-hint">run <code>talgox</code> on the server for these — they touch contract identity, broker CSV lookups, or the backtest engine directly, and deserve their own dedicated build rather than a rushed port.</div>
     </div>
   </section>
 </main>
@@ -179,6 +178,72 @@
       <button class="btn btn-ghost" id="tbModeClose">close</button>
     </div>
     <div class="tb-modal-body" id="tbModeBody"></div>
+  </div>
+</div>
+
+<!-- add instrument modal -->
+<div class="tb-modal" id="tbAddModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>add instrument</span>
+      <button class="btn btn-ghost" id="tbAddClose">close</button>
+    </div>
+    <div class="tb-modal-body" id="tbAddBody"></div>
+  </div>
+</div>
+
+<!-- backtest modal -->
+<div class="tb-modal" id="tbBacktestModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>backtest</span>
+      <button class="btn btn-ghost" id="tbBacktestClose">close</button>
+    </div>
+    <div class="tb-modal-body" id="tbBacktestBody"></div>
+  </div>
+</div>
+
+<!-- credentials modal -->
+<div class="tb-modal" id="tbCredsModal">
+  <div class="tb-modal-content tb-modal-narrow">
+    <div class="tb-modal-head">
+      <span>setup credentials</span>
+      <button class="btn btn-ghost" id="tbCredsClose">close</button>
+    </div>
+    <div class="tb-modal-body" id="tbCredsBody"></div>
+  </div>
+</div>
+
+<!-- trending instruments modal -->
+<div class="tb-modal" id="tbTrendingModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>trending instruments</span>
+      <button class="btn btn-ghost" id="tbTrendingClose">close</button>
+    </div>
+    <div class="tb-modal-body" id="tbTrendingBody"></div>
+  </div>
+</div>
+
+<!-- market status modal -->
+<div class="tb-modal" id="tbMarketModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>market status</span>
+      <button class="btn btn-ghost" id="tbMarketClose">close</button>
+    </div>
+    <div class="tb-modal-body" id="tbMarketBody"></div>
+  </div>
+</div>
+
+<!-- roll contract modal -->
+<div class="tb-modal" id="tbRollModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>roll contract</span>
+      <button class="btn btn-ghost" id="tbRollClose">close</button>
+    </div>
+    <div class="tb-modal-body" id="tbRollBody"></div>
   </div>
 </div>
 

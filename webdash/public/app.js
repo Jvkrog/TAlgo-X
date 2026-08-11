@@ -356,7 +356,20 @@ function handleEvent(msg) {
   const time = ts();
 
   if (msg.type === "TICK") {
-    const marker = msg.position ? (msg.uPnl > 0 ? "▲" : msg.uPnl < 0 ? "▼" : "●") : "●";
+    // DYNAMIC_BAND_COLOR (and any future strategy that sets `color`) tags
+    // its own TICK payload with a position-DIRECTION color (green=LONG,
+    // red=SHORT, white=flat) rather than the default profit-direction
+    // marker every other strategy gets. Reuses the existing up/down/flat
+    // marker classes (already green/red/white) rather than adding new
+    // CSS — just a different circle glyph so it doesn't read as a
+    // profit/loss arrow when it isn't one.
+    const hasDirectionColor = typeof msg.color === "string";
+    const marker = hasDirectionColor
+      ? "●"
+      : (msg.position ? (msg.uPnl > 0 ? "▲" : msg.uPnl < 0 ? "▼" : "●") : "●");
+    const markerCls = hasDirectionColor
+      ? (msg.color === "green" ? "up" : msg.color === "red" ? "down" : "flat")
+      : (marker === "▲" ? "up" : marker === "▼" ? "down" : "flat");
     const cardsForEngine = instruments.filter(i => i.underlying === msg.engine);
     cardsForEngine.forEach(i => {
       const el = document.getElementById(cardId(i));
@@ -364,13 +377,15 @@ function handleEvent(msg) {
       el.querySelector('[data-role="price"]').textContent = Number(msg.price).toFixed(2);
       const mEl = el.querySelector('[data-role="marker"]');
       mEl.textContent = marker;
-      mEl.className = `state-marker ${marker === "▲" ? "up" : marker === "▼" ? "down" : "flat"}`;
+      mEl.className = `state-marker ${markerCls}`;
     });
     updateCardPnl(msg.engine, msg.uPnl, msg.session);
     sessionPnlByUnderlying.set(msg.engine, msg.session);
     updateTotalPnl();
 
-    const pnlCls = msg.position ? cls(msg.uPnl) : "flat";
+    const pnlCls = hasDirectionColor
+      ? (msg.color === "green" ? "pos" : msg.color === "red" ? "neg" : "flat")
+      : (msg.position ? cls(msg.uPnl) : "flat");
     appendLog({
       type: "TICK",
       cssClass: pnlCls,
@@ -378,7 +393,7 @@ function handleEvent(msg) {
       segments: [
         ["lf-engine", msg.engine],
         ["lf-time", time],
-        [`lf-marker lf-marker-${marker === "▲" ? "up" : marker === "▼" ? "down" : "flat"}`, marker],
+        [`lf-marker lf-marker-${markerCls}`, marker],
         ["lf-price", Number(msg.price).toFixed(2)],
         ["lf-num", fmtSigned(msg.uPnl)],
         ["lf-num lf-num-session", fmtSigned(msg.session)],
@@ -987,5 +1002,952 @@ function openModeModal(names) {
 }
 tbModeClose.addEventListener("click", () => tbModeModal.classList.remove("open"));
 tbModeModal.addEventListener("click", e => { if (e.target === tbModeModal) tbModeModal.classList.remove("open"); });
+
+// ── add instrument modal ─────────────────────────────────────────────────
+const tbAddModal = document.getElementById("tbAddModal");
+const tbAddBody = document.getElementById("tbAddBody");
+const tbAddClose = document.getElementById("tbAddClose");
+document.getElementById("tbOpenAddInstrument").addEventListener("click", openAddInstrumentModal);
+tbAddClose.addEventListener("click", () => tbAddModal.classList.remove("open"));
+tbAddModal.addEventListener("click", e => { if (e.target === tbAddModal) tbAddModal.classList.remove("open"); });
+
+let addState = {};
+
+function openAddInstrumentModal() {
+  addState = { exchange: "MCX" };
+  renderAddSearchStep();
+  tbAddModal.classList.add("open");
+}
+
+function renderAddSearchStep() {
+  tbAddBody.innerHTML = `
+    <div class="tb-form-row">
+      <div class="tb-form-label">exchange</div>
+      <div class="tb-mode-choice" id="addExchangeChoice">
+        <button data-ex="MCX" class="picked paper">MCX Futures</button>
+        <button data-ex="NSE">NSE Stocks</button>
+      </div>
+    </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">search underlying</div>
+      <div class="tb-search-row">
+        <input type="text" id="addSearchInput" placeholder="e.g. ZINC, NATGAS...">
+        <button id="addSearchBtn">search</button>
+      </div>
+    </div>
+    <div class="tb-pick-list" id="addPickList"></div>
+    <div class="tb-form-hint" id="addSearchHint"></div>
+  `;
+  const exBtns = tbAddBody.querySelectorAll("#addExchangeChoice button");
+  exBtns.forEach(btn => btn.addEventListener("click", () => {
+    exBtns.forEach(b => b.classList.remove("picked", "paper", "live"));
+    btn.classList.add("picked", btn.dataset.ex === "MCX" ? "paper" : "live");
+    addState.exchange = btn.dataset.ex;
+  }));
+  const searchInput = tbAddBody.querySelector("#addSearchInput");
+  const pickList = tbAddBody.querySelector("#addPickList");
+  const hint = tbAddBody.querySelector("#addSearchHint");
+  async function runSearch() {
+    hint.textContent = "searching...";
+    pickList.innerHTML = "";
+    try {
+      const q = searchInput.value.trim();
+      const data = await (await fetch(`/api/toolbox/instruments?exchange=${addState.exchange}&q=${encodeURIComponent(q)}`)).json();
+      if (data.error) { hint.textContent = data.error; return; }
+      if (data.matches.length === 0) { hint.textContent = "no matches"; return; }
+      hint.textContent = data.truncated ? `showing 50 of ${data.total} — narrow your search` : `${data.matches.length} match(es)`;
+      data.matches.forEach(u => {
+        const btn = document.createElement("button");
+        btn.className = "tb-pick-item";
+        btn.textContent = u;
+        btn.addEventListener("click", () => selectAddUnderlying(u));
+        pickList.appendChild(btn);
+      });
+    } catch (err) {
+      hint.textContent = `search failed: ${err.message}`;
+    }
+  }
+  tbAddBody.querySelector("#addSearchBtn").addEventListener("click", runSearch);
+  searchInput.addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
+  runSearch();
+}
+
+async function selectAddUnderlying(underlying) {
+  addState.underlying = underlying;
+  tbAddBody.innerHTML = `<div class="tb-form-hint">resolving ${underlying}...</div>`;
+  try {
+    const preview = await (await fetch(`/api/toolbox/instruments/${encodeURIComponent(underlying)}/preview?exchange=${addState.exchange}`)).json();
+    if (preview.error) {
+      tbAddBody.innerHTML = `<div class="tb-err-box">${preview.error}</div><button class="tb-back-link" id="addBackErr">‹ back to search</button>`;
+      tbAddBody.querySelector("#addBackErr").addEventListener("click", renderAddSearchStep);
+      return;
+    }
+    addState.preview = preview;
+    const stratData = await (await fetch("/api/toolbox/strategies")).json();
+    addState.strategies = stratData.strategies;
+    addState.defaultStrategy = stratData.default;
+    addState.allTimeframes = stratData.timeframes;
+    renderAddConfigStep();
+  } catch (err) {
+    tbAddBody.innerHTML = `<div class="tb-err-box">failed: ${err.message}</div>`;
+  }
+}
+
+function renderAddConfigStep() {
+  const p = addState.preview;
+  const strategies = addState.strategies;
+  const defaultStrat = addState.defaultStrategy;
+  tbAddBody.innerHTML = `
+    <button class="tb-back-link" id="addBack">‹ back to search</button>
+    <div class="tb-resolved-box">
+      <div>would resolve to <span class="sym">${p.symbol}</span></div>
+      <div>expiry: ${p.expiry || "n/a (equity, no roll)"} — broker lot_size ${p.brokerLotSize}</div>
+    </div>
+    ${p.lotMultRequired ? `
+    <div class="tb-warn-box">⚠ lot multiplier required — the broker's lot_size is a contract COUNT, not the real price multiplier (this exact gap caused a real PnL bug once, on NatGas Mini). Look up the actual contract spec before entering this.</div>
+    <div class="tb-form-row"><div class="tb-form-label">lot multiplier (required)</div><input type="number" id="addLotMult" placeholder="e.g. 250" min="0" step="any"></div>
+    ` : ""}
+    <div class="tb-form-row">
+      <div class="tb-form-label">strategy</div>
+      <div id="addStrategyList"></div>
+    </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">timeframe</div>
+      <select id="addTimeframe"></select>
+    </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">lots</div>
+      <input type="number" id="addLots" value="1" min="1" step="1">
+    </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">mode</div>
+      <div class="tb-mode-choice" id="addModeChoice">
+        <button data-mode="paper" class="picked paper">paper</button>
+        <button data-mode="live">live</button>
+      </div>
+      <div class="tb-confirm-live" id="addConfirmLive">
+        <div class="tb-confirm-live-warn">⚠ this will place REAL orders. type LIVE to confirm:</div>
+        <input type="text" id="addConfirmLiveInput" placeholder="type LIVE">
+      </div>
+    </div>
+    <label class="tb-form-row-inline"><input type="checkbox" id="addCarry"><span>carry position overnight instead of EOD close</span></label>
+    <div class="tb-form-row">
+      <div class="tb-form-label">profit target in points (tick-monitored, blank = none)</div>
+      <input type="number" id="addTarget" min="0" step="any">
+    </div>
+    <div class="tb-form-row" id="addSmaExitRow" style="display:none">
+      <label class="tb-form-row-inline"><input type="checkbox" id="addSmaExit" checked><span>enable SMA9 reversal exit (MA_SLOPE_PURE only)</span></label>
+    </div>
+    <div class="tb-form-row" id="addBandStepRow" style="display:none">
+      <div class="tb-form-label">band step in price points (DYNAMIC_BAND only, blank = default)</div>
+      <input type="number" id="addBandStep" min="0" step="any">
+    </div>
+    <div class="tb-form-row" id="addGreyExitRow" style="display:none">
+      <label class="tb-form-row-inline"><input type="checkbox" id="addGreyExit"><span>exit on grey state instead of holding through it (ALMA_TRI_BAND only, default: hold)</span></label>
+    </div>
+    <div id="addErrBox"></div>
+    <button class="tb-submit-btn" id="addSubmit">start instrument</button>
+  `;
+  tbAddBody.querySelector("#addBack").addEventListener("click", renderAddSearchStep);
+
+  let pickedStrategy = defaultStrat;
+  const stratList = tbAddBody.querySelector("#addStrategyList");
+  const smaExitRow = tbAddBody.querySelector("#addSmaExitRow");
+  const bandStepRow = tbAddBody.querySelector("#addBandStepRow");
+  const greyExitRow = tbAddBody.querySelector("#addGreyExitRow");
+  strategies.forEach(s => {
+    const div = document.createElement("div");
+    div.className = "tb-strategy-item" + (s.key === defaultStrat ? " picked" : "");
+    div.innerHTML = `<div class="tb-strategy-item-label">${s.label}${s.key === defaultStrat ? " (default)" : ""}</div><div class="tb-strategy-item-desc">${s.description}</div>`;
+    div.addEventListener("click", () => {
+      pickedStrategy = s.key;
+      stratList.querySelectorAll(".tb-strategy-item").forEach(el => el.classList.remove("picked"));
+      div.classList.add("picked");
+      updateTimeframeOptions(s.timeframe);
+      smaExitRow.style.display = s.key === "MA_SLOPE_PURE" ? "" : "none";
+      bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_BAND_COLOR") ? "" : "none";
+      greyExitRow.style.display = s.key === "ALMA_TRI_BAND" ? "" : "none";
+    });
+    stratList.appendChild(div);
+  });
+
+  const tfSelect = tbAddBody.querySelector("#addTimeframe");
+  function updateTimeframeOptions(defaultTf) {
+    tfSelect.innerHTML = "";
+    (addState.allTimeframes || ["5m", "15m", "30m", "1h"]).forEach(tf => {
+      const opt = document.createElement("option");
+      opt.value = tf;
+      opt.textContent = tf + (tf === defaultTf ? " (default)" : "");
+      if (tf === defaultTf) opt.selected = true;
+      tfSelect.appendChild(opt);
+    });
+  }
+  const defStratInfo = strategies.find(s => s.key === defaultStrat);
+  updateTimeframeOptions(defStratInfo ? defStratInfo.timeframe : "15m");
+  smaExitRow.style.display = defaultStrat === "MA_SLOPE_PURE" ? "" : "none";
+
+  const modeBtns = tbAddBody.querySelectorAll("#addModeChoice button");
+  const confirmLiveBox = tbAddBody.querySelector("#addConfirmLive");
+  let isLive = false;
+  modeBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      modeBtns.forEach(b => b.classList.remove("picked", "paper", "live"));
+      isLive = btn.dataset.mode === "live";
+      btn.classList.add("picked", btn.dataset.mode);
+      confirmLiveBox.classList.toggle("show", isLive);
+    });
+  });
+
+  tbAddBody.querySelector("#addSubmit").addEventListener("click", async () => {
+    const errBox = tbAddBody.querySelector("#addErrBox");
+    errBox.innerHTML = "";
+    const submitBtn = tbAddBody.querySelector("#addSubmit");
+    const lotMultInput = tbAddBody.querySelector("#addLotMult");
+    if (p.lotMultRequired && (!lotMultInput.value || Number(lotMultInput.value) <= 0)) {
+      errBox.innerHTML = `<div class="tb-err-box">lot multiplier is required</div>`;
+      return;
+    }
+    if (isLive && tbAddBody.querySelector("#addConfirmLiveInput").value !== "LIVE") {
+      errBox.innerHTML = `<div class="tb-err-box">type LIVE to confirm live mode</div>`;
+      return;
+    }
+    submitBtn.disabled = true;
+    submitBtn.textContent = "starting...";
+    try {
+      const body = {
+        underlying: addState.underlying,
+        exchange: addState.exchange,
+        lots: tbAddBody.querySelector("#addLots").value,
+        lotMultOverride: p.lotMultRequired ? lotMultInput.value : undefined,
+        live: isLive,
+        confirmLive: isLive ? tbAddBody.querySelector("#addConfirmLiveInput").value : undefined,
+        carryOvernight: tbAddBody.querySelector("#addCarry").checked,
+        strategy: pickedStrategy,
+        timeframe: tfSelect.value,
+        targetPoints: tbAddBody.querySelector("#addTarget").value || undefined,
+        smaExitEnabled: pickedStrategy === "MA_SLOPE_PURE" ? tbAddBody.querySelector("#addSmaExit").checked : undefined,
+        bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_BAND_COLOR") ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
+        greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
+      };
+      const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) {
+        errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed"}</div>`;
+        submitBtn.disabled = false;
+        submitBtn.textContent = "start instrument";
+        return;
+      }
+      tbAddModal.classList.remove("open");
+      appendLog({ type: "SYS", text: `started ${data.name} — ${isLive ? "LIVE" : "PAPER"} — ${pickedStrategy} @ ${data.timeframe}` });
+      loadToolboxList();
+    } catch (err) {
+      errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+      submitBtn.disabled = false;
+      submitBtn.textContent = "start instrument";
+    }
+  });
+}
+
+// ── backtest modal ───────────────────────────────────────────────────────
+const tbBacktestModal = document.getElementById("tbBacktestModal");
+const tbBacktestBody = document.getElementById("tbBacktestBody");
+const tbBacktestClose = document.getElementById("tbBacktestClose");
+document.getElementById("tbOpenBacktest").addEventListener("click", openBacktestModal);
+tbBacktestClose.addEventListener("click", () => tbBacktestModal.classList.remove("open"));
+tbBacktestModal.addEventListener("click", e => { if (e.target === tbBacktestModal) tbBacktestModal.classList.remove("open"); });
+
+let btState = {};
+
+async function openBacktestModal() {
+  btState = { exchange: "MCX" };
+  tbBacktestBody.innerHTML = `<div class="tb-form-hint">loading strategies...</div>`;
+  tbBacktestModal.classList.add("open");
+  try {
+    const stratData = await (await fetch("/api/toolbox/strategies")).json();
+    btState.strategies = stratData.strategies;
+    btState.timeframes = stratData.timeframes;
+    renderBacktestStrategyStep();
+  } catch (err) {
+    tbBacktestBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+  }
+}
+
+function renderBacktestStrategyStep() {
+  tbBacktestBody.innerHTML = `<div class="tb-form-row"><div class="tb-form-label">step 1/3 — strategy</div><div id="btStrategyList"></div></div>`;
+  const list = tbBacktestBody.querySelector("#btStrategyList");
+  btState.strategies.forEach(s => {
+    const div = document.createElement("div");
+    div.className = "tb-strategy-item";
+    div.innerHTML = `<div class="tb-strategy-item-label">${s.label}</div><div class="tb-strategy-item-desc">${s.description}</div>`;
+    div.addEventListener("click", () => {
+      btState.strategy = s.key;
+      btState.defaultTimeframe = s.timeframe;
+      renderBacktestInstrumentStep();
+    });
+    list.appendChild(div);
+  });
+}
+
+function renderBacktestInstrumentStep() {
+  tbBacktestBody.innerHTML = `
+    <button class="tb-back-link" id="btBack1">‹ back to strategy</button>
+    <div class="tb-form-row">
+      <div class="tb-form-label">step 2/3 — instrument</div>
+      <div class="tb-mode-choice" id="btExchangeChoice">
+        <button data-ex="MCX" class="picked paper">MCX Futures</button>
+        <button data-ex="NSE">NSE Stocks</button>
+      </div>
+    </div>
+    <div class="tb-search-row">
+      <input type="text" id="btSearchInput" placeholder="search underlying...">
+      <button id="btSearchBtn">search</button>
+    </div>
+    <div class="tb-pick-list" id="btPickList"></div>
+    <div class="tb-form-hint" id="btSearchHint"></div>
+  `;
+  tbBacktestBody.querySelector("#btBack1").addEventListener("click", renderBacktestStrategyStep);
+  const exBtns = tbBacktestBody.querySelectorAll("#btExchangeChoice button");
+  exBtns.forEach(btn => btn.addEventListener("click", () => {
+    exBtns.forEach(b => b.classList.remove("picked", "paper", "live"));
+    btn.classList.add("picked", btn.dataset.ex === "MCX" ? "paper" : "live");
+    btState.exchange = btn.dataset.ex;
+  }));
+  const searchInput = tbBacktestBody.querySelector("#btSearchInput");
+  const pickList = tbBacktestBody.querySelector("#btPickList");
+  const hint = tbBacktestBody.querySelector("#btSearchHint");
+  async function runSearch() {
+    hint.textContent = "searching...";
+    pickList.innerHTML = "";
+    try {
+      const q = searchInput.value.trim();
+      const data = await (await fetch(`/api/toolbox/instruments?exchange=${btState.exchange}&q=${encodeURIComponent(q)}`)).json();
+      if (data.error) { hint.textContent = data.error; return; }
+      if (data.matches.length === 0) { hint.textContent = "no matches"; return; }
+      hint.textContent = data.truncated ? `showing 50 of ${data.total} — narrow your search` : `${data.matches.length} match(es)`;
+      data.matches.forEach(u => {
+        const btn = document.createElement("button");
+        btn.className = "tb-pick-item";
+        btn.textContent = u;
+        btn.addEventListener("click", () => { btState.underlying = u; renderBacktestParamsStep(); });
+        pickList.appendChild(btn);
+      });
+    } catch (err) {
+      hint.textContent = `search failed: ${err.message}`;
+    }
+  }
+  tbBacktestBody.querySelector("#btSearchBtn").addEventListener("click", runSearch);
+  searchInput.addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
+  runSearch();
+}
+
+async function renderBacktestParamsStep() {
+  tbBacktestBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  let paramDefs = [];
+  let preview = null;
+  try {
+    const [paramsRes, previewRes] = await Promise.all([
+      fetch(`/api/toolbox/backtest/params/${btState.strategy}`),
+      fetch(`/api/toolbox/instruments/${encodeURIComponent(btState.underlying)}/preview?exchange=${btState.exchange}`),
+    ]);
+    paramDefs = await paramsRes.json();
+    if (!Array.isArray(paramDefs)) paramDefs = [];
+    preview = await previewRes.json();
+    if (preview.error) preview = null; // resolution can still fail here; submit will surface the real error
+  } catch { /* proceed with defaults-only form; submit-time validation still catches a missing multiplier */ }
+
+  tbBacktestBody.innerHTML = `
+    <button class="tb-back-link" id="btBack2">‹ back to instrument</button>
+    <div class="tb-form-row">
+      <div class="tb-form-label">step 3/3 — range & params</div>
+      <div class="tb-form-hint">${btState.underlying} — ${(btState.strategies.find(s => s.key === btState.strategy) || {}).label || btState.strategy}</div>
+    </div>
+    <div class="tb-form-row"><div class="tb-form-label">timeframe</div><select id="btTimeframe"></select></div>
+    <div class="tb-form-row"><div class="tb-form-label">days back (default 30)</div><input type="number" id="btDays" placeholder="30" min="1"></div>
+    <div class="tb-form-row" id="btLotMultRow" style="display:${preview && preview.lotMultRequired ? "" : "none"}">
+      <div class="tb-form-label">lot multiplier (required for this instrument)</div>
+      <input type="number" id="btLotMult" min="0" step="any">
+    </div>
+    <div id="btParamsBox"></div>
+    <div id="btErrBox"></div>
+    <div id="btResultBox"></div>
+    <button class="tb-submit-btn" id="btSubmit">run backtest</button>
+  `;
+  tbBacktestBody.querySelector("#btBack2").addEventListener("click", renderBacktestInstrumentStep);
+
+  const tfSelect = tbBacktestBody.querySelector("#btTimeframe");
+  (btState.timeframes || ["5m", "15m", "30m", "1h"]).forEach(tf => {
+    const opt = document.createElement("option");
+    opt.value = tf;
+    opt.textContent = tf + (tf === btState.defaultTimeframe ? " (default)" : "");
+    if (tf === btState.defaultTimeframe) opt.selected = true;
+    tfSelect.appendChild(opt);
+  });
+
+  const paramsBox = tbBacktestBody.querySelector("#btParamsBox");
+  paramDefs.forEach(pd => {
+    const row = document.createElement("div");
+    row.className = "tb-form-row";
+    row.innerHTML = `<div class="tb-form-label">${pd.label} (default ${pd.default})</div><input type="number" step="any" data-param="${pd.key}" placeholder="${pd.default}">`;
+    paramsBox.appendChild(row);
+  });
+
+  tbBacktestBody.querySelector("#btSubmit").addEventListener("click", async () => {
+    const errBox = tbBacktestBody.querySelector("#btErrBox");
+    const resultBox = tbBacktestBody.querySelector("#btResultBox");
+    errBox.innerHTML = "";
+    resultBox.innerHTML = "";
+    const submitBtn = tbBacktestBody.querySelector("#btSubmit");
+    submitBtn.disabled = true;
+    submitBtn.textContent = "running... (fetching history + replaying)";
+    const params = {};
+    paramsBox.querySelectorAll("input[data-param]").forEach(inp => { if (inp.value) params[inp.dataset.param] = inp.value; });
+    const body = {
+      underlying: btState.underlying,
+      exchange: btState.exchange,
+      strategy: btState.strategy,
+      timeframe: tfSelect.value,
+      days: tbBacktestBody.querySelector("#btDays").value || undefined,
+      params,
+      lotMultOverride: tbBacktestBody.querySelector("#btLotMult").value || undefined,
+    };
+    try {
+      const res = await fetch("/api/toolbox/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) {
+        if (/lot multiplier/i.test(data.error || "")) tbBacktestBody.querySelector("#btLotMultRow").style.display = "";
+        errBox.innerHTML = `<div class="tb-err-box">${data.error || "backtest failed"}</div>`;
+        submitBtn.disabled = false;
+        submitBtn.textContent = "run backtest";
+        return;
+      }
+      const m = data.summary;
+      const fmtMoney = v => (v >= 0 ? "+" : "") + Math.round(v).toLocaleString();
+      resultBox.innerHTML = `
+        <div class="tb-summary-grid">
+          <div class="tb-summary-cell"><div class="k">trades</div><div class="v">${m.trades}</div></div>
+          <div class="tb-summary-cell"><div class="k">win rate</div><div class="v">${(m.winRate * 100).toFixed(1)}%</div></div>
+          <div class="tb-summary-cell"><div class="k">profit factor</div><div class="v">${m.profitFactor === null ? "-" : m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2)}</div></div>
+          <div class="tb-summary-cell"><div class="k">net pnl</div><div class="v">${fmtMoney(m.netPnL)}</div></div>
+          <div class="tb-summary-cell"><div class="k">max drawdown</div><div class="v">${fmtMoney(m.maxDrawdown)}</div></div>
+          <div class="tb-summary-cell"><div class="k">avg trade</div><div class="v">${fmtMoney(m.avgTrade)}</div></div>
+        </div>
+        <a class="tb-report-link" href="${data.reportUrl}" target="_blank" rel="noopener">open full report ↗</a>
+      `;
+      submitBtn.disabled = false;
+      submitBtn.textContent = "run backtest";
+    } catch (err) {
+      errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+      submitBtn.disabled = false;
+      submitBtn.textContent = "run backtest";
+    }
+  });
+}
+
+// ── credentials modal ────────────────────────────────────────────────────
+const tbCredsModal = document.getElementById("tbCredsModal");
+const tbCredsBody = document.getElementById("tbCredsBody");
+const tbCredsClose = document.getElementById("tbCredsClose");
+document.getElementById("tbOpenCredentials").addEventListener("click", openCredentialsModal);
+tbCredsClose.addEventListener("click", () => tbCredsModal.classList.remove("open"));
+tbCredsModal.addEventListener("click", e => { if (e.target === tbCredsModal) tbCredsModal.classList.remove("open"); });
+
+async function openCredentialsModal() {
+  tbCredsBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  tbCredsModal.classList.add("open");
+  try {
+    const fields = await (await fetch("/api/toolbox/credentials")).json();
+    tbCredsBody.innerHTML = `
+      <div class="tb-form-hint" style="margin-bottom:14px">blank = keep current value</div>
+      ${fields.map(f => `
+        <div class="tb-form-row">
+          <div class="tb-form-label">${f.key}${f.set ? "" : " (not set)"}</div>
+          <input type="text" data-cred="${f.key}" placeholder="${f.masked || "new value"}">
+        </div>
+      `).join("")}
+      <div id="credsErrBox"></div>
+      <div id="credsMsgBox"></div>
+      <button class="tb-submit-btn" id="credsSubmit">save</button>
+    `;
+    tbCredsBody.querySelector("#credsSubmit").addEventListener("click", async () => {
+      const errBox = tbCredsBody.querySelector("#credsErrBox");
+      const msgBox = tbCredsBody.querySelector("#credsMsgBox");
+      errBox.innerHTML = "";
+      msgBox.innerHTML = "";
+      const body = {};
+      tbCredsBody.querySelectorAll("input[data-cred]").forEach(inp => { if (inp.value) body[inp.dataset.cred] = inp.value; });
+      const submitBtn = tbCredsBody.querySelector("#credsSubmit");
+      submitBtn.disabled = true;
+      submitBtn.textContent = "saving...";
+      try {
+        const res = await fetch("/api/toolbox/credentials", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const data = await res.json();
+        if (!res.ok) {
+          errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed"}</div>`;
+          submitBtn.disabled = false;
+          submitBtn.textContent = "save";
+          return;
+        }
+        msgBox.innerHTML = data.changed > 0
+          ? `<div class="tb-form-hint">saved ${data.changed} value(s) — ${data.note}</div>`
+          : `<div class="tb-form-hint">nothing changed</div>`;
+        submitBtn.disabled = false;
+        submitBtn.textContent = "save";
+      } catch (err) {
+        errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+        submitBtn.disabled = false;
+        submitBtn.textContent = "save";
+      }
+    });
+  } catch (err) {
+    tbCredsBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+  }
+}
+
+// ── trending instruments modal ───────────────────────────────────────────
+const tbTrendingModal = document.getElementById("tbTrendingModal");
+const tbTrendingBody = document.getElementById("tbTrendingBody");
+const tbTrendingClose = document.getElementById("tbTrendingClose");
+document.getElementById("tbOpenTrending").addEventListener("click", openTrendingModal);
+tbTrendingClose.addEventListener("click", () => tbTrendingModal.classList.remove("open"));
+tbTrendingModal.addEventListener("click", e => { if (e.target === tbTrendingModal) tbTrendingModal.classList.remove("open"); });
+
+let trendState = {};
+
+function openTrendingModal() {
+  trendState = { exchange: "MCX" };
+  renderTrendingSetupStep();
+  tbTrendingModal.classList.add("open");
+}
+
+function renderTrendingSetupStep(confirmAllNotice) {
+  tbTrendingBody.innerHTML = `
+    <div class="tb-form-row">
+      <div class="tb-form-label">exchange</div>
+      <div class="tb-mode-choice" id="trendExchangeChoice">
+        <button data-ex="MCX" class="picked paper">MCX Futures</button>
+        <button data-ex="NSE">NSE Stocks</button>
+      </div>
+    </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">filter (blank = scan all)</div>
+      <input type="text" id="trendQuery" placeholder="e.g. ZINC, NATGAS...">
+    </div>
+    <div class="tb-form-hint">ADX(${14}) on daily candles, ${90}d lookback, ≥25 = trending. Rate-limited — a full scan can take a while.</div>
+    ${confirmAllNotice ? `<div class="tb-warn-box">${confirmAllNotice}</div>` : ""}
+    <div id="trendErrBox"></div>
+    <button class="tb-submit-btn" id="trendScanBtn">scan</button>
+  `;
+  const exBtns = tbTrendingBody.querySelectorAll("#trendExchangeChoice button");
+  exBtns.forEach(btn => btn.addEventListener("click", () => {
+    exBtns.forEach(b => b.classList.remove("picked", "paper", "live"));
+    btn.classList.add("picked", btn.dataset.ex === "MCX" ? "paper" : "live");
+    trendState.exchange = btn.dataset.ex;
+  }));
+  tbTrendingBody.querySelector("#trendScanBtn").addEventListener("click", () => runTrendingScan(false));
+}
+
+async function runTrendingScan(confirmAll) {
+  const errBox = tbTrendingBody.querySelector("#trendErrBox");
+  const scanBtn = tbTrendingBody.querySelector("#trendScanBtn");
+  if (errBox) errBox.innerHTML = "";
+  if (scanBtn) { scanBtn.disabled = true; scanBtn.textContent = "scanning..."; }
+  const q = (tbTrendingBody.querySelector("#trendQuery") || {}).value || "";
+  try {
+    const res = await fetch("/api/toolbox/trending/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ exchange: trendState.exchange, q, confirmAll }),
+    });
+    if (!res.body || !res.body.getReader) {
+      // Fallback for a browser without streaming reader support — same
+      // NDJSON body, just read it all at once and split by hand.
+      const text = await res.text();
+      handleTrendingStreamEnd(parseNdjsonLines(text), scanBtn);
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalData = null;
+    let errorData = null;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line) continue;
+        let evt;
+        try { evt = JSON.parse(line); } catch { continue; }
+        if (evt.type === "progress") {
+          if (scanBtn) scanBtn.textContent = `scanning... ${evt.done}/${evt.total} (${evt.underlying})`;
+        } else if (evt.type === "result") {
+          finalData = evt;
+        } else if (evt.type === "error") {
+          errorData = evt;
+        }
+      }
+    }
+    handleTrendingStreamResult(finalData, errorData, scanBtn);
+  } catch (err) {
+    if (errBox) errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+    if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = "scan"; }
+  }
+}
+
+function parseNdjsonLines(text) {
+  let finalData = null, errorData = null;
+  text.split("\n").forEach(line => {
+    line = line.trim();
+    if (!line) return;
+    let evt;
+    try { evt = JSON.parse(line); } catch { return; }
+    if (evt.type === "result") finalData = evt;
+    else if (evt.type === "error") errorData = evt;
+  });
+  return { finalData, errorData };
+}
+
+function handleTrendingStreamEnd({ finalData, errorData }, scanBtn) {
+  handleTrendingStreamResult(finalData, errorData, scanBtn);
+}
+
+function handleTrendingStreamResult(finalData, errorData, scanBtn) {
+  if (errorData) {
+    if (errorData.requiresConfirmAll) {
+      renderTrendingSetupStep(`${errorData.error} — hit scan again to confirm scanning all ${errorData.total}.`);
+      // Clone-and-replace strips the default "scan" listener
+      // renderTrendingSetupStep just bound, so only the confirm-all
+      // handler below fires — otherwise both would run on click.
+      const oldBtn = tbTrendingBody.querySelector("#trendScanBtn");
+      const freshBtn = oldBtn.cloneNode(true);
+      oldBtn.replaceWith(freshBtn);
+      freshBtn.textContent = "scan all anyway";
+      freshBtn.addEventListener("click", () => runTrendingScan(true));
+      return;
+    }
+    const errBox = tbTrendingBody.querySelector("#trendErrBox");
+    if (errBox) errBox.innerHTML = `<div class="tb-err-box">${errorData.error}</div>`;
+    if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = "scan"; }
+    return;
+  }
+  if (finalData) {
+    renderTrendingResults(finalData);
+  } else {
+    const errBox = tbTrendingBody.querySelector("#trendErrBox");
+    if (errBox) errBox.innerHTML = `<div class="tb-err-box">scan ended without a result — check the server log</div>`;
+    if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = "scan"; }
+  }
+}
+
+function renderTrendingResults(data) {
+  const { scanned, exchange, trending, alreadyRunning } = data;
+  let html = `<button class="tb-back-link" id="trendBack">‹ new scan</button>`;
+  html += `<div class="tb-form-hint" style="margin-bottom:10px">${scanned} scanned</div>`;
+
+  if (trending.length === 0 && alreadyRunning.length === 0) {
+    html += `<div class="tb-form-hint">nothing trending right now (ADX < 25)</div>`;
+  }
+  if (trending.length > 0) {
+    html += `<div class="tb-trend-group-label">recommended — not already running</div>`;
+    trending.forEach((r, i) => {
+      html += `
+        <div class="tb-trend-row">
+          <div class="info">${r.underlying} <span class="adx">ADX ${r.adxVal.toFixed(1)}</span><br><span style="color:var(--dim);font-size:10px">${r.symbol}</span></div>
+          <button class="tb-trend-deploy-btn" data-deploy-idx="${i}">deploy</button>
+        </div>`;
+    });
+  }
+  if (alreadyRunning.length > 0) {
+    html += `<div class="tb-trend-group-label">trending but already running</div>`;
+    alreadyRunning.forEach(r => {
+      html += `
+        <div class="tb-trend-row dimmed">
+          <div class="info">${r.underlying} <span class="adx">ADX ${r.adxVal.toFixed(1)}</span><br><span style="color:var(--dim);font-size:10px">${(r.runningAs || []).join(", ")}</span></div>
+        </div>`;
+    });
+  }
+
+  tbTrendingBody.innerHTML = html;
+  tbTrendingBody.querySelector("#trendBack").addEventListener("click", renderTrendingSetupStep);
+  tbTrendingBody.querySelectorAll("[data-deploy-idx]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const pick = trending[Number(btn.dataset.deployIdx)];
+      tbTrendingModal.classList.remove("open");
+      // Reuses the Add Instrument flow, pre-filled — same start path
+      // (POST /api/toolbox/instrument), not a second implementation.
+      addState = { exchange };
+      tbAddModal.classList.add("open");
+      selectAddUnderlying(pick.underlying);
+    });
+  });
+}
+
+// ── market status modal ──────────────────────────────────────────────────
+const tbMarketModal = document.getElementById("tbMarketModal");
+const tbMarketBody = document.getElementById("tbMarketBody");
+const tbMarketClose = document.getElementById("tbMarketClose");
+document.getElementById("tbOpenMarketStatus").addEventListener("click", openMarketModal);
+tbMarketClose.addEventListener("click", () => tbMarketModal.classList.remove("open"));
+tbMarketModal.addEventListener("click", e => { if (e.target === tbMarketModal) tbMarketModal.classList.remove("open"); });
+
+function stateClass(state) {
+  if (state === "TRENDING" || state === "BREAKOUT") return "trend";
+  if (state === "RANGING") return "range";
+  if (state === "HIGH_VOLATILITY") return "vol";
+  return "unk";
+}
+
+async function openMarketModal() {
+  tbMarketBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  tbMarketModal.classList.add("open");
+  await loadMarketStatus();
+}
+
+async function loadMarketStatus() {
+  try {
+    const [entries, scannerStatus] = await Promise.all([
+      (await fetch("/api/toolbox/watchlist")).json(),
+      (await fetch("/api/toolbox/scanner/status")).json(),
+    ]);
+
+    let html = `
+      <div class="tb-scanner-bar">
+        <span><span class="dot ${scannerStatus.running ? "on" : "off"}"></span>scanner ${scannerStatus.running ? "running" : "stopped"}</span>
+        <span>
+          <button id="marketScannerToggle">${scannerStatus.running ? "stop" : "start"} scanner</button>
+        </span>
+      </div>
+      <div class="tb-search-row" style="margin-bottom:10px">
+        <input type="text" id="marketAddInput" placeholder="add underlying to watchlist...">
+        <button id="marketAddBtn">add</button>
+      </div>
+      <div id="marketAddHint" class="tb-form-hint"></div>
+      <div id="marketAddPickList" class="tb-pick-list"></div>
+    `;
+
+    if (entries.length === 0) {
+      html += `<div class="tb-form-hint">watchlist is empty — add an instrument above</div>`;
+    } else {
+      entries.forEach(e => {
+        const p = e.profile;
+        const cls = stateClass(p.structure.state);
+        const updated = p.updatedAt ? new Date(p.updatedAt).toLocaleTimeString([], { hour12: false }) : (p.unavailableReason || "no data");
+        html += `
+          <div class="tb-watch-row">
+            <div class="tb-watch-main">
+              <div class="tb-watch-inst">${e.underlying} <span style="color:var(--dim);font-size:10px">(${e.exchange})</span></div>
+              <div class="tb-watch-meta">conf ${p.confidence != null ? p.confidence + "%" : "-"} · trend ${p.trend.direction}${p.trend.score != null ? " " + p.trend.score : ""} · vol ${p.volatility.state}${p.volatility.score != null ? " " + p.volatility.score : ""} · ${updated}</div>
+            </div>
+            <span class="tb-watch-state ${cls}">${p.structure.state}</span>
+            <button class="tb-watch-remove" data-remove="${e.underlying}" title="remove">✕</button>
+          </div>`;
+      });
+    }
+
+    tbMarketBody.innerHTML = html;
+
+    tbMarketBody.querySelector("#marketScannerToggle").addEventListener("click", async () => {
+      const btn = tbMarketBody.querySelector("#marketScannerToggle");
+      btn.disabled = true;
+      try {
+        await fetch(`/api/toolbox/scanner/${scannerStatus.running ? "stop" : "start"}`, { method: "POST" });
+        await loadMarketStatus();
+      } catch (err) {
+        btn.disabled = false;
+      }
+    });
+
+    tbMarketBody.querySelectorAll("[data-remove]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        await fetch(`/api/toolbox/watchlist/${encodeURIComponent(btn.dataset.remove)}`, { method: "DELETE" });
+        loadMarketStatus();
+      });
+    });
+
+    const addInput = tbMarketBody.querySelector("#marketAddInput");
+    const addHint = tbMarketBody.querySelector("#marketAddHint");
+    const addPickList = tbMarketBody.querySelector("#marketAddPickList");
+    async function runMarketSearch() {
+      addHint.textContent = "searching...";
+      addPickList.innerHTML = "";
+      try {
+        const q = addInput.value.trim();
+        if (!q) { addHint.textContent = ""; return; }
+        const data = await (await fetch(`/api/toolbox/instruments?exchange=MCX&q=${encodeURIComponent(q)}`)).json();
+        const nse = await (await fetch(`/api/toolbox/instruments?exchange=NSE&q=${encodeURIComponent(q)}`)).json();
+        const combined = [
+          ...(data.matches || []).map(u => ({ underlying: u, exchange: "MCX" })),
+          ...(nse.matches || []).map(u => ({ underlying: u, exchange: "NSE" })),
+        ];
+        if (combined.length === 0) { addHint.textContent = "no matches"; return; }
+        addHint.textContent = `${combined.length} match(es)`;
+        combined.slice(0, 30).forEach(m => {
+          const btn = document.createElement("button");
+          btn.className = "tb-pick-item";
+          btn.textContent = `${m.underlying} (${m.exchange})`;
+          btn.addEventListener("click", async () => {
+            await fetch("/api/toolbox/watchlist", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ underlying: m.underlying, exchange: m.exchange }),
+            });
+            loadMarketStatus();
+          });
+          addPickList.appendChild(btn);
+        });
+      } catch (err) {
+        addHint.textContent = `search failed: ${err.message}`;
+      }
+    }
+    tbMarketBody.querySelector("#marketAddBtn").addEventListener("click", runMarketSearch);
+    addInput.addEventListener("keydown", e => { if (e.key === "Enter") runMarketSearch(); });
+  } catch (err) {
+    tbMarketBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+  }
+}
+
+// ── roll contract modal ──────────────────────────────────────────────────
+const tbRollModal = document.getElementById("tbRollModal");
+const tbRollBody = document.getElementById("tbRollBody");
+const tbRollClose = document.getElementById("tbRollClose");
+document.getElementById("tbOpenRoll").addEventListener("click", openRollModal);
+tbRollClose.addEventListener("click", () => tbRollModal.classList.remove("open"));
+tbRollModal.addEventListener("click", e => { if (e.target === tbRollModal) tbRollModal.classList.remove("open"); });
+
+async function openRollModal() {
+  tbRollBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  tbRollModal.classList.add("open");
+  await renderRollPickStep();
+}
+
+async function renderRollPickStep() {
+  tbRollBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  try {
+    const candidates = await (await fetch("/api/toolbox/roll/candidates")).json();
+    let html = `<div class="tb-warn-box">⚠ roll contract only applies to MCX futures — NSE equities don't expire, so they're left out of this list.</div>`;
+    if (candidates.length === 0) {
+      html += `<div class="tb-form-hint">no running MCX instruments to roll</div>`;
+    } else {
+      html += `<div class="tb-form-label" style="margin-bottom:8px">select instrument to roll</div>`;
+      candidates.forEach(c => {
+        html += `<button class="tb-pick-item" data-roll-name="${c.name}" style="width:100%;text-align:left;margin-bottom:6px">${c.underlying} <span style="color:var(--dim);font-size:10px">— ${c.strategyLabel}</span></button>`;
+      });
+    }
+    tbRollBody.innerHTML = html;
+    tbRollBody.querySelectorAll("[data-roll-name]").forEach(btn => {
+      btn.addEventListener("click", () => renderRollPreviewStep(btn.dataset.rollName));
+    });
+  } catch (err) {
+    tbRollBody.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+  }
+}
+
+async function renderRollPreviewStep(name) {
+  tbRollBody.innerHTML = `<div class="tb-form-hint">resolving...</div>`;
+  try {
+    const preview = await (await fetch(`/api/toolbox/roll/preview/${encodeURIComponent(name)}`)).json();
+    if (preview.error) {
+      tbRollBody.innerHTML = `
+        <button class="tb-back-link" id="rollBackErr">‹ back</button>
+        <div class="tb-err-box">${preview.error}</div>`;
+      tbRollBody.querySelector("#rollBackErr").addEventListener("click", renderRollPickStep);
+      return;
+    }
+    renderRollConfirmStep(preview);
+  } catch (err) {
+    tbRollBody.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+  }
+}
+
+function renderRollConfirmStep(preview) {
+  const { underlying, current, next, manualEntryNeeded, siblings } = preview;
+  let html = `
+    <button class="tb-back-link" id="rollBack2">‹ back to instrument list</button>
+    <div class="tb-warn-box">⚠ MCX futures only — this instrument is confirmed MCX.</div>
+    <div class="tb-resolved-box">
+      <div>instrument: <span class="sym">${underlying}</span></div>
+      <div>current: ${current.symbol} (token ${current.token}, lot ${current.lotSize})</div>
+      <div>next: ${manualEntryNeeded ? '<span style="color:var(--yellow,#ffcc4d)">not found in instrument dump</span>' : `${next.symbol} (token ${next.token}, lot ${next.lotSize})`}</div>
+    </div>
+  `;
+
+  if (manualEntryNeeded) {
+    html += `
+      <div class="tb-warn-box">⚠ next contract not found in the local instrument dump — enter it manually.</div>
+      <div class="tb-form-row"><div class="tb-form-label">new symbol</div><input type="text" id="rollManualSymbol"></div>
+      <div class="tb-form-row"><div class="tb-form-label">new token</div><input type="number" id="rollManualToken"></div>
+      <div class="tb-form-row"><div class="tb-form-label">new lot size (blank = same as current, ${current.lotSize})</div><input type="number" id="rollManualLot" placeholder="${current.lotSize}"></div>
+    `;
+  }
+
+  if (siblings.length > 1) {
+    html += `<div class="tb-warn-box">⚠ ${siblings.length} processes run ${underlying} (${siblings.map(s => s.strategy).join(", ")}) — all of them need to restart together, or they'll end up split across two different contracts. This applies to all of them, not just the one you picked.</div>`;
+  }
+
+  html += `
+    <label class="tb-form-row-inline" style="margin-bottom:14px"><input type="checkbox" id="rollRestartNow" checked><span>restart engine${siblings.length > 1 ? "s" : ""} immediately after saving the pin</span></label>
+    <div id="rollErrBox"></div>
+    <div id="rollResultBox"></div>
+    <button class="tb-submit-btn" id="rollApplyBtn">apply roll</button>
+  `;
+
+  tbRollBody.innerHTML = html;
+  tbRollBody.querySelector("#rollBack2").addEventListener("click", renderRollPickStep);
+
+  tbRollBody.querySelector("#rollApplyBtn").addEventListener("click", async () => {
+    const errBox = tbRollBody.querySelector("#rollErrBox");
+    const resultBox = tbRollBody.querySelector("#rollResultBox");
+    errBox.innerHTML = "";
+    resultBox.innerHTML = "";
+    const btn = tbRollBody.querySelector("#rollApplyBtn");
+
+    let manualEntry;
+    if (manualEntryNeeded) {
+      const symbol = tbRollBody.querySelector("#rollManualSymbol").value.trim();
+      const token = tbRollBody.querySelector("#rollManualToken").value;
+      const lotSize = tbRollBody.querySelector("#rollManualLot").value;
+      if (!symbol || !token) {
+        errBox.innerHTML = `<div class="tb-err-box">symbol and token are required for a manual entry</div>`;
+        return;
+      }
+      manualEntry = { symbol, token, lotSize: lotSize || undefined };
+    }
+
+    btn.disabled = true;
+    btn.textContent = "applying...";
+    try {
+      const res = await fetch("/api/toolbox/roll/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          underlying,
+          manualEntry,
+          restart: tbRollBody.querySelector("#rollRestartNow").checked,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errBox.innerHTML = `<div class="tb-err-box">${data.error || "roll failed"}</div>`;
+        btn.disabled = false;
+        btn.textContent = "apply roll";
+        return;
+      }
+      let resultHtml = `<div class="tb-form-hint">rolled ${data.oldSymbol} → ${data.newSymbol}${data.manual ? " (manual pin)" : ""}</div>`;
+      if (data.restarted && data.restarted.length) resultHtml += `<div class="tb-form-hint">restarted: ${data.restarted.join(", ")}</div>`;
+      if (data.restartFailed && data.restartFailed.length) resultHtml += `<div class="tb-err-box">restart failed: ${data.restartFailed.map(f => `${f.name} (${f.error})`).join(", ")}</div>`;
+      if (data.note) resultHtml += `<div class="tb-warn-box">${data.note}</div>`;
+      resultBox.innerHTML = resultHtml;
+      btn.style.display = "none";
+      loadToolboxList();
+    } catch (err) {
+      errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+      btn.disabled = false;
+      btn.textContent = "apply roll";
+    }
+  });
+}
 
 initAuth();
