@@ -195,6 +195,31 @@ async function main() {
         console.log(c.dim(`[${context.tgPrefix}] SMA9 exit: ${context.smaExitEnabled ? "ON" : c.yellow("off — flip/GREY exit is the only way out")}`));
     }
 
+    // Band step — only meaningful for DYNAMIC_BAND, read unconditionally
+    // same as everything else here. Left null (not defaulted here) when no
+    // override is set — createDynamicBandStrategy falls back to
+    // engineConfig.BAND_STEP_DEFAULT itself, same pattern as targetPoints,
+    // so a backtest tuning BAND_STEP_DEFAULT via STRATEGY_PARAMS actually
+    // takes effect instead of being shadowed by a value fixed here.
+    if (process.env.BAND_STEP_OVERRIDE !== undefined && process.env.BAND_STEP_OVERRIDE !== "") {
+        const parsedStep = Number(process.env.BAND_STEP_OVERRIDE);
+        context.bandStep = Number.isFinite(parsedStep) && parsedStep > 0 ? parsedStep : null;
+    }
+    if (context.strategy === "DYNAMIC_BAND" || context.strategy === "DYNAMIC_BAND_COLOR") {
+        console.log(c.dim(`[${context.tgPrefix}] band step: ${context.bandStep ?? `default (${engineConfig.BAND_STEP_DEFAULT})`}`));
+    }
+
+    // Grey-exit toggle — only meaningful for ALMA_TRI_BAND, left null
+    // (not defaulted here) when unset, same "let the strategy fall back to
+    // its own engineConfig default" reasoning as bandStep above.
+    if (process.env.GREY_EXIT_OVERRIDE !== undefined && process.env.GREY_EXIT_OVERRIDE !== "") {
+        context.greyExitEnabled = process.env.GREY_EXIT_OVERRIDE === "true";
+    }
+    if (context.strategy === "ALMA_TRI_BAND") {
+        const greyExitResolved = context.greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT;
+        console.log(c.dim(`[${context.tgPrefix}] grey state: ${greyExitResolved ? "exits flat" : "holds through it"}`));
+    }
+
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
 

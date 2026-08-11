@@ -175,6 +175,26 @@ function buildContext(def, resolvedContract) {
         // opposite-color-flip/GREY exit as the only way out. See
         // createMaSlopePureStrategy in strategies.js for where it's read.
         smaExitEnabled: true,
+        // Overridden per-process by engine.js from BAND_STEP_OVERRIDE
+        // (toolbox prompt, asked only when DYNAMIC_BAND is picked — same
+        // "only when this strategy" pattern as smaExitEnabled above). Fixed
+        // PRICE distance between the band's HIGH/MID/LOW — see
+        // createDynamicBandStrategy in strategies.js. null (not a literal
+        // default) so the strategy's own `context.bandStep ??
+        // engineConfig.BAND_STEP_DEFAULT` fallback is the ONLY place the
+        // actual default lives — same reasoning as targetPoints above: a
+        // backtest tuning BAND_STEP_DEFAULT via STRATEGY_PARAMS needs this
+        // to stay unset so it doesn't override the tuned value.
+        bandStep: null,
+        // Overridden per-process by engine.js from GREY_EXIT_OVERRIDE
+        // (toolbox prompt, asked only when ALMA_TRI_BAND is picked). Only
+        // controls what happens when strategy #15's state reads GREY while
+        // a position is open — exit flat, or hold through it and only ever
+        // exit on the opposite decisive color. null (not a literal
+        // default) for the same STRATEGY_PARAMS-backtest-tuning reason
+        // bandStep above is null — createAlmaTriBandStrategy falls back to
+        // engineConfig.GREY_EXIT_DEFAULT itself.
+        greyExitEnabled: null,
     };
 }
 

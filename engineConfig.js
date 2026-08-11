@@ -284,4 +284,35 @@ module.exports = {
     ATE_BAND_MULT:     1.9,  // envelope width multiplier (script: bandMult)
     ATE_EWMA_ALPHA:    0.09, // EWMA variance smoothing alpha (script: ewmaAlpha)
     ATE_CONFIRM_BARS:  1,    // bars required outside the band to confirm a regime flip (script: confirmBars)
+
+    // DYNAMIC_BAND — strategy #13. Own namespace, single value: the fixed
+    // PRICE distance between HIGH/MID/LOW (NOT ATR-derived, per spec — ATR
+    // is only used here for the same optional SL trail every other
+    // strategy in this file has). This is the FALLBACK default only —
+    // per-instrument value lives on context.bandStep, set via toolbox.js's
+    // prompt (only asked when this strategy is picked) / BAND_STEP_OVERRIDE,
+    // same override pattern as context.targetPoints.
+    BAND_STEP_DEFAULT: 1,
+
+    // ALMA_TRI_BAND — strategy #15. Direct port of the user-provided Pine
+    // indicator ("TAlgo — Zinc Optimized v3") — despite the Pine title,
+    // kept fully instrument-agnostic here (own namespace, no "ZINC" in any
+    // key) since context.js/toolbox.js already let ANY strategy run on ANY
+    // instrument; hardcoding the name would be misleading the moment
+    // someone runs this on something other than zinc. Values below are the
+    // Pine script's own input defaults, unchanged.
+    ALMA_TRI_FAST_LEN:          14,   // Pine: fast_len
+    ALMA_TRI_BAND_LEN:          30,   // Pine: band_len
+    ALMA_TRI_ATR_LEN:           14,   // Pine: atr_len — separate from ST_ATR_LEN/ATR_SL_MULT above, which size this strategy's OWN SL trail (not part of the ported indicator, see strategies.js)
+    ALMA_TRI_OFFSET:            0.85, // Pine: offset
+    ALMA_TRI_SIGMA:             6.0,  // Pine: sigma
+    ALMA_TRI_COMPRESS_MULT:     0.78, // Pine: compress_mult — band_width < atr*this => sideways/grey
+    ALMA_TRI_SLOPE_MULT:        0.020,// Pine: slope_mult — |slope| > atr*this => decisive direction
+    ALMA_TRI_BIG_CANDLE_MULT:   1.8,  // Pine: big_candle_mult — body > atr*this => force grey
+    ALMA_TRI_NEUTRAL_SLOPE_MULT: 0.015, // Pine: the inner 0.015 threshold in the hysteresis fallback branch
+    ALMA_TRI_BUFFER_MULT:       0.20, // Pine: buffer = atr*0.20, added past the band before counting as a breach
+    // Per-instrument override lives on context.greyExitEnabled — default
+    // here matches ALMA_FAST's/MA_SLOPE's existing convention of holding
+    // through a neutral/grey reading rather than exiting on it.
+    GREY_EXIT_DEFAULT: false,
 };

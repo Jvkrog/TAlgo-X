@@ -3357,6 +3357,834 @@ function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles
     return { processCandle, initSignals };
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// DYNAMIC_BAND — fixed-price-step HIGH/MID/LOW band, closed-candle only.
+// Direct port of the user-provided Pine Script v6 strategy ("TAlgo-X
+// Dynamic Step Band") — verified line-for-line against it, NOT the earlier
+// prose spec. Two things changed from that earlier prose spec + the
+// clarifications gathered before the first build, once the Pine script
+// (the actual authoritative reference) was provided:
+//
+//  - NO arm/confirmation-candle mechanism. The original prose spec
+//    described explicit LONG_ARMED/SHORT_ARMED states waiting for a "9:15"
+//    (later generalized to "one candle") confirmation candle before
+//    entering. The Pine script has none of that — `strategy.entry()` fires
+//    on the SAME candle the breakout is detected, no waiting at all. This
+//    file's first draft built the arm/confirm version; it's been replaced
+//    entirely with this direct port. If you actually want the arm/confirm
+//    behavior back, say so explicitly — the two are mutually exclusive and
+//    this version matches what your Pine script does, not what the prose
+//    spec described.
+//
+//  - The band SHIFTS by bandStep on the very FIRST entry too, not just on
+//    later continuation breaches. Pine: `if breakHigh: strategy.entry(...);
+//    mid := mid + step; high := mid+step; low := mid-step` — the shift
+//    happens unconditionally alongside the entry, both branches (fresh
+//    entry from flat, and continuation while already in a position) apply
+//    the identical shift. This file mirrors that with one shared
+//    `shiftBand(dir)` helper used in both places, rather than two
+//    near-duplicate blocks.
+//
+// State machine (matches the Pine script exactly — only 3 real states,
+// no armed/waiting state):
+//
+//   FLAT:
+//     close > HIGH  -> ENTER LONG,  shift band UP,   log LONG BREAKOUT + LONG ENTRY
+//     close < LOW   -> ENTER SHORT, shift band DOWN, log SHORT BREAKOUT + SHORT ENTRY
+//     otherwise     -> no action (sideways / no-action zone)
+//
+//   LONG:
+//     close > HIGH  -> shift band UP (continuation, position stays open)
+//     close < LOW   -> EXIT LONG, shift band DOWN, ENTER SHORT, same candle
+//                       (Pine: strategy.close("LONG") then mid -= step then
+//                       strategy.entry("SHORT") — all in the same bar)
+//     otherwise     -> hold
+//
+//   SHORT: mirror of LONG.
+//
+// BAND INIT: the very first candle this process ever sees sets
+// MID = candle.open (known at bar start, so not look-ahead), HIGH/LOW =
+// MID ± bandStep — and (matching the Pine script, where the na(mid) init
+// block and the breakout-check block both run in the same script
+// execution on bar 1) THIS SAME CANDLE is also evaluated for a breakout
+// against the band it just set, using its own close. This file's first
+// draft skipped breakout evaluation on the init candle; the Pine script
+// does not skip it, so this version doesn't either.
+//
+// RESTART RECOVERY: band geometry (bandMid/bandHigh/bandLow) is NOT
+// persisted anywhere — same accepted-gap class as this codebase's SL
+// trail (slStore is already in-memory-only and resets every restart).
+// A restart re-initializes the band fresh from the next candle's open,
+// treating the restart like a brand new algo start. If a position was
+// open at restart, the POSITION itself (state.position/entryPrice)
+// restores correctly from the DB exactly like every other strategy here —
+// only the band's HIGH/MID/LOW reset around whatever price the process
+// happens to reboot at, rather than resuming wherever they'd organically
+// ratcheted to. Flagged explicitly, not silently — this is a real behavior
+// difference from a hypothetical fully-persisted version, traded off here
+// for not adding a new SQLite table this codebase's existing architecture
+// has no slot for.
+//
+// DUPLICATE-ENTRY PROTECTION: entirely inherited, not reimplemented.
+// orders.enter()/orders.exit() (orders.js) already carry the in-flight
+// guard every other strategy in this file relies on; state.position being
+// non-null is what prevents processCandle from re-evaluating a FLAT-only
+// entry path while a position is already open (same pattern as every
+// other strategy). No new order-side protection was added or needed.
+//
+// NO STOP-LOSS, BY DESIGN (explicit instruction): unlike every other
+// strategy in this file, this one does not compute or arm an ATR trail.
+// The reversal boundary already functions as the stop — the moment price
+// crosses the opposite band edge, the position closes (and immediately
+// reverses) on that same candle. Adding a separate ATR-based stop on top
+// would just be a second, uncoordinated exit mechanism racing the band's
+// own reversal logic. slStore is still accepted in the deps (every
+// strategy factory gets the identical shape from signals.js/
+// backtestRun.js) but is never called — candlePoll.js's checkSL() is
+// itself already a no-op whenever slStore.getTrail().trail is null,
+// which it permanently is here. context.targetPoints (the separate,
+// optional, off-by-default fixed profit target) is untouched by this —
+// it's an independent mechanism from stop-loss and still works if ever
+// configured for this strategy.
+// ════════════════════════════════════════════════════════════════════════
+function createDynamicBandStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+    function persist(position, entryPrice, positionSource) {
+        db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
+    }
+
+    // Shared by every shift site (fresh entry from flat, continuation
+    // while in a position, and the shift that happens alongside a
+    // reversal) — mirrors the Pine script's identical 3-line block being
+    // repeated at each of those call sites.
+    function shiftBand(dir, bandStep) {
+        state.bandMid  += dir * bandStep;
+        state.bandHigh  = state.bandMid + bandStep;
+        state.bandLow   = state.bandMid - bandStep;
+    }
+
+    // No ATR stop-loss in this strategy — the reversal boundary already
+    // IS a dynamic stop (the opposite band edge closes the position the
+    // moment price crosses it), so a separate ATR trail would just be a
+    // second, uncoordinated exit mechanism competing with the first.
+    // slStore is still accepted as a dependency (every strategy factory
+    // gets the same deps shape from signals.js/backtestRun.js) but never
+    // called — candlePoll.js's checkSL() is itself a no-op whenever
+    // slStore.getTrail().trail is null, which it always is here since
+    // setTrail() is never invoked. targetStore is untouched too — the
+    // optional fixed profit target (context.targetPoints, off by default)
+    // is unrelated to stop-loss and stays available if ever configured.
+    async function doExit(side, livePrice, reason) {
+        const closed = await orders.exit(side);
+        if (engineConfig.LIVE_ORDERS && closed === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} exit failed (${reason}) — will retry next candle`));
+            return false;
+        }
+        tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
+        await positionsClose(livePrice, reason);
+        targetStore.clearTarget();
+        persist(null, 0);
+        console.log(c.red(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        return true;
+    }
+
+    async function doEnter(side, livePrice, reason) {
+        const ordered = await orders.enter(side);
+        if (engineConfig.LIVE_ORDERS && ordered === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
+            return false;
+        }
+
+        state.position    = side;
+        state.entryPrice  = livePrice;
+        state.positionSource = "DYNAMIC_BAND";
+        state.openTradeId = await db.insertOpenTrade(
+            context.tgPrefix, context.symbol, side, context.lots, livePrice
+        );
+
+        persist(side, livePrice, "DYNAMIC_BAND");
+        console.log(c.green(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}  Band:[${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: null });
+        tg(`${side} ${reason} @ ₹${livePrice.toFixed(2)}\nBand: [${state.bandLow.toFixed(2)}, ${state.bandHigh.toFixed(2)}]`);
+        return true;
+    }
+
+    async function runSignals(rawClose, bandStep) {
+        const livePrice = candles.getLivePrice() ?? rawClose;
+
+        const uPnL = positionsUnrealised(livePrice);
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+        const session   = (state.pnl || 0) + uPnL;
+        const lineColor = !state.position
+            ? c.white
+            : uPnL > 0 ? c.green : uPnL < 0 ? c.red : c.white;
+        console.log(lineColor(`[${context.tgPrefix}] ${ts} DBAND ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  [${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null });
+
+        if (!engineConfig.ENGINE_ENABLED) return;
+
+        const breakHigh = rawClose > state.bandHigh;
+        const breakLow  = rawClose < state.bandLow;
+
+        if (state.position === "LONG") {
+            if (breakHigh) {
+                shiftBand(+1, bandStep);
+                console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT UP  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+            } else if (breakLow) {
+                console.log(c.yellow(`[${context.tgPrefix}] LONG REVERSAL  close:${rawClose.toFixed(2)} < low:${state.bandLow.toFixed(2)}`));
+                const exited = await doExit("LONG", livePrice, "LONG REVERSAL");
+                if (exited) {
+                    shiftBand(-1, bandStep);
+                    console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT DOWN  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+                    await doEnter("SHORT", livePrice, "REVERSAL SHORT");
+                }
+            }
+            // else: hold — inside the band, sideways
+        } else if (state.position === "SHORT") {
+            if (breakLow) {
+                shiftBand(-1, bandStep);
+                console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT DOWN  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+            } else if (breakHigh) {
+                console.log(c.yellow(`[${context.tgPrefix}] SHORT REVERSAL  close:${rawClose.toFixed(2)} > high:${state.bandHigh.toFixed(2)}`));
+                const exited = await doExit("SHORT", livePrice, "SHORT REVERSAL");
+                if (exited) {
+                    shiftBand(+1, bandStep);
+                    console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT UP  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+                    await doEnter("LONG", livePrice, "REVERSAL LONG");
+                }
+            }
+            // else: hold
+        } else {
+            // FLAT — immediate entry on breakout, no arm/confirm wait.
+            if (breakHigh) {
+                console.log(c.yellow(`[${context.tgPrefix}] LONG BREAKOUT  close:${rawClose.toFixed(2)} > high:${state.bandHigh.toFixed(2)}`));
+                const entered = await doEnter("LONG", livePrice, "LONG ENTRY");
+                if (entered) {
+                    shiftBand(+1, bandStep);
+                    console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT UP  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+                }
+            } else if (breakLow) {
+                console.log(c.yellow(`[${context.tgPrefix}] SHORT BREAKOUT  close:${rawClose.toFixed(2)} < low:${state.bandLow.toFixed(2)}`));
+                const entered = await doEnter("SHORT", livePrice, "SHORT ENTRY");
+                if (entered) {
+                    shiftBand(-1, bandStep);
+                    console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT DOWN  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+                }
+            }
+            // else: inside the band — sideways, no action
+        }
+    }
+
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown()) return;
+
+        // No warmup needed at all now — the band logic needs no indicator
+        // lookback (init uses THIS candle's own open), and there's no
+        // ATR-based SL to warm up either.
+
+        // context.bandStep is only ever set when this instrument has an
+        // explicit per-process BAND_STEP_OVERRIDE (see engine.js) — null
+        // otherwise, so a backtest tuning BAND_STEP_DEFAULT via
+        // STRATEGY_PARAMS actually reaches this line instead of being
+        // shadowed by a context-level default that always wins.
+        const bandStep = context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
+
+        // BAND INIT — first candle this process has seen, uses THIS
+        // candle's own OPEN (known at bar start, not look-ahead). Matches
+        // the Pine script: this same candle is then immediately evaluated
+        // for a breakout too (no skip), via the normal runSignals() call
+        // right below — not a special case.
+        if (state.bandMid === null) {
+            state.bandMid  = rawCandle.open;
+            state.bandHigh = state.bandMid + bandStep;
+            state.bandLow  = state.bandMid - bandStep;
+            console.log(c.cyan(`[${context.tgPrefix}] BAND INIT  MID:${state.bandMid.toFixed(2)} HIGH:${state.bandHigh.toFixed(2)} LOW:${state.bandLow.toFixed(2)} STEP:${bandStep}`));
+        }
+
+        await runSignals(rawCandle.close, bandStep);
+    }
+
+    async function initSignals() {
+        try {
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+            const today = clock.now().toISOString().split("T")[0];
+
+            // Band geometry is deliberately NOT restored from anywhere —
+            // see this strategy's header comment. Re-initializes fresh on
+            // this process's first processCandle() call, same as every
+            // restart, including one where a position resumes below.
+            state.bandHigh = null;
+            state.bandMid  = null;
+            state.bandLow  = null;
+
+            if (engineConfig.RESUME_INTRADAY_ONLY && saved?.position) {
+                const sameDay      = (saved.entry_date ?? null) === today;
+                const shouldResume = sameDay || context.carryOvernight;
+                if (shouldResume) {
+                    state.position   = saved.position;
+                    state.entryPrice = saved.entry_price;
+                    state.positionSource = saved.position_source || "DYNAMIC_BAND";
+
+                    const openTrade = await db.getOpenTrade(context.tgPrefix);
+                    state.openTradeId = openTrade ? openTrade.id : null;
+                } else {
+                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                }
+            }
+
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+
+            const info = state.position ? `${state.position}@${state.entryPrice}` : "flat";
+            console.log();
+            console.log(c.green(`[${context.tgPrefix}] ${info}`));
+            console.log();
+
+            await orders.reconcile(state);
+
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// DYNAMIC_BAND_COLOR — strategy #14. Same band breakout/reversal skeleton
+// as DYNAMIC_BAND (#13), but NOT a copy — two deliberate behavioral
+// differences plus a display-only addition, all taken directly from the
+// user-provided dynamicStepBand.js port:
+//
+//  - BAND INIT uses this candle's CLOSE, not its open (#13 uses open).
+//  - The init candle is NOT evaluated for a breakout — processCandle
+//    returns immediately after init, same as the source's `update()`
+//    returning right after `this.init(price)`. #13 (after its own
+//    Pine-parity correction) DOES evaluate the init candle same-bar. Two
+//    siblings, two different init behaviors — this is intentional per the
+//    given source, not an oversight to reconcile.
+//  - ATR-based trailing stop IS present here (engineConfig.ATR_SL_MULT x
+//    ATR(ST_ATR_LEN), refreshed every candle) — #13 currently has none
+//    (its reversal boundary was judged sufficient on its own). Reuses the
+//    same slStore/computeTrail pattern every other strategy in this file
+//    uses, not a new mechanism.
+//  - Optional fixed profit target reuses the same universal
+//    context.targetPoints/TARGET_POINTS_OVERRIDE mechanism every other
+//    strategy shares — no new config surface for it, per the "don't
+//    invent another configuration system" precedent from #13.
+//  - "Color coding": the source computes `color` (green/red/white) purely
+//    from position DIRECTION, not P&L — unlike every other strategy's
+//    console-log tinting in this file (which colors by whether the trade
+//    is currently profitable). This is carried into both the console log
+//    line and the emitEvent TICK payload (`color` field) so the webdash
+//    dashboard can render a direction indicator distinct from its default
+//    profit-based one.
+//
+// Restart recovery, duplicate-entry protection: identical reasoning to
+// DYNAMIC_BAND #13 — band geometry is not persisted (re-initializes fresh
+// on every process start, same accepted-gap class as the SL trail being
+// memory-only elsewhere in this codebase); position state restores from
+// SQLite normally; duplicate-entry protection is inherited entirely from
+// orders.js's existing in-flight guard.
+// ════════════════════════════════════════════════════════════════════════
+function createDynamicBandColorStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+    function persist(position, entryPrice, positionSource) {
+        db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
+    }
+
+    function shiftBand(dir, bandStep) {
+        state.bandMid  += dir * bandStep;
+        state.bandHigh  = state.bandMid + bandStep;
+        state.bandLow   = state.bandMid - bandStep;
+    }
+
+    function computeTrail(livePrice, atrVal, side) {
+        if (atrVal === null) return null;
+        const offset = engineConfig.ATR_SL_MULT * atrVal;
+        return side === "LONG" ? livePrice - offset : livePrice + offset;
+    }
+
+    // green while LONG, red while SHORT, white when flat — directional,
+    // deliberately NOT tied to whether the position is currently
+    // profitable (that's the distinguishing feature of this strategy).
+    function directionColor(position) {
+        return position === "LONG" ? "green" : position === "SHORT" ? "red" : "white";
+    }
+
+    async function doExit(side, livePrice, reason) {
+        const closed = await orders.exit(side);
+        if (engineConfig.LIVE_ORDERS && closed === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} exit failed (${reason}) — will retry next candle`));
+            return false;
+        }
+        tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
+        await positionsClose(livePrice, reason);
+        slStore.clearTrail();
+        targetStore.clearTarget();
+        persist(null, 0);
+        console.log(c.red(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        return true;
+    }
+
+    async function doEnter(side, livePrice, atrVal, reason) {
+        const ordered = await orders.enter(side);
+        if (engineConfig.LIVE_ORDERS && ordered === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
+            return false;
+        }
+        const slTrail = computeTrail(livePrice, atrVal, side);
+
+        state.position    = side;
+        state.entryPrice  = livePrice;
+        state.positionSource = "DYNAMIC_BAND_COLOR";
+        state.openTradeId = await db.insertOpenTrade(
+            context.tgPrefix, context.symbol, side, context.lots, livePrice
+        );
+
+        const trailValid =
+            slTrail !== null &&
+            ((side === "LONG"  && slTrail < livePrice) ||
+             (side === "SHORT" && slTrail > livePrice));
+        if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
+
+        // Universal opt-in target — same mechanism as every other
+        // strategy, arms once at entry, off unless this instrument has
+        // context.targetPoints configured.
+        if (context.targetPoints) {
+            const targetLevel = side === "LONG" ? livePrice + context.targetPoints : livePrice - context.targetPoints;
+            targetStore.setTarget(targetLevel, side === "LONG" ? 1 : -1);
+        }
+
+        persist(side, livePrice, "DYNAMIC_BAND_COLOR");
+        console.log(c[directionColor(side)](`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  Band:[${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
+        tg(`${side} ${reason} @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}\nBand: [${state.bandLow.toFixed(2)}, ${state.bandHigh.toFixed(2)}]`);
+        return true;
+    }
+
+    async function runSignals(rawClose, atrVal, bandStep) {
+        const livePrice = candles.getLivePrice() ?? rawClose;
+
+        const uPnL = positionsUnrealised(livePrice);
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+        const session = (state.pnl || 0) + uPnL;
+        const color   = directionColor(state.position);
+        console.log(c[color](`[${context.tgPrefix}] ${ts} DBANDC ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  [${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, color });
+
+        if (!engineConfig.ENGINE_ENABLED) return;
+
+        const breakHigh = rawClose > state.bandHigh;
+        const breakLow  = rawClose < state.bandLow;
+
+        if (state.position === "LONG") {
+            if (breakHigh) {
+                shiftBand(+1, bandStep);
+                console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT UP  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+            } else if (breakLow) {
+                console.log(c.yellow(`[${context.tgPrefix}] LONG REVERSAL  close:${rawClose.toFixed(2)} < low:${state.bandLow.toFixed(2)}`));
+                const exited = await doExit("LONG", livePrice, "LONG REVERSAL");
+                if (exited) {
+                    shiftBand(-1, bandStep);
+                    console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT DOWN  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+                    await doEnter("SHORT", livePrice, atrVal, "REVERSAL SHORT");
+                }
+            }
+        } else if (state.position === "SHORT") {
+            if (breakLow) {
+                shiftBand(-1, bandStep);
+                console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT DOWN  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+            } else if (breakHigh) {
+                console.log(c.yellow(`[${context.tgPrefix}] SHORT REVERSAL  close:${rawClose.toFixed(2)} > high:${state.bandHigh.toFixed(2)}`));
+                const exited = await doExit("SHORT", livePrice, "SHORT REVERSAL");
+                if (exited) {
+                    shiftBand(+1, bandStep);
+                    console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT UP  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+                    await doEnter("LONG", livePrice, atrVal, "REVERSAL LONG");
+                }
+            }
+        } else {
+            if (breakHigh) {
+                console.log(c.yellow(`[${context.tgPrefix}] LONG BREAKOUT  close:${rawClose.toFixed(2)} > high:${state.bandHigh.toFixed(2)}`));
+                const entered = await doEnter("LONG", livePrice, atrVal, "LONG ENTRY");
+                if (entered) {
+                    shiftBand(+1, bandStep);
+                    console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT UP  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+                }
+            } else if (breakLow) {
+                console.log(c.yellow(`[${context.tgPrefix}] SHORT BREAKOUT  close:${rawClose.toFixed(2)} < low:${state.bandLow.toFixed(2)}`));
+                const entered = await doEnter("SHORT", livePrice, atrVal, "SHORT ENTRY");
+                if (entered) {
+                    shiftBand(-1, bandStep);
+                    console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT DOWN  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+                }
+            }
+        }
+
+        // ATR SL refresh — every candle while a position is open, same
+        // recompute-fresh-each-time convention every strategy in this file
+        // uses (no explicit ratchet against the prior trail value).
+        if (state.position && atrVal !== null) {
+            const slTrail      = computeTrail(livePrice, atrVal, state.position);
+            const refreshValid =
+                (state.position === "LONG"  && slTrail < livePrice) ||
+                (state.position === "SHORT" && slTrail > livePrice);
+            if (refreshValid) slStore.setTrail(slTrail, state.position === "LONG" ? 1 : -1);
+        }
+    }
+
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown()) return;
+        const rawCandles = candles.getRawCandles();
+
+        const warmupNeeded = engineConfig.ST_ATR_LEN + 5;
+        if (rawCandles.length < warmupNeeded) {
+            console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${rawCandles.length}/${warmupNeeded}`));
+        }
+        const atrVal = rawCandles.length >= engineConfig.ST_ATR_LEN + 1
+            ? atr(rawCandles, engineConfig.ST_ATR_LEN)
+            : null;
+
+        const bandStep = context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
+
+        // BAND INIT — uses THIS candle's CLOSE (not open, unlike #13) and,
+        // matching the given source exactly, returns immediately without
+        // evaluating this same candle for a breakout.
+        if (state.bandMid === null) {
+            state.bandMid  = rawCandle.close;
+            state.bandHigh = state.bandMid + bandStep;
+            state.bandLow  = state.bandMid - bandStep;
+            console.log(c.cyan(`[${context.tgPrefix}] BAND INIT  MID:${state.bandMid.toFixed(2)} HIGH:${state.bandHigh.toFixed(2)} LOW:${state.bandLow.toFixed(2)} STEP:${bandStep}`));
+            return;
+        }
+
+        await runSignals(rawCandle.close, atrVal, bandStep);
+    }
+
+    async function initSignals() {
+        try {
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+            const today = clock.now().toISOString().split("T")[0];
+
+            state.bandHigh = null;
+            state.bandMid  = null;
+            state.bandLow  = null;
+
+            if (engineConfig.RESUME_INTRADAY_ONLY && saved?.position) {
+                const sameDay      = (saved.entry_date ?? null) === today;
+                const shouldResume = sameDay || context.carryOvernight;
+                if (shouldResume) {
+                    state.position   = saved.position;
+                    state.entryPrice = saved.entry_price;
+                    state.positionSource = saved.position_source || "DYNAMIC_BAND_COLOR";
+
+                    const openTrade = await db.getOpenTrade(context.tgPrefix);
+                    state.openTradeId = openTrade ? openTrade.id : null;
+                } else {
+                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                }
+            }
+
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+
+            const info = state.position ? `${state.position}@${state.entryPrice}` : "flat";
+            console.log();
+            console.log(c.green(`[${context.tgPrefix}] ${info}`));
+            console.log();
+
+            await orders.reconcile(state);
+
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// ALMA_TRI_BAND — strategy #15. Direct port of the user-provided Pine
+// indicator ("TAlgo — Zinc Optimized v3"). Three ALMAs (fast ALMA of HA
+// close, ALMA of raw high, ALMA of raw low) drive ONE shared state — the
+// Pine script's own single `state` variable colors all three plotted
+// lines identically, which is exactly what "should all agree" means here:
+// there's only one state to compute, not three independently-agreeing
+// signals to reconcile.
+//
+// STATE (0=grey/neutral, 1=bull/green, -1=bear/red), computed fresh every
+// candle, exact port of the Pine if/elif chain including its own
+// hysteresis fallback (`state := state`, i.e. "nothing decisive fired,
+// keep whatever it already was"):
+//   1. big candle (body > ATR x bigCandleMult)      -> grey, forced
+//   2. band compressed (bandWidth < ATR x compress)  -> grey, forced
+//   3. slope strongly up AND close above band+buffer -> bull
+//   4. slope strongly down AND close below band-buffer -> bear
+//   5. otherwise: if |slope| tiny OR close sits inside the band -> grey,
+//      else -> unchanged from last candle (hysteresis holds the reading)
+//
+// TRADING LOGIC (not in the original — it's an indicator, no entries/
+// exits of its own; built the same way every color-flip strategy in this
+// file already works, e.g. ALMA_FAST/MA_SLOPE):
+//   FLAT  + state flips to bull/bear -> enter that side
+//   LONG  + state reads bear         -> reversal: exit + immediately enter SHORT, same candle
+//   SHORT + state reads bull         -> reversal: exit + immediately enter LONG, same candle
+//   LONG/SHORT + state reads grey    -> configurable (context.greyExitEnabled):
+//                                        true  = exit flat
+//                                        false = hold, do nothing (default —
+//                                                matches ALMA_FAST's/MA_SLOPE's
+//                                                existing hold-through-neutral
+//                                                convention)
+//   LONG/SHORT + state still agrees with the held side -> hold, no action
+//
+// RISK — not in the original either (a Pine indicator has no stop-loss
+// concept); added an ATR trailing stop by default, same computeTrail/
+// slStore pattern every other strategy here uses, since holding through
+// grey (the default) means a position can sit open through real
+// uncertainty with only a reversal as the exit otherwise — that felt like
+// too much unmanaged risk to ship without a stop by default. Also wired
+// the same universal opt-in context.targetPoints target every other
+// strategy shares. Flagging both clearly since neither was in the given
+// source — if you don't want the SL, say so and I'll pull it.
+//
+// COLOR: emits the same `color` field (green/red/white) in its TICK
+// payload that DYNAMIC_BAND_COLOR (#14) introduced, purely by state —
+// the webdash dashboard's color-coding already handles any strategy that
+// sets this field, so no webdash changes were needed for the visual side.
+//
+// Restart recovery, duplicate-entry protection: identical reasoning to
+// #13/#14 — the tri-state itself is not persisted (recomputed fresh from
+// raw candle history every process start via the ALMA/ATR calls, same as
+// every other indicator-driven strategy in this file); position state
+// restores from SQLite normally; duplicate-entry protection is inherited
+// entirely from orders.js's existing in-flight guard.
+// ════════════════════════════════════════════════════════════════════════
+function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+    function persist(position, entryPrice, positionSource) {
+        db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
+    }
+
+    function computeTrail(livePrice, atrVal, side) {
+        if (atrVal === null) return null;
+        const offset = engineConfig.ATR_SL_MULT * atrVal;
+        return side === "LONG" ? livePrice - offset : livePrice + offset;
+    }
+
+    function stateColor(triState) {
+        return triState === 1 ? "green" : triState === -1 ? "red" : "white";
+    }
+    function stateLabel(triState) {
+        return triState === 1 ? "BULL" : triState === -1 ? "BEAR" : "GREY";
+    }
+
+    async function doExit(side, livePrice, reason) {
+        const closed = await orders.exit(side);
+        if (engineConfig.LIVE_ORDERS && closed === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} exit failed (${reason}) — will retry next candle`));
+            return false;
+        }
+        tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
+        await positionsClose(livePrice, reason);
+        slStore.clearTrail();
+        targetStore.clearTarget();
+        persist(null, 0);
+        console.log(c.red(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        return true;
+    }
+
+    async function doEnter(side, livePrice, atrVal, reason) {
+        const ordered = await orders.enter(side);
+        if (engineConfig.LIVE_ORDERS && ordered === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
+            return false;
+        }
+        const slTrail = computeTrail(livePrice, atrVal, side);
+
+        state.position    = side;
+        state.entryPrice  = livePrice;
+        state.positionSource = "ALMA_TRI_BAND";
+        state.openTradeId = await db.insertOpenTrade(
+            context.tgPrefix, context.symbol, side, context.lots, livePrice
+        );
+
+        const trailValid =
+            slTrail !== null &&
+            ((side === "LONG"  && slTrail < livePrice) ||
+             (side === "SHORT" && slTrail > livePrice));
+        if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
+
+        if (context.targetPoints) {
+            const targetLevel = side === "LONG" ? livePrice + context.targetPoints : livePrice - context.targetPoints;
+            targetStore.setTarget(targetLevel, side === "LONG" ? 1 : -1);
+        }
+
+        persist(side, livePrice, "ALMA_TRI_BAND");
+        console.log(c[stateColor(side === "LONG" ? 1 : -1)](`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
+        emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
+        tg(`${side} ${reason} @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
+        return true;
+    }
+
+    async function runSignals(rawClose, prevTriState, triState, atrVal) {
+        const livePrice = candles.getLivePrice() ?? rawClose;
+        const greyExitEnabled = context.greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT;
+
+        const uPnL = positionsUnrealised(livePrice);
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+        const session = (state.pnl || 0) + uPnL;
+        const color   = stateColor(triState);
+        console.log(c[color](`[${context.tgPrefix}] ${ts} TRIB ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  ${stateLabel(triState)}`));
+        emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, color });
+
+        if (triState !== prevTriState) {
+            console.log(c.cyan(`[${context.tgPrefix}] STATE FLIP  ${stateLabel(prevTriState)} -> ${stateLabel(triState)}`));
+        }
+
+        if (!engineConfig.ENGINE_ENABLED) return;
+
+        if (state.position === "LONG") {
+            if (triState === -1) {
+                const exited = await doExit("LONG", livePrice, "TRI REVERSAL");
+                if (exited) await doEnter("SHORT", livePrice, atrVal, "REVERSAL SHORT");
+            } else if (triState === 0 && greyExitEnabled) {
+                await doExit("LONG", livePrice, "GREY EXIT");
+            }
+            // triState === 1, or grey with greyExitEnabled=false: hold.
+        } else if (state.position === "SHORT") {
+            if (triState === 1) {
+                const exited = await doExit("SHORT", livePrice, "TRI REVERSAL");
+                if (exited) await doEnter("LONG", livePrice, atrVal, "REVERSAL LONG");
+            } else if (triState === 0 && greyExitEnabled) {
+                await doExit("SHORT", livePrice, "GREY EXIT");
+            }
+        } else {
+            // FLAT
+            if (triState === 1) {
+                await doEnter("LONG", livePrice, atrVal, "LONG ENTRY");
+            } else if (triState === -1) {
+                await doEnter("SHORT", livePrice, atrVal, "SHORT ENTRY");
+            }
+        }
+
+        // ATR SL refresh — every candle while a position is open, same
+        // recompute-fresh-each-time convention every strategy in this file
+        // uses (no explicit ratchet against the prior trail value).
+        if (state.position && atrVal !== null) {
+            const slTrail      = computeTrail(livePrice, atrVal, state.position);
+            const refreshValid =
+                (state.position === "LONG"  && slTrail < livePrice) ||
+                (state.position === "SHORT" && slTrail > livePrice);
+            if (refreshValid) slStore.setTrail(slTrail, state.position === "LONG" ? 1 : -1);
+        }
+    }
+
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown()) return;
+        const rawCandles = candles.getRawCandles();
+
+        const warmupNeeded = Math.max(
+            engineConfig.ALMA_TRI_FAST_LEN,
+            engineConfig.ALMA_TRI_BAND_LEN,
+            engineConfig.ALMA_TRI_ATR_LEN,
+            engineConfig.ST_ATR_LEN
+        ) + 5;
+        if (rawCandles.length < warmupNeeded) {
+            console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${rawCandles.length}/${warmupNeeded}`));
+            return;
+        }
+
+        const haCandles = toHA(rawCandles);
+        const haCloses  = haCandles.map(cd => cd.close);
+        const rawHighs  = rawCandles.map(cd => cd.high);
+        const rawLows   = rawCandles.map(cd => cd.low);
+
+        const fast0 = alma(haCloses,             engineConfig.ALMA_TRI_FAST_LEN, engineConfig.ALMA_TRI_OFFSET, engineConfig.ALMA_TRI_SIGMA);
+        const fast1 = alma(haCloses.slice(0, -1), engineConfig.ALMA_TRI_FAST_LEN, engineConfig.ALMA_TRI_OFFSET, engineConfig.ALMA_TRI_SIGMA);
+        if (fast0 === null || fast1 === null) return;
+
+        const highBand = alma(rawHighs, engineConfig.ALMA_TRI_BAND_LEN, engineConfig.ALMA_TRI_OFFSET, engineConfig.ALMA_TRI_SIGMA);
+        const lowBand  = alma(rawLows,  engineConfig.ALMA_TRI_BAND_LEN, engineConfig.ALMA_TRI_OFFSET, engineConfig.ALMA_TRI_SIGMA);
+        if (highBand === null || lowBand === null) return;
+
+        const atrVal = atr(rawCandles, engineConfig.ALMA_TRI_ATR_LEN);
+        if (atrVal === null) return;
+        // Separate ATR for the SL trail (platform-wide ST_ATR_LEN, like
+        // every other strategy's SL) — deliberately not the same lookback
+        // as ALMA_TRI_ATR_LEN above, which sizes the ported indicator's
+        // OWN thresholds, not the risk layer.
+        const slAtrVal = atr(rawCandles, engineConfig.ST_ATR_LEN);
+
+        const bandWidth  = highBand - lowBand;
+        const isSideways = bandWidth < atrVal * engineConfig.ALMA_TRI_COMPRESS_MULT;
+
+        const slope       = fast0 - fast1;
+        const strongUp    = slope > atrVal * engineConfig.ALMA_TRI_SLOPE_MULT;
+        const strongDown  = slope < -atrVal * engineConfig.ALMA_TRI_SLOPE_MULT;
+
+        const buffer    = atrVal * engineConfig.ALMA_TRI_BUFFER_MULT;
+        const rawClose  = rawCandle.close;
+        const aboveBand = rawClose > highBand + buffer;
+        const belowBand = rawClose < lowBand - buffer;
+
+        const candleBody  = Math.abs(rawClose - rawCandle.open);
+        const isBigCandle = candleBody > atrVal * engineConfig.ALMA_TRI_BIG_CANDLE_MULT;
+
+        let newState;
+        if (isBigCandle) newState = 0;
+        else if (isSideways) newState = 0;
+        else if (strongUp && aboveBand) newState = 1;
+        else if (strongDown && belowBand) newState = -1;
+        else if (Math.abs(slope) < atrVal * engineConfig.ALMA_TRI_NEUTRAL_SLOPE_MULT || (rawClose > lowBand && rawClose < highBand)) newState = 0;
+        else newState = state.triState; // hysteresis — Pine's `state := state`
+
+        const prevState = state.triState;
+        state.triState = newState;
+
+        await runSignals(rawClose, prevState, newState, slAtrVal);
+    }
+
+    async function initSignals() {
+        try {
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+            const today = clock.now().toISOString().split("T")[0];
+
+            // Same as #13/#14 — not restored from anywhere, recomputes
+            // fresh from candle history via the ALMA/ATR calls above once
+            // enough candles have accumulated post-restart.
+            state.triState = 0;
+
+            if (engineConfig.RESUME_INTRADAY_ONLY && saved?.position) {
+                const sameDay      = (saved.entry_date ?? null) === today;
+                const shouldResume = sameDay || context.carryOvernight;
+                if (shouldResume) {
+                    state.position   = saved.position;
+                    state.entryPrice = saved.entry_price;
+                    state.positionSource = saved.position_source || "ALMA_TRI_BAND";
+
+                    const openTrade = await db.getOpenTrade(context.tgPrefix);
+                    state.openTradeId = openTrade ? openTrade.id : null;
+                } else {
+                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                }
+            }
+
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+
+            const info = state.position ? `${state.position}@${state.entryPrice}` : "flat";
+            console.log();
+            console.log(c.green(`[${context.tgPrefix}] ${info}`));
+            console.log();
+
+            await orders.reconcile(state);
+
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
 const STRATEGIES = {
     DPI_TREND_MEANREV: createDpiTrendMeanrevStrategy,
     ALMA_BAND:          createAlmaBandStrategy,
@@ -3370,6 +4198,9 @@ const STRATEGIES = {
     MA_SLOPE_HM:          createMaSlopeHmStrategy,
     ADAPTIVE_TREND:       createAdaptiveTrendStrategy,
     DPI_MEANREV:          createDpiMeanrevStrategy,
+    DYNAMIC_BAND:         createDynamicBandStrategy,
+    DYNAMIC_BAND_COLOR:   createDynamicBandColorStrategy,
+    ALMA_TRI_BAND:        createAlmaTriBandStrategy,
 };
 
 // Toolbox-facing labels only — not a full param schema yet (that's a later
@@ -3389,6 +4220,9 @@ const STRATEGY_INFO = {
     MA_SLOPE_HM:          { label: "MA Slope + Hilega-Milega",    description: "same entry as MA Slope Pure (color-only, no ALMA band) — exit is a Hilega-Milega RSI9/WMA21/EMA3 crossover against position direction, not a color flip", short: "HM" },
     ADAPTIVE_TREND:       { label: "Adaptive Trend Envelope",     description: "port of BackQuant's Pine script — volatility-adaptive EMA blend spine wrapped in an EWMA-vol envelope; enter on regime flip to bull/bear, exit when regime no longer matches (flat or opposite)", short: "ATE" },
     DPI_MEANREV:          { label: "DPI Trend + Mean Reversion",  description: "the original DPI_TREND_MEANREV combo — ST1-confirmed DPI trend, RSI mean-reversion in the chop between", short: "DPIMR" },
+    DYNAMIC_BAND:         { label: "Dynamic Band Breakout",       description: "fixed-price-step HIGH/MID/LOW band, closed-candle breakout only, immediate entry on breach (direct port of the reference Pine script), band shifts by one step on every entry/continuation, immediate exit+reverse on the opposite boundary — no ATR stop-loss, the reversal boundary itself is the stop", short: "DBAND" },
+    DYNAMIC_BAND_COLOR:   { label: "Dynamic Band (Color-Coded, ATR SL)", description: "same band breakout/reversal mechanics as Dynamic Band Breakout, but band initializes from candle CLOSE (not open) and skips evaluating the init candle itself, adds an ATR trailing stop-loss and an optional fixed profit target, and tags every tick green/red/white by current position direction for dashboard color coding", short: "DBANDC" },
+    ALMA_TRI_BAND:        { label: "ALMA Tri-Band Agreement", description: "fast ALMA (HA close) + ALMA(high)/ALMA(low) bands driven by one shared bull/bear/grey state (green/red/grey), with big-candle and band-compression filters forcing grey; enters/exits on state flips, reverses immediately on the opposite decisive color; grey behavior while a position is open is configurable per instrument \u2014 exit flat or hold through it (default: hold); adds an ATR trailing stop and optional fixed target, neither present in the original indicator", short: "ATRIB" },
 };
 
 // Each strategy's live/paper candle interval — this is a property of the
@@ -3433,8 +4267,18 @@ const STRATEGY_TIMEFRAME = {
     // Same 15m as DPI_TREND_MEANREV always ran at — unchanged, this is the
     // same combo logic, just under its own key now.
     DPI_MEANREV:          "15m",
+    // Closed-candle-only by design (see this strategy's own header) — 15m
+    // matches the platform default cadence; no strategy-specific reason to
+    // pick otherwise, easy to override per-instrument via TIMEFRAME_OVERRIDE.
+    DYNAMIC_BAND:         "15m",
+    // Same rationale as its sibling — no strategy-specific reason to pick
+    // otherwise, easy to override per-instrument via TIMEFRAME_OVERRIDE.
+    DYNAMIC_BAND_COLOR:   "15m",
+    // Pine source has no fixed chart timeframe (reuses whatever the chart
+    // is on) — 15m matches the platform default, adjustable as usual.
+    ALMA_TRI_BAND:        "15m",
 };
 
 const DEFAULT_STRATEGY = "DPI_TREND_MEANREV";
 
-module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy };
+module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicBandColorStrategy, createAlmaTriBandStrategy };

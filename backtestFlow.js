@@ -83,6 +83,28 @@ const STRATEGY_PARAMS = {
         { key: "ST_FACTOR",        label: "SuperTrend factor" },
         { key: "ATR_SL_MULT",      label: "ATR stop-loss multiplier" },
     ],
+    DYNAMIC_BAND: [
+        { key: "BAND_STEP_DEFAULT", label: "Band step \u2014 fixed price distance between HIGH/MID/LOW (per-instrument override takes precedence live)" },
+        // ST_ATR_LEN/ATR_SL_MULT deliberately NOT listed here — this
+        // strategy has no ATR stop-loss (the reversal boundary is the
+        // stop), so tuning them would be a no-op. Its sibling below does
+        // use them.
+    ],
+    DYNAMIC_BAND_COLOR: [
+        { key: "BAND_STEP_DEFAULT", label: "Band step \u2014 fixed price distance between HIGH/MID/LOW (per-instrument override takes precedence live)" },
+        { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
+    ],
+    ALMA_TRI_BAND: [
+        { key: "ALMA_TRI_FAST_LEN",           label: "Fast ALMA length (HA close)" },
+        { key: "ALMA_TRI_BAND_LEN",           label: "Band ALMA length (raw high/low)" },
+        { key: "ALMA_TRI_ATR_LEN",            label: "ATR length (state thresholds only, not the SL trail)" },
+        { key: "ALMA_TRI_COMPRESS_MULT",      label: "Compression multiplier (band-width sideways/grey filter)" },
+        { key: "ALMA_TRI_SLOPE_MULT",         label: "Slope multiplier (decisive-direction threshold)" },
+        { key: "ALMA_TRI_BIG_CANDLE_MULT",    label: "Big-candle multiplier (forces grey)" },
+        { key: "ST_ATR_LEN",                  label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",                 label: "ATR stop-loss multiplier" },
+    ],
 };
 
 function fmtMoney(n) { return (n < 0 ? "-₹" : "₹") + Math.abs(n).toFixed(2); }

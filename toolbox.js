@@ -132,6 +132,8 @@ async function getEngineProcesses() {
             carryOvernight: p.pm2_env.env?.CARRY_OVERNIGHT_OVERRIDE === "true",
             targetPoints: p.pm2_env.env?.TARGET_POINTS_OVERRIDE ? Number(p.pm2_env.env.TARGET_POINTS_OVERRIDE) : null,
             smaExitEnabled: p.pm2_env.env?.SMA9_EXIT_OVERRIDE !== undefined ? p.pm2_env.env.SMA9_EXIT_OVERRIDE === "true" : true,
+            bandStep: p.pm2_env.env?.BAND_STEP_OVERRIDE ? Number(p.pm2_env.env.BAND_STEP_OVERRIDE) : null,
+            greyExitEnabled: p.pm2_env.env?.GREY_EXIT_OVERRIDE !== undefined ? p.pm2_env.env.GREY_EXIT_OVERRIDE === "true" : null,
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -363,11 +365,28 @@ async function renderMenu() {
 // from the menu and risked silently falling back to the default instrument.
 // Every restart call rebuilds the FULL env from here, never a partial one.
 function buildProcessEnv(p, overrides = {}) {
-    const env = { UNDERLYING: p.underlying, LIVE_ORDERS_OVERRIDE: String(!!p.live), CARRY_OVERNIGHT_OVERRIDE: String(!!p.carryOvernight), STRATEGY_OVERRIDE: p.strategy || DEFAULT_STRATEGY, TIMEFRAME_OVERRIDE: p.timeframe || STRATEGY_TIMEFRAME[p.strategy || DEFAULT_STRATEGY] || "15m" };
+    const env = {
+        UNDERLYING: p.underlying,
+        LIVE_ORDERS_OVERRIDE: String(!!p.live),
+        CARRY_OVERNIGHT_OVERRIDE: String(!!p.carryOvernight),
+        STRATEGY_OVERRIDE: p.strategy || DEFAULT_STRATEGY,
+        TIMEFRAME_OVERRIDE: p.timeframe || STRATEGY_TIMEFRAME[p.strategy || DEFAULT_STRATEGY] || "15m",
+        // Was missing here — same bug class as the one found in webdash's
+        // server.js port of this same function: getEngineProcesses() above
+        // already reads EXCHANGE_OVERRIDE back off the running process, but
+        // nothing wrote it into a REBUILT env, so any restart through
+        // toggleMode() on an NSE instrument would silently fall back to
+        // engine.js's own MCX default on the next boot. Fixed here at the
+        // same time as adding BAND_STEP_OVERRIDE below, since I was already
+        // touching this exact function.
+        EXCHANGE_OVERRIDE: p.exchange || "MCX",
+    };
     if (p.lots !== "default") env.LOTS_OVERRIDE = String(p.lots);
     if (p.lotMult) env.LOTMULT_OVERRIDE = String(p.lotMult);
     if (p.targetPoints) env.TARGET_POINTS_OVERRIDE = String(p.targetPoints);
     if (p.strategy === "MA_SLOPE_PURE") env.SMA9_EXIT_OVERRIDE = String(p.smaExitEnabled !== false);
+    if ((p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_BAND_COLOR") && p.bandStep) env.BAND_STEP_OVERRIDE = String(p.bandStep);
+    if (p.strategy === "ALMA_TRI_BAND" && p.greyExitEnabled !== null && p.greyExitEnabled !== undefined) env.GREY_EXIT_OVERRIDE = String(p.greyExitEnabled);
     return { ...env, ...overrides };
 }
 
@@ -541,6 +560,34 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         smaExitEnabled = smaExitInput !== "N";
     }
 
+    // Band step — only meaningful for DYNAMIC_BAND / DYNAMIC_BAND_COLOR,
+    // only asked when one of those is the strategy picked. Fixed PRICE
+    // distance, not ATR-derived — see createDynamicBandStrategy /
+    // createDynamicBandColorStrategy in strategies.js. Blank falls back to
+    // engineConfig.BAND_STEP_DEFAULT.
+    let bandStep = null;
+    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_BAND_COLOR")) {
+        const bandStepInput = await ask(`  band step in price points (blank = default ${engineConfig.BAND_STEP_DEFAULT}): `);
+        if (bandStepInput) {
+            const parsedStep = Number(bandStepInput);
+            if (!Number.isFinite(parsedStep) || parsedStep <= 0) {
+                console.log(c.yellow(`  "${bandStepInput}" isn't a valid positive number — using default ${engineConfig.BAND_STEP_DEFAULT} instead`));
+            } else {
+                bandStep = parsedStep;
+            }
+        }
+    }
+
+    // Grey-state behavior — only meaningful for ALMA_TRI_BAND, only asked
+    // when that's the strategy picked. Default HOLD (blank = N), matches
+    // ALMA_FAST's/MA_SLOPE's existing convention of holding through a
+    // neutral reading rather than exiting on it.
+    let greyExitEnabled = null;
+    if (strategy === "ALMA_TRI_BAND") {
+        const greyExitInput = (await ask(`  exit on grey state instead of holding through it? [y/N] (default: N): `)).trim().toUpperCase();
+        greyExitEnabled = greyExitInput === "Y";
+    }
+
     const name = toProcessName(underlying, strategy);
 
     // Exact duplicate check — same underlying AND same strategy produces
@@ -559,6 +606,8 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (lotMultOverride !== null) env.LOTMULT_OVERRIDE = String(lotMultOverride);
     if (targetPoints !== null) env.TARGET_POINTS_OVERRIDE = String(targetPoints);
     if (strategy === "MA_SLOPE_PURE") env.SMA9_EXIT_OVERRIDE = String(smaExitEnabled);
+    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_BAND_COLOR") && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
+    if (strategy === "ALMA_TRI_BAND" && greyExitEnabled !== null) env.GREY_EXIT_OVERRIDE = String(greyExitEnabled);
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name, cwd: __dirname, env });
         const modeTag = isLive ? c.red("LIVE") : c.cyan("PAPER");
@@ -566,7 +615,9 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const stratLabel = (STRATEGY_INFO[strategy] || { label: strategy }).label;
         const targetTag = targetPoints !== null ? c.yellow(` +${targetPoints}pt target`) : "";
         const smaExitTag = strategy === "MA_SLOPE_PURE" && !smaExitEnabled ? c.yellow(" SMA9-exit:off") : "";
-        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${smaExitTag}`));
+        const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_BAND_COLOR") ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
+        const greyExitTag = strategy === "ALMA_TRI_BAND" ? c.yellow(` grey:${(greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT) ? "exit" : "hold"}`) : "";
+        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${smaExitTag}${bandStepTag}${greyExitTag}`));
     } catch (err) {
         console.log(c.red(`  failed to start ${name}: ${err.message}`));
     }
