@@ -1435,6 +1435,12 @@ async function main() {
     pm2.disconnect();
     rl.close();
     console.log(c.dim("  bye."));
+    // Without this, the process only exits if nothing else in the whole
+    // codebase has left a timer/handle open — true today, but fragile:
+    // one stray setInterval anywhere (a future feature, a leftover from
+    // debugging) silently turns "quit" into a hang, exactly like this.
+    // A user-initiated quit should be unconditional.
+    process.exit(0);
 }
 
 main().catch(err => {
