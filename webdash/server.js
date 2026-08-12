@@ -52,6 +52,10 @@ const { createMarketWatchlist } = require("../marketWatchlist");
 const TRENDING_LOOKBACK_DAYS = 90;
 const ADX_LEN = 14;
 const ADX_TREND_THRESH = 25;
+// 25–30 = recommended, >30 = might be exhausted — both still count as
+// "trending" by ADX_TREND_THRESH, this is a caution label on the upper
+// part of that band, not a second filter that excludes anything.
+const ADX_EXHAUSTED_THRESH = 30;
 const SCAN_REQUEST_DELAY_MS = 350;
 const RATE_LIMIT_MAX_RETRIES = 2;
 const SCANNER_PROCESS_NAME = "MarketScanner";
@@ -137,7 +141,11 @@ async function scanUnderlyings(underlyings, repo, exchange, onProgress) {
                 let latest = null;
                 for (let i = adxArr.length - 1; i >= 0; i--) { if (adxArr[i] !== null) { latest = adxArr[i]; break; } }
                 if (latest !== null) {
-                    results.push({ underlying, symbol: contract.symbol, adxVal: latest, trending: latest >= ADX_TREND_THRESH });
+                    const trending = latest >= ADX_TREND_THRESH;
+                    results.push({
+                        underlying, symbol: contract.symbol, adxVal: latest, trending,
+                        category: trending ? (latest > ADX_EXHAUSTED_THRESH ? "exhausted" : "recommended") : null,
+                    });
                 }
                 break;
             } catch (err) {
