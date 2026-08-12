@@ -666,9 +666,17 @@ async function addInstrument() {
 // minimum, and daily candles only land on trading days (~5/week, fewer with
 // holidays) — 90 calendar days comfortably clears that with room to spare,
 // not just the bare minimum.
+//
+// ADX_EXHAUSTED_THRESH splits the trending band itself: 25–30 is flagged
+// "recommended" (a trend that's established but still has room), above 30
+// "might be exhausted" (a trend already extended enough that a reversal or
+// stall is a real risk, not necessarily still the best entry). Both are
+// still trending by the ADX_TREND_THRESH definition and both are still
+// listed/deployable — this is a caution label, not a second filter.
 const TRENDING_LOOKBACK_DAYS = 90;
 const ADX_LEN                = 14;
 const ADX_TREND_THRESH       = 25;
+const ADX_EXHAUSTED_THRESH   = 30;
 
 // Fetches daily candles + ADX for each underlying, one at a time — kept
 // sequential (not parallel) to stay easy on Kite's historical-data rate
@@ -710,7 +718,11 @@ async function scanTrendingInstruments(underlyings, repo, exchange) {
                 if (latest === null) {
                     console.log(c.dim(`  ${underlying.padEnd(18)} — not enough candle history yet, skipped`));
                 } else {
-                    results.push({ underlying, contract, adxVal: latest, trending: latest >= ADX_TREND_THRESH });
+                    const trending = latest >= ADX_TREND_THRESH;
+                    results.push({
+                        underlying, contract, adxVal: latest, trending,
+                        category: trending ? (latest > ADX_EXHAUSTED_THRESH ? "exhausted" : "recommended") : null,
+                    });
                 }
                 break; // success (or a real "not enough history" case) — move to the next underlying
             } catch (err) {
@@ -969,7 +981,8 @@ async function trendingInstruments() {
             const procs = runningByUnderlying.get(r.underlying)
                 .map(p => `${p.name}[${p.status}${(STRATEGY_INFO[p.strategy] || { label: p.strategy }).label ? `/${(STRATEGY_INFO[p.strategy] || { label: p.strategy }).label}` : ""}]`)
                 .join(", ");
-            console.log(c.dim(`      ${r.underlying.padEnd(18)} ADX ${r.adxVal.toFixed(1)}   running as ${procs}`));
+            const tag = r.category === "exhausted" ? " (might be exhausted)" : "";
+            console.log(c.dim(`      ${r.underlying.padEnd(18)} ADX ${r.adxVal.toFixed(1)}${tag}   running as ${procs}`));
         });
         console.log();
     }
@@ -980,12 +993,30 @@ async function trendingInstruments() {
         return;
     }
 
+    // Single numbered list (so the "deploy number" picker below stays
+    // simple) but split visually into two labeled groups by category —
+    // both are still trending and both are still deployable, this is a
+    // caution label on the second group, not a second filter excluding it.
+    const recommended = trending.filter(r => r.category === "recommended");
+    const exhausted    = trending.filter(r => r.category === "exhausted");
+
     console.log();
-    console.log(c.bold(`  RECOMMENDED (ADX ≥ ${ADX_TREND_THRESH}, not already running)`));
-    trending.forEach((r, i) => {
-        console.log(`  ${String(i + 1).padStart(2)}. ${r.underlying.padEnd(18)} ADX ${r.adxVal.toFixed(1)}   ${r.contract.symbol}`);
-    });
-    console.log();
+    if (recommended.length > 0) {
+        console.log(c.bold(`  RECOMMENDED (ADX ${ADX_TREND_THRESH}\u2013${ADX_EXHAUSTED_THRESH}, not already running)`));
+        recommended.forEach((r) => {
+            const i = trending.indexOf(r);
+            console.log(c.green(`  ${String(i + 1).padStart(2)}. ${r.underlying.padEnd(18)} ADX ${r.adxVal.toFixed(1)}   ${r.contract.symbol}`));
+        });
+        console.log();
+    }
+    if (exhausted.length > 0) {
+        console.log(c.bold(`  MIGHT BE EXHAUSTED (ADX > ${ADX_EXHAUSTED_THRESH}, not already running)`));
+        exhausted.forEach((r) => {
+            const i = trending.indexOf(r);
+            console.log(c.yellow(`  ${String(i + 1).padStart(2)}. ${r.underlying.padEnd(18)} ADX ${r.adxVal.toFixed(1)}   ${r.contract.symbol}`));
+        });
+        console.log();
+    }
 
     // One at a time, same interaction as Add Instrument — lets the person
     // deploy several picks in a row without re-running the scan for each.

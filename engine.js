@@ -300,7 +300,7 @@ async function main() {
             }, 15 * 60 * 1000);
         }
 
-        tg(`started  ${info}  buf:${bufLen}`);
+        tg(`${strategyLabel} started  ${info}`);
 
         candlePollInstance.startPoll();
         lifecycleInstance.startLifecycle();
