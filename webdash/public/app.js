@@ -191,13 +191,13 @@ async function control(name, action, cardEl) {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      appendLog({ type: "SYS", text: `control failed (${name} ${action}): ${err.error || res.statusText}` });
+      appendLog({ type: "ERROR", text: `control failed (${name} ${action}): ${err.error || res.statusText}` });
     } else {
       appendLog({ type: "SYS", text: `${name} — ${action} sent` });
       setTimeout(loadInstruments, 1500);
     }
   } catch (err) {
-    appendLog({ type: "SYS", text: `control failed (${name} ${action}): ${err.message}` });
+    appendLog({ type: "ERROR", text: `control failed (${name} ${action}): ${err.message}` });
   } finally {
     cardEl.style.opacity = "1";
   }
@@ -208,7 +208,7 @@ async function loadInstruments() {
     instruments = await (await fetch("/api/instruments")).json();
     renderInstruments();
   } catch (err) {
-    appendLog({ type: "SYS", text: `failed to load instrument list: ${err.message}` });
+    appendLog({ type: "ERROR", text: `failed to load instrument list: ${err.message}` });
   }
 }
 
@@ -261,10 +261,10 @@ tokenExchangeBtn.addEventListener("click", async () => {
       tokenPanel.classList.remove("open");
       refreshTokenStatus();
     } else {
-      appendLog({ type: "SYS", text: `[token] exchange failed: ${data.error}` });
+      appendLog({ type: "ERROR", text: `[token] exchange failed: ${data.error}` });
     }
   } catch (err) {
-    appendLog({ type: "SYS", text: `[token] exchange failed: ${err.message}` });
+    appendLog({ type: "ERROR", text: `[token] exchange failed: ${err.message}` });
   } finally {
     tokenExchangeBtn.textContent = "exchange";
   }
@@ -276,7 +276,7 @@ function handleTokenRedirectParams() {
   if (params.get("token") === "ok") {
     appendLog({ type: "SYS", text: "[token] access token captured and updated automatically — restart engines to pick it up" });
   } else {
-    appendLog({ type: "SYS", text: `[token] auto-capture failed: ${params.get("msg") || "unknown error"}` });
+    appendLog({ type: "ERROR", text: `[token] auto-capture failed: ${params.get("msg") || "unknown error"}` });
   }
   history.replaceState({}, "", location.pathname);
   refreshTokenStatus();
@@ -301,12 +301,23 @@ function logRowHtml(segments) {
   return segments.map(([cls, text]) => `<span class="${cls}">${escHtml(text)}</span>`).join("");
 }
 
+// Short fixed-width category label shown at the start of every log line —
+// lets the eye scan the left edge of the panel and tell TICK/ENTRY/EXIT/
+// SYS/ERROR apart without reading the row, since several types otherwise
+// share the same pos/neg green-or-red coloring.
+const CAT_LABEL = {
+  TICK: "tick", ENTRY: "entry", EXIT: "exit", MODE: "mode",
+  SHUTDOWN: "eod", SYS: "sys", ERROR: "err",
+};
+
 function appendLog({ type, cssClass, text, instant, segments }) {
   const line = document.createElement("div");
   line.className = `log-line ${type.toLowerCase()} ${cssClass || ""}`.trim();
   if (instant) line.style.animation = "none", line.style.opacity = "1";
-  if (segments) line.innerHTML = logRowHtml(segments);
-  else line.textContent = text;
+  const catLabel = CAT_LABEL[type] || type.toLowerCase();
+  const catHtml = `<span class="lf-cat lf-cat-${type.toLowerCase()}">${catLabel}</span>`;
+  if (segments) line.innerHTML = catHtml + logRowHtml(segments);
+  else line.innerHTML = catHtml + `<span class="lf-text">${escHtml(text)}</span>`;
   logStream.appendChild(line);
   while (logStream.childElementCount > MAX_LOG_LINES) logStream.removeChild(logStream.firstChild);
   if (autoscrollToggle.checked) logStream.scrollTop = logStream.scrollHeight;

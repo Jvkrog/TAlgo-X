@@ -469,7 +469,42 @@ body {
 .log-line.exit.neg  { color: var(--red); font-weight: 600; }
 .log-line.mode      { color: var(--cyan); }
 .log-line.sys       { color: var(--dim); }
+.log-line.error     { color: var(--red); font-weight: 600; }
 .log-line.shutdown  { color: var(--dim); font-weight: 600; border-top: 1px dashed var(--dim); padding-top: 4px; margin-top: 2px; }
+
+/* Left accent strip per category — lets you read the log by scanning the
+   left edge instead of each row, independent of the pos/neg text color. */
+.log-line          { border-left: 2px solid transparent; padding-left: 6px; }
+.log-line.tick      { border-left-color: var(--dim); }
+.log-line.entry     { border-left-color: var(--green); }
+.log-line.exit      { border-left-color: var(--green-dim); }
+.log-line.mode      { border-left-color: var(--cyan); }
+.log-line.sys       { border-left-color: var(--dim); }
+.log-line.error     { border-left-color: var(--red); }
+.log-line.shutdown  { border-left-color: var(--dim); }
+
+/* Category chip — fixed-width label so ENTRY/EXIT/TICK/SYS/ERR are
+   distinguishable at a glance instead of relying on shared green/red. */
+.lf-cat {
+  display: inline-block;
+  min-width: 44px;
+  flex-shrink: 0;
+  font-size: 0.72em;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  text-align: center;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.lf-cat-tick     { color: var(--dim);          background: rgba(95, 122, 110, 0.14); }
+.lf-cat-entry    { color: var(--green);        background: rgba(51, 255, 136, 0.14); }
+.lf-cat-exit     { color: var(--green-bright); background: rgba(51, 255, 136, 0.14); }
+.lf-cat-mode     { color: var(--cyan);         background: rgba(77, 227, 255, 0.14); }
+.lf-cat-shutdown { color: var(--dim);          background: rgba(95, 122, 110, 0.20); }
+.lf-cat-sys      { color: var(--dim);          background: rgba(95, 122, 110, 0.10); }
+.lf-cat-error    { color: var(--red);          background: rgba(255, 82, 102, 0.16); }
+.lf-text         { color: inherit; }
 
 .lf-engine {
   color: var(--dim);
@@ -790,6 +825,7 @@ body {
   .lf-engine { min-width: 0; max-width: 60px; }
   .lf-price { min-width: 54px; }
   .lf-num { min-width: 46px; }
+  .lf-cat { min-width: 36px; font-size: 0.68em; }
 
   .token-panel-row { flex-direction: column; }
   .token-panel-row .btn { width: 100%; padding: 11px 0; }
