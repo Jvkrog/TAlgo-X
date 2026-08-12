@@ -1650,22 +1650,37 @@ function renderTrendingResults(data) {
   if (trending.length === 0 && alreadyRunning.length === 0) {
     html += `<div class="tb-form-hint">nothing trending right now (ADX < 25)</div>`;
   }
-  if (trending.length > 0) {
-    html += `<div class="tb-trend-group-label">recommended — not already running</div>`;
-    trending.forEach((r, i) => {
-      html += `
-        <div class="tb-trend-row">
-          <div class="info">${r.underlying} <span class="adx">ADX ${r.adxVal.toFixed(1)}</span><br><span style="color:var(--dim);font-size:10px">${r.symbol}</span></div>
-          <button class="tb-trend-deploy-btn" data-deploy-idx="${i}">deploy</button>
-        </div>`;
-    });
+
+  // Split by category (recommended = ADX 25–30, exhausted = ADX > 30) —
+  // both groups are still trending and still deployable, this is a
+  // caution label on the upper part of that band, not a second filter.
+  const recommended = trending.filter(r => r.category === "recommended");
+  const exhausted    = trending.filter(r => r.category === "exhausted");
+
+  function renderRow(r) {
+    const idx = trending.indexOf(r);
+    return `
+      <div class="tb-trend-row">
+        <div class="info">${r.underlying} <span class="adx">ADX ${r.adxVal.toFixed(1)}</span><br><span style="color:var(--dim);font-size:10px">${r.symbol}</span></div>
+        <button class="tb-trend-deploy-btn" data-deploy-idx="${idx}">deploy</button>
+      </div>`;
+  }
+
+  if (recommended.length > 0) {
+    html += `<div class="tb-trend-group-label">recommended (ADX 25\u201330) \u2014 not already running</div>`;
+    recommended.forEach(r => { html += renderRow(r); });
+  }
+  if (exhausted.length > 0) {
+    html += `<div class="tb-trend-group-label" style="color:var(--yellow,#ffcc4d)">might be exhausted (ADX &gt; 30) \u2014 not already running</div>`;
+    exhausted.forEach(r => { html += renderRow(r); });
   }
   if (alreadyRunning.length > 0) {
     html += `<div class="tb-trend-group-label">trending but already running</div>`;
     alreadyRunning.forEach(r => {
+      const tag = r.category === "exhausted" ? ` <span style="color:var(--yellow,#ffcc4d);font-size:9.5px">(might be exhausted)</span>` : "";
       html += `
         <div class="tb-trend-row dimmed">
-          <div class="info">${r.underlying} <span class="adx">ADX ${r.adxVal.toFixed(1)}</span><br><span style="color:var(--dim);font-size:10px">${(r.runningAs || []).join(", ")}</span></div>
+          <div class="info">${r.underlying} <span class="adx">ADX ${r.adxVal.toFixed(1)}</span>${tag}<br><span style="color:var(--dim);font-size:10px">${(r.runningAs || []).join(", ")}</span></div>
         </div>`;
     });
   }
