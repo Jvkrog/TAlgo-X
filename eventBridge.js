@@ -8,6 +8,17 @@
 // it sits entirely alongside the existing console.log/tg() calls, never
 // replaces them, and has zero effect on order placement, SL, or entries/
 // exits if it fails or is simply absent.
+//
+// CHANGED: added setEmitSuppressed(). webdash/server.js runs backtests
+// in-process (runBacktest() calls the SAME strategy factories live trading
+// uses), and this very module is what those factories call into on every
+// replayed candle. Since server.js is also the process hosting the /engine
+// WS endpoint those events target, an in-process backtest was connecting
+// to itself and flooding the real Live Log panel with thousands of replayed
+// TICK/ENTRY/EXIT events indistinguishable from actual live engines. A
+// depth counter (not a plain boolean) so concurrent/nested backtest
+// requests in the same process can't have one finishing early re-enable
+// emission while another is still mid-replay.
 "use strict";
 
 const WebSocket = require("ws");
@@ -19,6 +30,7 @@ let ws = null;
 let connecting = false;
 const queue = []; // small buffer so events sent just before/while reconnecting aren't silently dropped
 const MAX_QUEUE = 200;
+let suppressDepth = 0;
 
 function connect() {
     if (connecting || (ws && ws.readyState === WebSocket.OPEN)) return;
@@ -38,7 +50,16 @@ function connect() {
 }
 connect();
 
+// setEmitSuppressed(true) / (false) — nestable. While the depth is above
+// zero, emitEvent() is a pure no-op (doesn't even queue). Callers MUST pair
+// every true with a false (use try/finally) or emission stays off for the
+// rest of the process's life.
+function setEmitSuppressed(suppressed) {
+    suppressDepth = Math.max(0, suppressDepth + (suppressed ? 1 : -1));
+}
+
 function emitEvent(engine, type, payload) {
+    if (suppressDepth > 0) return;
     try {
         const msg = JSON.stringify({ engine, type, ts: Date.now(), ...payload });
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -53,4 +74,4 @@ function emitEvent(engine, type, payload) {
     }
 }
 
-module.exports = { emitEvent };
+module.exports = { emitEvent, setEmitSuppressed };
