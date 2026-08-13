@@ -40,6 +40,7 @@ const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = requ
 const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("../historicalFetch");
 const { runBacktest } = require("../backtestRun");
 const { STRATEGY_PARAMS } = require("../backtestFlow");
+const { setEmitSuppressed } = require("../eventBridge");
 const { getShortName } = require("../shortNames");
 const { adx } = require("../indicators");
 const { createMarketStateClient } = require("../marketStateClient");
@@ -62,6 +63,38 @@ const SCANNER_PROCESS_NAME = "MarketScanner";
 
 const marketStateClient = createMarketStateClient();
 const marketWatchlist = createMarketWatchlist();
+
+// ─── withCapturedConsole — runs fn() while console.log/console.warn/
+// console.error are captured instead of (only) going to this process's own
+// stdout. Backtests run in-process here via runBacktest() and print exactly
+// what toolbox.js's CLI backtest flow prints (per-day headers, per-candle
+// tick lines, entries/exits, SKIP/QUALITY PASS notes) — previously those
+// lines only ever reached the webdash server's own PM2 log, never the
+// browser, so the web UI showed just the final summary card. This captures
+// that same output so it can be shipped back in the API response, giving
+// the web backtest the same log detail the CLI has always shown.
+// ANSI color codes (see c.js) are stripped — this becomes a plain scrollable
+// log block in the browser, not a terminal.
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+async function withCapturedConsole(fn) {
+    const lines = [];
+    const real = { log: console.log, warn: console.warn, error: console.error };
+    const capture = (...args) => {
+        const text = args.map(a => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
+        lines.push(text.replace(ANSI_RE, ""));
+    };
+    console.log = capture;
+    console.warn = capture;
+    console.error = capture;
+    try {
+        const result = await fn();
+        return { result, lines };
+    } finally {
+        console.log = real.log;
+        console.warn = real.warn;
+        console.error = real.error;
+    }
+}
 
 const ROOT = path.join(__dirname, "..");
 const PORT = process.env.WEBDASH_PORT || 4790;
@@ -723,7 +756,22 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         }
 
         const kc = ensureToolboxKite();
-        const result = await runBacktest({ strategyKey: strategy, strategyLabel, context, timeframe: tf, from, to, params: parsedParams, kc });
+        // Suppress the in-process event bridge for the duration of the
+        // replay (see eventBridge.js's setEmitSuppressed) so the thousands
+        // of TICK/ENTRY/EXIT events a backtest generates never reach the
+        // /engine relay and bleed into the real Live Log panel — and
+        // capture console output so the browser gets the same per-candle
+        // detail toolbox.js's CLI backtest flow prints, not just the final
+        // summary. try/finally so a thrown error still restores both.
+        setEmitSuppressed(true);
+        let result, logLines;
+        try {
+            ({ result, lines: logLines } = await withCapturedConsole(() =>
+                runBacktest({ strategyKey: strategy, strategyLabel, context, timeframe: tf, from, to, params: parsedParams, kc })
+            ));
+        } finally {
+            setEmitSuppressed(false);
+        }
 
         const m = result.report.metrics;
         res.json({
@@ -741,6 +789,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
             },
             reportUrl: `/api/toolbox/backtest/reports/${path.basename(result.paths.htmlPath)}`,
             jsonUrl: `/api/toolbox/backtest/reports/${path.basename(result.paths.jsonPath)}`,
+            logLines,
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
