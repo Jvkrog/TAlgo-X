@@ -1433,6 +1433,7 @@ async function renderBacktestParamsStep() {
       }
       const m = data.summary;
       const fmtMoney = v => (v >= 0 ? "+" : "") + Math.round(v).toLocaleString();
+      const logText = (data.logLines || []).join("\n");
       resultBox.innerHTML = `
         <div class="tb-summary-grid">
           <div class="tb-summary-cell"><div class="k">trades</div><div class="v">${m.trades}</div></div>
@@ -1443,7 +1444,19 @@ async function renderBacktestParamsStep() {
           <div class="tb-summary-cell"><div class="k">avg trade</div><div class="v">${fmtMoney(m.avgTrade)}</div></div>
         </div>
         <a class="tb-report-link" href="${data.reportUrl}" target="_blank" rel="noopener">open full report ↗</a>
+        <div class="tb-bt-log-wrap">
+          <button type="button" class="tb-bt-log-toggle" id="btLogToggle">▸ show full backtest log (${(data.logLines || []).length} lines)</button>
+          <pre class="tb-bt-log" id="btLogBody" hidden></pre>
+        </div>
       `;
+      const logToggle = resultBox.querySelector("#btLogToggle");
+      const logBody = resultBox.querySelector("#btLogBody");
+      logToggle.addEventListener("click", () => {
+        const showing = !logBody.hidden;
+        logBody.hidden = showing;
+        if (!showing && !logBody.textContent) logBody.textContent = logText; // fill lazily on first open
+        logToggle.textContent = `${showing ? "▸ show" : "▾ hide"} full backtest log (${(data.logLines || []).length} lines)`;
+      });
       submitBtn.disabled = false;
       submitBtn.textContent = "run backtest";
     } catch (err) {
