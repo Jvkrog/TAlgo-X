@@ -367,7 +367,7 @@ function handleEvent(msg) {
   const time = ts();
 
   if (msg.type === "TICK") {
-    // DYNAMIC_BAND_COLOR (and any future strategy that sets `color`) tags
+    // DYNAMIC_MID_COLOR (and any future strategy that sets `color`) tags
     // its own TICK payload with a position-DIRECTION color (green=LONG,
     // red=SHORT, white=flat) rather than the default profit-direction
     // marker every other strategy gets. Reuses the existing up/down/flat
@@ -415,13 +415,16 @@ function handleEvent(msg) {
 
   if (msg.type === "ENTRY") {
     if (!isReplay) flashCards(msg.engine, 1);
+    // msg.arrow (▲/▼) is currently only sent by DYNAMIC_MID_COLOR — every
+    // other strategy's ENTRY payload has no `arrow` field, so this is a
+    // no-op for them (undefined -> empty prefix, unchanged tag).
     appendLog({
       type: "ENTRY",
       instant: isReplay,
       segments: [
         ["lf-engine", msg.engine],
         ["lf-time", time],
-        ["lf-tag", `${msg.side} ENTRY`],
+        ["lf-tag", `${msg.arrow ? msg.arrow + " " : ""}${msg.side} ENTRY`],
         ["lf-price", `@ ${Number(msg.price).toFixed(2)}`],
         ["lf-meta", `Tr:${msg.trail != null ? Number(msg.trail).toFixed(2) : "-"}`],
       ],
@@ -1176,7 +1179,7 @@ function renderAddConfigStep() {
       div.classList.add("picked");
       updateTimeframeOptions(s.timeframe);
       smaExitRow.style.display = s.key === "MA_SLOPE_PURE" ? "" : "none";
-      bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_BAND_COLOR") ? "" : "none";
+      bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_MID_COLOR") ? "" : "none";
       greyExitRow.style.display = s.key === "ALMA_TRI_BAND" ? "" : "none";
     });
     stratList.appendChild(div);
@@ -1237,7 +1240,7 @@ function renderAddConfigStep() {
         timeframe: tfSelect.value,
         targetPoints: tbAddBody.querySelector("#addTarget").value || undefined,
         smaExitEnabled: pickedStrategy === "MA_SLOPE_PURE" ? tbAddBody.querySelector("#addSmaExit").checked : undefined,
-        bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_BAND_COLOR") ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
+        bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR") ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
         greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
       };
       const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
