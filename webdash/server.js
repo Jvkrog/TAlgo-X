@@ -676,7 +676,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             if (Number.isFinite(parsedTarget) && parsedTarget > 0) env.TARGET_POINTS_OVERRIDE = String(parsedTarget);
         }
         if (stratKey === "MA_SLOPE_PURE") env.SMA9_EXIT_OVERRIDE = String(smaExitEnabled !== false);
-        if ((stratKey === "DYNAMIC_BAND" || stratKey === "DYNAMIC_BAND_COLOR") && bandStep !== undefined && bandStep !== null && bandStep !== "") {
+        if ((stratKey === "DYNAMIC_BAND" || stratKey === "DYNAMIC_MID_COLOR") && bandStep !== undefined && bandStep !== null && bandStep !== "") {
             const parsedStep = Number(bandStep);
             if (Number.isFinite(parsedStep) && parsedStep > 0) env.BAND_STEP_OVERRIDE = String(parsedStep);
         }
