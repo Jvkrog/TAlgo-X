@@ -90,8 +90,8 @@ const STRATEGY_PARAMS = {
         // stop), so tuning them would be a no-op. Its sibling below does
         // use them.
     ],
-    DYNAMIC_BAND_COLOR: [
-        { key: "BAND_STEP_DEFAULT", label: "Band step \u2014 fixed price distance between HIGH/MID/LOW (per-instrument override takes precedence live)" },
+    DYNAMIC_MID_COLOR: [
+        { key: "BAND_STEP_DEFAULT", label: "Band step \u2014 fixed price distance between HIGH/MID/LOW (internal only, never plotted \u2014 per-instrument override takes precedence live)" },
         { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
         { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
     ],

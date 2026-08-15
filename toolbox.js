@@ -385,7 +385,7 @@ function buildProcessEnv(p, overrides = {}) {
     if (p.lotMult) env.LOTMULT_OVERRIDE = String(p.lotMult);
     if (p.targetPoints) env.TARGET_POINTS_OVERRIDE = String(p.targetPoints);
     if (p.strategy === "MA_SLOPE_PURE") env.SMA9_EXIT_OVERRIDE = String(p.smaExitEnabled !== false);
-    if ((p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_BAND_COLOR") && p.bandStep) env.BAND_STEP_OVERRIDE = String(p.bandStep);
+    if ((p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR") && p.bandStep) env.BAND_STEP_OVERRIDE = String(p.bandStep);
     if (p.strategy === "ALMA_TRI_BAND" && p.greyExitEnabled !== null && p.greyExitEnabled !== undefined) env.GREY_EXIT_OVERRIDE = String(p.greyExitEnabled);
     return { ...env, ...overrides };
 }
@@ -560,13 +560,13 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         smaExitEnabled = smaExitInput !== "N";
     }
 
-    // Band step — only meaningful for DYNAMIC_BAND / DYNAMIC_BAND_COLOR,
+    // Band step — only meaningful for DYNAMIC_BAND / DYNAMIC_MID_COLOR,
     // only asked when one of those is the strategy picked. Fixed PRICE
     // distance, not ATR-derived — see createDynamicBandStrategy /
-    // createDynamicBandColorStrategy in strategies.js. Blank falls back to
+    // createDynamicMidColorStrategy in strategies.js. Blank falls back to
     // engineConfig.BAND_STEP_DEFAULT.
     let bandStep = null;
-    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_BAND_COLOR")) {
+    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR")) {
         const bandStepInput = await ask(`  band step in price points (blank = default ${engineConfig.BAND_STEP_DEFAULT}): `);
         if (bandStepInput) {
             const parsedStep = Number(bandStepInput);
@@ -606,7 +606,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (lotMultOverride !== null) env.LOTMULT_OVERRIDE = String(lotMultOverride);
     if (targetPoints !== null) env.TARGET_POINTS_OVERRIDE = String(targetPoints);
     if (strategy === "MA_SLOPE_PURE") env.SMA9_EXIT_OVERRIDE = String(smaExitEnabled);
-    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_BAND_COLOR") && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
+    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR") && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
     if (strategy === "ALMA_TRI_BAND" && greyExitEnabled !== null) env.GREY_EXIT_OVERRIDE = String(greyExitEnabled);
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name, cwd: __dirname, env });
@@ -615,7 +615,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const stratLabel = (STRATEGY_INFO[strategy] || { label: strategy }).label;
         const targetTag = targetPoints !== null ? c.yellow(` +${targetPoints}pt target`) : "";
         const smaExitTag = strategy === "MA_SLOPE_PURE" && !smaExitEnabled ? c.yellow(" SMA9-exit:off") : "";
-        const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_BAND_COLOR") ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
+        const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR") ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
         const greyExitTag = strategy === "ALMA_TRI_BAND" ? c.yellow(` grey:${(greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT) ? "exit" : "hold"}`) : "";
         console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${smaExitTag}${bandStepTag}${greyExitTag}`));
     } catch (err) {

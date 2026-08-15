@@ -167,6 +167,20 @@ async function runBacktest({ strategyKey, strategyLabel, context, timeframe, fro
             state.pnl  = 0;
             lastSeenDay = dayKey;
 
+            // Same reasoning as state.pnl above, extended to
+            // DYNAMIC_MID_COLOR's one-time-per-boot history-replay flag
+            // (see strategies.js's processCandle): live gets a fresh
+            // replay-and-possibly-enter EVERY trading morning for free,
+            // because lifecycle.js's EOD handler calls process.exit(0)
+            // and PM2 relaunches the process fresh at next boot — this
+            // backtest replay is one continuous loop with no such
+            // restart, so without resetting the flag here it would only
+            // ever replay once, at the very start of the whole range,
+            // instead of once per simulated day like live actually does.
+            // Harmless no-op for every other strategy (they never set
+            // this field).
+            state.historyReplayed = false;
+
             // Same "--- NAME  date/time ---" header engine.js prints once
             // at live boot — printed here on EVERY day the replay crosses,
             // purely as a visual barrier in the console output. A

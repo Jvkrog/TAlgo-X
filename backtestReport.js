@@ -34,14 +34,37 @@ function renderHtml(report) {
     const m = report.metrics;
     const pf = m.profitFactor === null ? "-" : m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2);
 
+    // Running session PnL — same cumulative total positions.js's close()
+    // already prints live (`session: ${pnlStr(state.pnl)}`) alongside each
+    // trade's own isolated pnl. The report table previously only showed
+    // the per-trade figure, which tells you whether ONE trade won or
+    // lost but not how the strategy is actually performing over time —
+    // a string of small wins can still be a losing session if one bad
+    // trade outweighs them, and that only shows up in the running total.
+    // Trades close in chronological order (only one position open at a
+    // time for every strategy in this codebase), so a simple running sum
+    // over the filtered/closed list reproduces the exact same session
+    // value live would have shown at that same point in the sequence.
+    let runningSession = 0;
     const rows = report.trades
         .filter(t => t.status === "CLOSED")
         .map(t => {
             const pnlClass = (t.pnl || 0) >= 0 ? "pos" : "neg";
+            runningSession += (t.pnl || 0);
+            const sessionClass = runningSession >= 0 ? "pos" : "neg";
+            // Directional arrow on the side column — green ▲ LONG / red ▼
+            // SHORT, same convention as a SuperTrend flip marker. Uses the
+            // existing .pos/.neg classes (direction here, not P&L) so no
+            // new CSS is needed; applies to every strategy's report, not
+            // just DYNAMIC_MID_COLOR.
+            const sideClass = t.side === "LONG" ? "pos" : "neg";
+            const sideArrow = t.side === "LONG" ? "▲" : "▼";
             return `<tr>
-                <td>${t.entry_time}</td><td>${t.side}</td><td>${t.entry_price}</td>
+                <td>${t.entry_time}</td><td class="${sideClass}">${sideArrow} ${t.side}</td><td>${t.entry_price}</td>
                 <td>${t.exit_time}</td><td>${t.exit_price}</td>
-                <td class="${pnlClass}">${(t.pnl || 0).toFixed(2)}</td><td>${t.exit_reason}</td>
+                <td class="${pnlClass}">${(t.pnl || 0).toFixed(2)}</td>
+                <td class="${sessionClass}">${runningSession.toFixed(2)}</td>
+                <td>${t.exit_reason}</td>
             </tr>`;
         })
         .join("");
@@ -77,7 +100,7 @@ th{background:#161a22} td:first-child,th:first-child{text-align:left}
 </div>
 <h2>Trades (${m.trades})</h2>
 <table><thead><tr>
-  <th>Entry Time</th><th>Side</th><th>Entry</th><th>Exit Time</th><th>Exit</th><th>PnL</th><th>Reason</th>
+  <th>Entry Time</th><th>Side</th><th>Entry</th><th>Exit Time</th><th>Exit</th><th>PnL</th><th>Session PnL</th><th>Reason</th>
 </tr></thead><tbody>${rows || `<tr><td colspan="7">no closed trades in this range</td></tr>`}</tbody></table>
 </body></html>`;
 }
