@@ -205,7 +205,7 @@ async function main() {
         const parsedStep = Number(process.env.BAND_STEP_OVERRIDE);
         context.bandStep = Number.isFinite(parsedStep) && parsedStep > 0 ? parsedStep : null;
     }
-    if (context.strategy === "DYNAMIC_BAND" || context.strategy === "DYNAMIC_MID_COLOR") {
+    if (context.strategy === "DYNAMIC_BAND" || context.strategy === "DYNAMIC_MID_COLOR" || context.strategy === "DYNAMIC_MID_COLOR_HL") {
         console.log(c.dim(`[${context.tgPrefix}] band step: ${context.bandStep ?? `default (${engineConfig.BAND_STEP_DEFAULT})`}`));
     }
 
