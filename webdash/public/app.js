@@ -1179,7 +1179,7 @@ function renderAddConfigStep() {
       div.classList.add("picked");
       updateTimeframeOptions(s.timeframe);
       smaExitRow.style.display = s.key === "MA_SLOPE_PURE" ? "" : "none";
-      bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_MID_COLOR") ? "" : "none";
+      bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_MID_COLOR" || s.key === "DYNAMIC_MID_COLOR_HL") ? "" : "none";
       greyExitRow.style.display = s.key === "ALMA_TRI_BAND" ? "" : "none";
     });
     stratList.appendChild(div);
@@ -1240,7 +1240,7 @@ function renderAddConfigStep() {
         timeframe: tfSelect.value,
         targetPoints: tbAddBody.querySelector("#addTarget").value || undefined,
         smaExitEnabled: pickedStrategy === "MA_SLOPE_PURE" ? tbAddBody.querySelector("#addSmaExit").checked : undefined,
-        bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR") ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
+        bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || pickedStrategy === "DYNAMIC_MID_COLOR_HL") ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
         greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
       };
       const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
