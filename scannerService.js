@@ -36,6 +36,72 @@ const { createScannerPipeline }    = require("./scannerPipeline");
 
 const SCANNER_TIMEFRAME_MINUTES = 15; // the Scanner's own fixed cadence — see marketFeed.js's header
 
+// Same lookback preload.js uses for engine.js's own per-instrument warmup
+// ("5 days covers weekends comfortably for 200 15m bars") — regimeIndicators.js
+// only needs ~34 15m bars minimum (see its own minLen math), so 5 days of
+// history is comfortably more than enough margin, holidays included.
+const HIST_LOOKBACK_DAYS = 5;
+
+// Same per-instrument spacing marketFeed.js already uses between its own
+// historical-data calls, for the same reason: stay comfortably under Kite's
+// ~3 req/sec historical-data rate limit when looping over N instruments.
+const INTER_INSTRUMENT_DELAY_MS = 350;
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// backfillCandles(kc, resolved, rawCandleBuffers) — seeds each instrument's
+// buffer with real historical candles BEFORE the live feed starts, instead
+// of the Scanner silently starting from an empty buffer and needing ~34
+// live 15m candles (~8.5 hours — essentially a full trading day) before
+// regimeIndicators.js emits its first non-null result. Without this, the
+// Scanner looks like it's "not working" for most of day one: every candle
+// close still comes in, but computeRegimeIndicators() returns null and
+// nothing ever gets logged or saved. Mirrors preload.js's shape (fetch ->
+// drop the still-forming last bar -> parse) and marketFeed.js's candle
+// shape (open/high/low/close/volume/date-as-string), so a backfilled
+// buffer looks identical to one that grew from real live candles.
+async function backfillCandles(kc, resolved, rawCandleBuffers) {
+    const to   = new Date();
+    const from = new Date(to.getTime() - HIST_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+
+    for (const inst of resolved) {
+        try {
+            const bars = await kc.getHistoricalData(
+                inst.token,
+                `${SCANNER_TIMEFRAME_MINUTES}minute`,
+                from.toISOString().split("T")[0],
+                to.toISOString().split("T")[0]
+            );
+
+            if (bars && bars.length > 1) {
+                // Last bar is always the still-forming current candle —
+                // same rule preload.js and marketFeed.js's fetchLastCandle
+                // both apply; the live feed will deliver it for real once
+                // it actually closes.
+                const completed = bars.slice(0, -1).map(b => ({
+                    open:   parseFloat(b.open),
+                    high:   parseFloat(b.high),
+                    low:    parseFloat(b.low),
+                    close:  parseFloat(b.close),
+                    volume: b.volume != null ? parseFloat(b.volume) : null,
+                    date:   String(b.date),
+                }));
+                rawCandleBuffers.set(inst.key, completed);
+                console.log(c.dim(`SCANNER  [${inst.key}] backfilled ${completed.length} historical candle(s)`));
+            } else {
+                console.log(c.yellow(`SCANNER  [${inst.key}] no historical bars returned — will warm up live instead`));
+            }
+        } catch (err) {
+            // Same isolation principle as resolveWatchlist's own per-entry
+            // try/catch — one instrument's failed backfill must not stop
+            // the rest from backfilling, and must not stop the Scanner from
+            // starting at all. Worst case for that one instrument: it just
+            // warms up live like the old behavior, same ~8.5hr delay.
+            console.error(c.red(`SCANNER  [${inst.key}] backfill failed: ${err.message} — will warm up live instead`));
+        }
+        await sleep(INTER_INSTRUMENT_DELAY_MS);
+    }
+}
+
 // Resolves every watchlist entry to a real { key, token, symbol, exchange },
 // reusing exactly the same resolution path engine.js uses for a single
 // instrument at boot (getDefinition -> csvRepo.load -> resolveCurrent ->
@@ -104,6 +170,18 @@ async function main() {
     }
     console.log(c.dim(`SCANNER  watching ${resolved.length}/${entries.length} instrument(s): ${resolved.map(r => r.key).join(", ")}`));
 
+    // Backfill BEFORE the live feed starts — see backfillCandles' own
+    // header for why this matters (without it, regimeIndicators.js stays
+    // null for ~8.5 hours of live candles on every instrument). One shared
+    // kc instance is fine here regardless of exchange — same as
+    // marketFeed.js's own single kc for all resolved instruments — Kite's
+    // historical-data endpoint doesn't require a per-exchange client.
+    console.log(c.dim("SCANNER  backfilling historical candles..."));
+    const ACCESS_TOKEN = fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim();
+    const backfillKc = new KiteConnect({ api_key: engineConfig.API_KEY });
+    backfillKc.setAccessToken(ACCESS_TOKEN);
+    await backfillCandles(backfillKc, resolved, rawCandleBuffers);
+
     const store = createMarketStateStore();
     store.initDB();
 
@@ -137,4 +215,4 @@ main().catch(err => {
 process.on("uncaughtException",  err => console.error("SCANNER UNCAUGHT",  err));
 process.on("unhandledRejection", err => console.error("SCANNER UNHANDLED", err));
 
-module.exports = { resolveWatchlist };
+module.exports = { resolveWatchlist, backfillCandles };
