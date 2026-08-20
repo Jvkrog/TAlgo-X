@@ -266,7 +266,7 @@ const HELP_ROWS = [
     [["A", "add"], ["1-9", "toggle"], ["S", "start"], ["X", "stop"]],
     [["R", "restart"], ["D", "remove"], ["C", "roll"], ["M", "live/paper"]],
     [["L", "logs"], ["T", "token"], ["B", "backtest"], ["N", "trending"]],
-    [["Q", "quit"], ["E", "creds"], ["K", "market"], null],
+    [["Q", "quit"], ["E", "creds"], ["K", "market"], ["P", "edit params"]],
 ];
 function renderMenuHelpLines() {
     return HELP_ROWS.map(row => {
@@ -419,6 +419,97 @@ async function toggleMode(procs) {
             console.log(c.green(`  ${p.underlying} -> ${goingLive ? c.red("LIVE") : c.cyan("PAPER")}${carryTag} (restarted)`));
         } catch (err) {
             console.log(c.red(`  failed to switch ${p.underlying}: ${err.message}`));
+        }
+    }
+    await pauseForReview();
+}
+
+// ─── EDIT INSTRUMENT PARAMS — same restart-in-place pattern as toggleMode:
+// take the running process's own values as defaults, ask only what changes,
+// rebuild the FULL env through buildProcessEnv (never a partial patch — see
+// the comment on buildProcessEnv about the bug that caused), pm2Restart.
+// Exists so tuning a live instrument (target, lots, ...) doesn't require
+// going through "Add instrument" and hitting the same-underlying-same-
+// strategy duplicate block — that block is correct for preventing two
+// processes racing the same underlying+strategy, but it also means "Add"
+// can't be used to edit something already running. This is that edit path.
+async function editInstrument(procs) {
+    const targets = procs.filter(p => selected.has(p.name));
+    if (targets.length === 0) { console.log(c.yellow("  nothing selected")); await pauseForReview(); return; }
+
+    for (const p of targets) {
+        console.log();
+        console.log(c.dim(`  editing ${p.underlying} (${(STRATEGY_INFO[p.strategy] || { label: p.strategy }).label}) — blank keeps current value`));
+
+        // Target points — mirrors configureAndStartInstrument's prompt.
+        // "0" or "clear" removes an existing target (goes back to
+        // strategy-only exits); blank keeps whatever's set now.
+        const targetDefault = p.targetPoints !== null ? String(p.targetPoints) : "none";
+        const targetInput = (await ask(`  profit target in points (current: ${targetDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
+        let targetPoints = p.targetPoints;
+        if (targetInput) {
+            if (targetInput === "0" || targetInput.toLowerCase() === "clear") {
+                targetPoints = null;
+            } else {
+                const parsedTarget = Number(targetInput);
+                if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) {
+                    console.log(c.yellow(`  "${targetInput}" isn't a valid positive number — target left unchanged (${targetDefault})`));
+                } else {
+                    targetPoints = parsedTarget;
+                }
+            }
+        }
+
+        // Lots — same shape as the add-instrument prompt.
+        const lotsDefault = p.lots === "default" ? "1" : p.lots;
+        const lotsInput = (await ask(`  lots (current: ${lotsDefault}, blank = keep): `)).trim();
+        let lots = p.lots;
+        if (lotsInput) {
+            const parsedLots = Number(lotsInput);
+            if (!Number.isFinite(parsedLots) || parsedLots <= 0) {
+                console.log(c.yellow(`  "${lotsInput}" isn't a valid positive number — lots left unchanged (${lotsDefault})`));
+            } else {
+                lots = String(parsedLots);
+            }
+        }
+
+        // Strategy-specific fields — only asked for the strategy actually
+        // running, same conditions as configureAndStartInstrument.
+        let smaExitEnabled = p.smaExitEnabled;
+        if (p.strategy === "MA_SLOPE_PURE") {
+            const smaInput = (await ask(`  SMA9 reversal exit? [y/N] (current: ${p.smaExitEnabled ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            if (smaInput) smaExitEnabled = smaInput === "Y";
+        }
+        let bandStep = p.bandStep;
+        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL") {
+            const bandDefault = p.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
+            const bandInput = (await ask(`  band step in price points (current: ${bandDefault}, blank = keep): `)).trim();
+            if (bandInput) {
+                const parsedStep = Number(bandInput);
+                if (!Number.isFinite(parsedStep) || parsedStep <= 0) {
+                    console.log(c.yellow(`  "${bandInput}" isn't a valid positive number — band step left unchanged (${bandDefault})`));
+                } else {
+                    bandStep = parsedStep;
+                }
+            }
+        }
+        let greyExitEnabled = p.greyExitEnabled;
+        if (p.strategy === "ALMA_TRI_BAND") {
+            const greyDefault = p.greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT;
+            const greyInput = (await ask(`  exit on grey state? [y/N] (current: ${greyDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            if (greyInput) greyExitEnabled = greyInput === "Y";
+        }
+
+        const updatedP = { ...p, lots, targetPoints, smaExitEnabled, bandStep, greyExitEnabled };
+        try {
+            await pm2Restart({
+                ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
+                env: buildProcessEnv(updatedP),
+            });
+            const targetTag = targetPoints !== null ? c.yellow(` target:${targetPoints}pt`) : c.dim(" target:none");
+            console.log(c.green(`  ${p.underlying} updated${targetTag} lots:${lots === "default" ? "1" : lots} (restarted)`));
+        } catch (err) {
+            console.log(c.red(`  failed to update ${p.underlying}: ${err.message}`));
         }
     }
     await pauseForReview();
@@ -1420,6 +1511,7 @@ async function main() {
         else if (input === "D")           await deleteSelected(procs);
         else if (input === "C")           await rollContract(procs);
         else if (input === "M")           await toggleMode(procs);
+        else if (input === "P")           await editInstrument(procs);
         else if (input === "L")           await viewLogs(procs);
         else if (input === "T")           await updateAccessToken();
         else if (input === "B")           await backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, resolveCurrent, getDefinition, buildContext, defaultEodFor, c, engineConfig });

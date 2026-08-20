@@ -115,6 +115,18 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                     db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
                     slStore.clearTrail();
                     targetStore.clearTarget();
+
+                    // Target hit — day's done, quit for the rest of the
+                    // session (cooldown) instead of continuing to run flat
+                    // and re-arming on the next entry. exit(0) is a clean
+                    // exit code, which PM2_BASE_OPTS (toolbox.js) is
+                    // configured to NOT autorestart — same mechanism the
+                    // EOD shutdown in lifecycle.js relies on. Send the
+                    // Telegram confirmation first and give it a moment to
+                    // actually flush before killing the process.
+                    await tg(`✅ Target reached — cooling down for the day [${context.tgPrefix}]`);
+                    console.log(c.bold("*** TARGET HIT — COOLDOWN, DONE FOR THE DAY ***"));
+                    setTimeout(() => process.exit(0), 2000);
                 }
             }
         }
