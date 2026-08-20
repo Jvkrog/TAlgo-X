@@ -263,10 +263,10 @@ function helpCell(key, label) {
     return (key.padEnd(4) + label).padEnd(HELP_CELL_WIDTH);
 }
 const HELP_ROWS = [
-    [["A", "add"], ["1-9", "toggle"], ["S", "start"], ["X", "stop"]],
-    [["R", "restart"], ["D", "remove"], ["C", "roll"], ["M", "live/paper"]],
-    [["L", "logs"], ["T", "token"], ["B", "backtest"], ["N", "trending"]],
-    [["Q", "quit"], ["E", "creds"], ["K", "market"], ["P", "edit params"]],
+    [["A", "Add"], ["1-9", "Toggle"], ["S", "Start"], ["X", "Stop"]],
+    [["R", "Restart"], ["D", "Remove"], ["C", "Roll"], ["M", "Live/Paper"]],
+    [["L", "Logs"], ["T", "Token"], ["B", "Backtest"], ["N", "Trending"]],
+    [["Q", "Quit"], ["E", "Creds"], ["K", "Market"], ["P", "Edit Params"]],
 ];
 function renderMenuHelpLines() {
     return HELP_ROWS.map(row => {
