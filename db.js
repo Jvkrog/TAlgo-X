@@ -62,6 +62,8 @@ function createDb(context) {
                     entry_price      REAL,
                     entry_date       TEXT,
                     position_source  TEXT,
+                    target_points    REAL,
+                    target_regime    TEXT,
                     updated_at       TEXT DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(engine, instrument_token)
                 )
@@ -77,6 +79,22 @@ function createDb(context) {
             // Migration: add position_source if upgrading from a schema that
             // predates the TREND/MEANREV split.
             db.run(`ALTER TABLE positions ADD COLUMN position_source TEXT`, err => {
+                if (err && !err.message.includes("duplicate column")) {
+                    console.error("DB migration error:", err.message);
+                }
+            });
+
+            // Migration: add target_points/target_regime if upgrading from a
+            // schema that predates TARGET_MODE=adaptive. Only ever populated
+            // for a position opened under adaptive mode — see candlePoll.js's
+            // checkTarget() and adaptiveTarget.js; NULL for every FIXED-mode
+            // position, same as before this migration existed.
+            db.run(`ALTER TABLE positions ADD COLUMN target_points REAL`, err => {
+                if (err && !err.message.includes("duplicate column")) {
+                    console.error("DB migration error:", err.message);
+                }
+            });
+            db.run(`ALTER TABLE positions ADD COLUMN target_regime TEXT`, err => {
                 if (err && !err.message.includes("duplicate column")) {
                     console.error("DB migration error:", err.message);
                 }
@@ -177,14 +195,27 @@ function createDb(context) {
         });
     }
 
-    function savePosition(engine, token, symbol, position, entryPrice, positionSource) {
+    // targetPoints/targetRegime — new OPTIONAL trailing params. Every
+    // existing call site (16+ across strategies.js/candlePoll.js) passes
+    // only the first 6 args, so these arrive as undefined there — normalized
+    // to null below via the same `|| null` pattern positionSource already
+    // uses, and forced to null whenever position is null (closed/flat),
+    // same reasoning as entry_date/position_source above: a frozen adaptive
+    // target belongs to a SPECIFIC open position, never to "flat".
+    function savePosition(engine, token, symbol, position, entryPrice, positionSource, targetPoints, targetRegime) {
         const today = new Date().toISOString().split("T")[0];
         const stmt = db.prepare(`
             INSERT OR REPLACE INTO positions
-            (engine, instrument_token, symbol, position, entry_price, entry_date, position_source, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            (engine, instrument_token, symbol, position, entry_price, entry_date, position_source, target_points, target_regime, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `);
-        stmt.run(engine, token, symbol, position, entryPrice || 0, position ? today : null, position ? (positionSource || null) : null);
+        stmt.run(
+            engine, token, symbol, position, entryPrice || 0,
+            position ? today : null,
+            position ? (positionSource || null) : null,
+            position ? (targetPoints || null) : null,
+            position ? (targetRegime || null) : null
+        );
         stmt.finalize();
     }
 

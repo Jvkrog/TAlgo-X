@@ -24,6 +24,8 @@ const { KiteConnect } = require("kiteconnect");
 const fs = require("fs");
 const c  = require("./c");
 const { TIMEFRAME_TO_INTERVAL, TIMEFRAME_MINUTES } = require("./historicalFetch");
+const { toHA, atrSeries, dpi, choppinessIndex } = require("./indicators");
+const { selectAdaptiveTarget } = require("./adaptiveTarget");
 
 function createCandlePoll({ context, engineConfig, state, candles, slStore, targetStore, orders, positionsClose, processCandle, db, tg }) {
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
@@ -67,35 +69,94 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
     }
 
     // ─── TARGET MONITOR — every WebSocket tick ───────────────────────────────
-    // Two jobs, both strategy-agnostic:
-    //   1. Auto-arm — the moment an open position has no target yet and the
-    //      instrument was configured with context.targetPoints (toolbox
-    //      prompt, TARGET_POINTS_OVERRIDE), arm one at entryPrice ± that many
-    //      points. Works for ALL 12 strategies uniformly — nothing
-    //      strategy-specific here, it only reads state.position/entryPrice.
-    //      Every strategy's exit paths already clear targetStore alongside
-    //      slStore.clearTrail() (see strategies.js), so target is guaranteed
-    //      null again by the time a fresh position opens, whatever direction
-    //      — this never arms a stale level left over from a prior trade.
-    //   2. Check — same tick-driven pattern as checkSL, opposite direction:
-    //      closes on FAVORABLE movement instead of adverse. Runs ALONGSIDE
-    //      checkSL, not instead of it — whichever fires first on a given
-    //      tick closes the position.
-    // No-op (both steps) whenever context.targetPoints is unset — the
-    // pre-existing behavior (no fixed take-profit) is unchanged unless the
-    // instrument was explicitly configured with one.
+    // Arm step (once per position, whichever mode):
+    //   FIXED    — target = entryPrice ± context.targetPoints, unchanged.
+    //   ADAPTIVE — sized ONCE from CHOP + |DPI efficiency| at the moment of
+    //   arming (see adaptiveTarget.js), then frozen: stored on this
+    //   position's DB row and never recomputed for the life of the trade,
+    //   including across a process restart (checked below BEFORE computing
+    //   fresh — a restart resumes the SAME frozen value, it never re-decides).
+    //   Everything after arming — the tick-by-tick LTP >= / <= target check —
+    //   is identical for both modes; this function only ever monitors an
+    //   already-decided level, exactly as before. Works for every strategy
+    //   uniformly, same as it always has — only reads state.position/entryPrice
+    //   and the candle buffer, nothing strategy-specific.
+    // No-op entirely whenever context.targetPoints is unset AND targetMode
+    // isn't "adaptive" — pre-existing behavior (no fixed take-profit) is
+    // unchanged unless the instrument was explicitly configured with one.
     async function checkTarget(price) {
         if (!price || !targetStore) return;
 
-        if (engineConfig.ENGINE_ENABLED && state.position && state.entryPrice && context.targetPoints) {
+        if (engineConfig.ENGINE_ENABLED && state.position && state.entryPrice && (context.targetPoints || context.targetMode === "adaptive")) {
             const { target: armedTarget } = targetStore.getTarget();
             if (armedTarget === null) {
-                const dir   = state.position === "LONG" ? 1 : -1;
-                const level = state.position === "LONG"
-                    ? state.entryPrice + context.targetPoints
-                    : state.entryPrice - context.targetPoints;
-                targetStore.setTarget(level, dir);
-                console.log(c.dim(`[${context.tgPrefix}] TARGET ARMED  ${state.position} @ ${level.toFixed(2)}  (entry ${state.entryPrice.toFixed(2)} +${context.targetPoints})`));
+                let points = context.targetPoints; // FIXED wins outright if set, regardless of targetMode
+
+                if (!points && context.targetMode === "adaptive") {
+                    // Restart-resume check FIRST — if this exact open position
+                    // already has a frozen target on its DB row (from before a
+                    // crash/restart), reuse it verbatim. Only a position with
+                    // nothing stored yet (a genuinely brand-new entry) computes
+                    // a fresh decision below.
+                    const saved = await db.loadPosition(context.tgPrefix, context.token);
+                    if (saved && saved.position === state.position && saved.target_points) {
+                        points = saved.target_points;
+                        console.log(c.dim(`[${context.tgPrefix}] [TARGET] MODE: ADAPTIVE (resumed)  REGIME: ${saved.target_regime}  TARGET: ${points} points`));
+                    } else {
+                        const rawCandles = candles.getRawCandles();
+                        // Same three indicators this decision uses need their
+                        // own lookback windows satisfied — if the buffer is
+                        // still short (e.g. a restart right after boot,
+                        // before preload's own guard would normally have
+                        // caught it), just wait for the next tick rather
+                        // than sizing off a too-short window. Position stays
+                        // unarmed (safe) until this passes.
+                        const warmupNeeded = Math.max(engineConfig.DPI_LEN, engineConfig.ST_ATR_LEN, engineConfig.CHOP_LEN) + 5;
+                        if (rawCandles.length < warmupNeeded) return;
+
+                        const haCandles = toHA(rawCandles);
+                        const atrArr    = atrSeries(haCandles, engineConfig.ST_ATR_LEN);
+                        const dpiResult = dpi(haCandles, atrArr, engineConfig.DPI_LEN, engineConfig.DPI_STREAK_MULT, engineConfig.DPI_STREAK_CAP);
+                        const chopArr   = choppinessIndex(rawCandles, engineConfig.CHOP_LEN);
+                        const chopVal   = chopArr[chopArr.length - 1];
+
+                        const decision = selectAdaptiveTarget(
+                            { chop: chopVal, efficiency: dpiResult ? dpiResult.efficiency : null },
+                            engineConfig
+                        );
+                        points = decision.points;
+
+                        console.log(c.dim(`[${context.tgPrefix}] [ADAPTIVE TARGET]`));
+                        console.log(c.dim(`  MODE: ADAPTIVE`));
+                        console.log(c.dim(`  REGIME: ${decision.regime}`));
+                        console.log(c.dim(`  TARGET: ${decision.points} points`));
+                        console.log(c.dim(`  CHOP: ${chopVal !== null && chopVal !== undefined ? chopVal.toFixed(1) : "n/a"}`));
+                        console.log(c.dim(`  DPI: ${dpiResult ? dpiResult.dpi.toFixed(2) : "n/a"}`));
+                        console.log(c.dim(`  EFFICIENCY: ${dpiResult ? dpiResult.efficiency.toFixed(2) : "n/a"}`));
+                        console.log(c.dim(`  REASON: ${decision.reason}`));
+
+                        // Freeze it — persisted onto this position's row
+                        // BEFORE arming targetStore, so a crash between here
+                        // and the next tick still resumes with this exact
+                        // value on restart (the branch above), never a
+                        // re-decided one. Passes through the position's
+                        // CURRENT entry/source unchanged — this is the same
+                        // upsert every strategy's own _persistState already
+                        // does, just adding the two new columns.
+                        db.savePosition(context.tgPrefix, context.token, context.symbol, state.position, state.entryPrice, state.positionSource, decision.points, decision.regime);
+                    }
+                } else if (context.targetPoints) {
+                    console.log(c.dim(`[${context.tgPrefix}] [TARGET] MODE: FIXED  TARGET: ${context.targetPoints} points`));
+                }
+
+                if (points) {
+                    const dir   = state.position === "LONG" ? 1 : -1;
+                    const level = state.position === "LONG"
+                        ? state.entryPrice + points
+                        : state.entryPrice - points;
+                    targetStore.setTarget(level, dir);
+                    console.log(c.dim(`[${context.tgPrefix}] [TARGET ARMED]  POSITION: ${state.position}  ENTRY: ${state.entryPrice.toFixed(2)}  TARGET_POINTS: ${points}  TARGET_PRICE: ${level.toFixed(2)}`));
+                }
             }
         }
 

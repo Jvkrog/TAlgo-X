@@ -131,6 +131,7 @@ async function getEngineProcesses() {
             live:      p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             carryOvernight: p.pm2_env.env?.CARRY_OVERNIGHT_OVERRIDE === "true",
             targetPoints: p.pm2_env.env?.TARGET_POINTS_OVERRIDE ? Number(p.pm2_env.env.TARGET_POINTS_OVERRIDE) : null,
+            targetMode: p.pm2_env.env?.TARGET_MODE_OVERRIDE === "adaptive" ? "adaptive" : "fixed",
             smaExitEnabled: p.pm2_env.env?.SMA9_EXIT_OVERRIDE !== undefined ? p.pm2_env.env.SMA9_EXIT_OVERRIDE === "true" : true,
             bandStep: p.pm2_env.env?.BAND_STEP_OVERRIDE ? Number(p.pm2_env.env.BAND_STEP_OVERRIDE) : null,
             greyExitEnabled: p.pm2_env.env?.GREY_EXIT_OVERRIDE !== undefined ? p.pm2_env.env.GREY_EXIT_OVERRIDE === "true" : null,
@@ -384,6 +385,12 @@ function buildProcessEnv(p, overrides = {}) {
     if (p.lots !== "default") env.LOTS_OVERRIDE = String(p.lots);
     if (p.lotMult) env.LOTMULT_OVERRIDE = String(p.lotMult);
     if (p.targetPoints) env.TARGET_POINTS_OVERRIDE = String(p.targetPoints);
+    // Only meaningful when targetPoints is unset (adaptive picks its own
+    // points per-position — see adaptiveTarget.js); still written whenever
+    // set regardless, same as every other *_OVERRIDE here, so a restart
+    // through toggleMode()/editInstrument() never silently drops it back
+    // to engine.js's "fixed" default.
+    if (p.targetMode === "adaptive") env.TARGET_MODE_OVERRIDE = "adaptive";
     if (p.strategy === "MA_SLOPE_PURE") env.SMA9_EXIT_OVERRIDE = String(p.smaExitEnabled !== false);
     if ((p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL") && p.bandStep) env.BAND_STEP_OVERRIDE = String(p.bandStep);
     if (p.strategy === "ALMA_TRI_BAND" && p.greyExitEnabled !== null && p.greyExitEnabled !== undefined) env.GREY_EXIT_OVERRIDE = String(p.greyExitEnabled);
@@ -460,6 +467,21 @@ async function editInstrument(procs) {
             }
         }
 
+        // Adaptive target mode — only asked when there's no fixed points
+        // value in play (targetPoints wins outright when set, same rule as
+        // the add-instrument prompt). Switching FIXED<->ADAPTIVE (or vice
+        // versa) only takes effect for the NEXT position this instrument
+        // opens — an already-open position keeps whatever target it already
+        // armed (candlePoll.js's checkTarget only arms once, at entry).
+        let targetMode = p.targetMode || "fixed";
+        if (targetPoints === null) {
+            const adaptiveDefault = targetMode === "adaptive" ? "Y" : "N";
+            const adaptiveInput = (await ask(`  adaptive target sizing? [y/N] (current: ${adaptiveDefault}, blank = keep): `)).trim().toUpperCase();
+            if (adaptiveInput) targetMode = adaptiveInput === "Y" ? "adaptive" : "fixed";
+        } else {
+            targetMode = "fixed"; // a fixed points value always wins — keep the two fields consistent
+        }
+
         // Lots — same shape as the add-instrument prompt.
         const lotsDefault = p.lots === "default" ? "1" : p.lots;
         const lotsInput = (await ask(`  lots (current: ${lotsDefault}, blank = keep): `)).trim();
@@ -500,13 +522,13 @@ async function editInstrument(procs) {
             if (greyInput) greyExitEnabled = greyInput === "Y";
         }
 
-        const updatedP = { ...p, lots, targetPoints, smaExitEnabled, bandStep, greyExitEnabled };
+        const updatedP = { ...p, lots, targetPoints, targetMode, smaExitEnabled, bandStep, greyExitEnabled };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
                 env: buildProcessEnv(updatedP),
             });
-            const targetTag = targetPoints !== null ? c.yellow(` target:${targetPoints}pt`) : c.dim(" target:none");
+            const targetTag = targetPoints !== null ? c.yellow(` target:${targetPoints}pt`) : targetMode === "adaptive" ? c.yellow(" target:adaptive") : c.dim(" target:none");
             console.log(c.green(`  ${p.underlying} updated${targetTag} lots:${lots === "default" ? "1" : lots} (restarted)`));
         } catch (err) {
             console.log(c.red(`  failed to update ${p.underlying}: ${err.message}`));
@@ -641,6 +663,18 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     }
 
+    // Adaptive target mode — only offered when no fixed target was just
+    // entered above (targetPoints wins outright when set, see context.js/
+    // engine.js). Sizes the target itself from CHOP + |DPI efficiency| once
+    // per position instead of one fixed distance every trade — see
+    // adaptiveTarget.js. Default OFF (blank = fixed/off), same "opt in"
+    // shape as everything else in this prompt sequence.
+    let targetMode = "fixed";
+    if (targetPoints === null) {
+        const adaptiveInput = (await ask(`  use adaptive target sizing (CHOP + DPI efficiency) instead? [y/N]: `)).trim().toUpperCase();
+        if (adaptiveInput === "Y") targetMode = "adaptive";
+    }
+
     // SMA9 exit toggle — only meaningful for MA_SLOPE_PURE (the only
     // strategy with this exit right now), so only asked when that's the
     // strategy picked. Default ON (blank = Y), matches today's behavior;
@@ -696,6 +730,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     const env  = { UNDERLYING: underlying, EXCHANGE_OVERRIDE: exchange, LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), CARRY_OVERNIGHT_OVERRIDE: String(carryOvernight), STRATEGY_OVERRIDE: strategy, TIMEFRAME_OVERRIDE: timeframe };
     if (lotMultOverride !== null) env.LOTMULT_OVERRIDE = String(lotMultOverride);
     if (targetPoints !== null) env.TARGET_POINTS_OVERRIDE = String(targetPoints);
+    if (targetMode === "adaptive") env.TARGET_MODE_OVERRIDE = "adaptive";
     if (strategy === "MA_SLOPE_PURE") env.SMA9_EXIT_OVERRIDE = String(smaExitEnabled);
     if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
     if (strategy === "ALMA_TRI_BAND" && greyExitEnabled !== null) env.GREY_EXIT_OVERRIDE = String(greyExitEnabled);
@@ -704,7 +739,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const modeTag = isLive ? c.red("LIVE") : c.cyan("PAPER");
         const carryTag = carryOvernight ? c.yellow(" CARRY") : "";
         const stratLabel = (STRATEGY_INFO[strategy] || { label: strategy }).label;
-        const targetTag = targetPoints !== null ? c.yellow(` +${targetPoints}pt target`) : "";
+        const targetTag = targetPoints !== null ? c.yellow(` +${targetPoints}pt target`) : targetMode === "adaptive" ? c.yellow(" adaptive target") : "";
         const smaExitTag = strategy === "MA_SLOPE_PURE" && !smaExitEnabled ? c.yellow(" SMA9-exit:off") : "";
         const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
         const greyExitTag = strategy === "ALMA_TRI_BAND" ? c.yellow(` grey:${(greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT) ? "exit" : "hold"}`) : "";

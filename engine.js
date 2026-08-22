@@ -183,7 +183,19 @@ async function main() {
         const parsedTarget = Number(process.env.TARGET_POINTS_OVERRIDE);
         context.targetPoints = Number.isFinite(parsedTarget) && parsedTarget > 0 ? parsedTarget : null;
     }
-    console.log(c.dim(`[${context.tgPrefix}] target: ${context.targetPoints ? c.yellow(`+${context.targetPoints} points from entry (tick-monitored)`) : "off — no fixed take-profit"}`));
+    // Target mode — "adaptive" only means anything once targetPoints itself
+    // is unset (adaptive picks its own points per-position, see
+    // adaptiveTarget.js); an explicit TARGET_POINTS_OVERRIDE still wins as
+    // a fixed target regardless of mode, same as it always has.
+    if (process.env.TARGET_MODE_OVERRIDE === "adaptive") {
+        context.targetMode = "adaptive";
+    }
+    const targetDesc = context.targetPoints
+        ? `+${context.targetPoints} points from entry (tick-monitored, FIXED)`
+        : context.targetMode === "adaptive"
+            ? "ADAPTIVE — sized from CHOP/DPI efficiency at entry, frozen per-position"
+            : "off — no fixed take-profit";
+    console.log(c.dim(`[${context.tgPrefix}] target: ${context.targetPoints || context.targetMode === "adaptive" ? c.yellow(targetDesc) : targetDesc}`));
 
     // SMA9 exit toggle — only meaningful for MA_SLOPE_PURE right now, but
     // read unconditionally same as everything else here; harmless no-op

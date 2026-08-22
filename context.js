@@ -167,6 +167,14 @@ function buildContext(def, resolvedContract) {
         // its own bespoke version of this (MA_SLOPE_TARGET_POINTS in
         // engineConfig.js — superseded, see that file).
         targetPoints: null,
+        // Overridden per-process by engine.js from TARGET_MODE_OVERRIDE
+        // (toolbox prompt, asked alongside targetPoints above — only
+        // meaningful when targetPoints is null, since ADAPTIVE mode picks
+        // its own points; see adaptiveTarget.js). "fixed" = today's
+        // unchanged behavior. "adaptive" = candlePoll.js's checkTarget()
+        // sizes the target itself from CHOP + DPI efficiency at arm-time,
+        // once per position, frozen for that position's life.
+        targetMode: "fixed",
         // Overridden per-process by engine.js from SMA9_EXIT_OVERRIDE
         // (toolbox prompt, asked right after strategy selection, ONLY when
         // MA_SLOPE_PURE is picked — that's the only strategy with this exit

@@ -123,6 +123,29 @@ module.exports = {
     CHOP_MAX:        50,               // above this = choppy, block entry
     USE_CHOP_FILTER: false,
 
+    // ─── ADAPTIVE TARGET (target.js's ARM step, not entry filtering) ────────
+    // "fixed" (default) = today's unchanged behavior: TARGET_POINTS_OVERRIDE
+    // is the only source of a target, same distance every trade.
+    // "adaptive" = candlePoll.js's checkTarget(), at the moment it arms a
+    // target for a NEW position, sizes that target ONCE from current
+    // CHOP + |DPI efficiency| (see adaptiveTarget.js), then freezes it for
+    // the life of that position — later candles/restarts never change it.
+    // Deliberately reuses CHOP_MAX and DPI_EFF_THRESH above as the
+    // classification boundaries instead of a second set of thresholds for
+    // the same two indicators.
+    // This is target SIZING only — it classifies every trade into exactly
+    // one of the three regimes below, it never blocks or filters an entry;
+    // that stays entirely the strategy's job, upstream and untouched.
+    TARGET_MODE: "fixed",              // "fixed" | "adaptive" — overridden per-process by TARGET_MODE_OVERRIDE (toolbox prompt), same pattern as context.targetPoints
+    // Starting points, PAPER-TRADING experiment only — NOT backtested or
+    // optimized, easy to retune per engineConfig.js's own convention (or
+    // override per-process via ADAPTIVE_TARGET_*_OVERRIDE if that's ever
+    // needed — not wired yet, add if/when a per-instrument override is
+    // actually wanted).
+    ADAPTIVE_TARGET_CHOPPY:       0.5, // chop > CHOP_MAX
+    ADAPTIVE_TARGET_NORMAL:       1.0, // fallback — chop OK, efficiency below DPI_EFF_THRESH
+    ADAPTIVE_TARGET_STRONG:       2.0, // chop OK, |efficiency| >= DPI_EFF_THRESH
+
     // Hilega-Milega exit — RSI(9) momentum reversal: EMA(3) crosses WMA(21)
     // Exit an open position when fast RSI line crosses slow RSI line against direction.
     // Independent of ST/DPI. Fires on candle close only.
