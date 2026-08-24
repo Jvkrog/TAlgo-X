@@ -175,17 +175,10 @@ function buildContext(def, resolvedContract) {
         // sizes the target itself from CHOP + DPI efficiency at arm-time,
         // once per position, frozen for that position's life.
         targetMode: "fixed",
-        // Overridden per-process by engine.js from SMA9_EXIT_OVERRIDE
-        // (toolbox prompt, asked right after strategy selection, ONLY when
-        // MA_SLOPE_PURE is picked — that's the only strategy with this exit
-        // right now). Default true = today's behavior unchanged. false
-        // turns the SMA9 reversal exit off for this instrument, leaving the
-        // opposite-color-flip/GREY exit as the only way out. See
-        // createMaSlopePureStrategy in strategies.js for where it's read.
-        smaExitEnabled: true,
         // Overridden per-process by engine.js from BAND_STEP_OVERRIDE
-        // (toolbox prompt, asked only when DYNAMIC_BAND is picked — same
-        // "only when this strategy" pattern as smaExitEnabled above). Fixed
+        // (toolbox prompt, asked only when DYNAMIC_BAND is picked — the
+        // toolbox only prompts for strategy-specific overrides when that
+        // particular strategy is selected). Fixed
         // PRICE distance between the band's HIGH/MID/LOW — see
         // createDynamicBandStrategy in strategies.js. null (not a literal
         // default) so the strategy's own `context.bandStep ??
@@ -203,6 +196,17 @@ function buildContext(def, resolvedContract) {
         // bandStep above is null — createAlmaTriBandStrategy falls back to
         // engineConfig.GREY_EXIT_DEFAULT itself.
         greyExitEnabled: null,
+        // Overridden per-process by engine.js from ALMA_BAND_OVERRIDE
+        // (toolbox prompt, asked only when ALMA_PRO_FAST is picked).
+        // Defaults true (matches the ported Pine script's own logic — band
+        // compression forces sideways, breakout past the band confirms
+        // entries). false trades on slope alone (strong_up/strong_down),
+        // no band/breakout check involved at all — see
+        // createAlmaProFastStrategy in strategies.js for exactly what each
+        // mode does. Literal default (not null) since there's no
+        // STRATEGY_PARAMS-backtest-tuning concern here the way bandStep/
+        // greyExitEnabled above have — nothing else provides a fallback.
+        almaBandEnabled: true,
     };
 }
 

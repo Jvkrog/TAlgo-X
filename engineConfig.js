@@ -151,17 +151,18 @@ module.exports = {
     // Independent of ST/DPI. Fires on candle close only.
     USE_HM_EXIT: false,
 
-    // SMA9 reversal exit — fast, independent of DPI/giveback/efficiency.
-    // Exits a SHORT the moment HA close crosses above SMA9, a LONG the
-    // moment HA close crosses below it. Deliberately dumb and fast — its
-    // whole job is to catch a reversal before DPI's smoothed math reacts,
-    // since DPI can lag a sharp turn by a candle or two.
+    // SMA(9) on HA close — used by MA_SLOPE_PURE's entry-alignment gate
+    // (HA close must agree with SMA9 before a fresh entry fires; see
+    // strategies.js). The SMA9 REVERSAL EXIT that used to also read this
+    // (DPI_TREND_MEANREV/DPI_MEANREV's USE_SMA_EXIT toggle, and
+    // MA_SLOPE_PURE's own smaExitEnabled-gated exit) was removed per
+    // instruction — this constant just wasn't deleted with it since the
+    // entry gate still needs an SMA(9) length.
     SMA_LEN:       9,
-    USE_SMA_EXIT:  true,
 
     // DPI_SMA5_EXIT strategy — separate SMA length from SMA_LEN above
     // (Pine script's own sma5Len input default is 5, not 9) — kept its own
-    // key so tuning DPI_TREND_MEANREV's SMA9 exit never touches this one.
+    // key so tuning MA_SLOPE_PURE's entry gate never touches this one.
     DPI_SMA5_EXIT_LEN: 5,
 
     // ALMA_DUAL_BAND_SMA5 strategy — two ALMA lines (short=9, long=50) on
@@ -264,17 +265,6 @@ module.exports = {
     // strategies now, not just the MA_SLOPE family. Left here unread, for
     // reference only.
 
-    // MA_SLOPE_PURE (#9) SMA9 reversal exit — added on top of the existing
-    // opposite-color-flip exit. Gated by a STRONGER slope threshold than
-    // the +-2 degree GREY/decisive split (MA_SLOPE_FILTER_TOP/BOTTOM) used
-    // for entries: only checked once the slope has already confirmed a
-    // clearly one-sided move (angle beyond this many degrees, same sign as
-    // the open position), not on every decisive-but-marginal candle. Same
-    // HA-close-vs-SMA(9) crossover DPI_TREND_MEANREV's own SMA9 exit uses
-    // (reuses engineConfig.SMA_LEN), candle-close driven like every other
-    // MA_SLOPE_PURE exit — not a tick check.
-    MA_SLOPE_PURE_SMA9_EXIT_ANGLE: 4,
-
     // Market-quality gate (marketQuality.js) — applies to strategies 7/8's
     // ALMA-band-driven entries only (MA_SLOPE_TREND and ALMA_BAND_BREAKOUT),
     // never to exits. Skips an entry when ATR(ST_ATR_LEN) is disproportionately
@@ -338,4 +328,37 @@ module.exports = {
     // here matches ALMA_FAST's/MA_SLOPE's existing convention of holding
     // through a neutral/grey reading rather than exiting on it.
     GREY_EXIT_DEFAULT: false,
+
+    // ALMA_PRO_FAST / ALMA_PRO_SLOW — strategy #17, split into two
+    // independent engines (see strategies.js's combined header comment for
+    // the full design). Values below are the Pine script's own input
+    // defaults, unchanged, still shared between both engines where the
+    // Pine script itself shares them (offset/sigma/ATR length) — own
+    // namespace (ALMA_PRO_ prefix) from every other ALMA strategy's block,
+    // same reasoning as always: tuning one should never move another.
+    ALMA_PRO_FAST_LEN:      20,   // Pine: fast_len — ta.alma(ha_close, ...), fast engine only
+    ALMA_PRO_SLOW_LEN:      100,  // Pine: slow_len — ta.alma(ha_close, ...), slow engine only. Source script only ever PLOTTED this line (slow_color); ALMA_PRO_SLOW is this port's own addition wiring it to real entries — see strategies.js.
+    ALMA_PRO_BAND_LEN:      50,   // Pine: band_len — ta.alma(high/low, ...), RAW candles not HA. Fast engine only — the slow engine has no band/breakout concept.
+    ALMA_PRO_OFFSET:        0.85, // Pine: offset — shared by both engines
+    ALMA_PRO_SIGMA:         6.0,  // Pine: sigma — shared by both engines
+    ALMA_PRO_ATR_LEN:       14,   // Pine: atr_len — fast engine's own thresholds; separate from ST_ATR_LEN/ATR_SL_MULT above, which size EITHER engine's SL trail (not part of the ported indicator)
+    ALMA_PRO_COMPRESS_MULT: 0.65, // Pine: compress_mult — fast engine only — band_width < atr*this => is_sideways (forces fastState=0)
+    ALMA_PRO_SLOPE_MULT:    0.045,// Pine: slope_mult — fast engine only — |slope of fast ALMA| > atr*this => strong_up/strong_down
+    ALMA_PRO_BUFFER_MULT:   0.25, // Pine: buffer = atr*0.25 — fast engine only — close must clear band by this much to confirm breakout
+    // Slow engine's own whipsaw brake — NOT in the source script (it has
+    // no slow-engine signal at all, see ALMA_PRO_SLOW_LEN comment above).
+    // Same deadband concept and same default as ALMA_FAST's own
+    // ALMA_FAST_DEADBAND_ATR_MULT, applied to the slow ALMA's slope
+    // instead of the fast one.
+    ALMA_PRO_SLOW_DEADBAND_ATR_MULT: 0.1,
+    // CHOP filter — NOT in the source Pine script at all, added per
+    // instruction ("for entries check choppiness index too"). Same shared
+    // 0-100 Choppiness Index every other strategy's chop filter uses.
+    // Separate toggle/threshold PER ENGINE — tuning fast's chop
+    // sensitivity should never silently move slow's, since they're
+    // independent processes that can even run on different underlyings.
+    USE_ALMA_PRO_FAST_CHOP_FILTER: true,
+    ALMA_PRO_FAST_CHOP_MAX:        50,
+    USE_ALMA_PRO_SLOW_CHOP_FILTER: true,
+    ALMA_PRO_SLOW_CHOP_MAX:        50,
 };

@@ -40,10 +40,9 @@ const { emitEvent } = require("./eventBridge"); // web dashboard only, see event
 // Entry:     fires when pendingSide is set AND DPI confirms it (dpiState
 //            resolves to STRONG_BULL/STRONG_BEAR matching pendingSide),
 //            plus any optional ADX/CHOP/RSI filters and the trading window.
-// Exit:      THREE independent triggers, any one closes the trade —
-//            a fast SMA9 reversal exit (catches a turn before DPI reacts),
-//            DPI giveback-from-peak (USE_DPI_GIVEBACK), and a forced exit
-//            when efficiency drops below DPI_EFF_THRESH.
+// Exit:      TWO independent triggers, either closes the trade — DPI
+//            giveback-from-peak (USE_DPI_GIVEBACK), and a forced exit when
+//            efficiency drops below DPI_EFF_THRESH.
 //
 // SL trail: ATR-based, sized off ST1's direction — pure risk management,
 //   not part of the entry/exit decision.
@@ -73,7 +72,7 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
     }
 
     // ─── MAIN SIGNAL LOOP ─────────────────────────────────────────────────────
-    async function runSignals(price, stResult, atrVal, adxVal, rsiVal, chopVal, hmPrev, hmNow, dpiResult, haCloseVal, sma9Val) {
+    async function runSignals(price, stResult, atrVal, adxVal, rsiVal, chopVal, hmPrev, hmNow, dpiResult) {
         const livePrice = candles.getLivePrice() ?? price;
 
         const stLast     = stResult[stResult.length - 1];
@@ -105,28 +104,6 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null });
 
         // ── ENGINE ─────────────────────────────────────────────────────────────
-
-        // Exit #1: SMA9 reversal — fast, independent of DPI. TREND positions
-        // only — checked first, deliberately, since its whole purpose is to
-        // catch a reversal before DPI's smoothed math would react to it.
-        if (engineConfig.ENGINE_ENABLED && engineConfig.USE_SMA_EXIT && state.position && state.positionSource === "TREND" && sma9Val !== null) {
-            const reversed =
-                (state.position === "SHORT" && haCloseVal > sma9Val) ||
-                (state.position === "LONG"  && haCloseVal < sma9Val);
-            if (reversed) {
-                const closed = await orders.exit(state.position);
-                if (engineConfig.LIVE_ORDERS && closed === null) {
-                    console.log(c.yellow(`[${context.tgPrefix}] ${state.position} exit failed (SMA9_REVERSAL) — will retry next candle`));
-                } else {
-                    tg(`${state.position} EXIT (SMA9_REVERSAL) @ ₹${livePrice.toFixed(2)}\nHA close ${haCloseVal.toFixed(2)} crossed SMA9 ${sma9Val.toFixed(2)}`);
-                    await positionsClose(livePrice, "SMA9_REVERSAL");
-                    slStore.clearTrail();
-                    targetStore.clearTarget();
-                    persist(null, 0);
-                    pendingSide = stDir === 1 ? "LONG" : stDir === -1 ? "SHORT" : null;
-                }
-            }
-        }
 
         // Exit #2: DPI giveback — favorable DPI pressure faded from its peak.
         // TREND positions only — mean-reversion trades don't track peakDPI,
@@ -259,7 +236,7 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
         if (lifecycle.isShutdown()) return;
         const rawCandles = candles.getRawCandles();
 
-        const warmupNeeded = Math.max(engineConfig.DPI_LEN, engineConfig.ST_ATR_LEN, engineConfig.SMA_LEN, engineConfig.RSI_LEN) + 5;
+        const warmupNeeded = Math.max(engineConfig.DPI_LEN, engineConfig.ST_ATR_LEN, engineConfig.RSI_LEN) + 5;
         if (rawCandles.length < warmupNeeded) {
             console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${rawCandles.length}/${warmupNeeded}`));
             return;
@@ -294,10 +271,6 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
         const atrArr    = atrSeries(haCandles, engineConfig.ST_ATR_LEN);
         const dpiResult = dpi(haCandles, atrArr, engineConfig.DPI_LEN, engineConfig.DPI_STREAK_MULT, engineConfig.DPI_STREAK_CAP);
 
-        const sma9Arr  = sma(haCloses, engineConfig.SMA_LEN);
-        const sma9Val  = sma9Arr[sma9Arr.length - 1];
-        const haCloseVal = haCloses[haCloses.length - 1];
-
         // Boot seed — first candle after restart, prevSTDir still 0. Seed from
         // computed ST so runSignals doesn't see current direction as a flip
         // from nothing, and arm pendingSide so a mid-session restart doesn't
@@ -310,7 +283,7 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
             }
         }
 
-        await runSignals(rawCandle.close, stResult, atrVal, adxVal, rsiVal, chopVal, hmPrev, hmNow, dpiResult, haCloseVal, sma9Val);
+        await runSignals(rawCandle.close, stResult, atrVal, adxVal, rsiVal, chopVal, hmPrev, hmNow, dpiResult);
     }
 
     // ─── INIT — restore from DB on startup ────────────────────────────────────
@@ -399,9 +372,8 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
 //   Entry:     fires when pendingSide is set AND DPI confirms it (dpiState
 //              resolves to STRONG_BULL/STRONG_BEAR matching pendingSide),
 //              plus any optional ADX/CHOP/RSI filters and the trading window.
-//   Exit:      THREE independent triggers, any one closes the trade —
-//              a fast SMA9 reversal exit (catches a turn before DPI reacts),
-//              DPI giveback-from-peak (USE_DPI_GIVEBACK), and a forced exit
+//   Exit:      TWO independent triggers, either closes the trade — DPI
+//              giveback-from-peak (USE_DPI_GIVEBACK), and a forced exit
 //              when efficiency drops below DPI_EFF_THRESH.
 //
 // MEANREV regime:
@@ -442,7 +414,7 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
     }
 
     // ─── MAIN SIGNAL LOOP ─────────────────────────────────────────────────────
-    async function runSignals(price, stResult, atrVal, adxVal, rsiVal, chopVal, hmPrev, hmNow, dpiResult, haCloseVal, sma9Val) {
+    async function runSignals(price, stResult, atrVal, adxVal, rsiVal, chopVal, hmPrev, hmNow, dpiResult) {
         const livePrice = candles.getLivePrice() ?? price;
 
         const stLast     = stResult[stResult.length - 1];
@@ -478,28 +450,6 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null });
 
         // ── ENGINE ─────────────────────────────────────────────────────────────
-
-        // Exit #1: SMA9 reversal — fast, independent of DPI. TREND positions
-        // only — checked first, deliberately, since its whole purpose is to
-        // catch a reversal before DPI's smoothed math would react to it.
-        if (engineConfig.ENGINE_ENABLED && engineConfig.USE_SMA_EXIT && state.position && state.positionSource === "TREND" && sma9Val !== null) {
-            const reversed =
-                (state.position === "SHORT" && haCloseVal > sma9Val) ||
-                (state.position === "LONG"  && haCloseVal < sma9Val);
-            if (reversed) {
-                const closed = await orders.exit(state.position);
-                if (engineConfig.LIVE_ORDERS && closed === null) {
-                    console.log(c.yellow(`[${context.tgPrefix}] ${state.position} exit failed (SMA9_REVERSAL) — will retry next candle`));
-                } else {
-                    tg(`${state.position} EXIT (SMA9_REVERSAL) @ ₹${livePrice.toFixed(2)}\nHA close ${haCloseVal.toFixed(2)} crossed SMA9 ${sma9Val.toFixed(2)}`);
-                    await positionsClose(livePrice, "SMA9_REVERSAL");
-                    slStore.clearTrail();
-                    targetStore.clearTarget();
-                    persist(null, 0);
-                    pendingSide = stDir === 1 ? "LONG" : stDir === -1 ? "SHORT" : null;
-                }
-            }
-        }
 
         // Exit #2: DPI giveback — favorable DPI pressure faded from its peak.
         // TREND positions only — mean-reversion trades don't track peakDPI,
@@ -694,7 +644,7 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
         if (lifecycle.isShutdown()) return;
         const rawCandles = candles.getRawCandles();
 
-        const warmupNeeded = Math.max(engineConfig.DPI_LEN, engineConfig.ST_ATR_LEN, engineConfig.SMA_LEN, engineConfig.RSI_LEN) + 5;
+        const warmupNeeded = Math.max(engineConfig.DPI_LEN, engineConfig.ST_ATR_LEN, engineConfig.RSI_LEN) + 5;
         if (rawCandles.length < warmupNeeded) {
             console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${rawCandles.length}/${warmupNeeded}`));
             return;
@@ -729,10 +679,6 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
         const atrArr    = atrSeries(haCandles, engineConfig.ST_ATR_LEN);
         const dpiResult = dpi(haCandles, atrArr, engineConfig.DPI_LEN, engineConfig.DPI_STREAK_MULT, engineConfig.DPI_STREAK_CAP);
 
-        const sma9Arr  = sma(haCloses, engineConfig.SMA_LEN);
-        const sma9Val  = sma9Arr[sma9Arr.length - 1];
-        const haCloseVal = haCloses[haCloses.length - 1];
-
         // Boot seed — first candle after restart, prevSTDir still 0. Seed from
         // computed ST so runSignals doesn't see current direction as a flip
         // from nothing, and arm pendingSide so a mid-session restart doesn't
@@ -745,7 +691,7 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
             }
         }
 
-        await runSignals(rawCandle.close, stResult, atrVal, adxVal, rsiVal, chopVal, hmPrev, hmNow, dpiResult, haCloseVal, sma9Val);
+        await runSignals(rawCandle.close, stResult, atrVal, adxVal, rsiVal, chopVal, hmPrev, hmNow, dpiResult);
     }
 
     // ─── INIT — restore from DB on startup ────────────────────────────────────
@@ -2468,11 +2414,14 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
 //         flat while the color is already decisive, still enter). ALSO
 //         requires HA close to already be on the entry side of SMA9 (above
 //         it for a LONG, below for a SHORT) — added after a live flip-flop
-//         where the SMA9 exit closed a LONG on a below-SMA9 candle and
-//         entry fired right back into a LONG same-candle off the
-//         still-bullish color, ignoring that price had just confirmed the
-//         opposite. Color decides direction, the candle has to agree
-//         before a fresh entry actually fires.
+//         where an earlier SMA9 reversal exit (since removed) closed a
+//         LONG on a below-SMA9 candle and entry fired right back into a
+//         LONG same-candle off the still-bullish color, ignoring that
+//         price had just confirmed the opposite. Color decides direction,
+//         the candle has to agree before a fresh entry actually fires.
+//         Always on — not toggleable, unlike the SMA9 reversal exit that
+//         originally motivated it (removed per instruction; this
+//         alignment gate is a separate, independent mechanism and stayed).
 // Exit:   EDGE-triggered — only when the color actually CHANGES to the
 //         opposite decisive state ("exit if color changes"), same
 //         flipSide mechanism MA_SLOPE originally had before the band
@@ -2484,17 +2433,6 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
 // SL:     same ATR_SL_MULT x ATR(ST_ATR_LEN) trail every other strategy in
 //         this file uses — the underlying Pine script has no stop-loss of
 //         its own, same reasoning as MA_SLOPE's own SL addition.
-// SMA9:   a second, independent exit — HA close crosses SMA(9) against the
-//         position, but ONLY once the slope angle already confirms a
-//         clearly one-sided move (> MA_SLOPE_PURE_SMA9_EXIT_ANGLE degrees
-//         for a LONG, < -that for a SHORT — a stronger bar than the plain
-//         +-2 degree BULL/BEAR split used for entries). Either this or the
-//         flip/GREY exit above can close the position, whichever fires
-//         first on a given candle. Toggleable per-instrument (toolbox
-//         prompt when this strategy is picked, context.smaExitEnabled,
-//         default ON) — OFF leaves flip/GREY as the only way out. The
-//         entry-side SMA9 alignment gate above is separate and always on
-//         regardless of this toggle.
 // state.positionSource = "MA_SLOPE_PURE".
 // ════════════════════════════════════════════════════════════════════════
 function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
@@ -2517,7 +2455,7 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
         return side === "LONG" ? livePrice - offset : livePrice + offset;
     }
 
-    async function runSignals(price, flipSide, entrySide, atrVal, currentState, angle, haCloseVal, sma9Val) {
+    async function runSignals(price, flipSide, entrySide, atrVal, currentState, haCloseVal, sma9Val) {
         const livePrice = candles.getLivePrice() ?? price;
 
         const uPnL = positionsUnrealised(livePrice);
@@ -2530,33 +2468,6 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
             : uPnL > 0 ? c.green : uPnL < 0 ? c.red : c.white;
         console.log(lineColor(`[${context.tgPrefix}] ${ts} PURE ${clr} ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}`));
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null });
-
-        // Exit: SMA9 reversal — a second, faster exit alongside the opposite-
-        // color-flip/GREY exit below, gated by MA_SLOPE_PURE_SMA9_EXIT_ANGLE
-        // so it only checks once the slope has already confirmed a clearly
-        // one-sided move (not on a marginal decisive-but-barely candle).
-        // Independent trigger — either this or the flip/GREY exit below can
-        // close the position, whichever fires first.
-        if (engineConfig.ENGINE_ENABLED && context.smaExitEnabled && state.position && state.positionSource === "MA_SLOPE_PURE" && sma9Val !== null) {
-            const angleConfirms =
-                (state.position === "LONG"  && angle >  engineConfig.MA_SLOPE_PURE_SMA9_EXIT_ANGLE) ||
-                (state.position === "SHORT" && angle < -engineConfig.MA_SLOPE_PURE_SMA9_EXIT_ANGLE);
-            const smaReversed =
-                (state.position === "SHORT" && haCloseVal > sma9Val) ||
-                (state.position === "LONG"  && haCloseVal < sma9Val);
-            if (angleConfirms && smaReversed) {
-                const closed = await orders.exit(state.position);
-                if (engineConfig.LIVE_ORDERS && closed === null) {
-                    console.log(c.yellow(`[${context.tgPrefix}] ${state.position} exit failed (MA_SLOPE_PURE_SMA9) — will retry next candle`));
-                } else {
-                    tg(`${state.position} EXIT (MA_SLOPE_PURE_SMA9) @ ₹${livePrice.toFixed(2)}\nangle:${angle.toFixed(1)}°  HA close ${haCloseVal.toFixed(2)} crossed SMA9 ${sma9Val.toFixed(2)}`);
-                    await positionsClose(livePrice, "MA_SLOPE_PURE_SMA9");
-                    slStore.clearTrail();
-                    targetStore.clearTarget();
-                    persist(null, 0);
-                }
-            }
-        }
 
         // Exit: color change to the opposite decisive state, OR a flip into
         // GREY — both close the position now. CHANGED (this session, live
@@ -2715,7 +2626,7 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
         const sma9Val   = sma9Arr[sma9Arr.length - 1];
         const haCloseVal = haCloses[haCloses.length - 1];
 
-        await runSignals(rawCandle.close, flipSide, entrySide, atrForTrail, currentState, angle, haCloseVal, sma9Val);
+        await runSignals(rawCandle.close, flipSide, entrySide, atrForTrail, currentState, haCloseVal, sma9Val);
     }
 
     async function initSignals() {
@@ -4647,6 +4558,463 @@ function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, 
     return { processCandle, initSignals };
 }
 
+
+// ════════════════════════════════════════════════════════════════════════
+// ALMA_PRO_FAST / ALMA_PRO_SLOW — strategy #17, split into two independent
+// engines. Source: user-provided Pine indicator ("TAlgo — Pro Engine
+// (Independent FAST + SLOW)"). Originally ported as one combined strategy;
+// split into two per instruction, so each engine can run as its OWN PM2
+// process — its own instrument/token, its own lot size, independently
+// startable/stoppable ("disable fast or slow" = simply don't start that
+// one's process) — and, per instruction, so fast and slow can trade
+// DIFFERENT underlyings (e.g. fast on the mini contract, slow on the full
+// contract). toolbox.js's configureAndStartInstrument blocks starting
+// ALMA_PRO_FAST and ALMA_PRO_SLOW on the exact same underlying (see its
+// own comment for why a hand-maintained mini/full commodity-tier table
+// was deliberately NOT built — real contract facts, easy to get wrong).
+//
+// FAST ENGINE — unchanged from the original combined port: fast ALMA(20)
+// on HA close, a high/low ALMA(50) band on RAW candles, ATR-scaled slope/
+// breakout thresholds. Pine `fastState` if/elif chain, ported exactly:
+//   1. band compressed (bandWidth < ATR x compress_mult) -> 0 (forced,
+//      not hysteresis — matches the script's literal `fastState := 0`)
+//   2. slope strongly up AND close clears the band + buffer   -> 1
+//   3. slope strongly down AND close clears the band - buffer -> -1
+//   4. otherwise: hold whatever fastState already was (Pine's
+//      `fastState := fastState` — pure hysteresis, no extra condition)
+//
+// SLOW ENGINE — NOT in the original combined port (the source script's
+// slow ALMA(100) only ever fed a plotted line, slow_color — no signal, no
+// alertcondition). Built fresh per instruction, as a genuinely tradeable
+// engine: single slow ALMA on HA close, entry on the LINE'S OWN slope
+// flipping sign — exactly what slow_color already classifies
+// (`slope_slow > 0 ? lime : slope_slow < 0 ? red : gray`), just wired to
+// real entries/exits instead of a plot color. No band/breakout
+// confirmation — that concept belongs to the fast engine's band, which
+// the slow engine doesn't share. Whipsaw control mirrors ALMA_FAST's own
+// deadband exactly (own namespace, ALMA_PRO_SLOW_DEADBAND_ATR_MULT):
+// slope must clear deadband x ATR to count as a real BULL/BEAR direction;
+// smaller moves classify NEUTRAL, which neither opens nor closes a
+// position, just holds and waits for a real move — same reasoning
+// ALMA_FAST's header comment explains in full.
+//
+// Both engines share: the Choppiness Index entry gate added per
+// instruction (own toggle/threshold per engine — USE_ALMA_PRO_FAST_CHOP_FILTER/
+// ALMA_PRO_FAST_CHOP_MAX vs USE_ALMA_PRO_SLOW_CHOP_FILTER/ALMA_PRO_SLOW_CHOP_MAX
+// — so tuning one engine's chop sensitivity never touches the other's,
+// same reasoning every other strategy's own namespace uses); an ATR
+// trailing stop (not in either original signal, added the same way every
+// other strategy here adds one); the universal opt-in context.targetPoints/
+// TARGET_MODE=adaptive target, left to candlePoll.js's checkTarget() lazy-
+// arm step rather than armed inline — inline arming would starve
+// ADAPTIVE mode of the chance to size a target for these strategies at all.
+//
+// Restart recovery, duplicate-entry protection: identical reasoning to
+// every other indicator-driven strategy in this file — the state variable
+// (fastState / slowState) is not persisted, recomputed fresh from raw
+// candle history every process start; position state restores from
+// SQLite normally; duplicate-entry protection is inherited entirely from
+// orders.js's existing in-flight guard.
+// ════════════════════════════════════════════════════════════════════════
+function createAlmaProFastStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+    function persist(position, entryPrice, positionSource) {
+        db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
+    }
+
+    function computeTrail(livePrice, atrVal, side) {
+        if (atrVal === null) return null;
+        const offset = engineConfig.ATR_SL_MULT * atrVal;
+        return side === "LONG" ? livePrice - offset : livePrice + offset;
+    }
+
+    function stateColor(fastState) {
+        return fastState === 1 ? "green" : fastState === -1 ? "red" : "white";
+    }
+    function stateLabel(fastState) {
+        return fastState === 1 ? "BULL" : fastState === -1 ? "BEAR" : "SIDEWAYS";
+    }
+
+    async function doExit(side, livePrice, reason) {
+        const closed = await orders.exit(side);
+        if (engineConfig.LIVE_ORDERS && closed === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} exit failed (${reason}) — will retry next candle`));
+            return false;
+        }
+        tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
+        await positionsClose(livePrice, reason);
+        slStore.clearTrail();
+        targetStore.clearTarget();
+        persist(null, 0);
+        console.log(c.red(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        return true;
+    }
+
+    async function doEnter(side, livePrice, atrVal, reason) {
+        const ordered = await orders.enter(side);
+        if (engineConfig.LIVE_ORDERS && ordered === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
+            return false;
+        }
+        const slTrail = computeTrail(livePrice, atrVal, side);
+
+        state.position    = side;
+        state.entryPrice  = livePrice;
+        state.positionSource = "ALMA_PRO_FAST";
+        state.openTradeId = await db.insertOpenTrade(
+            context.tgPrefix, context.symbol, side, context.lots, livePrice
+        );
+
+        const trailValid =
+            slTrail !== null &&
+            ((side === "LONG"  && slTrail < livePrice) ||
+             (side === "SHORT" && slTrail > livePrice));
+        if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
+
+        // Deliberately no inline targetStore.setTarget() here — see this
+        // strategy's own header comment above for why: leaving arming to
+        // candlePoll.js's checkTarget() is what lets TARGET_MODE=adaptive
+        // size a target for this strategy at all.
+
+        persist(side, livePrice, "ALMA_PRO_FAST");
+        console.log(c[stateColor(side === "LONG" ? 1 : -1)](`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
+        emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
+        tg(`${side} ${reason} @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
+        return true;
+    }
+
+    async function runSignals(rawClose, prevFastState, fastState, atrVal, chopOk) {
+        const livePrice = candles.getLivePrice() ?? rawClose;
+        const greyExitEnabled = context.greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT;
+
+        const uPnL = positionsUnrealised(livePrice);
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+        const session = (state.pnl || 0) + uPnL;
+        const color   = stateColor(fastState);
+        console.log(c[color](`[${context.tgPrefix}] ${ts} APF ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  ${stateLabel(fastState)}`));
+        emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, color });
+
+        if (fastState !== prevFastState) {
+            console.log(c.cyan(`[${context.tgPrefix}] STATE FLIP  ${stateLabel(prevFastState)} -> ${stateLabel(fastState)}`));
+        }
+
+        if (!engineConfig.ENGINE_ENABLED) return;
+
+        if (state.position === "LONG") {
+            if (fastState === -1) {
+                const exited = await doExit("LONG", livePrice, "PRO FAST REVERSAL");
+                if (exited) await doEnter("SHORT", livePrice, atrVal, "REVERSAL SHORT");
+            } else if (fastState === 0 && greyExitEnabled) {
+                await doExit("LONG", livePrice, "SIDEWAYS EXIT");
+            }
+        } else if (state.position === "SHORT") {
+            if (fastState === 1) {
+                const exited = await doExit("SHORT", livePrice, "PRO FAST REVERSAL");
+                if (exited) await doEnter("LONG", livePrice, atrVal, "REVERSAL LONG");
+            } else if (fastState === 0 && greyExitEnabled) {
+                await doExit("SHORT", livePrice, "SIDEWAYS EXIT");
+            }
+        } else {
+            // FLAT — chop filter only gates fresh entries, never exits/reversals above.
+            if (fastState === 1 && chopOk) {
+                await doEnter("LONG", livePrice, atrVal, "LONG ENTRY");
+            } else if (fastState === -1 && chopOk) {
+                await doEnter("SHORT", livePrice, atrVal, "SHORT ENTRY");
+            }
+        }
+
+        if (state.position && atrVal !== null) {
+            const slTrail      = computeTrail(livePrice, atrVal, state.position);
+            const refreshValid =
+                (state.position === "LONG"  && slTrail < livePrice) ||
+                (state.position === "SHORT" && slTrail > livePrice);
+            if (refreshValid) slStore.setTrail(slTrail, state.position === "LONG" ? 1 : -1);
+        }
+    }
+
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown()) return;
+        const rawCandles = candles.getRawCandles();
+
+        const warmupNeeded = Math.max(
+            engineConfig.ALMA_PRO_FAST_LEN,
+            // Band length only needed when the band gate is actually
+            // enabled — a band-disabled instance shouldn't wait through
+            // BAND_LEN's warmup for a value it will never use.
+            context.almaBandEnabled ? engineConfig.ALMA_PRO_BAND_LEN : 0,
+            engineConfig.ALMA_PRO_ATR_LEN,
+            engineConfig.ST_ATR_LEN,
+            engineConfig.CHOP_LEN
+        ) + 5;
+        if (rawCandles.length < warmupNeeded) {
+            console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${rawCandles.length}/${warmupNeeded}`));
+            return;
+        }
+
+        const haCandles = toHA(rawCandles);
+        const haCloses  = haCandles.map(cd => cd.close);
+
+        const fast0 = alma(haCloses,             engineConfig.ALMA_PRO_FAST_LEN, engineConfig.ALMA_PRO_OFFSET, engineConfig.ALMA_PRO_SIGMA);
+        const fast1 = alma(haCloses.slice(0, -1), engineConfig.ALMA_PRO_FAST_LEN, engineConfig.ALMA_PRO_OFFSET, engineConfig.ALMA_PRO_SIGMA);
+        if (fast0 === null || fast1 === null) return;
+
+        const atrVal = atr(rawCandles, engineConfig.ALMA_PRO_ATR_LEN);
+        if (atrVal === null) return;
+        const slAtrVal = atr(rawCandles, engineConfig.ST_ATR_LEN);
+
+        const slope      = fast0 - fast1;
+        const strongUp   = slope > atrVal * engineConfig.ALMA_PRO_SLOPE_MULT;
+        const strongDown = slope < -atrVal * engineConfig.ALMA_PRO_SLOPE_MULT;
+
+        const rawClose = rawCandle.close;
+        let newState;
+
+        if (context.almaBandEnabled) {
+            // Band on RAW high/low, not HA — matches the Pine script
+            // exactly (only ha_close is HA there; high_band/low_band use
+            // plain high/low).
+            const rawHighs = rawCandles.map(cd => cd.high);
+            const rawLows  = rawCandles.map(cd => cd.low);
+            const highBand = alma(rawHighs, engineConfig.ALMA_PRO_BAND_LEN, engineConfig.ALMA_PRO_OFFSET, engineConfig.ALMA_PRO_SIGMA);
+            const lowBand  = alma(rawLows,  engineConfig.ALMA_PRO_BAND_LEN, engineConfig.ALMA_PRO_OFFSET, engineConfig.ALMA_PRO_SIGMA);
+            if (highBand === null || lowBand === null) return;
+
+            const bandWidth  = highBand - lowBand;
+            const isSideways = bandWidth < atrVal * engineConfig.ALMA_PRO_COMPRESS_MULT;
+            const buffer     = atrVal * engineConfig.ALMA_PRO_BUFFER_MULT;
+            const aboveBand  = rawClose > highBand + buffer;
+            const belowBand  = rawClose < lowBand - buffer;
+
+            // Pine's exact if/elif chain, band gate ON.
+            if (isSideways) newState = 0;
+            else if (strongUp && aboveBand) newState = 1;
+            else if (strongDown && belowBand) newState = -1;
+            else newState = state.fastState;
+        } else {
+            // Band gate OFF (per-instrument toggle, context.almaBandEnabled)
+            // — slope alone decides. No forced-sideways-on-compression, no
+            // breakout confirmation past the band; pure hysteresis fallback
+            // still applies exactly like the band-enabled path's final
+            // `else` does.
+            if (strongUp) newState = 1;
+            else if (strongDown) newState = -1;
+            else newState = state.fastState;
+        }
+
+        const prevState = state.fastState;
+        state.fastState = newState;
+
+        const chopArr = choppinessIndex(rawCandles, engineConfig.CHOP_LEN);
+        const chopVal = chopArr[chopArr.length - 1];
+        const chopOk  = !engineConfig.USE_ALMA_PRO_FAST_CHOP_FILTER || (chopVal !== null && chopVal <= engineConfig.ALMA_PRO_FAST_CHOP_MAX);
+
+        await runSignals(rawClose, prevState, newState, slAtrVal, chopOk);
+    }
+
+    async function initSignals() {
+        try {
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+            const today = clock.now().toISOString().split("T")[0];
+
+            state.fastState = 0;
+
+            if (engineConfig.RESUME_INTRADAY_ONLY && saved?.position) {
+                const sameDay      = (saved.entry_date ?? null) === today;
+                const shouldResume = sameDay || context.carryOvernight;
+                if (shouldResume) {
+                    state.position   = saved.position;
+                    state.entryPrice = saved.entry_price;
+                    state.positionSource = saved.position_source || "ALMA_PRO_FAST";
+
+                    const openTrade = await db.getOpenTrade(context.tgPrefix);
+                    state.openTradeId = openTrade ? openTrade.id : null;
+                } else {
+                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                }
+            }
+
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+
+            const info = state.position ? `${state.position}@${state.entryPrice}` : "flat";
+            console.log();
+            console.log(c.green(`[${context.tgPrefix}] ${info}`));
+            console.log();
+
+            await orders.reconcile(state);
+
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
+// ALMA_PRO_SLOW — see the combined header comment above this pair of
+// functions for the full design reasoning. Slope-flip on the SLOW ALMA
+// line only, deadband-filtered exactly like ALMA_FAST.
+function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+    let lastDecisiveState = null; // "BULL" | "BEAR" | null — persists across candles, same as ALMA_FAST
+
+    function canEnter() {
+        const { hours, minutes } = istParts(clock.now());
+        return hours > engineConfig.TRADE_START_HOUR ||
+            (hours === engineConfig.TRADE_START_HOUR &&
+             minutes >= engineConfig.TRADE_START_MINUTE);
+    }
+
+    function persist(position, entryPrice, positionSource) {
+        db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
+    }
+
+    function computeTrail(livePrice, atrVal, side) {
+        if (atrVal === null) return null;
+        const offset = engineConfig.ATR_SL_MULT * atrVal;
+        return side === "LONG" ? livePrice - offset : livePrice + offset;
+    }
+
+    async function runSignals(price, flipSide, atrVal, currentState, chopOk) {
+        const livePrice = candles.getLivePrice() ?? price;
+
+        const uPnL = positionsUnrealised(livePrice);
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+        const clr  = currentState === "BULL" ? "▲" : currentState === "BEAR" ? "▼" : "●";
+        const session   = (state.pnl || 0) + uPnL;
+        const lineColor = !state.position
+            ? c.white
+            : uPnL > 0 ? c.green : uPnL < 0 ? c.red : c.white;
+        console.log(lineColor(`[${context.tgPrefix}] ${ts} APS ${clr} ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}`));
+        emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null });
+
+        if (engineConfig.ENGINE_ENABLED && state.position && state.positionSource === "ALMA_PRO_SLOW" && flipSide && flipSide !== state.position) {
+            const closed = await orders.exit(state.position);
+            if (engineConfig.LIVE_ORDERS && closed === null) {
+                console.log(c.yellow(`[${context.tgPrefix}] ${state.position} exit failed (ALMA_PRO_SLOW_FLIP) — will retry next candle`));
+            } else {
+                tg(`${state.position} EXIT (ALMA_PRO_SLOW_FLIP) @ ₹${livePrice.toFixed(2)}`);
+                await positionsClose(livePrice, "ALMA_PRO_SLOW_FLIP");
+                slStore.clearTrail();
+                targetStore.clearTarget();
+                persist(null, 0);
+            }
+        }
+
+        if (engineConfig.ENGINE_ENABLED && !state.position && flipSide && canEnter() && chopOk) {
+            const side = flipSide;
+            const ordered = await orders.enter(side);
+            if (engineConfig.LIVE_ORDERS && ordered === null) {
+                console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
+            } else {
+                const slTrail = computeTrail(livePrice, atrVal, side);
+
+                state.position    = side;
+                state.entryPrice  = livePrice;
+                state.positionSource = "ALMA_PRO_SLOW";
+                state.openTradeId = await db.insertOpenTrade(
+                    context.tgPrefix, context.symbol, side, context.lots, livePrice
+                );
+
+                const trailValid =
+                    slTrail !== null &&
+                    ((side === "LONG"  && slTrail < livePrice) ||
+                     (side === "SHORT" && slTrail > livePrice));
+                if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
+
+                // Deliberately no inline targetStore.setTarget() — same
+                // reasoning as ALMA_PRO_FAST above, see the combined
+                // header comment.
+
+                persist(side, livePrice, "ALMA_PRO_SLOW");
+                console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (ALMA_PRO_SLOW) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
+                emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
+                tg(`${side} ENTRY (ALMA_PRO_SLOW) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
+            }
+        }
+
+        if (engineConfig.ENGINE_ENABLED && state.position && atrVal !== null) {
+            const slTrail      = computeTrail(livePrice, atrVal, state.position);
+            const refreshValid =
+                (state.position === "LONG"  && slTrail < livePrice) ||
+                (state.position === "SHORT" && slTrail > livePrice);
+            if (refreshValid) slStore.setTrail(slTrail, state.position === "LONG" ? 1 : -1);
+        }
+    }
+
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown()) return;
+        const rawCandles = candles.getRawCandles();
+
+        const warmupNeeded = Math.max(engineConfig.ALMA_PRO_SLOW_LEN, engineConfig.ST_ATR_LEN, engineConfig.CHOP_LEN) + 5;
+        if (rawCandles.length < warmupNeeded) {
+            console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${rawCandles.length}/${warmupNeeded}`));
+            return;
+        }
+
+        const haCandles = toHA(rawCandles);
+        const haCloses  = haCandles.map(cd => cd.close);
+
+        const s0 = alma(haCloses,             engineConfig.ALMA_PRO_SLOW_LEN, engineConfig.ALMA_PRO_OFFSET, engineConfig.ALMA_PRO_SIGMA);
+        const s1 = alma(haCloses.slice(0, -1), engineConfig.ALMA_PRO_SLOW_LEN, engineConfig.ALMA_PRO_OFFSET, engineConfig.ALMA_PRO_SIGMA);
+        if (s0 === null || s1 === null) return;
+
+        const atrVal = atr(rawCandles, engineConfig.ST_ATR_LEN);
+
+        const slope    = s0 - s1;
+        const deadband = atrVal !== null ? engineConfig.ALMA_PRO_SLOW_DEADBAND_ATR_MULT * atrVal : 0;
+        const currentState = slope > deadband ? "BULL" : slope < -deadband ? "BEAR" : "NEUTRAL";
+
+        let flipSide = null;
+        if (currentState !== "NEUTRAL" && currentState !== lastDecisiveState) {
+            flipSide = currentState === "BULL" ? "LONG" : "SHORT";
+        }
+        if (currentState !== "NEUTRAL") lastDecisiveState = currentState;
+
+        const chopArr = choppinessIndex(rawCandles, engineConfig.CHOP_LEN);
+        const chopVal = chopArr[chopArr.length - 1];
+        const chopOk  = !engineConfig.USE_ALMA_PRO_SLOW_CHOP_FILTER || (chopVal !== null && chopVal <= engineConfig.ALMA_PRO_SLOW_CHOP_MAX);
+
+        await runSignals(rawCandle.close, flipSide, atrVal, currentState, chopOk);
+    }
+
+    async function initSignals() {
+        try {
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+            const today = clock.now().toISOString().split("T")[0];
+
+            if (engineConfig.RESUME_INTRADAY_ONLY && saved?.position) {
+                const sameDay     = (saved.entry_date ?? null) === today;
+                const shouldResume = sameDay || context.carryOvernight;
+                if (shouldResume) {
+                    state.position   = saved.position;
+                    state.entryPrice = saved.entry_price;
+                    state.positionSource = saved.position_source || "ALMA_PRO_SLOW";
+
+                    const openTrade = await db.getOpenTrade(context.tgPrefix);
+                    state.openTradeId = openTrade ? openTrade.id : null;
+                } else {
+                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                }
+            }
+
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+
+            const info = state.position ? `${state.position}@${state.entryPrice}` : "flat";
+            console.log();
+            console.log(c.green(`[${context.tgPrefix}] ${info}`));
+            console.log();
+
+            await orders.reconcile(state);
+
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
+
 const STRATEGIES = {
     DPI_TREND_MEANREV: createDpiTrendMeanrevStrategy,
     ALMA_BAND:          createAlmaBandStrategy,
@@ -4664,6 +5032,8 @@ const STRATEGIES = {
     DYNAMIC_MID_COLOR:    createDynamicMidColorStrategy,
     DYNAMIC_MID_COLOR_HL: createDynamicMidColorHLStrategy,
     ALMA_TRI_BAND:        createAlmaTriBandStrategy,
+    ALMA_PRO_FAST:        createAlmaProFastStrategy,
+    ALMA_PRO_SLOW:        createAlmaProSlowStrategy,
 };
 
 // Toolbox-facing labels only — not a full param schema yet (that's a later
@@ -4679,7 +5049,7 @@ const STRATEGY_INFO = {
     ALMA_DUAL_BAND_SMA5: { label: "ALMA Dual + Band + SMA5",    description: "dual-ALMA (9/50) trend agreement, falls back to ALMA_BAND breakout when they disagree, SMA5 exit", short: "ADB" },
     MA_SLOPE:            { label: "MA Slope",                    description: "ema(ohlc4,56) angle vs ATR(14) — grey zone falls back to ALMA_BAND breakout; exits on opposite flip OR band reentry (either entry path)", short: "SLOPE" },
     MA_SLOPE_SCALP:      { label: "MA Slope Scalp",              description: "trend-capture on BULL/BEAR flip + scalp on GREY ALMA_BAND breakout — both exit on opposite flip OR band reentry; only scalp also has a tick-level +SCALP_TARGET_POINTS take-profit", short: "SCALP" },
-    MA_SLOPE_PURE:       { label: "MA Slope Pure",               description: "color-only ema(56) slope, no ALMA band at all — enter on BULL/BEAR only once HA close agrees with SMA9, no trade in GREY, exit on a flip to the opposite decisive color, a flip into GREY, or (toggleable at setup, default ON) an SMA9 reversal once the slope angle is beyond ±MA_SLOPE_PURE_SMA9_EXIT_ANGLE", short: "PURE" },
+    MA_SLOPE_PURE:       { label: "MA Slope Pure",               description: "color-only ema(56) slope, no ALMA band at all — enter on BULL/BEAR only once HA close agrees with SMA9, no trade in GREY, exit on a flip to the opposite decisive color or a flip into GREY", short: "PURE" },
     MA_SLOPE_HM:          { label: "MA Slope + Hilega-Milega",    description: "same entry as MA Slope Pure (color-only, no ALMA band) — exit is a Hilega-Milega RSI9/WMA21/EMA3 crossover against position direction, not a color flip", short: "HM" },
     ADAPTIVE_TREND:       { label: "Adaptive Trend Envelope",     description: "port of BackQuant's Pine script — volatility-adaptive EMA blend spine wrapped in an EWMA-vol envelope; enter on regime flip to bull/bear, exit when regime no longer matches (flat or opposite)", short: "ATE" },
     DPI_MEANREV:          { label: "DPI Trend + Mean Reversion",  description: "the original DPI_TREND_MEANREV combo — ST1-confirmed DPI trend, RSI mean-reversion in the chop between", short: "DPIMR" },
@@ -4687,6 +5057,8 @@ const STRATEGY_INFO = {
     DYNAMIC_MID_COLOR:    { label: "Dynamic Mid (Color-Coded, ATR SL)", description: "only the mid line is ever plotted (high/low are internal-only, never drawn); always-in-market — a breakout exits the current position and enters the opposite side same candle, no gap, adds an ATR trailing stop-loss and an optional fixed profit target; on every boot, replays preloaded history through the same band logic and places a real entry immediately if it implies one, same as the ALMA strategies entering at 9:15; tags every tick green/red (no white — color holds the last direction through any flat gap) by current position direction for dashboard color coding", short: "DMIDC" },
     DYNAMIC_MID_COLOR_HL: { label: "Dynamic Mid HL (Tight Continuation)", description: "variant of Dynamic Mid (Color-Coded) — identical in every respect except the band's continuation shift (extending further in the direction already held) uses this candle's HIGH while LONG / LOW while SHORT instead of close, trailing tighter behind the trend so the opposite-side reversal boundary is reached sooner; the reversal trigger itself and flat-state entries stay CLOSE-based, unchanged, to avoid a single wick alone flipping or opening a position", short: "DMIDHL" },
     ALMA_TRI_BAND:        { label: "ALMA Tri-Band Agreement", description: "fast ALMA (HA close) + ALMA(high)/ALMA(low) bands driven by one shared bull/bear/grey state (green/red/grey), with big-candle and band-compression filters forcing grey; enters/exits on state flips, reverses immediately on the opposite decisive color; grey behavior while a position is open is configurable per instrument \u2014 exit flat or hold through it (default: hold); adds an ATR trailing stop and optional fixed target, neither present in the original indicator", short: "ATRIB" },
+    ALMA_PRO_FAST:        { label: "ALMA Pro \u2014 Fast Engine", description: "the FAST half of strategy #17 (\"TAlgo \u2014 Pro Engine\"): fast ALMA (HA close) + ALMA(high)/ALMA(low) band, band-compression forces sideways/flat, slope+breakout confirm entries; band gate toggleable per instrument (default ON) \u2014 OFF trades on slope alone; Choppiness Index entry gate added (not in the original); run alongside ALMA_PRO_SLOW on a DIFFERENT underlying (e.g. the mini contract) for a genuine dual-engine setup \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APF" },
+    ALMA_PRO_SLOW:        { label: "ALMA Pro \u2014 Slow Engine", description: "the SLOW half of strategy #17: single slow ALMA(100) on HA close, entry on the line's own slope-direction flip (deadband-filtered, same whipsaw control ALMA_FAST uses) \u2014 no band/breakout confirmation, that's the fast engine's job; Choppiness Index entry gate added (not in the original); run alongside ALMA_PRO_FAST on a DIFFERENT underlying (e.g. the full-lot contract) \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APS" },
 };
 
 // Each strategy's live/paper candle interval — this is a property of the
@@ -4742,8 +5114,10 @@ const STRATEGY_TIMEFRAME = {
     // Pine source has no fixed chart timeframe (reuses whatever the chart
     // is on) — 15m matches the platform default, adjustable as usual.
     ALMA_TRI_BAND:        "15m",
+    ALMA_PRO_FAST:        "15m",
+    ALMA_PRO_SLOW:        "15m",
 };
 
 const DEFAULT_STRATEGY = "DPI_TREND_MEANREV";
 
-module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy };
+module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy };

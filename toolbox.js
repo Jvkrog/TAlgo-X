@@ -132,9 +132,9 @@ async function getEngineProcesses() {
             carryOvernight: p.pm2_env.env?.CARRY_OVERNIGHT_OVERRIDE === "true",
             targetPoints: p.pm2_env.env?.TARGET_POINTS_OVERRIDE ? Number(p.pm2_env.env.TARGET_POINTS_OVERRIDE) : null,
             targetMode: p.pm2_env.env?.TARGET_MODE_OVERRIDE === "adaptive" ? "adaptive" : "fixed",
-            smaExitEnabled: p.pm2_env.env?.SMA9_EXIT_OVERRIDE !== undefined ? p.pm2_env.env.SMA9_EXIT_OVERRIDE === "true" : true,
             bandStep: p.pm2_env.env?.BAND_STEP_OVERRIDE ? Number(p.pm2_env.env.BAND_STEP_OVERRIDE) : null,
             greyExitEnabled: p.pm2_env.env?.GREY_EXIT_OVERRIDE !== undefined ? p.pm2_env.env.GREY_EXIT_OVERRIDE === "true" : null,
+            almaBandEnabled: p.pm2_env.env?.ALMA_BAND_OVERRIDE !== undefined ? p.pm2_env.env.ALMA_BAND_OVERRIDE === "true" : true,
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -391,9 +391,9 @@ function buildProcessEnv(p, overrides = {}) {
     // through toggleMode()/editInstrument() never silently drops it back
     // to engine.js's "fixed" default.
     if (p.targetMode === "adaptive") env.TARGET_MODE_OVERRIDE = "adaptive";
-    if (p.strategy === "MA_SLOPE_PURE") env.SMA9_EXIT_OVERRIDE = String(p.smaExitEnabled !== false);
     if ((p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL") && p.bandStep) env.BAND_STEP_OVERRIDE = String(p.bandStep);
     if (p.strategy === "ALMA_TRI_BAND" && p.greyExitEnabled !== null && p.greyExitEnabled !== undefined) env.GREY_EXIT_OVERRIDE = String(p.greyExitEnabled);
+    if (p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false) env.ALMA_BAND_OVERRIDE = "false";
     return { ...env, ...overrides };
 }
 
@@ -497,11 +497,6 @@ async function editInstrument(procs) {
 
         // Strategy-specific fields — only asked for the strategy actually
         // running, same conditions as configureAndStartInstrument.
-        let smaExitEnabled = p.smaExitEnabled;
-        if (p.strategy === "MA_SLOPE_PURE") {
-            const smaInput = (await ask(`  SMA9 reversal exit? [y/N] (current: ${p.smaExitEnabled ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
-            if (smaInput) smaExitEnabled = smaInput === "Y";
-        }
         let bandStep = p.bandStep;
         if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL") {
             const bandDefault = p.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
@@ -521,8 +516,19 @@ async function editInstrument(procs) {
             const greyInput = (await ask(`  exit on grey state? [y/N] (current: ${greyDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (greyInput) greyExitEnabled = greyInput === "Y";
         }
+        // ALMA band enable/disable — ALMA_PRO_FAST only. OFF drops the
+        // band-compression/breakout gate entirely and trades on slope
+        // alone (strong_up/strong_down, no aboveBand/belowBand check, no
+        // forced-sideways-on-compression) — see createAlmaProFastStrategy
+        // in strategies.js for exactly what each mode does.
+        let almaBandEnabled = p.almaBandEnabled;
+        if (p.strategy === "ALMA_PRO_FAST") {
+            const bandDefault = p.almaBandEnabled !== false;
+            const bandEnableInput = (await ask(`  use ALMA band gate? [Y/n] (current: ${bandDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            if (bandEnableInput) almaBandEnabled = bandEnableInput !== "N";
+        }
 
-        const updatedP = { ...p, lots, targetPoints, targetMode, smaExitEnabled, bandStep, greyExitEnabled };
+        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -675,14 +681,16 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         if (adaptiveInput === "Y") targetMode = "adaptive";
     }
 
-    // SMA9 exit toggle — only meaningful for MA_SLOPE_PURE (the only
-    // strategy with this exit right now), so only asked when that's the
-    // strategy picked. Default ON (blank = Y), matches today's behavior;
-    // OFF leaves the opposite-color-flip/GREY exit as the only way out.
-    let smaExitEnabled = true;
-    if (strategy === "MA_SLOPE_PURE") {
-        const smaExitInput = (await ask(`  enable SMA9 reversal exit? [Y/n] (default: Y): `)).trim().toUpperCase();
-        smaExitEnabled = smaExitInput !== "N";
+    // ALMA band gate toggle — ALMA_PRO_FAST only. Default ON (matches the
+    // ported Pine script's own logic — band compression forces sideways,
+    // breakout past the band confirms entries). OFF trades on slope alone
+    // (strong_up/strong_down), no band/breakout involved at all — see
+    // createAlmaProFastStrategy in strategies.js for exactly what each
+    // mode checks.
+    let almaBandEnabled = true;
+    if (strategy === "ALMA_PRO_FAST") {
+        const almaBandInput = (await ask(`  use ALMA band gate? [Y/n] (default: Y): `)).trim().toUpperCase();
+        almaBandEnabled = almaBandInput !== "N";
     }
 
     // Band step — only meaningful for DYNAMIC_BAND / DYNAMIC_MID_COLOR,
@@ -727,11 +735,36 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         return;
     }
 
+    // ALMA_PRO_FAST / ALMA_PRO_SLOW same-underlying block — per instruction,
+    // these two are meant to run as a genuine dual-engine pair on DIFFERENT
+    // underlyings (e.g. fast on a mini contract, slow on the full-lot one),
+    // never both pointed at the exact same underlying (that would just be
+    // two independent strategies doubling exposure on one identical
+    // contract). Deliberately checks the exact underlying string only —
+    // NOT "is this a mini vs full pair of the same commodity" — see this
+    // file's own note near the top on why a hand-maintained mini/full
+    // commodity-tier table wasn't built (real contract facts, easy to get
+    // wrong; shortNames.js already shows gold/silver alone have 3+ lot
+    // tiers, not a clean mini/full pair). "Disable" one engine simply means
+    // not starting its process at all — nothing else to configure for that.
+    if (strategy === "ALMA_PRO_FAST" || strategy === "ALMA_PRO_SLOW") {
+        const otherEngine = strategy === "ALMA_PRO_FAST" ? "ALMA_PRO_SLOW" : "ALMA_PRO_FAST";
+        const conflict = existingProcs.find(p => p.underlying === underlying && p.strategy === otherEngine);
+        if (conflict) {
+            console.log(c.yellow(`  ⚠ ${underlying} is already running ${(STRATEGY_INFO[otherEngine] || { label: otherEngine }).label} as ${conflict.name}.`));
+            console.log(c.yellow(`    ALMA_PRO_FAST and ALMA_PRO_SLOW are meant to run on DIFFERENT underlyings (e.g. one on the`));
+            console.log(c.yellow(`    mini contract, the other on the full-lot one) — pick a different underlying for this engine,`));
+            console.log(c.yellow(`    or leave it disabled by not starting it.`));
+            await pauseForReview();
+            return;
+        }
+    }
+
     const env  = { UNDERLYING: underlying, EXCHANGE_OVERRIDE: exchange, LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), CARRY_OVERNIGHT_OVERRIDE: String(carryOvernight), STRATEGY_OVERRIDE: strategy, TIMEFRAME_OVERRIDE: timeframe };
     if (lotMultOverride !== null) env.LOTMULT_OVERRIDE = String(lotMultOverride);
     if (targetPoints !== null) env.TARGET_POINTS_OVERRIDE = String(targetPoints);
     if (targetMode === "adaptive") env.TARGET_MODE_OVERRIDE = "adaptive";
-    if (strategy === "MA_SLOPE_PURE") env.SMA9_EXIT_OVERRIDE = String(smaExitEnabled);
+    if (strategy === "ALMA_PRO_FAST" && !almaBandEnabled) env.ALMA_BAND_OVERRIDE = "false";
     if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
     if (strategy === "ALMA_TRI_BAND" && greyExitEnabled !== null) env.GREY_EXIT_OVERRIDE = String(greyExitEnabled);
     try {
@@ -740,10 +773,10 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const carryTag = carryOvernight ? c.yellow(" CARRY") : "";
         const stratLabel = (STRATEGY_INFO[strategy] || { label: strategy }).label;
         const targetTag = targetPoints !== null ? c.yellow(` +${targetPoints}pt target`) : targetMode === "adaptive" ? c.yellow(" adaptive target") : "";
-        const smaExitTag = strategy === "MA_SLOPE_PURE" && !smaExitEnabled ? c.yellow(" SMA9-exit:off") : "";
+        const almaBandTag = strategy === "ALMA_PRO_FAST" && !almaBandEnabled ? c.yellow(" band:off") : "";
         const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
         const greyExitTag = strategy === "ALMA_TRI_BAND" ? c.yellow(` grey:${(greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT) ? "exit" : "hold"}`) : "";
-        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${smaExitTag}${bandStepTag}${greyExitTag}`));
+        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${bandStepTag}${greyExitTag}`));
     } catch (err) {
         console.log(c.red(`  failed to start ${name}: ${err.message}`));
     }

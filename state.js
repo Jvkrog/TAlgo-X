@@ -19,7 +19,7 @@ function createState() {
         openTradeId: null,  // row id in db.trades while a position is OPEN
         positionSource: null,  // "TREND" | "MEANREV" — which engine opened the
                                 // current position, so exits route correctly.
-                                // Trend exits (SMA9/giveback/eff-low) only fire
+                                // Trend exits (giveback/eff-low) only fire
                                 // for TREND positions; the RSI-flip exit only
                                 // fires for MEANREV positions.
     };

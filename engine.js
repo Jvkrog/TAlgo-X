@@ -197,16 +197,6 @@ async function main() {
             : "off — no fixed take-profit";
     console.log(c.dim(`[${context.tgPrefix}] target: ${context.targetPoints || context.targetMode === "adaptive" ? c.yellow(targetDesc) : targetDesc}`));
 
-    // SMA9 exit toggle — only meaningful for MA_SLOPE_PURE right now, but
-    // read unconditionally same as everything else here; harmless no-op
-    // env for any other strategy since nothing else reads context.smaExitEnabled.
-    if (process.env.SMA9_EXIT_OVERRIDE !== undefined && process.env.SMA9_EXIT_OVERRIDE !== "") {
-        context.smaExitEnabled = process.env.SMA9_EXIT_OVERRIDE === "true";
-    }
-    if (context.strategy === "MA_SLOPE_PURE") {
-        console.log(c.dim(`[${context.tgPrefix}] SMA9 exit: ${context.smaExitEnabled ? "ON" : c.yellow("off — flip/GREY exit is the only way out")}`));
-    }
-
     // Band step — only meaningful for DYNAMIC_BAND, read unconditionally
     // same as everything else here. Left null (not defaulted here) when no
     // override is set — createDynamicBandStrategy falls back to
@@ -230,6 +220,17 @@ async function main() {
     if (context.strategy === "ALMA_TRI_BAND") {
         const greyExitResolved = context.greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT;
         console.log(c.dim(`[${context.tgPrefix}] grey state: ${greyExitResolved ? "exits flat" : "holds through it"}`));
+    }
+
+    // ALMA band gate toggle — only meaningful for ALMA_PRO_FAST. Defaults
+    // true (context.js), so ALMA_BAND_OVERRIDE only ever gets WRITTEN by
+    // the toolbox when explicitly turning it off — reading it unconditionally
+    // here is still safe either way.
+    if (process.env.ALMA_BAND_OVERRIDE !== undefined && process.env.ALMA_BAND_OVERRIDE !== "") {
+        context.almaBandEnabled = process.env.ALMA_BAND_OVERRIDE === "true";
+    }
+    if (context.strategy === "ALMA_PRO_FAST") {
+        console.log(c.dim(`[${context.tgPrefix}] ALMA band gate: ${context.almaBandEnabled ? "ON" : c.yellow("off — trading on slope alone, no band/breakout check")}`));
     }
 
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
