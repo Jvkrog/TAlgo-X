@@ -1149,8 +1149,8 @@ function renderAddConfigStep() {
       <div class="tb-form-label">profit target in points (tick-monitored, blank = none)</div>
       <input type="number" id="addTarget" min="0" step="any">
     </div>
-    <div class="tb-form-row" id="addSmaExitRow" style="display:none">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addSmaExit" checked><span>enable SMA9 reversal exit (MA_SLOPE_PURE only)</span></label>
+    <div class="tb-form-row" id="addAlmaBandRow" style="display:none">
+      <label class="tb-form-row-inline"><input type="checkbox" id="addAlmaBand" checked><span>use ALMA band gate (ALMA_PRO_FAST only, default: ON)</span></label>
     </div>
     <div class="tb-form-row" id="addBandStepRow" style="display:none">
       <div class="tb-form-label">band step in price points (DYNAMIC_BAND only, blank = default)</div>
@@ -1166,7 +1166,7 @@ function renderAddConfigStep() {
 
   let pickedStrategy = defaultStrat;
   const stratList = tbAddBody.querySelector("#addStrategyList");
-  const smaExitRow = tbAddBody.querySelector("#addSmaExitRow");
+  const almaBandRow = tbAddBody.querySelector("#addAlmaBandRow");
   const bandStepRow = tbAddBody.querySelector("#addBandStepRow");
   const greyExitRow = tbAddBody.querySelector("#addGreyExitRow");
   strategies.forEach(s => {
@@ -1178,7 +1178,7 @@ function renderAddConfigStep() {
       stratList.querySelectorAll(".tb-strategy-item").forEach(el => el.classList.remove("picked"));
       div.classList.add("picked");
       updateTimeframeOptions(s.timeframe);
-      smaExitRow.style.display = s.key === "MA_SLOPE_PURE" ? "" : "none";
+      almaBandRow.style.display = s.key === "ALMA_PRO_FAST" ? "" : "none";
       bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_MID_COLOR" || s.key === "DYNAMIC_MID_COLOR_HL") ? "" : "none";
       greyExitRow.style.display = s.key === "ALMA_TRI_BAND" ? "" : "none";
     });
@@ -1198,7 +1198,7 @@ function renderAddConfigStep() {
   }
   const defStratInfo = strategies.find(s => s.key === defaultStrat);
   updateTimeframeOptions(defStratInfo ? defStratInfo.timeframe : "15m");
-  smaExitRow.style.display = defaultStrat === "MA_SLOPE_PURE" ? "" : "none";
+  almaBandRow.style.display = defaultStrat === "ALMA_PRO_FAST" ? "" : "none";
 
   const modeBtns = tbAddBody.querySelectorAll("#addModeChoice button");
   const confirmLiveBox = tbAddBody.querySelector("#addConfirmLive");
@@ -1239,7 +1239,7 @@ function renderAddConfigStep() {
         strategy: pickedStrategy,
         timeframe: tfSelect.value,
         targetPoints: tbAddBody.querySelector("#addTarget").value || undefined,
-        smaExitEnabled: pickedStrategy === "MA_SLOPE_PURE" ? tbAddBody.querySelector("#addSmaExit").checked : undefined,
+        almaBandEnabled: pickedStrategy === "ALMA_PRO_FAST" ? tbAddBody.querySelector("#addAlmaBand").checked : undefined,
         bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || pickedStrategy === "DYNAMIC_MID_COLOR_HL") ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
         greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
       };
