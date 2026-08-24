@@ -316,23 +316,21 @@ async function getEngineProcesses() {
             targetPoints: p.pm2_env.env?.TARGET_POINTS_OVERRIDE !== undefined && p.pm2_env.env?.TARGET_POINTS_OVERRIDE !== ""
                 ? p.pm2_env.env.TARGET_POINTS_OVERRIDE
                 : null,
-            // undefined (not false) when unset, so buildProcessEnv can tell
-            // "never configured" apart from "explicitly turned off" and skip
-            // the env var entirely rather than writing a wrong default
-            smaExitEnabled: p.pm2_env.env?.SMA9_EXIT_OVERRIDE !== undefined && p.pm2_env.env?.SMA9_EXIT_OVERRIDE !== ""
-                ? p.pm2_env.env.SMA9_EXIT_OVERRIDE === "true"
-                : undefined,
             // null = use engineConfig.BAND_STEP_DEFAULT, same as
             // context.bandStep's own default-when-unset behavior
             bandStep: p.pm2_env.env?.BAND_STEP_OVERRIDE !== undefined && p.pm2_env.env?.BAND_STEP_OVERRIDE !== ""
                 ? p.pm2_env.env.BAND_STEP_OVERRIDE
                 : null,
-            // undefined (not false) when unset — same "tell 'never
-            // configured' apart from 'explicitly set'" reasoning as
-            // smaExitEnabled above
+            // undefined (not false) when unset, so buildProcessEnv can tell
+            // "never configured" apart from "explicitly turned off" and skip
+            // the env var entirely rather than writing a wrong default
             greyExitEnabled: p.pm2_env.env?.GREY_EXIT_OVERRIDE !== undefined && p.pm2_env.env?.GREY_EXIT_OVERRIDE !== ""
                 ? p.pm2_env.env.GREY_EXIT_OVERRIDE === "true"
                 : undefined,
+            // true (not undefined) when unset — ALMA band gate defaults ON,
+            // ALMA_BAND_OVERRIDE only ever gets written when explicitly
+            // turned off (see buildProcessEnv below).
+            almaBandEnabled: p.pm2_env.env?.ALMA_BAND_OVERRIDE !== "false",
             outLogPath: p.pm2_env.pm_out_log_path,
             errLogPath: p.pm2_env.pm_err_log_path,
         }));
@@ -353,9 +351,9 @@ function buildProcessEnv(p, overrides = {}) {
     if (p.lots !== "default") env.LOTS_OVERRIDE = String(p.lots);
     if (p.lotMult) env.LOTMULT_OVERRIDE = String(p.lotMult);
     if (p.targetPoints !== null && p.targetPoints !== undefined) env.TARGET_POINTS_OVERRIDE = String(p.targetPoints);
-    if (p.smaExitEnabled !== undefined) env.SMA9_EXIT_OVERRIDE = String(!!p.smaExitEnabled);
     if (p.bandStep !== null && p.bandStep !== undefined) env.BAND_STEP_OVERRIDE = String(p.bandStep);
     if (p.greyExitEnabled !== undefined) env.GREY_EXIT_OVERRIDE = String(!!p.greyExitEnabled);
+    if (p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false) env.ALMA_BAND_OVERRIDE = "false";
     return { ...env, ...overrides };
 }
 
@@ -621,7 +619,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, smaExitEnabled, bandStep, greyExitEnabled,
+        strategy, timeframe, targetPoints, almaBandEnabled, bandStep, greyExitEnabled,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -675,7 +673,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             const parsedTarget = Number(targetPoints);
             if (Number.isFinite(parsedTarget) && parsedTarget > 0) env.TARGET_POINTS_OVERRIDE = String(parsedTarget);
         }
-        if (stratKey === "MA_SLOPE_PURE") env.SMA9_EXIT_OVERRIDE = String(smaExitEnabled !== false);
+        if (stratKey === "ALMA_PRO_FAST" && almaBandEnabled === false) env.ALMA_BAND_OVERRIDE = "false";
         if ((stratKey === "DYNAMIC_BAND" || stratKey === "DYNAMIC_MID_COLOR" || stratKey === "DYNAMIC_MID_COLOR_HL") && bandStep !== undefined && bandStep !== null && bandStep !== "") {
             const parsedStep = Number(bandStep);
             if (Number.isFinite(parsedStep) && parsedStep > 0) env.BAND_STEP_OVERRIDE = String(parsedStep);
