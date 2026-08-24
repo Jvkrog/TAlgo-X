@@ -4586,17 +4586,25 @@ function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, 
 // SLOW ENGINE — NOT in the original combined port (the source script's
 // slow ALMA(100) only ever fed a plotted line, slow_color — no signal, no
 // alertcondition). Built fresh per instruction, as a genuinely tradeable
-// engine: single slow ALMA on HA close, entry on the LINE'S OWN slope
-// flipping sign — exactly what slow_color already classifies
+// engine: single slow ALMA on HA close, LEVEL-based on the LINE'S OWN
+// current slope direction — exactly what slow_color already classifies
 // (`slope_slow > 0 ? lime : slope_slow < 0 ? red : gray`), just wired to
-// real entries/exits instead of a plot color. No band/breakout
-// confirmation — that concept belongs to the fast engine's band, which
-// the slow engine doesn't share. Whipsaw control mirrors ALMA_FAST's own
-// deadband exactly (own namespace, ALMA_PRO_SLOW_DEADBAND_ATR_MULT):
-// slope must clear deadband x ATR to count as a real BULL/BEAR direction;
-// smaller moves classify NEUTRAL, which neither opens nor closes a
-// position, just holds and waits for a real move — same reasoning
-// ALMA_FAST's header comment explains in full.
+// real entries/exits instead of a plot color. Entry, specifically, fires
+// off whatever the color reads on the CURRENT candle whenever flat — not
+// only on a transition edge (an earlier revision tracked a remembered
+// "last decisive state" and only entered on a flip away from it; fixed
+// per instruction, since that meant an instance booting — or restarting —
+// while the slope was already sitting decisively one way would never
+// enter until an actual flip occurred, possibly a very long wait). Once a
+// position IS open, a reversal still only fires when the current color
+// genuinely disagrees with the held side — same as before, unchanged. No
+// band/breakout confirmation — that concept belongs to the fast engine's
+// band, which the slow engine doesn't share. Whipsaw control mirrors
+// ALMA_FAST's own deadband exactly (own namespace,
+// ALMA_PRO_SLOW_DEADBAND_ATR_MULT): slope must clear deadband x ATR to
+// count as a real BULL/BEAR direction; smaller moves classify NEUTRAL,
+// which neither opens nor closes a position, just holds and waits for a
+// real move — same reasoning ALMA_FAST's header comment explains in full.
 //
 // Both engines share: the Choppiness Index entry gate added per
 // instruction (own toggle/threshold per engine — USE_ALMA_PRO_FAST_CHOP_FILTER/
@@ -4854,8 +4862,6 @@ function createAlmaProFastStrategy({ context, engineConfig, state, db, candles, 
 // functions for the full design reasoning. Slope-flip on the SLOW ALMA
 // line only, deadband-filtered exactly like ALMA_FAST.
 function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
-    let lastDecisiveState = null; // "BULL" | "BEAR" | null — persists across candles, same as ALMA_FAST
-
     function canEnter() {
         const { hours, minutes } = istParts(clock.now());
         return hours > engineConfig.TRADE_START_HOUR ||
@@ -4873,7 +4879,19 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
         return side === "LONG" ? livePrice - offset : livePrice + offset;
     }
 
-    async function runSignals(price, flipSide, atrVal, currentState, chopOk) {
+    // desiredSide — "LONG" | "SHORT" | null, derived FRESH from the CURRENT
+    // slope state every single candle (LEVEL-based), not from a remembered
+    // transition edge. This is the fix for the original bug: the earlier
+    // flip-edge design (tracking lastDecisiveState, only entering when
+    // currentState !== lastDecisiveState) meant a flat instance that boots
+    // — or restarts — while the slope is already sitting decisively BULL
+    // or BEAR would never enter until an actual flip occurred, which could
+    // be a very long wait or never happen at all. LEVEL-based, matching
+    // MA_SLOPE_PURE's own documented entry approach: while flat, act on
+    // whatever the color reads RIGHT NOW, every candle it's decisive —
+    // exactly "entries based on the color the history gives," current
+    // state, not a stored transition.
+    async function runSignals(price, desiredSide, atrVal, currentState, chopOk) {
         const livePrice = candles.getLivePrice() ?? price;
 
         const uPnL = positionsUnrealised(livePrice);
@@ -4887,7 +4905,12 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
         console.log(lineColor(`[${context.tgPrefix}] ${ts} APS ${clr} ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}`));
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null });
 
-        if (engineConfig.ENGINE_ENABLED && state.position && state.positionSource === "ALMA_PRO_SLOW" && flipSide && flipSide !== state.position) {
+        // Reversal — only while a position is actually open, and only when
+        // the CURRENT color has swung to the opposite decisive side (still
+        // effectively edge-like from the position's own perspective: once
+        // held, it only reacts to an actual disagreement, not every candle
+        // that merely continues to agree).
+        if (engineConfig.ENGINE_ENABLED && state.position && state.positionSource === "ALMA_PRO_SLOW" && desiredSide && desiredSide !== state.position) {
             const closed = await orders.exit(state.position);
             if (engineConfig.LIVE_ORDERS && closed === null) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${state.position} exit failed (ALMA_PRO_SLOW_FLIP) — will retry next candle`));
@@ -4900,8 +4923,13 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
             }
         }
 
-        if (engineConfig.ENGINE_ENABLED && !state.position && flipSide && canEnter() && chopOk) {
-            const side = flipSide;
+        // Entry — LEVEL-based while flat: fires whenever desiredSide reads
+        // decisively, every candle, not just on a flip. This is what makes
+        // a freshly-booted or freshly-restarted instance actually take a
+        // trade when the slope is already established one way, instead of
+        // waiting indefinitely for a transition.
+        if (engineConfig.ENGINE_ENABLED && !state.position && desiredSide && canEnter() && chopOk) {
+            const side = desiredSide;
             const ordered = await orders.enter(side);
             if (engineConfig.LIVE_ORDERS && ordered === null) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -4963,18 +4991,13 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
         const slope    = s0 - s1;
         const deadband = atrVal !== null ? engineConfig.ALMA_PRO_SLOW_DEADBAND_ATR_MULT * atrVal : 0;
         const currentState = slope > deadband ? "BULL" : slope < -deadband ? "BEAR" : "NEUTRAL";
-
-        let flipSide = null;
-        if (currentState !== "NEUTRAL" && currentState !== lastDecisiveState) {
-            flipSide = currentState === "BULL" ? "LONG" : "SHORT";
-        }
-        if (currentState !== "NEUTRAL") lastDecisiveState = currentState;
+        const desiredSide  = currentState === "BULL" ? "LONG" : currentState === "BEAR" ? "SHORT" : null;
 
         const chopArr = choppinessIndex(rawCandles, engineConfig.CHOP_LEN);
         const chopVal = chopArr[chopArr.length - 1];
         const chopOk  = !engineConfig.USE_ALMA_PRO_SLOW_CHOP_FILTER || (chopVal !== null && chopVal <= engineConfig.ALMA_PRO_SLOW_CHOP_MAX);
 
-        await runSignals(rawCandle.close, flipSide, atrVal, currentState, chopOk);
+        await runSignals(rawCandle.close, desiredSide, atrVal, currentState, chopOk);
     }
 
     async function initSignals() {
@@ -5058,7 +5081,7 @@ const STRATEGY_INFO = {
     DYNAMIC_MID_COLOR_HL: { label: "Dynamic Mid HL (Tight Continuation)", description: "variant of Dynamic Mid (Color-Coded) — identical in every respect except the band's continuation shift (extending further in the direction already held) uses this candle's HIGH while LONG / LOW while SHORT instead of close, trailing tighter behind the trend so the opposite-side reversal boundary is reached sooner; the reversal trigger itself and flat-state entries stay CLOSE-based, unchanged, to avoid a single wick alone flipping or opening a position", short: "DMIDHL" },
     ALMA_TRI_BAND:        { label: "ALMA Tri-Band Agreement", description: "fast ALMA (HA close) + ALMA(high)/ALMA(low) bands driven by one shared bull/bear/grey state (green/red/grey), with big-candle and band-compression filters forcing grey; enters/exits on state flips, reverses immediately on the opposite decisive color; grey behavior while a position is open is configurable per instrument \u2014 exit flat or hold through it (default: hold); adds an ATR trailing stop and optional fixed target, neither present in the original indicator", short: "ATRIB" },
     ALMA_PRO_FAST:        { label: "ALMA Pro \u2014 Fast Engine", description: "the FAST half of strategy #17 (\"TAlgo \u2014 Pro Engine\"): fast ALMA (HA close) + ALMA(high)/ALMA(low) band, band-compression forces sideways/flat, slope+breakout confirm entries; band gate toggleable per instrument (default ON) \u2014 OFF trades on slope alone; Choppiness Index entry gate added (not in the original); run alongside ALMA_PRO_SLOW on a DIFFERENT underlying (e.g. the mini contract) for a genuine dual-engine setup \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APF" },
-    ALMA_PRO_SLOW:        { label: "ALMA Pro \u2014 Slow Engine", description: "the SLOW half of strategy #17: single slow ALMA(100) on HA close, entry on the line's own slope-direction flip (deadband-filtered, same whipsaw control ALMA_FAST uses) \u2014 no band/breakout confirmation, that's the fast engine's job; Choppiness Index entry gate added (not in the original); run alongside ALMA_PRO_FAST on a DIFFERENT underlying (e.g. the full-lot contract) \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APS" },
+    ALMA_PRO_SLOW:        { label: "ALMA Pro \u2014 Slow Engine", description: "the SLOW half of strategy #17: single slow ALMA(100) on HA close, entry LEVEL-based on the line's own current slope direction (deadband-filtered, same whipsaw control ALMA_FAST uses) \u2014 no band/breakout confirmation, that's the fast engine's job; Choppiness Index entry gate added (not in the original); run alongside ALMA_PRO_FAST on a DIFFERENT underlying (e.g. the full-lot contract) \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APS" },
 };
 
 // Each strategy's live/paper candle interval — this is a property of the

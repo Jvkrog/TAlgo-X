@@ -110,6 +110,28 @@ const STRATEGY_PARAMS = {
         { key: "ST_ATR_LEN",                  label: "ATR length (SL trail)" },
         { key: "ATR_SL_MULT",                 label: "ATR stop-loss multiplier" },
     ],
+    ALMA_PRO_FAST: [
+        { key: "ALMA_PRO_FAST_LEN",      label: "Fast ALMA length (HA close)" },
+        { key: "ALMA_PRO_BAND_LEN",      label: "Band ALMA length (raw high/low) \u2014 no-op when the band gate is disabled per-instrument" },
+        { key: "ALMA_PRO_OFFSET",        label: "ALMA offset (both fast and band)" },
+        { key: "ALMA_PRO_SIGMA",         label: "ALMA sigma (both fast and band)" },
+        { key: "ALMA_PRO_ATR_LEN",       label: "ATR length for this strategy's own thresholds (compress/slope/buffer) \u2014 separate from ST_ATR_LEN below, which sizes the SL trail" },
+        { key: "ALMA_PRO_COMPRESS_MULT", label: "Compression multiplier (band-width sideways filter) \u2014 no-op when the band gate is disabled" },
+        { key: "ALMA_PRO_SLOPE_MULT",    label: "Slope multiplier (decisive-direction threshold)" },
+        { key: "ALMA_PRO_BUFFER_MULT",   label: "Breakout buffer multiplier (band gate only) \u2014 no-op when the band gate is disabled" },
+        { key: "ALMA_PRO_FAST_CHOP_MAX", label: "Choppiness Index max (0-100) \u2014 above this blocks new entries (not in the original Pine script)" },
+        { key: "ST_ATR_LEN",             label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",            label: "ATR stop-loss multiplier (this port's own addition \u2014 source script has no SL)" },
+    ],
+    ALMA_PRO_SLOW: [
+        { key: "ALMA_PRO_SLOW_LEN",             label: "Slow ALMA length (HA close)" },
+        { key: "ALMA_PRO_OFFSET",               label: "ALMA offset" },
+        { key: "ALMA_PRO_SIGMA",                label: "ALMA sigma" },
+        { key: "ALMA_PRO_SLOW_DEADBAND_ATR_MULT", label: "Deadband (x ATR) \u2014 slope must clear this to count as a real BULL/BEAR direction" },
+        { key: "ALMA_PRO_SLOW_CHOP_MAX",        label: "Choppiness Index max (0-100) \u2014 above this blocks new entries (not in the original Pine script)" },
+        { key: "ST_ATR_LEN",                    label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",                   label: "ATR stop-loss multiplier (this port's own addition \u2014 source script has no SL, and no signal at all)" },
+    ],
 };
 
 function fmtMoney(n) { return (n < 0 ? "-₹" : "₹") + Math.abs(n).toFixed(2); }
@@ -210,6 +232,8 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         DPI_SMA5_EXIT: "    DPI and SMA5 exit both computed on RAW candles, not Heikin-Ashi \u2014 matches the source Pine script, which never converts to HA",
         ALMA_DUAL_BAND_SMA5: "    dual-ALMA trend lines + SMA5 exit on RAW candles; the ALMA_BAND fallback path specifically uses HA candles (same as the standalone ALMA_BAND strategy) \u2014 this one genuinely mixes both",
         MA_SLOPE: "    ema(ohlc4,56) and its angle both computed on RAW candles, not Heikin-Ashi \u2014 matches the source Pine script, which never converts to HA",
+        ALMA_PRO_FAST: "    fast ALMA computed on HA close; the band (ALMA of high/low) is computed on RAW candles, not HA \u2014 matches the source Pine script exactly (only ha_close is HA there)",
+        ALMA_PRO_SLOW: "    slow ALMA computed entirely on Heikin-Ashi close, LEVEL-based entry off its own current slope direction \u2014 no band, no HA/raw mixing",
     };
     console.log(c.dim(candleTypeNotes[strategyKey] || "    all indicators (ST1/RSI/SMA9/DPI) run on Heikin-Ashi candles"));
 
