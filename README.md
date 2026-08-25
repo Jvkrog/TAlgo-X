@@ -823,5 +823,3 @@ TAlgo-X is a research and educational project focused on autonomous trading infr
 Live deployment credentials, proprietary configurations, and sensitive operational data are intentionally excluded from the repository.
 
 Trading involves financial risk. TAlgo-X does not guarantee profitability or successful execution.
-
-```
