@@ -1,234 +1,734 @@
+
+````markdown
 # TAlgo-X — Autonomous Trading Execution Platform
 
 > Production-grade deterministic trading infrastructure for deploying, operating, and monitoring autonomous trading engines through unified CLI and Web interfaces.
 
 ---
 
-## Overview
+# Setup
 
-TAlgo-X is the deployment and execution platform of the TAlgo ecosystem.
+TAlgo-X is designed to run on a local PC, VPS, or cloud VM. The execution environment is not tied to a specific cloud provider.
 
-Rather than building separate trading bots for each instrument, TAlgo-X separates trading intelligence from runtime orchestration, allowing a single execution brain to operate multiple instruments through isolated runtime contexts.
+A local computer, VPS, or cloud instance can act as a TAlgo-X execution machine.
 
-The platform provides two operator interfaces:
+## Prerequisites
 
-- **CLI Toolbox** — deployment, configuration, backtesting and runtime management
-- **Web Dashboard** — real-time monitoring, observability and engine control
+Install the following before setting up TAlgo-X:
+
+- Node.js
+- npm
+- Git
+- PM2
+- Broker/API account for live execution
+
+For development and paper trading, a live broker account may not be required depending on the configured execution mode.
 
 ---
 
-## Platform Architecture
+## 1. Clone the repository
 
-```text
-                     TAlgo-X
-                         │
-          ┌──────────────┴──────────────┐
-          │                             │
-     CLI Toolbox                 Web Dashboard
-          │                             │
-          └──────────────┬──────────────┘
-                         │
-                 Runtime Orchestrator
-                         │
-        ┌────────────────┼────────────────┐
-        │                │                │
-     NatGas           Zinc           USDINR
-     Context          Context         Context
-        │                │                │
-        └────────────────┼────────────────┘
-                         │
-                 Deterministic Brain
-                         │
-        Market → Strategy → Risk → Orders
+```bash
+git clone <repository-url>
+````
+
+---
+
+## 2. Enter the project directory
+
+```bash
+cd TAlgo-X
 ```
 
 ---
 
-## Execution Pipeline
+## 3. Install dependencies
+
+```bash
+npm install
+```
+
+---
+
+## 4. Install PM2
+
+PM2 is used to manage long-running TAlgo-X execution processes.
+
+```bash
+npm install -g pm2
+```
+
+Verify the installation:
+
+```bash
+pm2 --version
+```
+
+---
+
+## 5. Setup the TAlgo-X CLI
+
+TAlgo-X exposes its operational toolbox through the `talgox` command.
+
+The package provides the CLI through the `bin` mapping:
+
+```json
+"bin": {
+  "talgox": "./toolbox.js"
+}
+```
+
+For local development, link the package:
+
+```bash
+npm link
+```
+
+Verify:
+
+```bash
+talgox
+```
+
+The CLI provides access to:
+
+* Engine deployment
+* Instrument management
+* Backtesting
+* Runtime control
+* Configuration management
+* Paper execution
+* Live execution
+* Diagnostics
+
+---
+
+## 6. Configure TAlgo-X
+
+Configure the required:
+
+* Broker/API settings
+* Instruments
+* Strategies
+* Runtime settings
+* Risk parameters
+* Execution mode
+* Target configuration
+* Notifications
+* Web Dashboard settings
+
+Sensitive credentials must never be committed to Git.
+
+Do not commit:
+
+```text
+API keys
+Access tokens
+Broker secrets
+Passwords
+Private credentials
+```
+
+Keep deployment-specific secrets outside the repository using the project's supported configuration mechanism.
+
+---
+
+## 7. Start with Paper Trading
+
+Always validate a new installation in paper mode before enabling live execution.
+
+Recommended workflow:
+
+```text
+Install
+   ↓
+Configure
+   ↓
+Backtest
+   ↓
+Paper Trading
+   ↓
+Validate
+   ↓
+Live Execution
+```
+
+Paper trading allows runtime, strategy, target, recovery and execution behavior to be tested without placing live orders.
+
+---
+
+## 8. Verify PM2
+
+List running processes:
+
+```bash
+pm2 list
+```
+
+View logs:
+
+```bash
+pm2 logs
+```
+
+Restart an engine:
+
+```bash
+pm2 restart <process>
+```
+
+Stop an engine:
+
+```bash
+pm2 stop <process>
+```
+
+Delete an engine:
+
+```bash
+pm2 delete <process>
+```
+
+---
+
+# Overview
+
+TAlgo-X is the deployment and execution platform of the TAlgo ecosystem.
+
+Rather than building separate trading bots for each instrument, TAlgo-X separates trading intelligence from runtime orchestration, allowing a single deterministic execution brain to operate multiple instruments through isolated runtime contexts.
+
+The platform provides two operator interfaces:
+
+* **CLI Toolbox** — deployment, configuration, backtesting and runtime management
+* **Web Dashboard** — real-time monitoring, observability and engine control
+
+TAlgo-X is designed around a machine-agnostic execution model. The same platform can operate on a development PC, VPS, or cloud VM.
+
+---
+
+# Platform Architecture
+
+```text
+                         TAlgo-X
+                            │
+             ┌──────────────┴──────────────┐
+             │                             │
+        CLI Toolbox                  Web Dashboard
+             │                             │
+             └──────────────┬──────────────┘
+                            │
+                    Runtime Orchestrator
+                            │
+          ┌─────────────────┼─────────────────┐
+          │                 │                 │
+       NatGas             Zinc             USDINR
+       Context            Context           Context
+          │                 │                 │
+          └─────────────────┼─────────────────┘
+                            │
+                    Deterministic Brain
+                            │
+               Market → Strategy → Risk → Orders
+```
+
+---
+
+# Execution Pipeline
 
 ```text
 Market Data
       │
+      ▼
 Authoritative Candle Polling
       │
+      ▼
 Market State Engine
       │
+      ▼
 Strategy Selection
       │
+      ▼
+Signal Validation
+      │
+      ▼
 Risk Management
       │
+      ▼
 Order Execution
       │
+      ▼
 SQLite Persistence
       │
+      ▼
 Runtime Observability
 ```
 
+TAlgo-X uses deterministic candle-driven execution for strategy decisions while real-time WebSocket data can be used for execution monitoring and target/exit handling.
+
 ---
 
-## Operator Interfaces
+# One Brain, Multiple Contexts
 
-### CLI Toolbox
+TAlgo-X follows a **One Brain, Multiple Contexts** architecture.
 
-The CLI serves as the operational control center for TAlgo-X.
+```text
+                  Deterministic Brain
+                         │
+       ┌─────────────────┼─────────────────┐
+       │                 │                 │
+   NatGas Context    Zinc Context     USDINR Context
+       │                 │                 │
+   State/Position    State/Position   State/Position
+   Config/Runtime    Config/Runtime   Config/Runtime
+```
+
+The execution brain remains shared while instrument-specific state, configuration, position information and runtime context remain isolated.
+
+This allows additional instruments to be introduced without creating completely independent trading applications.
+
+---
+
+# Operator Interfaces
+
+## CLI Toolbox
+
+The CLI is the operational control center of TAlgo-X.
+
+Primary command:
+
+```bash
+talgox
+```
+
+Capabilities include:
+
+* Engine deployment
+* Instrument onboarding
+* Backtesting
+* Runtime lifecycle management
+* Configuration management
+* PM2 integration
+* Paper execution
+* Live execution
+* System diagnostics
+
+---
+
+## Web Dashboard
+
+The Web Dashboard provides browser-based visibility and control over running engines.
 
 Features include:
 
-- Engine deployment
-- Instrument onboarding
-- Backtesting
-- Runtime lifecycle management
-- Configuration management
-- PM2 integration
-- Live execution
-- System diagnostics
+* Engine lifecycle management
+* Runtime telemetry
+* Position and PnL monitoring
+* Live execution logs
+* Broker connectivity status
+* Market state visualization
+* Multi-engine monitoring
+* Browser-based operator console
+
+The Web Dashboard is an operator interface and does not replace the deterministic execution engine.
 
 ---
 
-### Web Dashboard
+# Runtime
 
-The browser interface provides live visibility into every running engine.
-
-Features include:
-
-- Engine lifecycle management
-- Runtime telemetry
-- Position & PnL monitoring
-- Live execution logs
-- Broker connectivity status
-- Market state visualization
-- Multi-engine dashboard
-- Browser-based operator console
-
----
-
-## Runtime
-
-The runtime coordinates every live execution process.
+The runtime coordinates live execution processes.
 
 Responsibilities include:
 
-- deterministic candle synchronization
-- execution scheduling
-- order routing
-- position lifecycle management
-- restart recovery
-- SQLite persistence
-- Telegram notifications
-- dashboard synchronization
-- runtime health monitoring
+* Deterministic candle synchronization
+* Execution scheduling
+* Order routing
+* Position lifecycle management
+* Restart recovery
+* SQLite persistence
+* Telegram notifications
+* Dashboard synchronization
+* Runtime health monitoring
+
+Each instrument runs inside an isolated runtime context while sharing the same execution architecture.
 
 ---
 
-## Trading Architecture
+# Trading Architecture
 
-Execution decisions are separated into independent layers.
+Execution decisions are separated into independent layers:
 
 ```text
 Market
-      │
+   │
+   ▼
 Market State
-      │
+   │
+   ▼
 Strategy Selection
-      │
+   │
+   ▼
 Signal Validation
-      │
+   │
+   ▼
 Risk Management
-      │
+   │
+   ▼
 Order Execution
 ```
 
-This modular architecture allows strategies to evolve without changing the execution infrastructure.
+This modular architecture allows strategies to evolve without requiring changes to the underlying execution infrastructure.
 
 ---
 
+# Persistence & Recovery
 
-## Persistence & Recovery
+SQLite provides lightweight runtime persistence.
 
-SQLite persistence provides:
+It is used for:
 
-- active position storage
-- runtime recovery
-- execution continuity
-- crash recovery
-- restart safety
+* Active position storage
+* Execution state persistence
+* Runtime recovery
+* Crash recovery
+* Restart continuity
+* Position/state reconstruction
+
+The runtime is designed to recover persisted state after a process restart rather than treating every restart as a completely new execution session.
 
 ---
 
-## Observability
+# Observability
 
 TAlgo-X includes a built-in observability layer.
 
 Features include:
 
-- live execution logs
-- Telegram notifications
-- runtime telemetry
-- dashboard monitoring
-- position tracking
-- execution history
-- engine health monitoring
+* Live execution logs
+* Telegram notifications
+* Runtime telemetry
+* Dashboard monitoring
+* Position tracking
+* PnL tracking
+* Execution history
+* Engine health monitoring
+* Broker connectivity visibility
 
-Every execution decision is logged and traceable.
-
----
-
-## Core Design Principles
-
-TAlgo-X is built around:
-
-- One Brain architecture
-- deterministic execution
-- context-driven scalability
-- runtime orchestration
-- explainable execution
-- operational simplicity
-- failure recovery
-- production reliability
+Execution decisions are logged so runtime behavior can be inspected and explained.
 
 ---
 
-## TAlgo vs TAlgo-X
+# Broker Integration
 
-| TAlgo | TAlgo-X |
-|--------|----------|
-| Strategy research | Execution platform |
-| Experimental algorithms | Production deployment |
-| Indicator development | Runtime orchestration |
-| Strategy evolution | Multi-engine management |
-| Research environment | Operator platform |
+TAlgo-X communicates with broker APIs through broker-specific integration layers.
+
+Conceptually:
+
+```text
+TAlgo-X
+   │
+   ▼
+Broker Adapter
+   │
+   ▼
+Broker SDK
+   │
+   ▼
+REST / WebSocket APIs
+   │
+   ▼
+Broker
+```
+
+This separates broker-specific API implementation from the core execution architecture.
+
+For example, a broker SDK may handle:
+
+* Authentication
+* REST API requests
+* Market-data WebSockets
+* Order APIs
+* Position APIs
+* Instrument APIs
+
+while TAlgo-X remains responsible for the higher-level execution lifecycle.
 
 ---
 
-## Current Development
+# Machine-Agnostic Deployment
+
+TAlgo-X is not architecturally tied to AWS.
+
+The execution environment can be:
+
+```text
+                 TAlgo-X
+                    │
+        ┌───────────┼───────────┐
+        │           │           │
+     Local PC      VPS       Cloud VM
+        │           │           │
+      Runtime     Runtime     Runtime
+        │           │           │
+        └───────────┼───────────┘
+                    │
+                Broker API
+```
+
+Examples include:
+
+* Windows development PC
+* Linux workstation
+* VPS
+* AWS EC2
+* Other cloud virtual machines
+
+The machine simply provides the environment in which the TAlgo-X runtime operates.
+
+This allows the same architecture to move from local development to remote execution without making the execution engine cloud-provider dependent.
+
+---
+
+# Process Management
+
+PM2 manages long-running TAlgo-X processes.
+
+Common commands:
+
+```bash
+pm2 list
+```
+
+```bash
+pm2 logs
+```
+
+```bash
+pm2 restart <process>
+```
+
+```bash
+pm2 stop <process>
+```
+
+```bash
+pm2 delete <process>
+```
+
+PM2 provides process lifecycle management while TAlgo-X handles application-level state persistence and recovery.
+
+---
+
+# Paper Trading
+
+Paper trading should be used before enabling live execution.
+
+The recommended workflow is:
+
+```text
+Backtesting
+    ↓
+Paper Trading
+    ↓
+Runtime Validation
+    ↓
+Recovery Testing
+    ↓
+Broker Connectivity Testing
+    ↓
+Live Execution
+```
+
+Paper mode allows changes to:
+
+* Strategy logic
+* Target logic
+* Risk management
+* Runtime behavior
+* Recovery mechanisms
+* Broker integration
+
+to be tested without placing live orders.
+
+---
+
+# Live Execution
+
+Live execution requires valid broker/API authentication and appropriate account configuration.
+
+Before enabling live execution, verify:
+
+* Instrument configuration
+* Broker connectivity
+* Strategy configuration
+* Risk parameters
+* Position state
+* Target/exit behavior
+* Restart recovery
+* Paper-trading behavior
+
+TAlgo-X should maintain consistency between persisted runtime state and broker-side position state.
+
+---
+
+# Security
+
+TAlgo-X interacts with infrastructure that can potentially access financial accounts.
+
+Therefore:
+
+* Never commit API keys.
+* Never commit access tokens.
+* Never commit broker passwords.
+* Never expose credentials in logs.
+* Never hardcode production credentials into source files.
+* Keep deployment-specific secrets outside Git.
+* Restrict access to the Web Dashboard.
+* Do not expose broker credentials to browser-side code.
+* Use appropriate separation between paper and live credentials.
+
+---
+
+# Development Philosophy
+
+TAlgo-X is built around several principles.
+
+### One Brain
+
+A shared deterministic execution architecture instead of completely independent trading applications for every instrument.
+
+### Deterministic Execution
+
+The same market input should produce predictable execution behavior.
+
+### Isolated Contexts
+
+Each instrument maintains its own runtime and trading state.
+
+### Explainable Execution
+
+Execution decisions should be inspectable through structured logs and runtime state.
+
+### Failure Recovery
+
+A process failure should not automatically destroy knowledge of an existing position.
+
+### Operational Simplicity
+
+Deployment, monitoring and control should be accessible through unified operator interfaces.
+
+### Machine Independence
+
+The execution platform should not depend on a specific cloud provider or infrastructure vendor.
+
+---
+
+# TAlgo vs TAlgo-X
+
+| TAlgo                   | TAlgo-X                 |
+| ----------------------- | ----------------------- |
+| Strategy research       | Execution platform      |
+| Experimental algorithms | Production deployment   |
+| Indicator development   | Runtime orchestration   |
+| Strategy evolution      | Multi-engine management |
+| Research environment    | Operator platform       |
+| Signal experimentation  | Paper/live execution    |
+
+---
+
+# Current Development
 
 Current work focuses on:
 
-- One Brain architecture
-- Multi-engine execution
-- CLI & Web operator interfaces
-- Market-state driven execution
-- Runtime reliability
-- Deployment tooling
-- Explainable execution
-- AI-assisted observability
+* One Brain architecture
+* Multi-instrument execution
+* CLI and Web operator interfaces
+* Market-state-driven execution
+* Runtime reliability
+* Deployment tooling
+* Explainable execution
+* Failure recovery
+* Adaptive execution logic
+* AI-assisted observability
 
 ---
 
-## Future Roadmap
+# Project Structure
 
-- Portfolio-level execution
-- Distributed runtime orchestration
-- Cloud deployment platform
-- User-managed VPS deployment
-- AI-assisted operational insights
-- Multi-broker support
-- Plugin-based strategy framework
+A simplified conceptual structure:
+
+```text
+TAlgo-X/
+│
+├── toolbox.js
+├── engine.js
+├── package.json
+│
+├── strategies/
+│
+├── runtime/
+│
+├── state/
+│
+├── webdash/
+│
+├── backtest/
+│
+├── config/
+│
+└── README.md
+```
+
+The exact directory structure may evolve as development continues.
 
 ---
 
-## Disclaimer
+# Recommended Development Workflow
+
+```text
+                    Development
+                         │
+                         ▼
+                    Backtesting
+                         │
+                         ▼
+                   Paper Trading
+                         │
+                         ▼
+                  Runtime Testing
+                         │
+                         ▼
+                  Recovery Testing
+                         │
+                         ▼
+                 Broker Validation
+                         │
+                         ▼
+                  Live Execution
+```
+
+Changes to execution logic should be validated in paper mode before being deployed to a live trading environment.
+
+---
+
+# Future Roadmap
+
+* Portfolio-level execution
+* Distributed runtime orchestration
+* Cloud deployment platform
+* User-managed VPS deployment
+* AI-assisted operational insights
+* Multi-broker support
+* Plugin-based strategy framework
+* Multi-user SaaS execution infrastructure
+
+---
+
+# Disclaimer
 
 TAlgo-X is a research and educational project focused on autonomous trading infrastructure, deterministic execution systems, and backend engineering.
 
-Live deployment credentials, proprietary configurations, and sensitive operational data are intentionally excluded.
+Live deployment credentials, proprietary configurations, and sensitive operational data are intentionally excluded from the repository.
+
+Trading involves financial risk. TAlgo-X does not guarantee profitability or successful execution.
+
+
