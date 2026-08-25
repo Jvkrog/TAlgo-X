@@ -135,6 +135,8 @@ async function getEngineProcesses() {
             bandStep: p.pm2_env.env?.BAND_STEP_OVERRIDE ? Number(p.pm2_env.env.BAND_STEP_OVERRIDE) : null,
             greyExitEnabled: p.pm2_env.env?.GREY_EXIT_OVERRIDE !== undefined ? p.pm2_env.env.GREY_EXIT_OVERRIDE === "true" : null,
             almaBandEnabled: p.pm2_env.env?.ALMA_BAND_OVERRIDE !== undefined ? p.pm2_env.env.ALMA_BAND_OVERRIDE === "true" : true,
+            almaFastLen: p.pm2_env.env?.ALMA_FAST_LEN_OVERRIDE ? Number(p.pm2_env.env.ALMA_FAST_LEN_OVERRIDE) : null,
+            almaBandLen: p.pm2_env.env?.ALMA_BAND_LEN_OVERRIDE ? Number(p.pm2_env.env.ALMA_BAND_LEN_OVERRIDE) : null,
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -394,6 +396,8 @@ function buildProcessEnv(p, overrides = {}) {
     if ((p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL") && p.bandStep) env.BAND_STEP_OVERRIDE = String(p.bandStep);
     if (p.strategy === "ALMA_TRI_BAND" && p.greyExitEnabled !== null && p.greyExitEnabled !== undefined) env.GREY_EXIT_OVERRIDE = String(p.greyExitEnabled);
     if (p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false) env.ALMA_BAND_OVERRIDE = "false";
+    if (p.strategy === "ALMA_PRO_FAST" && p.almaFastLen) env.ALMA_FAST_LEN_OVERRIDE = String(p.almaFastLen);
+    if (p.strategy === "ALMA_PRO_FAST" && p.almaBandLen) env.ALMA_BAND_LEN_OVERRIDE = String(p.almaBandLen);
     return { ...env, ...overrides };
 }
 
@@ -527,8 +531,45 @@ async function editInstrument(procs) {
             const bandEnableInput = (await ask(`  use ALMA band gate? [Y/n] (current: ${bandDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (bandEnableInput) almaBandEnabled = bandEnableInput !== "N";
         }
+        // ALMA fast/band length — ALMA_PRO_FAST only. "0"/"clear" resets to
+        // engineConfig's default (ALMA_PRO_FAST_LEN/ALMA_PRO_BAND_LEN);
+        // blank keeps whatever's currently set.
+        let almaFastLen = p.almaFastLen;
+        let almaBandLen = p.almaBandLen;
+        if (p.strategy === "ALMA_PRO_FAST") {
+            const fastLenDefault = almaFastLen ?? `default (${engineConfig.ALMA_PRO_FAST_LEN})`;
+            const fastLenInput = (await ask(`  fast ALMA length (current: ${fastLenDefault}, "0"/"clear" to reset, blank = keep): `)).trim();
+            if (fastLenInput) {
+                if (fastLenInput === "0" || fastLenInput.toLowerCase() === "clear") {
+                    almaFastLen = null;
+                } else {
+                    const parsedFastLen = Number(fastLenInput);
+                    if (!Number.isFinite(parsedFastLen) || parsedFastLen <= 0) {
+                        console.log(c.yellow(`  "${fastLenInput}" isn't a valid positive number — fast length left unchanged`));
+                    } else {
+                        almaFastLen = parsedFastLen;
+                    }
+                }
+            }
+            if (almaBandEnabled) {
+                const bandLenDefault = almaBandLen ?? `default (${engineConfig.ALMA_PRO_BAND_LEN})`;
+                const bandLenInput = (await ask(`  band ALMA length (current: ${bandLenDefault}, "0"/"clear" to reset, blank = keep): `)).trim();
+                if (bandLenInput) {
+                    if (bandLenInput === "0" || bandLenInput.toLowerCase() === "clear") {
+                        almaBandLen = null;
+                    } else {
+                        const parsedBandLen = Number(bandLenInput);
+                        if (!Number.isFinite(parsedBandLen) || parsedBandLen <= 0) {
+                            console.log(c.yellow(`  "${bandLenInput}" isn't a valid positive number — band length left unchanged`));
+                        } else {
+                            almaBandLen = parsedBandLen;
+                        }
+                    }
+                }
+            }
+        }
 
-        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled };
+        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -693,6 +734,36 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         almaBandEnabled = almaBandInput !== "N";
     }
 
+    // ALMA fast/band length config — ALMA_PRO_FAST only. Blank = use
+    // engineConfig.ALMA_PRO_FAST_LEN/ALMA_PRO_BAND_LEN (the Pine script's
+    // own defaults, 20/50). No other ALMA strategy exposes its lengths
+    // per-instrument today — every other one is engineConfig-only, tunable
+    // via the backtest wizard's STRATEGY_PARAMS but not live per-instrument.
+    let almaFastLen = null;
+    let almaBandLen = null;
+    if (strategy === "ALMA_PRO_FAST") {
+        const fastLenInput = (await ask(`  fast ALMA length (default: ${engineConfig.ALMA_PRO_FAST_LEN}): `)).trim();
+        if (fastLenInput) {
+            const parsedFastLen = Number(fastLenInput);
+            if (!Number.isFinite(parsedFastLen) || parsedFastLen <= 0) {
+                console.log(c.yellow(`  "${fastLenInput}" isn't a valid positive number — using default ${engineConfig.ALMA_PRO_FAST_LEN}`));
+            } else {
+                almaFastLen = parsedFastLen;
+            }
+        }
+        if (almaBandEnabled) {
+            const bandLenInput = (await ask(`  band ALMA length (default: ${engineConfig.ALMA_PRO_BAND_LEN}): `)).trim();
+            if (bandLenInput) {
+                const parsedBandLen = Number(bandLenInput);
+                if (!Number.isFinite(parsedBandLen) || parsedBandLen <= 0) {
+                    console.log(c.yellow(`  "${bandLenInput}" isn't a valid positive number — using default ${engineConfig.ALMA_PRO_BAND_LEN}`));
+                } else {
+                    almaBandLen = parsedBandLen;
+                }
+            }
+        }
+    }
+
     // Band step — only meaningful for DYNAMIC_BAND / DYNAMIC_MID_COLOR,
     // only asked when one of those is the strategy picked. Fixed PRICE
     // distance, not ATR-derived — see createDynamicBandStrategy /
@@ -765,6 +836,8 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (targetPoints !== null) env.TARGET_POINTS_OVERRIDE = String(targetPoints);
     if (targetMode === "adaptive") env.TARGET_MODE_OVERRIDE = "adaptive";
     if (strategy === "ALMA_PRO_FAST" && !almaBandEnabled) env.ALMA_BAND_OVERRIDE = "false";
+    if (strategy === "ALMA_PRO_FAST" && almaFastLen !== null) env.ALMA_FAST_LEN_OVERRIDE = String(almaFastLen);
+    if (strategy === "ALMA_PRO_FAST" && almaBandLen !== null) env.ALMA_BAND_LEN_OVERRIDE = String(almaBandLen);
     if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
     if (strategy === "ALMA_TRI_BAND" && greyExitEnabled !== null) env.GREY_EXIT_OVERRIDE = String(greyExitEnabled);
     try {
@@ -774,9 +847,12 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const stratLabel = (STRATEGY_INFO[strategy] || { label: strategy }).label;
         const targetTag = targetPoints !== null ? c.yellow(` +${targetPoints}pt target`) : targetMode === "adaptive" ? c.yellow(" adaptive target") : "";
         const almaBandTag = strategy === "ALMA_PRO_FAST" && !almaBandEnabled ? c.yellow(" band:off") : "";
+        const almaLenTag = strategy === "ALMA_PRO_FAST" && (almaFastLen !== null || almaBandLen !== null)
+            ? c.yellow(` alma:${almaFastLen ?? engineConfig.ALMA_PRO_FAST_LEN}/${almaBandLen ?? engineConfig.ALMA_PRO_BAND_LEN}`)
+            : "";
         const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
         const greyExitTag = strategy === "ALMA_TRI_BAND" ? c.yellow(` grey:${(greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT) ? "exit" : "hold"}`) : "";
-        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${bandStepTag}${greyExitTag}`));
+        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${almaLenTag}${bandStepTag}${greyExitTag}`));
     } catch (err) {
         console.log(c.red(`  failed to start ${name}: ${err.message}`));
     }

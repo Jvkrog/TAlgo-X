@@ -207,6 +207,15 @@ function buildContext(def, resolvedContract) {
         // STRATEGY_PARAMS-backtest-tuning concern here the way bandStep/
         // greyExitEnabled above have — nothing else provides a fallback.
         almaBandEnabled: true,
+        // Overridden per-process by engine.js from ALMA_FAST_LEN_OVERRIDE /
+        // ALMA_BAND_LEN_OVERRIDE (toolbox prompt, asked only when
+        // ALMA_PRO_FAST is picked). null (not a literal default) — same
+        // STRATEGY_PARAMS-backtest-tuning reason bandStep above is null —
+        // createAlmaProFastStrategy falls back to engineConfig.ALMA_PRO_
+        // FAST_LEN / ALMA_PRO_BAND_LEN itself when unset. almaBandLen only
+        // matters while almaBandEnabled is true.
+        almaFastLen: null,
+        almaBandLen: null,
     };
 }
 

@@ -233,6 +233,22 @@ async function main() {
         console.log(c.dim(`[${context.tgPrefix}] ALMA band gate: ${context.almaBandEnabled ? "ON" : c.yellow("off — trading on slope alone, no band/breakout check")}`));
     }
 
+    // ALMA fast/band length overrides — only meaningful for ALMA_PRO_FAST,
+    // read unconditionally same as everything else here. null (unset) when
+    // no override is given — createAlmaProFastStrategy falls back to
+    // engineConfig.ALMA_PRO_FAST_LEN / ALMA_PRO_BAND_LEN itself.
+    if (process.env.ALMA_FAST_LEN_OVERRIDE !== undefined && process.env.ALMA_FAST_LEN_OVERRIDE !== "") {
+        const parsedFastLen = Number(process.env.ALMA_FAST_LEN_OVERRIDE);
+        context.almaFastLen = Number.isFinite(parsedFastLen) && parsedFastLen > 0 ? parsedFastLen : null;
+    }
+    if (process.env.ALMA_BAND_LEN_OVERRIDE !== undefined && process.env.ALMA_BAND_LEN_OVERRIDE !== "") {
+        const parsedBandLen = Number(process.env.ALMA_BAND_LEN_OVERRIDE);
+        context.almaBandLen = Number.isFinite(parsedBandLen) && parsedBandLen > 0 ? parsedBandLen : null;
+    }
+    if (context.strategy === "ALMA_PRO_FAST" && (context.almaFastLen || context.almaBandLen)) {
+        console.log(c.dim(`[${context.tgPrefix}] ALMA config: fast=${context.almaFastLen ?? engineConfig.ALMA_PRO_FAST_LEN}  band=${context.almaBandLen ?? engineConfig.ALMA_PRO_BAND_LEN}`));
+    }
+
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
 
