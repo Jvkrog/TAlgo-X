@@ -1,4 +1,3 @@
-
 ````markdown
 # TAlgo-X — Autonomous Trading Execution Platform
 
@@ -25,7 +24,7 @@ Install the following before setting up TAlgo-X:
 For development and paper trading, a live broker account may not be required depending on the configured execution mode.
 
 ---
-
+````
 ## 1. Clone the repository
 
 ```bash
@@ -99,41 +98,143 @@ The CLI provides access to:
 * Configuration management
 * Paper execution
 * Live execution
-* Diagnostics
+* Credentials management
+* System diagnostics
 
 ---
 
-## 6. Configure TAlgo-X
+# Broker Integration
 
-Configure the required:
+TAlgo-X currently supports **Kite Connect** as its broker integration.
 
-* Broker/API settings
-* Instruments
-* Strategies
-* Runtime settings
-* Risk parameters
-* Execution mode
-* Target configuration
-* Notifications
-* Web Dashboard settings
-
-Sensitive credentials must never be committed to Git.
-
-Do not commit:
+The broker integration is responsible for communicating with the broker's REST and WebSocket APIs.
 
 ```text
-API keys
-Access tokens
-Broker secrets
-Passwords
-Private credentials
+TAlgo-X
+   │
+   ▼
+Kite Connect
+   │
+   ├── REST API
+   │
+   └── WebSocket API
 ```
 
-Keep deployment-specific secrets outside the repository using the project's supported configuration mechanism.
+Additional broker integrations may be added in the future.
 
 ---
 
-## 7. Start with Paper Trading
+# Configure Credentials
+
+TAlgo-X provides credential management through both operator interfaces:
+
+* **CLI Toolbox**
+* **Web Dashboard**
+
+At present, the credential system is designed for **Kite Connect**.
+
+```text
+                 TAlgo-X
+                    │
+          ┌─────────┴─────────┐
+          │                   │
+     CLI Toolbox        Web Dashboard
+          │                   │
+          └─────────┬─────────┘
+                    │
+              Kite Connect
+                    │
+          ┌─────────┴─────────┐
+          │                   │
+       API Key          Access Token
+```
+
+## API Key
+
+Configure the Kite Connect API key through the **Credentials** option in either the CLI Toolbox or Web Dashboard.
+
+The API key should never be:
+
+* Hardcoded into source code
+* Committed to Git
+* Exposed in logs
+* Stored in publicly accessible files
+
+---
+
+## Access Token
+
+Kite Connect also requires an access token for authenticated API operations.
+
+The access token is **temporary and expires daily**.
+
+Therefore, TAlgo-X allows the access token to be updated through either:
+
+* CLI Toolbox
+* Web Dashboard
+
+When the existing access token expires:
+
+1. Generate a new Kite Connect access token.
+2. Open the TAlgo-X Credentials interface.
+3. Update the access token through the CLI or Web Dashboard.
+4. Restart the affected engine if required by the current runtime configuration.
+
+```text
+Kite Connect Login
+        │
+        ▼
+New Access Token
+        │
+        ▼
+TAlgo-X Credentials
+        │
+   ┌────┴────┐
+   │         │
+ CLI       WebDash
+   │         │
+   └────┬────┘
+        │
+        ▼
+Running Engine
+```
+
+> **Important:** API keys and access tokens are sensitive credentials. Never commit them to the repository.
+
+---
+
+# Runtime Configuration
+
+After configuring broker credentials, configure the execution environment.
+
+Configuration may include:
+
+* Instrument
+* Strategy
+* Execution mode
+* Risk parameters
+* Target configuration
+* Runtime settings
+* Notifications
+* Dashboard settings
+
+The recommended development sequence is:
+
+```text
+Credentials
+    ↓
+Instrument Configuration
+    ↓
+Strategy Configuration
+    ↓
+Risk Configuration
+    ↓
+Paper Execution
+```
+
+---
+
+# Start with Paper Trading
 
 Always validate a new installation in paper mode before enabling live execution.
 
@@ -142,7 +243,9 @@ Recommended workflow:
 ```text
 Install
    ↓
-Configure
+Configure Credentials
+   ↓
+Configure Runtime
    ↓
 Backtest
    ↓
@@ -157,7 +260,7 @@ Paper trading allows runtime, strategy, target, recovery and execution behavior 
 
 ---
 
-## 8. Verify PM2
+## Verify PM2
 
 List running processes:
 
@@ -307,6 +410,7 @@ Capabilities include:
 * Backtesting
 * Runtime lifecycle management
 * Configuration management
+* Credentials management
 * PM2 integration
 * Paper execution
 * Live execution
@@ -327,6 +431,7 @@ Features include:
 * Broker connectivity status
 * Market state visualization
 * Multi-engine monitoring
+* Credentials management
 * Browser-based operator console
 
 The Web Dashboard is an operator interface and does not replace the deterministic execution engine.
@@ -417,40 +522,32 @@ Execution decisions are logged so runtime behavior can be inspected and explaine
 
 ---
 
-# Broker Integration
+# Broker Architecture
 
-TAlgo-X communicates with broker APIs through broker-specific integration layers.
-
-Conceptually:
+TAlgo-X currently uses **Kite Connect** for broker communication.
 
 ```text
-TAlgo-X
-   │
-   ▼
-Broker Adapter
-   │
-   ▼
-Broker SDK
-   │
-   ▼
-REST / WebSocket APIs
-   │
-   ▼
-Broker
+                  TAlgo-X
+                     │
+                     ▼
+               Broker Layer
+                     │
+                     ▼
+                Kite Connect
+                     │
+          ┌──────────┴──────────┐
+          │                     │
+       REST API            WebSocket API
+          │                     │
+          └──────────┬──────────┘
+                     │
+                     ▼
+                  Broker
 ```
 
-This separates broker-specific API implementation from the core execution architecture.
+The broker layer keeps broker-specific communication separate from the core execution architecture.
 
-For example, a broker SDK may handle:
-
-* Authentication
-* REST API requests
-* Market-data WebSockets
-* Order APIs
-* Position APIs
-* Instrument APIs
-
-while TAlgo-X remains responsible for the higher-level execution lifecycle.
+This allows future broker integrations to be added without redesigning the deterministic execution engine.
 
 ---
 
@@ -483,8 +580,6 @@ Examples include:
 * Other cloud virtual machines
 
 The machine simply provides the environment in which the TAlgo-X runtime operates.
-
-This allows the same architecture to move from local development to remote execution without making the execution engine cloud-provider dependent.
 
 ---
 
@@ -529,7 +624,7 @@ Backtesting
     ↓
 Paper Trading
     ↓
-Runtime Validation
+Runtime Testing
     ↓
 Recovery Testing
     ↓
@@ -731,4 +826,4 @@ Live deployment credentials, proprietary configurations, and sensitive operation
 
 Trading involves financial risk. TAlgo-X does not guarantee profitability or successful execution.
 
-
+```
