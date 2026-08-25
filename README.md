@@ -26,7 +26,7 @@ For development and paper trading, a live broker account may not be required dep
 ## 1. Clone the repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/Jvkrog/TAlgo-X
 ````
 
 ---
@@ -47,14 +47,14 @@ npm install
 
 ---
 
-## 4. Install PM2
+## 4. PM2 (Process Manger)
 
 PM2 is used to manage long-running TAlgo-X execution processes.
 
+PM2 is installed automatically as a project dependency when you run:
 ```bash
-npm install -g pm2
+npm install
 ```
-
 Verify the installation:
 
 ```bash
