@@ -377,7 +377,7 @@ TAlgo-X follows a **One Brain, Multiple Contexts** architecture.
                          │
        ┌─────────────────┼─────────────────┐
        │                 │                 │
-   NatGas Context    Zinc Context     USDINR Context
+   NatGas Context    Zinc Context     Aluminium Context
        │                 │                 │
    State/Position    State/Position   State/Position
    Config/Runtime    Config/Runtime   Config/Runtime
