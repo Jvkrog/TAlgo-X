@@ -3,7 +3,6 @@
 
 > Production-grade deterministic trading infrastructure for deploying, operating, and monitoring autonomous trading engines through unified CLI and Web interfaces.
 
----
 
 # Setup
 
@@ -23,7 +22,7 @@ Install the following before setting up TAlgo-X:
 
 For development and paper trading, a live broker account may not be required depending on the configured execution mode.
 
----
+
 ````
 ## 1. Clone the repository
 
