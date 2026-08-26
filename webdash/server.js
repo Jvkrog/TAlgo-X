@@ -316,6 +316,10 @@ async function getEngineProcesses() {
             targetPoints: p.pm2_env.env?.TARGET_POINTS_OVERRIDE !== undefined && p.pm2_env.env?.TARGET_POINTS_OVERRIDE !== ""
                 ? p.pm2_env.env.TARGET_POINTS_OVERRIDE
                 : null,
+            // "fixed" default matches context.js's targetMode default — only
+            // meaningful when targetPoints (above) is unset, same rule
+            // engine.js/toolbox.js apply (a fixed points value always wins).
+            targetMode: p.pm2_env.env?.TARGET_MODE_OVERRIDE === "adaptive" ? "adaptive" : "fixed",
             // null = use engineConfig.BAND_STEP_DEFAULT, same as
             // context.bandStep's own default-when-unset behavior
             bandStep: p.pm2_env.env?.BAND_STEP_OVERRIDE !== undefined && p.pm2_env.env?.BAND_STEP_OVERRIDE !== ""
@@ -331,6 +335,9 @@ async function getEngineProcesses() {
             // ALMA_BAND_OVERRIDE only ever gets written when explicitly
             // turned off (see buildProcessEnv below).
             almaBandEnabled: p.pm2_env.env?.ALMA_BAND_OVERRIDE !== "false",
+            almaFastLen: p.pm2_env.env?.ALMA_FAST_LEN_OVERRIDE ? Number(p.pm2_env.env.ALMA_FAST_LEN_OVERRIDE) : null,
+            almaBandLen: p.pm2_env.env?.ALMA_BAND_LEN_OVERRIDE ? Number(p.pm2_env.env.ALMA_BAND_LEN_OVERRIDE) : null,
+            almaChopFilterEnabled: p.pm2_env.env?.ALMA_CHOP_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.ALMA_CHOP_FILTER_OVERRIDE === "true" : true,
             outLogPath: p.pm2_env.pm_out_log_path,
             errLogPath: p.pm2_env.pm_err_log_path,
         }));
@@ -351,9 +358,13 @@ function buildProcessEnv(p, overrides = {}) {
     if (p.lots !== "default") env.LOTS_OVERRIDE = String(p.lots);
     if (p.lotMult) env.LOTMULT_OVERRIDE = String(p.lotMult);
     if (p.targetPoints !== null && p.targetPoints !== undefined) env.TARGET_POINTS_OVERRIDE = String(p.targetPoints);
+    if (p.targetMode === "adaptive") env.TARGET_MODE_OVERRIDE = "adaptive";
     if (p.bandStep !== null && p.bandStep !== undefined) env.BAND_STEP_OVERRIDE = String(p.bandStep);
     if (p.greyExitEnabled !== undefined) env.GREY_EXIT_OVERRIDE = String(!!p.greyExitEnabled);
     if (p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false) env.ALMA_BAND_OVERRIDE = "false";
+    if (p.strategy === "ALMA_PRO_FAST" && p.almaFastLen) env.ALMA_FAST_LEN_OVERRIDE = String(p.almaFastLen);
+    if (p.strategy === "ALMA_PRO_FAST" && p.almaBandLen) env.ALMA_BAND_LEN_OVERRIDE = String(p.almaBandLen);
+    if ((p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && p.almaChopFilterEnabled === false) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
     return { ...env, ...overrides };
 }
 
@@ -566,6 +577,94 @@ app.post("/api/toolbox/mode", async (req, res) => {
     }
 });
 
+// ─── EDIT INSTRUMENT PARAMS — web equivalent of toolbox.js's
+// editInstrument(). Same restart-in-place mechanism as /api/toolbox/mode
+// above: fetch the process's own current values as defaults via
+// getEngineProcesses(), merge only the fields the client actually sent,
+// rebuild the FULL env through buildProcessEnv (never a partial patch —
+// see buildProcessEnv's own comment), pm2Restart. Only lots and the
+// strategy-specific fields toolbox.js's editInstrument also exposes are
+// accepted here — same scope, just reachable from the browser too.
+// Switching live/paper stays on /api/toolbox/mode above (separate
+// confirmLive requirement for going live — deliberately not folded in
+// here, so this route never needs that extra safety prompt).
+app.post("/api/toolbox/edit", async (req, res) => {
+    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled } = req.body || {};
+    if (!name) return res.status(400).json({ error: "name is required" });
+
+    try {
+        const procs = await getEngineProcesses();
+        const p = procs.find(x => x.name === name);
+        if (!p) return res.status(404).json({ error: "process not found" });
+
+        const updated = { ...p };
+
+        if (lots !== undefined && lots !== null && lots !== "") {
+            const parsedLots = Number(lots);
+            if (!Number.isFinite(parsedLots) || parsedLots <= 0) return res.status(400).json({ error: "invalid lots value" });
+            updated.lots = parsedLots;
+        }
+
+        // "0"/"clear" (string) resets to unset, same convention
+        // toolbox.js's editInstrument prompts use for these fields.
+        if (targetPoints !== undefined) {
+            if (targetPoints === null || targetPoints === "" || targetPoints === "0" || targetPoints === "clear") {
+                updated.targetPoints = null;
+            } else {
+                const parsedTarget = Number(targetPoints);
+                if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) return res.status(400).json({ error: "invalid targetPoints value" });
+                updated.targetPoints = parsedTarget;
+            }
+        }
+        if (targetMode !== undefined) updated.targetMode = targetMode === "adaptive" ? "adaptive" : "fixed";
+        if (updated.targetPoints !== null) updated.targetMode = "fixed"; // fixed points always wins, same rule as toolbox.js
+
+        if (bandStep !== undefined) {
+            if (bandStep === null || bandStep === "" || bandStep === "0" || bandStep === "clear") {
+                updated.bandStep = null;
+            } else {
+                const parsedStep = Number(bandStep);
+                if (!Number.isFinite(parsedStep) || parsedStep <= 0) return res.status(400).json({ error: "invalid bandStep value" });
+                updated.bandStep = parsedStep;
+            }
+        }
+        if (greyExitEnabled !== undefined) updated.greyExitEnabled = !!greyExitEnabled;
+        if (almaBandEnabled !== undefined) updated.almaBandEnabled = !!almaBandEnabled;
+        if (almaChopFilterEnabled !== undefined) updated.almaChopFilterEnabled = !!almaChopFilterEnabled;
+
+        if (almaFastLen !== undefined) {
+            if (almaFastLen === null || almaFastLen === "" || almaFastLen === "0" || almaFastLen === "clear") {
+                updated.almaFastLen = null;
+            } else {
+                const parsedFastLen = Number(almaFastLen);
+                if (!Number.isFinite(parsedFastLen) || parsedFastLen <= 0) return res.status(400).json({ error: "invalid almaFastLen value" });
+                updated.almaFastLen = parsedFastLen;
+            }
+        }
+        if (almaBandLen !== undefined) {
+            if (almaBandLen === null || almaBandLen === "" || almaBandLen === "0" || almaBandLen === "clear") {
+                updated.almaBandLen = null;
+            } else {
+                const parsedBandLen = Number(almaBandLen);
+                if (!Number.isFinite(parsedBandLen) || parsedBandLen <= 0) return res.status(400).json({ error: "invalid almaBandLen value" });
+                updated.almaBandLen = parsedBandLen;
+            }
+        }
+
+        await pm2RestartWithConfig({
+            script: "engine.js",
+            name: p.name,
+            cwd: ROOT,
+            updateEnv: true,
+            stop_exit_codes: [0],
+            env: buildProcessEnv(updated),
+        });
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ─── ADD INSTRUMENT — same discovery + resolve + start path as
 // toolbox.js's addInstrument/configureAndStartInstrument. ──────────────────
 app.get("/api/toolbox/strategies", (req, res) => {
@@ -619,7 +718,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, almaBandEnabled, bandStep, greyExitEnabled,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -672,8 +771,19 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         if (targetPoints !== undefined && targetPoints !== null && targetPoints !== "") {
             const parsedTarget = Number(targetPoints);
             if (Number.isFinite(parsedTarget) && parsedTarget > 0) env.TARGET_POINTS_OVERRIDE = String(parsedTarget);
+        } else if (targetMode === "adaptive") {
+            env.TARGET_MODE_OVERRIDE = "adaptive";
         }
         if (stratKey === "ALMA_PRO_FAST" && almaBandEnabled === false) env.ALMA_BAND_OVERRIDE = "false";
+        if (stratKey === "ALMA_PRO_FAST" && almaFastLen !== undefined && almaFastLen !== null && almaFastLen !== "") {
+            const parsedFastLen = Number(almaFastLen);
+            if (Number.isFinite(parsedFastLen) && parsedFastLen > 0) env.ALMA_FAST_LEN_OVERRIDE = String(parsedFastLen);
+        }
+        if (stratKey === "ALMA_PRO_FAST" && almaBandLen !== undefined && almaBandLen !== null && almaBandLen !== "") {
+            const parsedBandLen = Number(almaBandLen);
+            if (Number.isFinite(parsedBandLen) && parsedBandLen > 0) env.ALMA_BAND_LEN_OVERRIDE = String(parsedBandLen);
+        }
+        if ((stratKey === "ALMA_PRO_FAST" || stratKey === "ALMA_PRO_SLOW") && almaChopFilterEnabled === false) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
         if ((stratKey === "DYNAMIC_BAND" || stratKey === "DYNAMIC_MID_COLOR" || stratKey === "DYNAMIC_MID_COLOR_HL") && bandStep !== undefined && bandStep !== null && bandStep !== "") {
             const parsedStep = Number(bandStep);
             if (Number.isFinite(parsedStep) && parsedStep > 0) env.BAND_STEP_OVERRIDE = String(parsedStep);
