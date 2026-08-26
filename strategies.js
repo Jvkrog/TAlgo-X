@@ -4814,7 +4814,7 @@ function createAlmaProFastStrategy({ context, engineConfig, state, db, candles, 
 
         const chopArr = choppinessIndex(rawCandles, engineConfig.CHOP_LEN);
         const chopVal = chopArr[chopArr.length - 1];
-        const chopOk  = !engineConfig.USE_ALMA_PRO_FAST_CHOP_FILTER || (chopVal !== null && chopVal <= engineConfig.ALMA_PRO_FAST_CHOP_MAX);
+        const chopOk  = !(context.almaChopFilterEnabled ?? engineConfig.USE_ALMA_PRO_FAST_CHOP_FILTER) || (chopVal !== null && chopVal <= engineConfig.ALMA_PRO_FAST_CHOP_MAX);
 
         await runSignals(rawClose, prevState, newState, slAtrVal, chopOk);
     }
@@ -4995,7 +4995,7 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
 
         const chopArr = choppinessIndex(rawCandles, engineConfig.CHOP_LEN);
         const chopVal = chopArr[chopArr.length - 1];
-        const chopOk  = !engineConfig.USE_ALMA_PRO_SLOW_CHOP_FILTER || (chopVal !== null && chopVal <= engineConfig.ALMA_PRO_SLOW_CHOP_MAX);
+        const chopOk  = !(context.almaChopFilterEnabled ?? engineConfig.USE_ALMA_PRO_SLOW_CHOP_FILTER) || (chopVal !== null && chopVal <= engineConfig.ALMA_PRO_SLOW_CHOP_MAX);
 
         await runSignals(rawCandle.close, desiredSide, atrVal, currentState, chopOk);
     }
@@ -5080,8 +5080,8 @@ const STRATEGY_INFO = {
     DYNAMIC_MID_COLOR:    { label: "Dynamic Mid (Color-Coded, ATR SL)", description: "only the mid line is ever plotted (high/low are internal-only, never drawn); always-in-market — a breakout exits the current position and enters the opposite side same candle, no gap, adds an ATR trailing stop-loss and an optional fixed profit target; on every boot, replays preloaded history through the same band logic and places a real entry immediately if it implies one, same as the ALMA strategies entering at 9:15; tags every tick green/red (no white — color holds the last direction through any flat gap) by current position direction for dashboard color coding", short: "DMIDC" },
     DYNAMIC_MID_COLOR_HL: { label: "Dynamic Mid HL (Tight Continuation)", description: "variant of Dynamic Mid (Color-Coded) — identical in every respect except the band's continuation shift (extending further in the direction already held) uses this candle's HIGH while LONG / LOW while SHORT instead of close, trailing tighter behind the trend so the opposite-side reversal boundary is reached sooner; the reversal trigger itself and flat-state entries stay CLOSE-based, unchanged, to avoid a single wick alone flipping or opening a position", short: "DMIDHL" },
     ALMA_TRI_BAND:        { label: "ALMA Tri-Band Agreement", description: "fast ALMA (HA close) + ALMA(high)/ALMA(low) bands driven by one shared bull/bear/grey state (green/red/grey), with big-candle and band-compression filters forcing grey; enters/exits on state flips, reverses immediately on the opposite decisive color; grey behavior while a position is open is configurable per instrument \u2014 exit flat or hold through it (default: hold); adds an ATR trailing stop and optional fixed target, neither present in the original indicator", short: "ATRIB" },
-    ALMA_PRO_FAST:        { label: "ALMA Pro \u2014 Fast Engine", description: "the FAST half of strategy #17 (\"TAlgo \u2014 Pro Engine\"): fast ALMA (HA close) + ALMA(high)/ALMA(low) band, band-compression forces sideways/flat, slope+breakout confirm entries; band gate toggleable per instrument (default ON, OFF trades on slope alone), fast/band ALMA lengths also configurable per instrument (default 20/50); Choppiness Index entry gate added (not in the original); run alongside ALMA_PRO_SLOW on a DIFFERENT underlying (e.g. the mini contract) for a genuine dual-engine setup \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APF" },
-    ALMA_PRO_SLOW:        { label: "ALMA Pro \u2014 Slow Engine", description: "the SLOW half of strategy #17: single slow ALMA(100) on HA close, entry LEVEL-based on the line's own current slope direction (deadband-filtered, same whipsaw control ALMA_FAST uses) \u2014 no band/breakout confirmation, that's the fast engine's job; Choppiness Index entry gate added (not in the original); run alongside ALMA_PRO_FAST on a DIFFERENT underlying (e.g. the full-lot contract) \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APS" },
+    ALMA_PRO_FAST:        { label: "ALMA Pro \u2014 Fast Engine", description: "the FAST half of strategy #17 (\"TAlgo \u2014 Pro Engine\"): fast ALMA (HA close) + ALMA(high)/ALMA(low) band, band-compression forces sideways/flat, slope+breakout confirm entries; band gate toggleable per instrument (default ON, OFF trades on slope alone), fast/band ALMA lengths also configurable per instrument (default 20/50); Choppiness Index entry filter toggleable per instrument (default ON, not in the original); run alongside ALMA_PRO_SLOW on a DIFFERENT underlying (e.g. the mini contract) for a genuine dual-engine setup \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APF" },
+    ALMA_PRO_SLOW:        { label: "ALMA Pro \u2014 Slow Engine", description: "the SLOW half of strategy #17: single slow ALMA(100) on HA close, entry LEVEL-based on the line's own current slope direction (deadband-filtered, same whipsaw control ALMA_FAST uses) \u2014 no band/breakout confirmation, that's the fast engine's job; Choppiness Index entry filter toggleable per instrument (default ON, not in the original); run alongside ALMA_PRO_FAST on a DIFFERENT underlying (e.g. the full-lot contract) \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APS" },
 };
 
 // Each strategy's live/paper candle interval — this is a property of the

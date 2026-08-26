@@ -216,6 +216,14 @@ function buildContext(def, resolvedContract) {
         // matters while almaBandEnabled is true.
         almaFastLen: null,
         almaBandLen: null,
+        // Overridden per-process by engine.js from ALMA_CHOP_FILTER_OVERRIDE
+        // (toolbox prompt, asked only when ALMA_PRO_FAST or ALMA_PRO_SLOW is
+        // picked — one shared field since a process only ever runs one of
+        // the two). null (not a literal default) — createAlmaProFastStrategy/
+        // createAlmaProSlowStrategy fall back to engineConfig.USE_ALMA_PRO_
+        // FAST_CHOP_FILTER / USE_ALMA_PRO_SLOW_CHOP_FILTER themselves when
+        // unset, same reasoning bandStep/almaFastLen above are null for.
+        almaChopFilterEnabled: null,
     };
 }
 

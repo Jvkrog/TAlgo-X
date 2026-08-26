@@ -249,6 +249,18 @@ async function main() {
         console.log(c.dim(`[${context.tgPrefix}] ALMA config: fast=${context.almaFastLen ?? engineConfig.ALMA_PRO_FAST_LEN}  band=${context.almaBandLen ?? engineConfig.ALMA_PRO_BAND_LEN}`));
     }
 
+    // Chop filter toggle — only meaningful for ALMA_PRO_FAST/ALMA_PRO_SLOW,
+    // read unconditionally same as everything else here. null (unset) when
+    // no override is given — both strategies fall back to their own
+    // engineConfig USE_ALMA_PRO_*_CHOP_FILTER default (true) themselves.
+    if (process.env.ALMA_CHOP_FILTER_OVERRIDE !== undefined && process.env.ALMA_CHOP_FILTER_OVERRIDE !== "") {
+        context.almaChopFilterEnabled = process.env.ALMA_CHOP_FILTER_OVERRIDE === "true";
+    }
+    if (context.strategy === "ALMA_PRO_FAST" || context.strategy === "ALMA_PRO_SLOW") {
+        const chopResolved = context.almaChopFilterEnabled ?? (context.strategy === "ALMA_PRO_FAST" ? engineConfig.USE_ALMA_PRO_FAST_CHOP_FILTER : engineConfig.USE_ALMA_PRO_SLOW_CHOP_FILTER);
+        console.log(c.dim(`[${context.tgPrefix}] chop filter: ${chopResolved ? "ON" : c.yellow("off — no chop gate on entries")}`));
+    }
+
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
 
