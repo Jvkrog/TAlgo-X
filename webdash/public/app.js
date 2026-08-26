@@ -863,6 +863,7 @@ function renderToolboxList() {
         <span class="status-pill ${inst.status === "online" ? "online" : "offline"}">${inst.status}</span>
         <span class="mode-pill ${inst.live ? "live" : ""}">${inst.live ? "live" : "paper"}</span>
       </div>
+      <button class="tb-row-edit" data-name="${inst.name}">edit</button>
       <button class="tb-row-logs" data-name="${inst.name}">logs</button>
     `;
     toolboxList.appendChild(row);
@@ -918,6 +919,133 @@ toolboxList.addEventListener("click", e => {
   if (!btn) return;
   openLogsModal(btn.dataset.name);
 });
+
+// ── edit params modal ──────────────────────────────────────────────────
+toolboxList.addEventListener("click", e => {
+  const btn = e.target.closest(".tb-row-edit");
+  if (!btn) return;
+  const inst = toolboxInstruments.find(i => i.name === btn.dataset.name);
+  if (inst) openEditModal(inst);
+});
+
+const tbEditModal = document.getElementById("tbEditModal");
+const tbEditTitle = document.getElementById("tbEditTitle");
+const tbEditBody = document.getElementById("tbEditBody");
+const tbEditClose = document.getElementById("tbEditClose");
+
+// openEditModal(inst) — web equivalent of toolbox.js's editInstrument().
+// Same field set, same strategy-gating, same "blank = keep, 0/clear =
+// reset to default" convention for the numeric fields. inst comes straight
+// from toolboxInstruments (== getEngineProcesses() output via /api/instruments),
+// so every field this needs (lots, targetPoints, targetMode, bandStep,
+// greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen,
+// almaChopFilterEnabled, strategy) is already there — no extra fetch.
+function openEditModal(inst) {
+  tbEditTitle.textContent = `${inst.underlying} — ${inst.strategy}`;
+
+  const isAlmaProFast = inst.strategy === "ALMA_PRO_FAST";
+  const isAlmaProSlow = inst.strategy === "ALMA_PRO_SLOW";
+  const isDynamicBand = inst.strategy === "DYNAMIC_BAND" || inst.strategy === "DYNAMIC_MID_COLOR" || inst.strategy === "DYNAMIC_MID_COLOR_HL";
+  const isAlmaTriBand = inst.strategy === "ALMA_TRI_BAND";
+
+  tbEditBody.innerHTML = `
+    <div class="tb-form-row">
+      <div class="tb-form-label">lots</div>
+      <input type="number" id="editLots" value="${inst.lots === "default" ? 1 : inst.lots}" min="1" step="1">
+    </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">profit target in points (blank = none, "0"/"clear" to remove)</div>
+      <input type="number" id="editTarget" min="0" step="any" value="${inst.targetPoints !== null && inst.targetPoints !== undefined ? inst.targetPoints : ""}">
+    </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editAdaptive" ${inst.targetMode === "adaptive" ? "checked" : ""}><span>use adaptive target sizing instead (CHOP + DPI efficiency) — only applies while the fixed target above is blank</span></label>
+    </div>
+    <div class="tb-form-row" style="${isAlmaProFast ? "" : "display:none"}">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editAlmaBand" ${inst.almaBandEnabled !== false ? "checked" : ""}><span>use ALMA band gate</span></label>
+    </div>
+    <div class="tb-form-row" style="${isAlmaProFast ? "" : "display:none"}">
+      <div class="tb-form-label">fast ALMA length (blank = keep, "0"/"clear" = reset to default)</div>
+      <input type="number" id="editAlmaFastLen" min="1" step="1" value="${inst.almaFastLen ?? ""}">
+    </div>
+    <div class="tb-form-row" id="editAlmaBandLenRow" style="${isAlmaProFast && inst.almaBandEnabled !== false ? "" : "display:none"}">
+      <div class="tb-form-label">band ALMA length (blank = keep, "0"/"clear" = reset to default)</div>
+      <input type="number" id="editAlmaBandLen" min="1" step="1" value="${inst.almaBandLen ?? ""}">
+    </div>
+    <div class="tb-form-row" style="${(isAlmaProFast || isAlmaProSlow) ? "" : "display:none"}">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editAlmaChop" ${inst.almaChopFilterEnabled !== false ? "checked" : ""}><span>use Choppiness Index entry filter</span></label>
+    </div>
+    <div class="tb-form-row" style="${isDynamicBand ? "" : "display:none"}">
+      <div class="tb-form-label">band step in price points (blank = keep, "0"/"clear" = reset to default)</div>
+      <input type="number" id="editBandStep" min="0" step="any" value="${inst.bandStep ?? ""}">
+    </div>
+    <div class="tb-form-row" style="${isAlmaTriBand ? "" : "display:none"}">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editGreyExit" ${inst.greyExitEnabled ? "checked" : ""}><span>exit on grey state instead of holding through it</span></label>
+    </div>
+    <div id="editErrBox"></div>
+    <button class="tb-submit-btn" id="editSubmit">save changes (restarts the process)</button>
+  `;
+  tbEditModal.classList.add("open");
+
+  if (isAlmaProFast) {
+    const bandCheck = tbEditBody.querySelector("#editAlmaBand");
+    const bandLenRow = tbEditBody.querySelector("#editAlmaBandLenRow");
+    bandCheck.addEventListener("change", e => {
+      bandLenRow.style.display = e.target.checked ? "" : "none";
+    });
+  }
+
+  const submitBtn = tbEditBody.querySelector("#editSubmit");
+  const errBox = tbEditBody.querySelector("#editErrBox");
+  submitBtn.addEventListener("click", async () => {
+    submitBtn.disabled = true;
+    submitBtn.textContent = "...";
+    errBox.textContent = "";
+
+    const body = {
+      name: inst.name,
+      lots: tbEditBody.querySelector("#editLots").value,
+      targetPoints: tbEditBody.querySelector("#editTarget").value || null,
+      targetMode: tbEditBody.querySelector("#editAdaptive").checked ? "adaptive" : "fixed",
+    };
+    if (isAlmaProFast) {
+      body.almaBandEnabled = tbEditBody.querySelector("#editAlmaBand").checked;
+      body.almaFastLen = tbEditBody.querySelector("#editAlmaFastLen").value || undefined;
+      body.almaBandLen = tbEditBody.querySelector("#editAlmaBandLen").value || undefined;
+    }
+    if (isAlmaProFast || isAlmaProSlow) {
+      body.almaChopFilterEnabled = tbEditBody.querySelector("#editAlmaChop").checked;
+    }
+    if (isDynamicBand) {
+      body.bandStep = tbEditBody.querySelector("#editBandStep").value || null;
+    }
+    if (isAlmaTriBand) {
+      body.greyExitEnabled = tbEditBody.querySelector("#editGreyExit").checked;
+    }
+
+    try {
+      const res = await fetch("/api/toolbox/edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errBox.textContent = data.error || "failed to save";
+        submitBtn.disabled = false;
+        submitBtn.textContent = "save changes (restarts the process)";
+        return;
+      }
+      tbEditModal.classList.remove("open");
+      loadToolboxList();
+    } catch (err) {
+      errBox.textContent = err.message;
+      submitBtn.disabled = false;
+      submitBtn.textContent = "save changes (restarts the process)";
+    }
+  });
+}
+tbEditClose.addEventListener("click", () => tbEditModal.classList.remove("open"));
+tbEditModal.addEventListener("click", e => { if (e.target === tbEditModal) tbEditModal.classList.remove("open"); });
 
 async function openLogsModal(name) {
   tbLogsTitle.textContent = `${name} — logs`;
@@ -1152,6 +1280,17 @@ function renderAddConfigStep() {
     <div class="tb-form-row" id="addAlmaBandRow" style="display:none">
       <label class="tb-form-row-inline"><input type="checkbox" id="addAlmaBand" checked><span>use ALMA band gate (ALMA_PRO_FAST only, default: ON)</span></label>
     </div>
+    <div class="tb-form-row" id="addAlmaFastLenRow" style="display:none">
+      <div class="tb-form-label">fast ALMA length (ALMA_PRO_FAST only, blank = default)</div>
+      <input type="number" id="addAlmaFastLen" min="1" step="1">
+    </div>
+    <div class="tb-form-row" id="addAlmaBandLenRow" style="display:none">
+      <div class="tb-form-label">band ALMA length (ALMA_PRO_FAST only, blank = default)</div>
+      <input type="number" id="addAlmaBandLen" min="1" step="1">
+    </div>
+    <div class="tb-form-row" id="addAlmaChopRow" style="display:none">
+      <label class="tb-form-row-inline"><input type="checkbox" id="addAlmaChop" checked><span>use Choppiness Index entry filter (ALMA_PRO_FAST/ALMA_PRO_SLOW only, default: ON)</span></label>
+    </div>
     <div class="tb-form-row" id="addBandStepRow" style="display:none">
       <div class="tb-form-label">band step in price points (DYNAMIC_BAND only, blank = default)</div>
       <input type="number" id="addBandStep" min="0" step="any">
@@ -1167,6 +1306,9 @@ function renderAddConfigStep() {
   let pickedStrategy = defaultStrat;
   const stratList = tbAddBody.querySelector("#addStrategyList");
   const almaBandRow = tbAddBody.querySelector("#addAlmaBandRow");
+  const almaFastLenRow = tbAddBody.querySelector("#addAlmaFastLenRow");
+  const almaBandLenRow = tbAddBody.querySelector("#addAlmaBandLenRow");
+  const almaChopRow = tbAddBody.querySelector("#addAlmaChopRow");
   const bandStepRow = tbAddBody.querySelector("#addBandStepRow");
   const greyExitRow = tbAddBody.querySelector("#addGreyExitRow");
   strategies.forEach(s => {
@@ -1179,10 +1321,20 @@ function renderAddConfigStep() {
       div.classList.add("picked");
       updateTimeframeOptions(s.timeframe);
       almaBandRow.style.display = s.key === "ALMA_PRO_FAST" ? "" : "none";
+      almaFastLenRow.style.display = s.key === "ALMA_PRO_FAST" ? "" : "none";
+      almaBandLenRow.style.display = (s.key === "ALMA_PRO_FAST" && tbAddBody.querySelector("#addAlmaBand").checked) ? "" : "none";
+      almaChopRow.style.display = (s.key === "ALMA_PRO_FAST" || s.key === "ALMA_PRO_SLOW") ? "" : "none";
       bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_MID_COLOR" || s.key === "DYNAMIC_MID_COLOR_HL") ? "" : "none";
       greyExitRow.style.display = s.key === "ALMA_TRI_BAND" ? "" : "none";
     });
     stratList.appendChild(div);
+  });
+  // Band length row also depends on the band-gate checkbox itself (only
+  // meaningful while the gate is on) — separate listener, not just the
+  // per-strategy click handler above, so toggling the checkbox alone
+  // (without changing strategy) updates its visibility too.
+  tbAddBody.querySelector("#addAlmaBand").addEventListener("change", e => {
+    almaBandLenRow.style.display = (pickedStrategy === "ALMA_PRO_FAST" && e.target.checked) ? "" : "none";
   });
 
   const tfSelect = tbAddBody.querySelector("#addTimeframe");
@@ -1199,6 +1351,9 @@ function renderAddConfigStep() {
   const defStratInfo = strategies.find(s => s.key === defaultStrat);
   updateTimeframeOptions(defStratInfo ? defStratInfo.timeframe : "15m");
   almaBandRow.style.display = defaultStrat === "ALMA_PRO_FAST" ? "" : "none";
+  almaFastLenRow.style.display = defaultStrat === "ALMA_PRO_FAST" ? "" : "none";
+  almaBandLenRow.style.display = defaultStrat === "ALMA_PRO_FAST" ? "" : "none";
+  almaChopRow.style.display = (defaultStrat === "ALMA_PRO_FAST" || defaultStrat === "ALMA_PRO_SLOW") ? "" : "none";
 
   const modeBtns = tbAddBody.querySelectorAll("#addModeChoice button");
   const confirmLiveBox = tbAddBody.querySelector("#addConfirmLive");
@@ -1240,6 +1395,9 @@ function renderAddConfigStep() {
         timeframe: tfSelect.value,
         targetPoints: tbAddBody.querySelector("#addTarget").value || undefined,
         almaBandEnabled: pickedStrategy === "ALMA_PRO_FAST" ? tbAddBody.querySelector("#addAlmaBand").checked : undefined,
+        almaFastLen: pickedStrategy === "ALMA_PRO_FAST" ? (tbAddBody.querySelector("#addAlmaFastLen").value || undefined) : undefined,
+        almaBandLen: pickedStrategy === "ALMA_PRO_FAST" ? (tbAddBody.querySelector("#addAlmaBandLen").value || undefined) : undefined,
+        almaChopFilterEnabled: (pickedStrategy === "ALMA_PRO_FAST" || pickedStrategy === "ALMA_PRO_SLOW") ? tbAddBody.querySelector("#addAlmaChop").checked : undefined,
         bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || pickedStrategy === "DYNAMIC_MID_COLOR_HL") ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
         greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
       };
