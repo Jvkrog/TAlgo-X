@@ -981,6 +981,10 @@ function openEditModal(inst) {
     <div class="tb-form-row" style="${isAlmaTriBand ? "" : "display:none"}">
       <label class="tb-form-row-inline"><input type="checkbox" id="editGreyExit" ${inst.greyExitEnabled ? "checked" : ""}><span>exit on grey state instead of holding through it</span></label>
     </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">max daily loss in rupees (blank = no floor)</div>
+      <input type="number" id="editMaxDailyLoss" min="0" step="any" value="${inst.maxDailyLoss ?? ""}">
+    </div>
     <div id="editErrBox"></div>
     <button class="tb-submit-btn" id="editSubmit">save changes (restarts the process)</button>
   `;
@@ -1021,6 +1025,7 @@ function openEditModal(inst) {
     if (isAlmaTriBand) {
       body.greyExitEnabled = tbEditBody.querySelector("#editGreyExit").checked;
     }
+    body.maxDailyLoss = tbEditBody.querySelector("#editMaxDailyLoss").value || null;
 
     try {
       const res = await fetch("/api/toolbox/edit", {
@@ -1298,6 +1303,10 @@ function renderAddConfigStep() {
     <div class="tb-form-row" id="addGreyExitRow" style="display:none">
       <label class="tb-form-row-inline"><input type="checkbox" id="addGreyExit"><span>exit on grey state instead of holding through it (ALMA_TRI_BAND only, default: hold)</span></label>
     </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">max daily loss in rupees, quits for the day if breached (blank = no floor)</div>
+      <input type="number" id="addMaxDailyLoss" min="0" step="any">
+    </div>
     <div id="addErrBox"></div>
     <button class="tb-submit-btn" id="addSubmit">start instrument</button>
   `;
@@ -1398,6 +1407,7 @@ function renderAddConfigStep() {
         almaFastLen: pickedStrategy === "ALMA_PRO_FAST" ? (tbAddBody.querySelector("#addAlmaFastLen").value || undefined) : undefined,
         almaBandLen: pickedStrategy === "ALMA_PRO_FAST" ? (tbAddBody.querySelector("#addAlmaBandLen").value || undefined) : undefined,
         almaChopFilterEnabled: (pickedStrategy === "ALMA_PRO_FAST" || pickedStrategy === "ALMA_PRO_SLOW") ? tbAddBody.querySelector("#addAlmaChop").checked : undefined,
+        maxDailyLoss: tbAddBody.querySelector("#addMaxDailyLoss").value || undefined,
         bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || pickedStrategy === "DYNAMIC_MID_COLOR_HL") ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
         greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
       };
