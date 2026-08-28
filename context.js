@@ -224,6 +224,19 @@ function buildContext(def, resolvedContract) {
         // FAST_CHOP_FILTER / USE_ALMA_PRO_SLOW_CHOP_FILTER themselves when
         // unset, same reasoning bandStep/almaFastLen above are null for.
         almaChopFilterEnabled: null,
+        // Overridden per-process by engine.js from MAX_DAILY_LOSS_OVERRIDE
+        // (toolbox prompt, asked for every strategy — not strategy-specific
+        // like almaChopFilterEnabled above). null (default) = disabled, no
+        // floor at all — today's original behavior. A positive number is a
+        // RUPEE loss amount: once today's cumulative realized P&L
+        // (state.pnl) drops to or below -maxDailyLoss, candlePoll.js's
+        // checkDailyLoss() force-closes any open position and quits for
+        // the day (same PM2 stop_exit_codes:[0] mechanism the target-hit
+        // cooldown and EOD shutdown both already use). Independent of
+        // target hits — this fires on ANY exit reason (SL, target,
+        // strategy-driven reversal) that pushes the day past the floor,
+        // not just target hits.
+        maxDailyLoss: null,
     };
 }
 
