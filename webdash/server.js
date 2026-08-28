@@ -338,6 +338,7 @@ async function getEngineProcesses() {
             almaFastLen: p.pm2_env.env?.ALMA_FAST_LEN_OVERRIDE ? Number(p.pm2_env.env.ALMA_FAST_LEN_OVERRIDE) : null,
             almaBandLen: p.pm2_env.env?.ALMA_BAND_LEN_OVERRIDE ? Number(p.pm2_env.env.ALMA_BAND_LEN_OVERRIDE) : null,
             almaChopFilterEnabled: p.pm2_env.env?.ALMA_CHOP_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.ALMA_CHOP_FILTER_OVERRIDE === "true" : true,
+            maxDailyLoss: p.pm2_env.env?.MAX_DAILY_LOSS_OVERRIDE ? Number(p.pm2_env.env.MAX_DAILY_LOSS_OVERRIDE) : null,
             outLogPath: p.pm2_env.pm_out_log_path,
             errLogPath: p.pm2_env.pm_err_log_path,
         }));
@@ -365,6 +366,7 @@ function buildProcessEnv(p, overrides = {}) {
     if (p.strategy === "ALMA_PRO_FAST" && p.almaFastLen) env.ALMA_FAST_LEN_OVERRIDE = String(p.almaFastLen);
     if (p.strategy === "ALMA_PRO_FAST" && p.almaBandLen) env.ALMA_BAND_LEN_OVERRIDE = String(p.almaBandLen);
     if ((p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && p.almaChopFilterEnabled === false) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
+    if (p.maxDailyLoss) env.MAX_DAILY_LOSS_OVERRIDE = String(p.maxDailyLoss);
     return { ...env, ...overrides };
 }
 
@@ -589,7 +591,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -631,6 +633,16 @@ app.post("/api/toolbox/edit", async (req, res) => {
         if (greyExitEnabled !== undefined) updated.greyExitEnabled = !!greyExitEnabled;
         if (almaBandEnabled !== undefined) updated.almaBandEnabled = !!almaBandEnabled;
         if (almaChopFilterEnabled !== undefined) updated.almaChopFilterEnabled = !!almaChopFilterEnabled;
+
+        if (maxDailyLoss !== undefined) {
+            if (maxDailyLoss === null || maxDailyLoss === "" || maxDailyLoss === "0" || maxDailyLoss === "clear") {
+                updated.maxDailyLoss = null;
+            } else {
+                const parsedLoss = Number(maxDailyLoss);
+                if (!Number.isFinite(parsedLoss) || parsedLoss <= 0) return res.status(400).json({ error: "invalid maxDailyLoss value" });
+                updated.maxDailyLoss = parsedLoss;
+            }
+        }
 
         if (almaFastLen !== undefined) {
             if (almaFastLen === null || almaFastLen === "" || almaFastLen === "0" || almaFastLen === "clear") {
@@ -718,7 +730,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -784,6 +796,10 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             if (Number.isFinite(parsedBandLen) && parsedBandLen > 0) env.ALMA_BAND_LEN_OVERRIDE = String(parsedBandLen);
         }
         if ((stratKey === "ALMA_PRO_FAST" || stratKey === "ALMA_PRO_SLOW") && almaChopFilterEnabled === false) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
+        if (maxDailyLoss !== undefined && maxDailyLoss !== null && maxDailyLoss !== "") {
+            const parsedLoss = Number(maxDailyLoss);
+            if (Number.isFinite(parsedLoss) && parsedLoss > 0) env.MAX_DAILY_LOSS_OVERRIDE = String(parsedLoss);
+        }
         if ((stratKey === "DYNAMIC_BAND" || stratKey === "DYNAMIC_MID_COLOR" || stratKey === "DYNAMIC_MID_COLOR_HL") && bandStep !== undefined && bandStep !== null && bandStep !== "") {
             const parsedStep = Number(bandStep);
             if (Number.isFinite(parsedStep) && parsedStep > 0) env.BAND_STEP_OVERRIDE = String(parsedStep);
