@@ -138,6 +138,7 @@ async function getEngineProcesses() {
             almaFastLen: p.pm2_env.env?.ALMA_FAST_LEN_OVERRIDE ? Number(p.pm2_env.env.ALMA_FAST_LEN_OVERRIDE) : null,
             almaBandLen: p.pm2_env.env?.ALMA_BAND_LEN_OVERRIDE ? Number(p.pm2_env.env.ALMA_BAND_LEN_OVERRIDE) : null,
             almaChopFilterEnabled: p.pm2_env.env?.ALMA_CHOP_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.ALMA_CHOP_FILTER_OVERRIDE === "true" : true,
+            maxDailyLoss: p.pm2_env.env?.MAX_DAILY_LOSS_OVERRIDE ? Number(p.pm2_env.env.MAX_DAILY_LOSS_OVERRIDE) : null,
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -400,6 +401,7 @@ function buildProcessEnv(p, overrides = {}) {
     if (p.strategy === "ALMA_PRO_FAST" && p.almaFastLen) env.ALMA_FAST_LEN_OVERRIDE = String(p.almaFastLen);
     if (p.strategy === "ALMA_PRO_FAST" && p.almaBandLen) env.ALMA_BAND_LEN_OVERRIDE = String(p.almaBandLen);
     if ((p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && p.almaChopFilterEnabled === false) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
+    if (p.maxDailyLoss) env.MAX_DAILY_LOSS_OVERRIDE = String(p.maxDailyLoss);
     return { ...env, ...overrides };
 }
 
@@ -579,7 +581,25 @@ async function editInstrument(procs) {
             if (chopFilterInput) almaChopFilterEnabled = chopFilterInput !== "N";
         }
 
-        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled };
+        // Max daily loss circuit breaker — universal. "0"/"clear" removes
+        // the floor entirely; blank keeps whatever's currently set.
+        const maxDailyLossDefault = p.maxDailyLoss !== null ? String(p.maxDailyLoss) : "none";
+        const maxDailyLossInput = (await ask(`  max daily loss in rupees (current: ${maxDailyLossDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
+        let maxDailyLoss = p.maxDailyLoss;
+        if (maxDailyLossInput) {
+            if (maxDailyLossInput === "0" || maxDailyLossInput.toLowerCase() === "clear") {
+                maxDailyLoss = null;
+            } else {
+                const parsedLoss = Number(maxDailyLossInput);
+                if (!Number.isFinite(parsedLoss) || parsedLoss <= 0) {
+                    console.log(c.yellow(`  "${maxDailyLossInput}" isn't a valid positive number — daily loss floor left unchanged (${maxDailyLossDefault})`));
+                } else {
+                    maxDailyLoss = parsedLoss;
+                }
+            }
+        }
+
+        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -784,6 +804,23 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         almaChopFilterEnabled = chopFilterInput !== "N";
     }
 
+    // Max daily loss circuit breaker — universal, every strategy. Blank =
+    // disabled, no floor (today's original behavior). Once today's
+    // cumulative realized P&L drops to or below -this amount, candlePoll.js's
+    // checkDailyLoss() force-closes any open position and quits for the
+    // day — independent of target hits, fires on ANY exit reason that
+    // pushes the day past the floor (SL, target, reversal).
+    let maxDailyLoss = null;
+    const maxDailyLossInput = (await ask(`  max daily loss in rupees, quits for the day if breached (blank = no floor): `)).trim();
+    if (maxDailyLossInput) {
+        const parsedLoss = Number(maxDailyLossInput);
+        if (!Number.isFinite(parsedLoss) || parsedLoss <= 0) {
+            console.log(c.yellow(`  "${maxDailyLossInput}" isn't a valid positive number — starting with no daily loss floor instead`));
+        } else {
+            maxDailyLoss = parsedLoss;
+        }
+    }
+
     // Band step — only meaningful for DYNAMIC_BAND / DYNAMIC_MID_COLOR,
     // only asked when one of those is the strategy picked. Fixed PRICE
     // distance, not ATR-derived — see createDynamicBandStrategy /
@@ -861,6 +898,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if ((strategy === "ALMA_PRO_FAST" || strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
     if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
     if (strategy === "ALMA_TRI_BAND" && greyExitEnabled !== null) env.GREY_EXIT_OVERRIDE = String(greyExitEnabled);
+    if (maxDailyLoss !== null) env.MAX_DAILY_LOSS_OVERRIDE = String(maxDailyLoss);
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name, cwd: __dirname, env });
         const modeTag = isLive ? c.red("LIVE") : c.cyan("PAPER");
@@ -874,7 +912,8 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const almaChopTag = (strategy === "ALMA_PRO_FAST" || strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
         const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
         const greyExitTag = strategy === "ALMA_TRI_BAND" ? c.yellow(` grey:${(greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT) ? "exit" : "hold"}`) : "";
-        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${almaLenTag}${almaChopTag}${bandStepTag}${greyExitTag}`));
+        const maxLossTag = maxDailyLoss !== null ? c.yellow(` maxLoss:-₹${maxDailyLoss}`) : "";
+        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${almaLenTag}${almaChopTag}${bandStepTag}${greyExitTag}${maxLossTag}`));
     } catch (err) {
         console.log(c.red(`  failed to start ${name}: ${err.message}`));
     }
