@@ -26,6 +26,8 @@ const c  = require("./c");
 const { TIMEFRAME_TO_INTERVAL, TIMEFRAME_MINUTES } = require("./historicalFetch");
 const { toHA, atrSeries, dpi, choppinessIndex } = require("./indicators");
 const { selectAdaptiveTarget } = require("./adaptiveTarget");
+const { pnlStr } = require("./positions");
+const { emitEvent } = require("./eventBridge"); // web dashboard only, see eventBridge.js header
 
 function createCandlePoll({ context, engineConfig, state, candles, slStore, targetStore, orders, positionsClose, processCandle, db, tg }) {
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
@@ -177,23 +179,83 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                     slStore.clearTrail();
                     targetStore.clearTarget();
 
-                    // Target hit — day's done, quit for the rest of the
-                    // session (cooldown) instead of continuing to run flat
-                    // and re-arming on the next entry. exit(0) is a clean
-                    // exit code, which PM2_BASE_OPTS (toolbox.js) is
-                    // configured to NOT autorestart — same mechanism the
-                    // EOD shutdown in lifecycle.js relies on. Send the
-                    // Telegram confirmation first and give it a moment to
-                    // actually flush before killing the process.
-                    await tg(`✅ Target reached — cooling down for the day [${context.tgPrefix}]`);
-                    console.log(c.bold("*** TARGET HIT — COOLDOWN, DONE FOR THE DAY ***"));
-                    setTimeout(() => process.exit(0), 2000);
+                    // Target hit — day's done ONLY if today's cumulative
+                    // realized P&L (state.pnl, updated synchronously by
+                    // positionsClose above) is net non-negative. A target
+                    // hit is just one winning TRADE — if an earlier loss
+                    // this session still leaves the day net negative, the
+                    // old unconditional quit-here would end the day locked
+                    // into that loss with no chance to recover it: a real
+                    // case of this happening is what prompted this check
+                    // (target hit closed flat, but state.pnl for the day
+                    // was still -550 — quitting right there just locked
+                    // in the loss instead of letting the day continue).
+                    // Continuing (no exit) resumes exactly like any other
+                    // clean exit — checkTarget re-arms on the next entry,
+                    // same as it always does when no cooldown is active.
+                    if (state.pnl >= 0) {
+                        await tg(`✅ Target reached — day net ${state.pnl >= 0 ? "+" : ""}${state.pnl.toFixed(2)}, cooling down for the day [${context.tgPrefix}]`);
+                        console.log(c.bold(`*** TARGET HIT — DAY NET +${state.pnl.toFixed(2)} — COOLDOWN, DONE FOR THE DAY ***`));
+                        setTimeout(() => process.exit(0), 2000);
+                    } else {
+                        tg(`🎯 Target hit, but day is still net ${state.pnl.toFixed(2)} — continuing to trade [${context.tgPrefix}]`);
+                        console.log(c.yellow(`*** TARGET HIT — day net ${state.pnl.toFixed(2)}, still recovering — continuing ***`));
+                    }
                 }
             }
         }
     }
 
-    // ─── FETCH LAST COMPLETED CANDLE from API ────────────────────────────────
+    // ─── DAILY LOSS CIRCUIT BREAKER — every WebSocket tick ───────────────────
+    // Independent of target/SL — this only cares about today's cumulative
+    // REALIZED P&L (state.pnl), which every exit path in this codebase
+    // already keeps current via positions.js's positionsClose (SL exits,
+    // target exits, strategy-driven reversals, EOD force-close — all of
+    // them). Fires once, the moment state.pnl drops to or at-or-below
+    // -context.maxDailyLoss: force-closes any open position (same
+    // awaitFill:true force-exit shape lifecycle.js's EOD shutdown already
+    // uses, so a slow/failed broker fill can't race the process exiting),
+    // then quits for the day via the same process.exit(0) + PM2
+    // stop_exit_codes:[0] mechanism the target-hit cooldown and EOD
+    // shutdown both already rely on. No-op entirely when
+    // context.maxDailyLoss is unset (null) — today's original
+    // no-floor-at-all behavior, unchanged unless explicitly configured.
+    let dailyLossShutdownDone = false; // guards against firing twice across ticks that arrive before process.exit actually lands
+    async function checkDailyLoss(price) {
+        if (!context.maxDailyLoss || dailyLossShutdownDone) return;
+        if (state.pnl > -context.maxDailyLoss) return;
+
+        dailyLossShutdownDone = true;
+        console.log();
+        console.log(c.red(`*** MAX DAILY LOSS BREACHED — day net ${pnlStr(state.pnl)}, floor -₹${context.maxDailyLoss} — FORCE CLOSING & SHUTTING DOWN ***`));
+
+        if (state.position && !price) {
+            console.error(c.red("DAILY LOSS  no live price — force close skipped"));
+            await tg(`⚠ [${context.tgPrefix}] Daily loss floor breached but no live price — force close skipped, position left open`);
+        } else if (state.position) {
+            const closed = await orders.exit(state.position, { awaitFill: true });
+            if (engineConfig.LIVE_ORDERS && closed === null) {
+                console.error(c.red(`DAILY LOSS  [${context.tgPrefix}] exit order FAILED — position left open, NOT marked closed`));
+                await tg(`⚠ [${context.tgPrefix}] Daily loss floor breached, exit order FAILED\nPosition still open — verify broker position manually.`);
+            } else {
+                await positionsClose(price, "MAX_DAILY_LOSS");
+                slStore.clearTrail();
+                targetStore.clearTarget();
+                db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+            }
+        } else {
+            db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+        }
+
+        emitEvent(context.tgPrefix, "SHUTDOWN", {
+            pnl: state.pnl, reason: "MAX_DAILY_LOSS", positionLeftOpen: !!state.position,
+        });
+
+        await tg(`🛑 [${context.tgPrefix}] MAX DAILY LOSS breached — day net ${pnlStr(state.pnl)} (floor -₹${context.maxDailyLoss})\nForced closed and shutting down for the day.`);
+        setTimeout(() => process.exit(0), 2000);
+    }
+
+
     async function fetchLastCandle() {
         try {
             const now  = new Date();
@@ -309,7 +371,7 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
         scheduleNext();
     }
 
-    return { startPoll, checkSL, checkTarget };
+    return { startPoll, checkSL, checkTarget, checkDailyLoss };
 }
 
 module.exports = { createCandlePoll };
