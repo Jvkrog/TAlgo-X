@@ -261,6 +261,15 @@ async function main() {
         console.log(c.dim(`[${context.tgPrefix}] chop filter: ${chopResolved ? "ON" : c.yellow("off — no chop gate on entries")}`));
     }
 
+    // Max daily loss circuit breaker — every strategy, not strategy-gated
+    // like the ALMA-specific overrides above. null/unset = disabled, no
+    // floor (today's original behavior).
+    if (process.env.MAX_DAILY_LOSS_OVERRIDE !== undefined && process.env.MAX_DAILY_LOSS_OVERRIDE !== "") {
+        const parsedLoss = Number(process.env.MAX_DAILY_LOSS_OVERRIDE);
+        context.maxDailyLoss = Number.isFinite(parsedLoss) && parsedLoss > 0 ? parsedLoss : null;
+    }
+    console.log(c.dim(`[${context.tgPrefix}] max daily loss: ${context.maxDailyLoss ? c.yellow(`-₹${context.maxDailyLoss} — quits for the day if breached`) : "off — no floor"}`));
+
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
 
@@ -354,6 +363,7 @@ async function main() {
                 candles.onTick(tick.last_price);
                 await candlePollInstance.checkSL(tick.last_price);
                 await candlePollInstance.checkTarget(tick.last_price);
+                await candlePollInstance.checkDailyLoss(tick.last_price);
             }
         }
     });
