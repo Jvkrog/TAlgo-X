@@ -100,6 +100,18 @@ function createDb(context) {
                 }
             });
 
+            // Migration: add strategy_state for custom-strategy runtime
+            // state (frozen target/stop, edgeMemory for state_flips_to
+            // conditions — see customStrategyRuntime.js). Hardcoded
+            // strategies never populate this — NULL for all of them,
+            // same "only populated by the feature that needs it" pattern
+            // as target_points/target_regime above.
+            db.run(`ALTER TABLE positions ADD COLUMN strategy_state TEXT`, err => {
+                if (err && !err.message.includes("duplicate column")) {
+                    console.error("DB migration error:", err.message);
+                }
+            });
+
             // Only regime needs to survive restarts.
             // Everything else is recomputed from API candles on boot.
             db.run(`
@@ -202,19 +214,24 @@ function createDb(context) {
     // uses, and forced to null whenever position is null (closed/flat),
     // same reasoning as entry_date/position_source above: a frozen adaptive
     // target belongs to a SPECIFIC open position, never to "flat".
-    function savePosition(engine, token, symbol, position, entryPrice, positionSource, targetPoints, targetRegime) {
+    function savePosition(engine, token, symbol, position, entryPrice, positionSource, targetPoints, targetRegime, strategyState) {
         const today = new Date().toISOString().split("T")[0];
         const stmt = db.prepare(`
             INSERT OR REPLACE INTO positions
-            (engine, instrument_token, symbol, position, entry_price, entry_date, position_source, target_points, target_regime, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            (engine, instrument_token, symbol, position, entry_price, entry_date, position_source, target_points, target_regime, strategy_state, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         `);
         stmt.run(
             engine, token, symbol, position, entryPrice || 0,
             position ? today : null,
             position ? (positionSource || null) : null,
             position ? (targetPoints || null) : null,
-            position ? (targetRegime || null) : null
+            position ? (targetRegime || null) : null,
+            // strategyState: JSON blob from customStrategyRuntime.js's
+            // edgeMemory, undefined for every existing call site (still
+            // only 6-8 args) — falls through to null exactly like
+            // targetPoints/targetRegime did when those were added.
+            position ? (strategyState || null) : null
         );
         stmt.finalize();
     }
