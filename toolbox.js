@@ -27,6 +27,8 @@ const { createContractPinStore } = require("./contractPins");
 const { resolveCurrent }         = require("./instrumentResolution");
 const { getDefinition, buildContext, defaultEodFor } = require("./context");
 const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = require("./strategies");
+const { INDICATOR_CATALOG } = require("./indicatorCatalog");
+const customStrategyDb = require("./customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("./historicalFetch");
 const { adx } = require("./indicators");
 const { backtestFlow } = require("./backtestFlow");
@@ -272,6 +274,7 @@ const HELP_ROWS = [
     [["R", "Restart"], ["D", "Remove"], ["C", "Roll"], ["M", "Live/Paper"]],
     [["L", "Logs"], ["T", "Token"], ["B", "Backtest"], ["N", "Trending"]],
     [["Q", "Quit"], ["E", "Creds"], ["K", "Market"], ["P", "Edit Params"]],
+    [["U", "Custom Strategy"]],
 ];
 function renderMenuHelpLines() {
     return HELP_ROWS.map(row => {
@@ -676,17 +679,28 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         console.log(c.yellow(`    Overnight/margin risk is real: MCX can gap against an open position between sessions. Your call.`));
     }
 
-    // Strategy picker — registry lives in strategies.js, nothing hardcoded
-    // here beyond the prompt itself. Default matches context.js's own
-    // fallback, so leaving this blank changes nothing about today's behavior.
-    const strategyKeys = Object.keys(STRATEGIES);
+    // Strategy picker — merges the hardcoded STRATEGIES registry with
+    // user-built strategies saved via the "U" custom-strategy wizard
+    // (custom_strategies.db). A custom entry only shows here once it has
+    // entry conditions saved (steps 5+) — createSignals() would reject a
+    // deploy attempt on an unfinished one anyway, but filtering here saves
+    // the round trip. Default still matches context.js's own fallback, so
+    // leaving this blank changes nothing about today's behavior.
+    const customStrategies = (await customStrategyDb.listStrategies()).filter(s => s.entryLong || s.entryShort);
+    const strategyKeys = [...Object.keys(STRATEGIES), ...customStrategies.map(s => s.name)];
     console.log();
     console.log(c.dim(`  strategy:`));
     strategyKeys.forEach((key, i) => {
-        const info = STRATEGY_INFO[key] || { label: key, description: "" };
-        const defTag = key === DEFAULT_STRATEGY ? c.dim(" (default)") : "";
-        console.log(`  ${String(i + 1).padStart(2)}. ${info.label}${defTag}`);
-        if (info.description) wrapText(info.description, "      ").forEach(line => console.log(c.dim(line)));
+        const custom = customStrategies.find(s => s.name === key);
+        if (custom) {
+            console.log(`  ${String(i + 1).padStart(2)}. ${key} ${c.dim("(custom)")}`);
+            console.log(c.dim(`      ${custom.candleType} \u00b7 ${custom.timeframe} \u00b7 ${custom.indicators.map(ind => ind.type).join("+")}`));
+        } else {
+            const info = STRATEGY_INFO[key] || { label: key, description: "" };
+            const defTag = key === DEFAULT_STRATEGY ? c.dim(" (default)") : "";
+            console.log(`  ${String(i + 1).padStart(2)}. ${info.label}${defTag}`);
+            if (info.description) wrapText(info.description, "      ").forEach(line => console.log(c.dim(line)));
+        }
     });
     console.log();
     const stratInput = await ask(`  select number (blank = default): `);
@@ -698,13 +712,13 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     }
 
     // Timeframe picker — defaults to the selected strategy's own fixed
-    // cadence (STRATEGY_TIMEFRAME), but can be overridden per-instrument.
-    // Overriding away from a strategy's designed timeframe changes what its
-    // lookback windows (ALMA_LEN, ST_ATR_LEN, etc.) actually mean in real
-    // time — that's a deliberate choice to allow, not a guard rail to
-    // block, but it's flagged here so it's not picked by accident.
+    // cadence. Hardcoded strategies get it from STRATEGY_TIMEFRAME; custom
+    // strategies carry their own timeframe from the builder (step 2) —
+    // same "designed cadence" concept, different source. Can still be
+    // overridden per-instrument same as before.
     const timeframes = Object.keys(TIMEFRAME_TO_INTERVAL);
-    const defaultTimeframe = STRATEGY_TIMEFRAME[strategy] || "15m";
+    const customPicked = customStrategies.find(s => s.name === strategy);
+    const defaultTimeframe = customPicked ? customPicked.timeframe : (STRATEGY_TIMEFRAME[strategy] || "15m");
     console.log();
     console.log(c.dim(`  timeframe (default: ${defaultTimeframe}, this strategy's own cadence):`));
     timeframes.forEach((tf, i) => {
@@ -1698,6 +1712,203 @@ async function updateAccessToken() {
     await pauseForReview();
 }
 
+// ─── CUSTOM STRATEGY BUILDER ────────────────────────────────────────────────
+// "Create Your Own Strategy" wizard — steps 1-7 per the locked design.
+// Nested AND/OR was deliberately skipped for v1: a flat AND-list per entry
+// side and a flat OR-list for conditionExit covers every example strategy
+// discussed, and a real nested-tree builder in a terminal is a bad UX fight
+// worth avoiding until something actually needs it. conditionEvaluator.js
+// itself already supports real nesting if a spec is authored some other way.
+
+async function pickOperand(indicators, promptLabel) {
+    const options = [];
+    indicators.forEach(ind => {
+        const def = INDICATOR_CATALOG[ind.type];
+        def.exposes.forEach(field => options.push(`${ind.id}.${field}`));
+    });
+    ["price.close", "price.high", "price.low", "constant"].forEach(o => options.push(o));
+
+    console.log(c.dim(`  ${promptLabel}:`));
+    options.forEach((o, i) => console.log(`  ${i + 1}. ${o}`));
+    const sel = await ask("  select number: ");
+    const choice = options[Number(sel) - 1];
+    if (!choice) return null;
+    if (choice === "constant") {
+        const val = await ask("    value: ");
+        const num = Number(val);
+        return Number.isFinite(num) ? num : null;
+    }
+    return choice;
+}
+
+async function buildConditionList(indicators, label) {
+    const conditions = [];
+    console.log();
+    console.log(c.dim(`  ${label} — add conditions (blank left operand to finish):`));
+    while (true) {
+        console.log();
+        const left = await pickOperand(indicators, `condition ${conditions.length + 1} — left operand`);
+        if (left === null) break;
+
+        console.log(c.dim("  operator:"));
+        const OPS = [">", "<", ">=", "<=", "==", "crosses_above", "crosses_below", "state_flips_to"];
+        OPS.forEach((o, i) => console.log(`  ${i + 1}. ${o}`));
+        const opSel = OPS[Number(await ask("  select number: ")) - 1];
+        if (!opSel) { console.log(c.yellow("  invalid operator, skipping condition")); continue; }
+
+        let right;
+        if (opSel === "state_flips_to") {
+            right = await ask("    target state (e.g. STRONG_BULL): ");
+            if (!right) { console.log(c.yellow("  state label required, skipping condition")); continue; }
+        } else {
+            right = await pickOperand(indicators, "right operand");
+            if (right === null) { console.log(c.yellow("  invalid right operand, skipping condition")); continue; }
+        }
+
+        conditions.push({ left, operator: opSel, right });
+        const more = await ask("  add another condition? (y/N): ");
+        if (more.toLowerCase() !== "y") break;
+    }
+    return conditions.length ? { op: "AND", conditions } : null;
+}
+
+async function buildExitConfig(indicators) {
+    console.log();
+    console.log(c.dim("  EXIT / TARGET / RISK"));
+
+    const reversalAns = await ask("  exit on opposite entry signal? (Y/n): ");
+    const reversalExit = reversalAns.toLowerCase() !== "n";
+
+    const wantCondExit = await ask("  add an explicit exit condition too? (y/N): ");
+    let conditionExit = null;
+    if (wantCondExit.toLowerCase() === "y") {
+        const list = await buildConditionList(indicators, "EXIT CONDITION (any true = exit)");
+        conditionExit = list ? { op: "OR", conditions: list.conditions } : null;
+    }
+
+    console.log(c.dim("  target type: 1. points  2. none"));
+    const targetType = await ask("  select number: ");
+    let target = null;
+    if (targetType === "1") {
+        const val = await ask("    target points: ");
+        const num = Number(val);
+        if (Number.isFinite(num) && num > 0) target = { type: "points", value: num };
+        else console.log(c.yellow("  invalid target, leaving unset"));
+    }
+
+    console.log(c.dim("  stop-loss type: 1. ATR  2. points  3. none"));
+    const slType = await ask("  select number: ");
+    let stopLoss = null;
+    if (slType === "1") {
+        const atrBlocks = indicators.filter(i => i.type === "ATR");
+        if (!atrBlocks.length) {
+            console.log(c.yellow("  no ATR indicator configured — pick 'points' instead, or go back and add one"));
+        } else {
+            const mult = Number(await ask("    ATR multiplier: "));
+            const atrRef = atrBlocks.length === 1
+                ? `${atrBlocks[0].id}.value`
+                : `${(await ask(`    which ATR id? (${atrBlocks.map(b => b.id).join(", ")}): `)).trim()}.value`;
+            if (Number.isFinite(mult) && mult > 0) stopLoss = { type: "atr", mult, atrRef };
+            else console.log(c.yellow("  invalid multiplier, leaving stop unset"));
+        }
+    } else if (slType === "2") {
+        const val = Number(await ask("    stop points: "));
+        if (Number.isFinite(val) && val > 0) stopLoss = { type: "points", value: val };
+        else console.log(c.yellow("  invalid value, leaving stop unset"));
+    }
+
+    return { reversalExit, conditionExit, target, stopLoss };
+}
+
+async function createCustomStrategy() {
+    console.log();
+    console.log(c.dim("  CREATE YOUR OWN STRATEGY"));
+    console.log();
+
+    // Step 1 — Candle Type
+    console.log(c.dim("  candle type:"));
+    console.log("  1. Raw");
+    console.log("  2. Heikin-Ashi");
+    const candleInput = await ask("  select number: ");
+    const candleType = candleInput === "2" ? "ha" : candleInput === "1" ? "raw" : null;
+    if (!candleType) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+
+    // Step 2 — Time Frame (tick mode intentionally excluded for now — see
+    // chat: "ignore ticks for now". requiresCandles filtering below is a
+    // no-op until tick mode exists, kept here so step 3 already reads from
+    // the same gate it'll need later instead of a second pass being required.)
+    const TIMEFRAMES = ["5m", "15m", "30m", "1h"];
+    console.log();
+    console.log(c.dim("  time frame:"));
+    TIMEFRAMES.forEach((tf, i) => console.log(`  ${i + 1}. ${tf}`));
+    const tfInput = await ask("  select number: ");
+    const timeframe = TIMEFRAMES[Number(tfInput) - 1];
+    if (!timeframe) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+
+    // Step 3 — Indicators (multi-select, comma-separated numbers)
+    const indicatorKeys = Object.keys(INDICATOR_CATALOG).filter(key => INDICATOR_CATALOG[key].requiresCandles);
+    console.log();
+    console.log(c.dim("  indicators (comma-separated numbers, e.g. 1,3,4):"));
+    indicatorKeys.forEach((key, i) => console.log(`  ${i + 1}. ${INDICATOR_CATALOG[key].label}`));
+    const indInput = await ask("  select: ");
+    const chosenKeys = indInput.split(",").map(s => s.trim()).filter(Boolean)
+        .map(n => indicatorKeys[Number(n) - 1]).filter(Boolean);
+    if (chosenKeys.length === 0) { console.log(c.yellow("  pick at least one indicator")); await pauseForReview(); return; }
+
+    // Step 4 — Configure each selected indicator
+    const indicators = [];
+    for (const key of chosenKeys) {
+        const def = INDICATOR_CATALOG[key];
+        console.log();
+        console.log(c.dim(`  configure ${def.label}:`));
+        const idInput = await ask(`  id (blank = ${key.toLowerCase()}_1): `);
+        const id = idInput || `${key.toLowerCase()}_1`;
+        if (indicators.some(ind => ind.id === id)) {
+            console.log(c.yellow(`  id "${id}" already used in this strategy — skipping ${def.label}`));
+            continue;
+        }
+        const params = {};
+        for (const p of def.params) {
+            const val = await ask(`    ${p.label} (default ${p.default}): `);
+            const num = Number(val);
+            params[p.key] = val && Number.isFinite(num) ? num : p.default;
+        }
+        indicators.push({ id, type: key, params });
+    }
+    if (indicators.length === 0) { console.log(c.yellow("  no indicators configured")); await pauseForReview(); return; }
+
+    // Step 5 — Entry Conditions
+    const entryLong  = await buildConditionList(indicators, "ENTRY \u2014 LONG");
+    const entryShort = await buildConditionList(indicators, "ENTRY \u2014 SHORT");
+    if (!entryLong && !entryShort) { console.log(c.yellow("  need at least one entry side")); await pauseForReview(); return; }
+
+    // Step 6 — Exit / Target / Risk
+    const exitConfig = await buildExitConfig(indicators);
+
+    // Step 7 — Preview + Deploy (save; actual instrument deployment happens
+    // through "Add instrument", which now lists saved custom strategies
+    // alongside the hardcoded ones)
+    console.log();
+    console.log(c.dim("  PREVIEW"));
+    console.log(`  candle: ${candleType}   timeframe: ${timeframe}`);
+    console.log(`  indicators: ${indicators.map(i => `${i.id}(${i.type})`).join(", ")}`);
+    console.log(`  entry long:  ${entryLong  ? JSON.stringify(entryLong)  : "(none)"}`);
+    console.log(`  entry short: ${entryShort ? JSON.stringify(entryShort) : "(none)"}`);
+    console.log(`  exit: ${JSON.stringify(exitConfig)}`);
+    const confirm = await ask("  save this strategy? (Y/n): ");
+    if (confirm.toLowerCase() === "n") { console.log(c.yellow("  discarded")); await pauseForReview(); return; }
+
+    const name = await ask("  strategy name: ");
+    if (!name) { console.log(c.yellow("  name required")); await pauseForReview(); return; }
+    try {
+        await customStrategyDb.saveStrategy({ name, candleType, timeframe, indicators, entryLong, entryShort, exitConfig });
+        console.log(c.green(`  saved "${name}" \u2014 deploy it via "Add instrument", it now shows alongside the prebuilt list.`));
+    } catch (err) {
+        console.log(c.yellow(`  save failed: ${err.message.includes("UNIQUE") ? "a strategy named that already exists" : err.message}`));
+    }
+    await pauseForReview();
+}
+
 // ─── MAIN LOOP ──────────────────────────────────────────────────────────────
 async function main() {
     await playBootAnimation({ pm2Connect });
@@ -1723,6 +1934,7 @@ async function main() {
         else if (input === "N")           await trendingInstruments();
         else if (input === "E")           await setupCredentials();
         else if (input === "K")           await marketStatusScreen();
+        else if (input === "U")           await createCustomStrategy();
         else if (input === "Q")           { running = false; redraw = false; }
         else                               { console.log(c.yellow("  unrecognized option")); redraw = false; }
 
