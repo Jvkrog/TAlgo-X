@@ -37,6 +37,8 @@ const { createContractPinStore } = require("../contractPins");
 const { resolveCurrent } = require("../instrumentResolution");
 const { getDefinition, buildContext, defaultEodFor } = require("../context");
 const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = require("../strategies");
+const { INDICATOR_CATALOG } = require("../indicatorCatalog");
+const customStrategyDb = require("../customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("../historicalFetch");
 const { runBacktest } = require("../backtestRun");
 const { STRATEGY_PARAMS } = require("../backtestFlow");
@@ -679,17 +681,63 @@ app.post("/api/toolbox/edit", async (req, res) => {
 
 // ─── ADD INSTRUMENT — same discovery + resolve + start path as
 // toolbox.js's addInstrument/configureAndStartInstrument. ──────────────────
-app.get("/api/toolbox/strategies", (req, res) => {
+app.get("/api/toolbox/strategies", async (req, res) => {
+    // Merges hardcoded STRATEGIES with user-built strategies saved via the
+    // strategy builder (custom_strategies.db) — same either/or resolution
+    // signals.js's createSignals() does at deploy time. Only strategies
+    // with entry conditions saved (steps 5+ done) are listed — an
+    // in-progress custom strategy shouldn't show as deployable.
+    const customStrategies = (await customStrategyDb.listStrategies()).filter(s => s.entryLong || s.entryShort);
     res.json({
         default: DEFAULT_STRATEGY,
-        strategies: Object.keys(STRATEGIES).map(key => ({
-            key,
-            label: (STRATEGY_INFO[key] || {}).label || key,
-            description: (STRATEGY_INFO[key] || {}).description || "",
-            timeframe: STRATEGY_TIMEFRAME[key] || "15m",
-        })),
+        strategies: [
+            ...Object.keys(STRATEGIES).map(key => ({
+                key,
+                label: (STRATEGY_INFO[key] || {}).label || key,
+                description: (STRATEGY_INFO[key] || {}).description || "",
+                timeframe: STRATEGY_TIMEFRAME[key] || "15m",
+                custom: false,
+            })),
+            ...customStrategies.map(s => ({
+                key: s.name,
+                label: s.name,
+                description: `${s.candleType} \u00b7 ${s.timeframe} \u00b7 ${s.indicators.map(i => i.type).join("+")}`,
+                timeframe: s.timeframe,
+                custom: true,
+            })),
+        ],
         timeframes: Object.keys(TIMEFRAME_TO_INTERVAL),
     });
+});
+
+// ─── STRATEGY BUILDER — indicator catalog + CRUD for custom strategies,
+// consumed by the builder wizard modal in public/strategyBuilder.js. Same
+// custom_strategies.db the toolbox "U" wizard writes to — a strategy built
+// in either place is deployable from both, since /api/toolbox/strategies
+// above and toolbox.js's addInstrument() both read the same table. ────────
+app.get("/api/strategy-builder/indicators", (req, res) => {
+    res.json({ indicators: INDICATOR_CATALOG });
+});
+
+app.get("/api/strategy-builder/custom-strategies", async (req, res) => {
+    try {
+        res.json({ strategies: await customStrategyDb.listStrategies() });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post("/api/strategy-builder/custom-strategies", async (req, res) => {
+    const { name, candleType, timeframe, indicators, entryLong, entryShort, exitConfig } = req.body || {};
+    if (!name || !candleType || !timeframe || !Array.isArray(indicators) || indicators.length === 0) {
+        return res.status(400).json({ error: "name, candleType, timeframe, and at least one indicator are required" });
+    }
+    try {
+        const id = await customStrategyDb.saveStrategy({ name, candleType, timeframe, indicators, entryLong, entryShort, exitConfig });
+        res.json({ id, name });
+    } catch (err) {
+        res.status(400).json({ error: err.message.includes("UNIQUE") ? "a strategy named that already exists" : err.message });
+    }
 });
 
 app.get("/api/toolbox/instruments", async (req, res) => {
@@ -738,8 +786,27 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         return res.status(400).json({ error: 'switching to LIVE requires confirmLive: "LIVE" (typed, not assumed)' });
     }
 
-    const stratKey = strategy && STRATEGIES[strategy] ? strategy : DEFAULT_STRATEGY;
-    const tf = timeframe || STRATEGY_TIMEFRAME[stratKey] || "15m";
+    // CHANGED: strategy could now be a custom strategy name, not just a
+    // STRATEGIES key — silently falling back to DEFAULT_STRATEGY on an
+    // unrecognized-but-custom name would deploy the WRONG strategy without
+    // any error, so this now checks customStrategyDb before deciding it's
+    // actually unknown (as opposed to just "not hardcoded").
+    let stratKey = DEFAULT_STRATEGY;
+    let customStratTimeframe = null;
+    if (strategy) {
+        if (STRATEGIES[strategy]) {
+            stratKey = strategy;
+        } else {
+            const custom = await customStrategyDb.getStrategyByName(strategy);
+            if (custom && (custom.entryLong || custom.entryShort)) {
+                stratKey = strategy;
+                customStratTimeframe = custom.timeframe;
+            } else {
+                return res.status(400).json({ error: `unknown strategy "${strategy}"` });
+            }
+        }
+    }
+    const tf = timeframe || customStratTimeframe || STRATEGY_TIMEFRAME[stratKey] || "15m";
     const lotsVal = lots !== undefined && lots !== null && lots !== "" ? Number(lots) : 1;
     if (!Number.isFinite(lotsVal) || lotsVal <= 0) return res.status(400).json({ error: "invalid lots value" });
 
