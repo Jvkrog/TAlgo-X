@@ -293,7 +293,7 @@ async function main() {
 
     const preloadInstance   = createPreload({ context, engineConfig, candles, tg });
     const lifecycleInstance = createLifecycle({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, tg });
-    const signalsInstance   = createSignals({
+    const signalsInstance   = await createSignals({
         context, engineConfig, state, db, candles, slStore, targetStore, orders,
         positionsClose, positionsUnrealised, lifecycle: lifecycleInstance, tg,
     });
