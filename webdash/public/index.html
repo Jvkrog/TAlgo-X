@@ -154,6 +154,7 @@
         <button class="tb-cli-action" id="tbOpenTrending">↗ trending instruments</button>
         <button class="tb-cli-action" id="tbOpenMarketStatus">◎ market status</button>
         <button class="tb-cli-action" id="tbOpenRoll">↻ roll contract</button>
+        <button class="tb-cli-action" id="tbOpenCustomStrategy">⚒ custom strategy</button>
       </div>
     </div>
   </section>
@@ -200,6 +201,17 @@
       <button class="btn btn-ghost" id="tbAddClose">close</button>
     </div>
     <div class="tb-modal-body" id="tbAddBody"></div>
+  </div>
+</div>
+
+<!-- custom strategy builder modal -->
+<div class="tb-modal" id="tbCustomModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>create your own strategy</span>
+      <button class="btn btn-ghost" id="tbCustomClose">close</button>
+    </div>
+    <div class="tb-modal-body" id="tbCustomBody"></div>
   </div>
 </div>
 
@@ -269,6 +281,7 @@
   <div class="tb-checklist" id="tbChecklist"></div>
 </div>
 
+<script src="strategyBuilder.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
