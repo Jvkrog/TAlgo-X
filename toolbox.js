@@ -1756,7 +1756,7 @@ async function pickOperand(indicators, promptLabel) {
     return choice;
 }
 
-async function buildConditionList(indicators, label) {
+async function buildConditionList(indicators, label, side = null) {
     const conditions = [];
     console.log();
     console.log(c.dim(`  ${label} — add conditions (blank left operand to finish):`));
@@ -1767,38 +1767,53 @@ async function buildConditionList(indicators, label) {
 
         console.log(c.dim("  operator:"));
         const OPS = [">", "<", ">=", "<=", "==", "crosses_above", "crosses_below", "state_flips_to"];
-        OPS.forEach((o, i) => console.log(`  ${i + 1}. ${o}`));
+        OPS.forEach((o, i) => console.log(`  ${i + 1}. ${o}${o === "state_flips_to" ? c.dim("  (slope/regime change)") : ""}`));
         const opSel = OPS[Number(await ask("  select number: ")) - 1];
         if (!opSel) { console.log(c.yellow("  invalid operator, skipping condition")); continue; }
 
-        let right;
         if (opSel === "state_flips_to") {
-            // Color-coded state picker when the left operand's indicator
-            // has known states (green=bull-side, red=bear-side, dim=flat) —
-            // same slope-direction vocabulary as the rest of the toolbox's
-            // colored output. Falls back to free text for indicators
-            // without a defined states list (ALMA/EMA/ADX/etc. only expose
-            // "value", not "state").
+            // Tab-implied color: on the LONG side, a slope/regime condition
+            // only ever means "flips to a bullish (green) state"; on SHORT,
+            // only "flips to a bearish (red) state". Per request, don't ask
+            // for a color/label here — it's implied by which side is being
+            // built, so there's nothing to disable, it's just never shown.
+            // Falls back to the full picker for indicators with no states
+            // defined, or when side is null (exit conditions aren't
+            // long/short-scoped).
             const states = toolboxLookupStates(left, indicators);
-            if (states) {
-                console.log(c.dim("  target state:"));
-                states.forEach((s, i) => console.log(`  ${i + 1}. ${c[s.color] ? c[s.color](s.value) : s.value}`));
-                console.log(`  ${states.length + 1}. ${c.dim("custom...")}`);
-                const stSel = await ask("  select number: ");
-                const idx = Number(stSel) - 1;
-                if (idx >= 0 && idx < states.length) right = states[idx].value;
-                else if (idx === states.length) right = await ask("    target state: ");
-                else right = null;
+            const impliedColor = side === "long" ? "green" : side === "short" ? "red" : null;
+            const autoMatches = states && impliedColor ? states.filter(s => s.color === impliedColor) : [];
+
+            if (states && autoMatches.length > 0) {
+                console.log(c.dim(`  auto: `) + c[impliedColor](impliedColor.toUpperCase()) + c.dim(` (${side} entry) \u2014 ${autoMatches.map(s => s.value).join(" or ")}`));
+                if (autoMatches.length === 1) {
+                    conditions.push({ left, operator: opSel, right: autoMatches[0].value });
+                } else {
+                    conditions.push({ op: "OR", conditions: autoMatches.map(s => ({ left, operator: opSel, right: s.value })) });
+                }
             } else {
-                right = await ask("    target state (e.g. STRONG_BULL): ");
+                let right;
+                if (states) {
+                    console.log(c.dim("  target state:"));
+                    states.forEach((s, i) => console.log(`  ${i + 1}. ${c[s.color] ? c[s.color](s.value) : s.value}`));
+                    console.log(`  ${states.length + 1}. ${c.dim("custom...")}`);
+                    const stSel = await ask("  select number: ");
+                    const idx = Number(stSel) - 1;
+                    if (idx >= 0 && idx < states.length) right = states[idx].value;
+                    else if (idx === states.length) right = await ask("    target state: ");
+                    else right = null;
+                } else {
+                    right = await ask("    target state (e.g. STRONG_BULL): ");
+                }
+                if (!right) { console.log(c.yellow("  state label required, skipping condition")); continue; }
+                conditions.push({ left, operator: opSel, right });
             }
-            if (!right) { console.log(c.yellow("  state label required, skipping condition")); continue; }
         } else {
-            right = await pickOperand(indicators, "right operand");
+            const right = await pickOperand(indicators, "right operand");
             if (right === null) { console.log(c.yellow("  invalid right operand, skipping condition")); continue; }
+            conditions.push({ left, operator: opSel, right });
         }
 
-        conditions.push({ left, operator: opSel, right });
         const more = await ask("  add another condition? (y/N): ");
         if (more.toLowerCase() !== "y") break;
     }
@@ -1911,8 +1926,8 @@ async function createCustomStrategy() {
     if (indicators.length === 0) { console.log(c.yellow("  no indicators configured")); await pauseForReview(); return; }
 
     // Step 5 — Entry Conditions
-    const entryLong  = await buildConditionList(indicators, "ENTRY \u2014 LONG");
-    const entryShort = await buildConditionList(indicators, "ENTRY \u2014 SHORT");
+    const entryLong  = await buildConditionList(indicators, "ENTRY \u2014 LONG", "long");
+    const entryShort = await buildConditionList(indicators, "ENTRY \u2014 SHORT", "short");
     if (!entryLong && !entryShort) { console.log(c.yellow("  need at least one entry side")); await pauseForReview(); return; }
 
     // Step 6 — Exit / Target / Risk
