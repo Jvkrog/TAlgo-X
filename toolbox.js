@@ -141,6 +141,7 @@ async function getEngineProcesses() {
             almaBandLen: p.pm2_env.env?.ALMA_BAND_LEN_OVERRIDE ? Number(p.pm2_env.env.ALMA_BAND_LEN_OVERRIDE) : null,
             almaChopFilterEnabled: p.pm2_env.env?.ALMA_CHOP_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.ALMA_CHOP_FILTER_OVERRIDE === "true" : true,
             maxDailyLoss: p.pm2_env.env?.MAX_DAILY_LOSS_OVERRIDE ? Number(p.pm2_env.env.MAX_DAILY_LOSS_OVERRIDE) : null,
+            sessionTargetRupees: p.pm2_env.env?.SESSION_TARGET_OVERRIDE ? Number(p.pm2_env.env.SESSION_TARGET_OVERRIDE) : null,
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -405,6 +406,7 @@ function buildProcessEnv(p, overrides = {}) {
     if (p.strategy === "ALMA_PRO_FAST" && p.almaBandLen) env.ALMA_BAND_LEN_OVERRIDE = String(p.almaBandLen);
     if ((p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && p.almaChopFilterEnabled === false) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
     if (p.maxDailyLoss) env.MAX_DAILY_LOSS_OVERRIDE = String(p.maxDailyLoss);
+    if (p.sessionTargetRupees) env.SESSION_TARGET_OVERRIDE = String(p.sessionTargetRupees);
     return { ...env, ...overrides };
 }
 
@@ -491,6 +493,39 @@ async function editInstrument(procs) {
             if (adaptiveInput) targetMode = adaptiveInput === "Y" ? "adaptive" : "fixed";
         } else {
             targetMode = "fixed"; // a fixed points value always wins — keep the two fields consistent
+        }
+
+        // Session target — mutually exclusive with targetPoints/targetMode
+        // above (candlePoll.js's checkSessionTarget vs. checkTarget — see
+        // context.js). Setting one here clears the other, keeping that
+        // exclusivity intact through an edit the same way the add-instrument
+        // wizard enforces it at creation.
+        const sessionTargetDefault = p.sessionTargetRupees !== null ? String(p.sessionTargetRupees) : "none";
+        const sessionTargetInput = (await ask(`  session profit ceiling in rupees, whole day (current: ${sessionTargetDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
+        let sessionTargetRupees = p.sessionTargetRupees;
+        if (sessionTargetInput) {
+            if (sessionTargetInput === "0" || sessionTargetInput.toLowerCase() === "clear") {
+                sessionTargetRupees = null;
+            } else {
+                const parsedSessionTarget = Number(sessionTargetInput);
+                if (!Number.isFinite(parsedSessionTarget) || parsedSessionTarget <= 0) {
+                    console.log(c.yellow(`  "${sessionTargetInput}" isn't a valid positive number — session target left unchanged (${sessionTargetDefault})`));
+                } else {
+                    sessionTargetRupees = parsedSessionTarget;
+                    if (targetPoints !== null || targetMode === "adaptive") {
+                        console.log(c.dim(`  session target set — clearing the per-trade target (they're mutually exclusive)`));
+                        targetPoints = null;
+                        targetMode = "fixed";
+                    }
+                }
+            }
+        }
+        if (sessionTargetRupees !== null && (targetPoints !== null || targetMode === "adaptive")) {
+            // Only reachable if targetPoints/targetMode were just changed
+            // ABOVE in this same edit pass while an old session target was
+            // still in play from before — same tie-break, other direction.
+            console.log(c.dim(`  per-trade target set — clearing the session target (they're mutually exclusive)`));
+            sessionTargetRupees = null;
         }
 
         // Lots — same shape as the add-instrument prompt.
@@ -602,13 +637,13 @@ async function editInstrument(procs) {
             }
         }
 
-        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss };
+        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
                 env: buildProcessEnv(updatedP),
             });
-            const targetTag = targetPoints !== null ? c.yellow(` target:${targetPoints}pt`) : targetMode === "adaptive" ? c.yellow(" target:adaptive") : c.dim(" target:none");
+            const targetTag = targetPoints !== null ? c.yellow(` target:${targetPoints}pt`) : targetMode === "adaptive" ? c.yellow(" target:adaptive") : sessionTargetRupees !== null ? c.yellow(` target:session+₹${sessionTargetRupees}`) : c.dim(" target:none");
             console.log(c.green(`  ${p.underlying} updated${targetTag} lots:${lots === "default" ? "1" : lots} (restarted)`));
         } catch (err) {
             console.log(c.red(`  failed to update ${p.underlying}: ${err.message}`));
@@ -743,27 +778,54 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // exit level at entryPrice ± this many points, same for LONG/SHORT —
     // checked on every WebSocket tick (candlePoll.js's checkTarget), applies
     // regardless of which strategy is running.
-    const targetInput = await ask(`  profit target in points (tick-monitored, blank = none): `);
-    let targetPoints = null;
-    if (targetInput) {
-        const parsedTarget = Number(targetInput);
-        if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) {
-            console.log(c.yellow(`  "${targetInput}" isn't a valid positive number — starting with no target instead`));
-        } else {
-            targetPoints = parsedTarget;
-        }
-    }
+    // Target type — mutually exclusive choice between a per-trade points
+    // target (existing behavior, unchanged) and a whole-session rupee
+    // ceiling (new — candlePoll.js's checkSessionTarget, fires on the
+    // combined realized+unrealised total crossing the ceiling regardless
+    // of any interim losing trade, unlike the per-trade target which only
+    // ever looks at one trade's own entry/exit).
+    console.log(c.dim("  target type:"));
+    console.log("  1. Trade-level (points, tick-monitored, per trade)");
+    console.log("  2. Session-level (rupees, whole day, irrespective of interim losses)");
+    console.log("  3. None");
+    const targetTypeInput = (await ask("  select number (blank = none): ")).trim();
 
-    // Adaptive target mode — only offered when no fixed target was just
-    // entered above (targetPoints wins outright when set, see context.js/
-    // engine.js). Sizes the target itself from CHOP + |DPI efficiency| once
-    // per position instead of one fixed distance every trade — see
-    // adaptiveTarget.js. Default OFF (blank = fixed/off), same "opt in"
-    // shape as everything else in this prompt sequence.
+    let targetPoints = null;
     let targetMode = "fixed";
-    if (targetPoints === null) {
-        const adaptiveInput = (await ask(`  use adaptive target sizing (CHOP + DPI efficiency) instead? [y/N]: `)).trim().toUpperCase();
-        if (adaptiveInput === "Y") targetMode = "adaptive";
+    let sessionTargetRupees = null;
+
+    if (targetTypeInput === "1") {
+        // Blank = no fixed take-profit (strategy's own exits are the only
+        // way out). A positive number arms a tick-monitored favorable-exit
+        // level at entryPrice ± this many points, same for LONG/SHORT —
+        // checked on every WebSocket tick (candlePoll.js's checkTarget),
+        // applies regardless of which strategy is running.
+        const targetInput = await ask(`  profit target in points (blank = adaptive sizing instead): `);
+        if (targetInput) {
+            const parsedTarget = Number(targetInput);
+            if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) {
+                console.log(c.yellow(`  "${targetInput}" isn't a valid positive number — using adaptive sizing instead`));
+            } else {
+                targetPoints = parsedTarget;
+            }
+        }
+        // Adaptive target mode — only offered when no fixed target was just
+        // entered above (targetPoints wins outright when set, see context.js/
+        // engine.js). Sizes the target itself from CHOP + |DPI efficiency|
+        // once per position instead of one fixed distance every trade — see
+        // adaptiveTarget.js.
+        if (targetPoints === null) {
+            const adaptiveInput = (await ask(`  use adaptive target sizing (CHOP + DPI efficiency)? [Y/n] (default: Y): `)).trim().toUpperCase();
+            targetMode = adaptiveInput === "N" ? "fixed" : "adaptive";
+        }
+    } else if (targetTypeInput === "2") {
+        const sessionTargetInput = await ask(`  session profit ceiling in rupees, quits for the day once reached: `);
+        const parsedSessionTarget = Number(sessionTargetInput);
+        if (!Number.isFinite(parsedSessionTarget) || parsedSessionTarget <= 0) {
+            console.log(c.yellow(`  "${sessionTargetInput}" isn't a valid positive number — starting with no target instead`));
+        } else {
+            sessionTargetRupees = parsedSessionTarget;
+        }
     }
 
     // ALMA band gate toggle — ALMA_PRO_FAST only. Default ON (matches the
@@ -906,6 +968,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (lotMultOverride !== null) env.LOTMULT_OVERRIDE = String(lotMultOverride);
     if (targetPoints !== null) env.TARGET_POINTS_OVERRIDE = String(targetPoints);
     if (targetMode === "adaptive") env.TARGET_MODE_OVERRIDE = "adaptive";
+    if (sessionTargetRupees !== null) env.SESSION_TARGET_OVERRIDE = String(sessionTargetRupees);
     if (strategy === "ALMA_PRO_FAST" && !almaBandEnabled) env.ALMA_BAND_OVERRIDE = "false";
     if (strategy === "ALMA_PRO_FAST" && almaFastLen !== null) env.ALMA_FAST_LEN_OVERRIDE = String(almaFastLen);
     if (strategy === "ALMA_PRO_FAST" && almaBandLen !== null) env.ALMA_BAND_LEN_OVERRIDE = String(almaBandLen);
@@ -918,7 +981,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const modeTag = isLive ? c.red("LIVE") : c.cyan("PAPER");
         const carryTag = carryOvernight ? c.yellow(" CARRY") : "";
         const stratLabel = (STRATEGY_INFO[strategy] || { label: strategy }).label;
-        const targetTag = targetPoints !== null ? c.yellow(` +${targetPoints}pt target`) : targetMode === "adaptive" ? c.yellow(" adaptive target") : "";
+        const targetTag = targetPoints !== null ? c.yellow(` +${targetPoints}pt target`) : targetMode === "adaptive" ? c.yellow(" adaptive target") : sessionTargetRupees !== null ? c.yellow(` session target:+₹${sessionTargetRupees}`) : "";
         const almaBandTag = strategy === "ALMA_PRO_FAST" && !almaBandEnabled ? c.yellow(" band:off") : "";
         const almaLenTag = strategy === "ALMA_PRO_FAST" && (almaFastLen !== null || almaBandLen !== null)
             ? c.yellow(` alma:${almaFastLen ?? engineConfig.ALMA_PRO_FAST_LEN}/${almaBandLen ?? engineConfig.ALMA_PRO_BAND_LEN}`)

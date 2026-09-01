@@ -237,6 +237,21 @@ function buildContext(def, resolvedContract) {
         // strategy-driven reversal) that pushes the day past the floor,
         // not just target hits.
         maxDailyLoss: null,
+        // Overridden per-process by engine.js from SESSION_TARGET_OVERRIDE
+        // (toolbox prompt — mutually exclusive with targetPoints/targetMode
+        // at setup time, see toolbox.js's target-type picker). null
+        // (default) = disabled. A positive number is a RUPEE profit
+        // ceiling for the WHOLE SESSION (state.pnl realized + the current
+        // open position's live unrealised P&L) rather than a per-trade
+        // price target — candlePoll.js's checkSessionTarget() force-closes
+        // whatever's open the moment that combined total reaches this
+        // ceiling, "irrespective of loss" (i.e. it fires on the running
+        // total crossing the line, not on any single trade's own P&L —
+        // an earlier losing trade doesn't reset or block it, same
+        // symmetric relationship maxDailyLoss above has to state.pnl, just
+        // a ceiling instead of a floor). Checked every tick, same as
+        // checkDailyLoss.
+        sessionTargetRupees: null,
     };
 }
 

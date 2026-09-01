@@ -270,6 +270,15 @@ async function main() {
     }
     console.log(c.dim(`[${context.tgPrefix}] max daily loss: ${context.maxDailyLoss ? c.yellow(`-₹${context.maxDailyLoss} — quits for the day if breached`) : "off — no floor"}`));
 
+    // Session-level profit target — the alternative to a per-trade
+    // targetPoints/targetMode target (mutually exclusive at setup time,
+    // see toolbox.js's target-type picker). null/unset = disabled.
+    if (process.env.SESSION_TARGET_OVERRIDE !== undefined && process.env.SESSION_TARGET_OVERRIDE !== "") {
+        const parsedTarget = Number(process.env.SESSION_TARGET_OVERRIDE);
+        context.sessionTargetRupees = Number.isFinite(parsedTarget) && parsedTarget > 0 ? parsedTarget : null;
+    }
+    console.log(c.dim(`[${context.tgPrefix}] session target: ${context.sessionTargetRupees ? c.yellow(`+₹${context.sessionTargetRupees} — quits for the day once reached (session total, irrespective of interim losses)`) : "off"}`));
+
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
 
@@ -364,6 +373,7 @@ async function main() {
                 await candlePollInstance.checkSL(tick.last_price);
                 await candlePollInstance.checkTarget(tick.last_price);
                 await candlePollInstance.checkDailyLoss(tick.last_price);
+                await candlePollInstance.checkSessionTarget(tick.last_price);
             }
         }
     });
