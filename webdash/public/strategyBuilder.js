@@ -179,6 +179,24 @@ function csbOperandOptions() {
     return opts;
 }
 
+// Colors condition-builder state values by slope direction, using the same
+// green/red/dim vocabulary as the rest of the dashboard (up=green,
+// down=red, flat/neutral=dim) — see indicatorCatalog.js's `states` field.
+const CSB_STATE_COLOR_VAR = { green: "var(--green)", red: "var(--red)", dim: "var(--dim)" };
+
+// Given "indicatorId.field", finds that block's catalog entry and returns
+// its `states` list if the field is "state" and the catalog defines one —
+// null otherwise (indicator not selected, wrong field, or no states defined
+// yet, e.g. ADX/ALMA/EMA which only expose "value").
+function csbLookupStates(operandRef) {
+    if (!operandRef || operandRef.startsWith("price.")) return null;
+    const [id, field] = operandRef.split(".");
+    if (field !== "state") return null;
+    const block = csbState.indicators.find(ind => ind.id === id);
+    if (!block) return null;
+    return csbIndicatorCatalog[block.type].states || null;
+}
+
 function csbConditionRowHTML(idx) {
     const operands = csbOperandOptions();
     return `
@@ -187,24 +205,59 @@ function csbConditionRowHTML(idx) {
             <select class="csbOp">${CSB_OPERATORS.map(o => `<option value="${o}">${o}</option>`).join("")}</select>
             <select class="csbRight csbRightOperand">${operands.map(o => `<option value="${o}">${o}</option>`).join("")}<option value="__const__">constant...</option></select>
             <input type="number" class="csbRightConst" placeholder="value" style="display:none;width:80px">
-            <input type="text" class="csbRightState" placeholder="state label" style="display:none;width:120px">
+            <select class="csbRightState" style="display:none"></select>
+            <input type="text" class="csbRightStateCustom" placeholder="state label" style="display:none;width:120px">
             <button class="tb-back-link csbRemoveRow" type="button">remove</button>
         </div>
     `;
 }
 
 function wireCsbConditionRow(row) {
+    const leftSel = row.querySelector(".csbLeft");
     const opSel = row.querySelector(".csbOp");
     const rightSel = row.querySelector(".csbRight");
     const rightConst = row.querySelector(".csbRightConst");
     const rightState = row.querySelector(".csbRightState");
+    const rightStateCustom = row.querySelector(".csbRightStateCustom");
+
+    // Colors the left/right operand <select> text itself when it points at
+    // a .state field — a quick visual cue in the condition list, not just
+    // in the state-picker dropdown below.
+    function colorOperandSelect(sel) {
+        const states = csbLookupStates(sel.value);
+        sel.style.color = states ? "var(--green)" : "";
+        sel.title = states ? "state-based operand" : "";
+    }
+
+    function populateStateOptions() {
+        const states = csbLookupStates(leftSel.value);
+        if (states) {
+            rightState.innerHTML = states.map(s =>
+                `<option value="${s.value}" style="color:${CSB_STATE_COLOR_VAR[s.color] || "inherit"}">${s.value}</option>`
+            ).join("") + `<option value="__custom__">custom...</option>`;
+            rightState.style.display = "";
+            rightStateCustom.style.display = "none";
+        } else {
+            // Left operand isn't a known .state field (or its indicator has
+            // no states defined yet) — fall back to free text.
+            rightState.style.display = "none";
+            rightStateCustom.style.display = "";
+        }
+    }
 
     function syncRightField() {
         const isStateFlip = opSel.value === "state_flips_to";
         rightSel.style.display = isStateFlip ? "none" : "";
-        rightState.style.display = isStateFlip ? "" : "none";
         rightConst.style.display = (!isStateFlip && rightSel.value === "__const__") ? "" : "none";
+        if (isStateFlip) populateStateOptions();
+        else { rightState.style.display = "none"; rightStateCustom.style.display = "none"; }
+        colorOperandSelect(leftSel);
     }
+
+    rightState.addEventListener("change", () => {
+        rightStateCustom.style.display = rightState.value === "__custom__" ? "" : "none";
+    });
+    leftSel.addEventListener("change", syncRightField);
     opSel.addEventListener("change", syncRightField);
     rightSel.addEventListener("change", syncRightField);
     row.querySelector(".csbRemoveRow").addEventListener("click", () => row.remove());
@@ -217,7 +270,12 @@ function parseConditionRows(container) {
         const left = row.querySelector(".csbLeft").value;
         const operator = row.querySelector(".csbOp").value;
         let right;
-        if (operator === "state_flips_to") right = row.querySelector(".csbRightState").value.trim();
+        if (operator === "state_flips_to") {
+            const stateSel = row.querySelector(".csbRightState");
+            right = (stateSel.style.display !== "none" && stateSel.value !== "__custom__")
+                ? stateSel.value
+                : row.querySelector(".csbRightStateCustom").value.trim();
+        }
         else if (row.querySelector(".csbRight").value === "__const__") right = Number(row.querySelector(".csbRightConst").value);
         else right = row.querySelector(".csbRight").value;
         if (right === "" || right === null || (typeof right === "number" && Number.isNaN(right))) continue;
