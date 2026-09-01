@@ -22,6 +22,16 @@ let csbIndicatorCatalog = null;
 
 const CSB_TIMEFRAMES = ["5m", "15m", "30m", "1h"]; // tick mode intentionally excluded — see chat
 const CSB_OPERATORS = [">", "<", ">=", "<=", "==", "crosses_above", "crosses_below", "state_flips_to"];
+// Human-readable labels for the operator <select> — the raw strings above
+// are still what gets saved (matches conditionEvaluator.js exactly), this
+// is display-only so "state_flips_to" isn't just another unlabeled
+// technical string buried at the bottom of the list.
+const CSB_OPERATOR_LABELS = {
+    ">": ">", "<": "<", ">=": ">=", "<=": "<=", "==": "== (equals)",
+    crosses_above: "crosses above",
+    crosses_below: "crosses below",
+    state_flips_to: "state flips to \u2014 slope/regime change",
+};
 
 async function openCustomStrategyModal() {
     csbState = { candleType: null, timeframe: null, indicators: [], entryLong: [], entryShort: [], exitConfig: {} };
@@ -202,7 +212,7 @@ function csbConditionRowHTML(idx) {
     return `
         <div class="tb-form-row csbConditionRow" data-idx="${idx}">
             <select class="csbLeft">${operands.map(o => `<option value="${o}">${o}</option>`).join("")}</select>
-            <select class="csbOp">${CSB_OPERATORS.map(o => `<option value="${o}">${o}</option>`).join("")}</select>
+            <select class="csbOp">${CSB_OPERATORS.map(o => `<option value="${o}">${CSB_OPERATOR_LABELS[o]}</option>`).join("")}</select>
             <select class="csbRight csbRightOperand">${operands.map(o => `<option value="${o}">${o}</option>`).join("")}<option value="__const__">constant...</option></select>
             <input type="number" class="csbRightConst" placeholder="value" style="display:none;width:80px">
             <select class="csbRightState" style="display:none"></select>
