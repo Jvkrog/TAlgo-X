@@ -36,6 +36,13 @@ const INDICATOR_CATALOG = {
         // a value. Pick ALMA/EMA slope via crosses_above/crosses_below on
         // price until this extraction happens.
         exposes: ["state"], // BULL | BEAR | NEUTRAL
+        // Color coding for condition-builder state pickers — green when the
+        // slope is up, red when it's down, dim for flat/no-trend.
+        states: [
+            { value: "BULL",    color: "green" },
+            { value: "BEAR",    color: "red" },
+            { value: "NEUTRAL", color: "dim" },
+        ],
         params: [
             { key: "length",   label: "MA Length",              default: 56 },
             { key: "atrLen",   label: "ATR Length (angle norm)", default: 14 },
@@ -46,6 +53,18 @@ const INDICATOR_CATALOG = {
         label: "DPI",
         requiresCandles: true,
         exposes: ["value", "efficiency", "state"],
+        // Mirrors getDPIState()'s exact enum (indicators.js) — bull-side
+        // states green, bear-side red, balanced/neutral dim. BULL_LOW_EFF
+        // and BEAR_LOW_EFF are still directionally green/red (low
+        // conviction, not the opposite direction).
+        states: [
+            { value: "STRONG_BULL",  color: "green" },
+            { value: "BULL_LOW_EFF", color: "green" },
+            { value: "BALANCED",     color: "dim" },
+            { value: "NEUTRAL",      color: "dim" },
+            { value: "BEAR_LOW_EFF", color: "red" },
+            { value: "STRONG_BEAR",  color: "red" },
+        ],
         params: [
             { key: "period",     label: "Period",               default: 10 },
             { key: "streakMult", label: "Streak Mult",           default: 0.2 },
@@ -89,6 +108,14 @@ const INDICATOR_CATALOG = {
         // NOTE: same situation as MA_SLOPE — not yet extracted into
         // indicators.js. indicatorEngine.js throws on this type.
         exposes: ["state"], // HIGH | MID | LOW
+        // Placeholder mapping (HIGH=up-slope-ish, LOW=down-slope-ish) —
+        // revisit once the real band logic is extracted and its actual
+        // state semantics are confirmed.
+        states: [
+            { value: "HIGH", color: "green" },
+            { value: "MID",  color: "dim" },
+            { value: "LOW",  color: "red" },
+        ],
         params: [{ key: "stepPoints", label: "Step (points)", default: 5 }],
     },
 };

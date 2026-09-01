@@ -1720,6 +1720,21 @@ async function updateAccessToken() {
 // worth avoiding until something actually needs it. conditionEvaluator.js
 // itself already supports real nesting if a spec is authored some other way.
 
+// Given "indicatorId.field" and the list of indicator blocks configured in
+// this wizard session, finds that block's catalog entry and returns its
+// `states` list if the field is "state" and the catalog defines one — null
+// otherwise (wrong field, or an indicator with no states defined yet, e.g.
+// ADX/ALMA/EMA which only expose "value"). Mirrors webdash's
+// strategyBuilder.js's csbLookupStates so both wizards color the same way.
+function toolboxLookupStates(operandRef, indicators) {
+    if (!operandRef || operandRef.startsWith("price.")) return null;
+    const [id, field] = operandRef.split(".");
+    if (field !== "state") return null;
+    const block = indicators.find(ind => ind.id === id);
+    if (!block) return null;
+    return INDICATOR_CATALOG[block.type].states || null;
+}
+
 async function pickOperand(indicators, promptLabel) {
     const options = [];
     indicators.forEach(ind => {
@@ -1758,7 +1773,25 @@ async function buildConditionList(indicators, label) {
 
         let right;
         if (opSel === "state_flips_to") {
-            right = await ask("    target state (e.g. STRONG_BULL): ");
+            // Color-coded state picker when the left operand's indicator
+            // has known states (green=bull-side, red=bear-side, dim=flat) —
+            // same slope-direction vocabulary as the rest of the toolbox's
+            // colored output. Falls back to free text for indicators
+            // without a defined states list (ALMA/EMA/ADX/etc. only expose
+            // "value", not "state").
+            const states = toolboxLookupStates(left, indicators);
+            if (states) {
+                console.log(c.dim("  target state:"));
+                states.forEach((s, i) => console.log(`  ${i + 1}. ${c[s.color] ? c[s.color](s.value) : s.value}`));
+                console.log(`  ${states.length + 1}. ${c.dim("custom...")}`);
+                const stSel = await ask("  select number: ");
+                const idx = Number(stSel) - 1;
+                if (idx >= 0 && idx < states.length) right = states[idx].value;
+                else if (idx === states.length) right = await ask("    target state: ");
+                else right = null;
+            } else {
+                right = await ask("    target state (e.g. STRONG_BULL): ");
+            }
             if (!right) { console.log(c.yellow("  state label required, skipping condition")); continue; }
         } else {
             right = await pickOperand(indicators, "right operand");
