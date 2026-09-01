@@ -217,18 +217,28 @@ function csbConditionRowHTML(idx) {
             <input type="number" class="csbRightConst" placeholder="value" style="display:none;width:80px">
             <select class="csbRightState" style="display:none"></select>
             <input type="text" class="csbRightStateCustom" placeholder="state label" style="display:none;width:120px">
+            <span class="csbAutoStateBadge" style="display:none;font-family:var(--font-mono);font-size:11px;padding:4px 8px;border-radius:6px;border:1px solid var(--border)"></span>
             <button class="tb-back-link csbRemoveRow" type="button">remove</button>
         </div>
     `;
 }
 
-function wireCsbConditionRow(row) {
+// side: "long" | "short" | null. For entry condition lists, side is fixed
+// by which tab the row belongs to — a slope/regime "state flips to"
+// condition on a LONG entry only ever makes sense as "flips to a bullish
+// (green) state", and on SHORT only as "flips to a bearish (red) state".
+// Per request: don't ask the user to pick a color/label at all here — it's
+// implied by the tab, and there's nothing to disable because nothing is
+// shown to pick. Exit conditions (side === null) aren't long/short-scoped,
+// so they keep the full state picker.
+function wireCsbConditionRow(row, side = null) {
     const leftSel = row.querySelector(".csbLeft");
     const opSel = row.querySelector(".csbOp");
     const rightSel = row.querySelector(".csbRight");
     const rightConst = row.querySelector(".csbRightConst");
     const rightState = row.querySelector(".csbRightState");
     const rightStateCustom = row.querySelector(".csbRightStateCustom");
+    const autoBadge = row.querySelector(".csbAutoStateBadge");
 
     // Colors the left/right operand <select> text itself when it points at
     // a .state field — a quick visual cue in the condition list, not just
@@ -241,15 +251,34 @@ function wireCsbConditionRow(row) {
 
     function populateStateOptions() {
         const states = csbLookupStates(leftSel.value);
-        if (states) {
+        const impliedColor = side === "long" ? "green" : side === "short" ? "red" : null;
+        const autoMatches = states && impliedColor ? states.filter(s => s.color === impliedColor) : [];
+
+        if (states && autoMatches.length > 0) {
+            // Auto mode — no picker shown, resolved states stored on the
+            // row for parseConditionRows to read directly.
+            row.dataset.autoStates = JSON.stringify(autoMatches.map(s => s.value));
+            autoBadge.textContent = `auto: ${impliedColor.toUpperCase()} (${side} entry)`;
+            autoBadge.style.display = "";
+            autoBadge.style.color = CSB_STATE_COLOR_VAR[impliedColor];
+            autoBadge.style.borderColor = CSB_STATE_COLOR_VAR[impliedColor];
+            rightState.style.display = "none";
+            rightStateCustom.style.display = "none";
+        } else if (states) {
+            // Known states, but no side context (exit conditions) or no
+            // state of the implied color exists for this indicator — fall
+            // back to the full manual picker.
+            delete row.dataset.autoStates;
+            autoBadge.style.display = "none";
             rightState.innerHTML = states.map(s =>
                 `<option value="${s.value}" style="color:${CSB_STATE_COLOR_VAR[s.color] || "inherit"}">${s.value}</option>`
             ).join("") + `<option value="__custom__">custom...</option>`;
             rightState.style.display = "";
             rightStateCustom.style.display = "none";
         } else {
-            // Left operand isn't a known .state field (or its indicator has
-            // no states defined yet) — fall back to free text.
+            // Left operand isn't a known .state field at all — free text.
+            delete row.dataset.autoStates;
+            autoBadge.style.display = "none";
             rightState.style.display = "none";
             rightStateCustom.style.display = "";
         }
@@ -260,7 +289,12 @@ function wireCsbConditionRow(row) {
         rightSel.style.display = isStateFlip ? "none" : "";
         rightConst.style.display = (!isStateFlip && rightSel.value === "__const__") ? "" : "none";
         if (isStateFlip) populateStateOptions();
-        else { rightState.style.display = "none"; rightStateCustom.style.display = "none"; }
+        else {
+            delete row.dataset.autoStates;
+            autoBadge.style.display = "none";
+            rightState.style.display = "none";
+            rightStateCustom.style.display = "none";
+        }
         colorOperandSelect(leftSel);
     }
 
@@ -279,6 +313,27 @@ function parseConditionRows(container) {
     for (const row of container.querySelectorAll(".csbConditionRow")) {
         const left = row.querySelector(".csbLeft").value;
         const operator = row.querySelector(".csbOp").value;
+
+        if (operator === "state_flips_to" && row.dataset.autoStates) {
+            // Auto (tab-implied) color mode — one or more catalog states
+            // share that color (e.g. DPI has both STRONG_BULL and
+            // BULL_LOW_EFF as "green"), so this expands into a single leaf
+            // when there's only one match, or a nested OR sub-condition
+            // when there's more than one. evaluateNode already handles a
+            // mix of leaves and sub-trees inside an AND list, so this needs
+            // no conditionEvaluator.js changes.
+            const values = JSON.parse(row.dataset.autoStates);
+            if (values.length === 1) {
+                conditions.push({ left, operator, right: values[0] });
+            } else if (values.length > 1) {
+                conditions.push({
+                    op: "OR",
+                    conditions: values.map(v => ({ left, operator, right: v })),
+                });
+            }
+            continue;
+        }
+
         let right;
         if (operator === "state_flips_to") {
             const stateSel = row.querySelector(".csbRightState");
@@ -304,13 +359,14 @@ function renderCsbStep5(field, label, nextFn) {
         <button class="btn" id="csbNext5">Next \u2192</button>
     `;
     const list = tbCustomBody.querySelector("#csbConditionList");
+    const side = field === "entryLong" ? "long" : field === "entryShort" ? "short" : null;
     let rowIdx = 0;
     function addRow() {
         const wrapper = document.createElement("div");
         wrapper.innerHTML = csbConditionRowHTML(rowIdx++);
         const row = wrapper.firstElementChild;
         list.appendChild(row);
-        wireCsbConditionRow(row);
+        wireCsbConditionRow(row, side);
     }
     tbCustomBody.querySelector("#csbAddCondition").addEventListener("click", addRow);
     addRow(); // start with one row — matches toolbox CLI defaulting to prompting for condition #1 immediately
