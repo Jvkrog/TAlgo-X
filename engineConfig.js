@@ -361,4 +361,34 @@ module.exports = {
     ALMA_PRO_FAST_CHOP_MAX:        50,
     USE_ALMA_PRO_SLOW_CHOP_FILTER: true,
     ALMA_PRO_SLOW_CHOP_MAX:        50,
+
+    // ─── VOLUME DELTA / CVD / ABSORPTION / DIVERGENCE — createVolumeDeltaCvdStrategy
+    // (strategies.js) + tickVolumeDelta.js/candleDeltaBuffer.js/absorption.js/
+    // cvdDivergence.js. Flat VOLUME_DELTA_-prefixed keys, same convention
+    // as every other strategy's block above (this file has no nested
+    // config objects anywhere — kept consistent rather than introducing a
+    // new shape for just this one strategy).
+    VOLUME_DELTA_EMA_FAST: 20,
+    VOLUME_DELTA_EMA_SLOW: 50,
+    VOLUME_DELTA_ATR_LEN:  14,
+    VOLUME_DELTA_ATR_STOP_MULT: 1.5,
+    RELATIVE_VOLUME_LOOKBACK: 20,
+    RELATIVE_VOLUME_MINIMUM:  1.20,
+    DELTA_Z_LOOKBACK:  50,
+    DELTA_Z_THRESHOLD: 1.0,
+    SWING_LOOKBACK: 5,
+    VOLUME_DELTA_SIGNAL_THRESHOLD: 70,
+    ABSORPTION_ENABLED: true,
+    // Rupee/point-agnostic — these three are compared directly against
+    // buy+sellVolume and |delta| in whatever unit the broker's candle
+    // volume field is in (contracts/lots traded, for MCX futures) — tune
+    // per-instrument via engineConfig if the default doesn't fit an
+    // instrument's typical volume, same as every other fixed threshold in
+    // this file.
+    ABSORPTION_MIN_DELTA:  50,
+    ABSORPTION_MIN_VOLUME: 100,
+    ABSORPTION_LEVEL_TOLERANCE: 0.5,   // price units — "at" the level, within this much
+    ABSORPTION_MAX_PENETRATION: 2.0,   // price units — how far past the level counts as still "limited progress"
+    ABSORPTION_REJECTION_MIN: 0.6,     // close must be in the top/bottom (1-this) fraction of the candle's own range
+    DIVERGENCE_ENABLED: true,
 };

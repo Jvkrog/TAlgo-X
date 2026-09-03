@@ -252,6 +252,20 @@ function buildContext(def, resolvedContract) {
         // a ceiling instead of a floor). Checked every tick, same as
         // checkDailyLoss.
         sessionTargetRupees: null,
+        // Choppiness Index entry filter — available for any strategy
+        // except ALMA_PRO_FAST/SLOW (their own dedicated, pre-existing
+        // toggle — almaChopFilterEnabled/ALMA_PRO_FAST_CHOP_MAX — is
+        // unchanged and separate from this). Enforced via chopGate.js's
+        // isChopBlocked(), called from every other strategy's own entry
+        // site in strategies.js (not a wrapper around orders.enter() —
+        // see chopGate.js's header for why that doesn't work in paper
+        // mode). null = "strategy decides its own default" — every
+        // strategy defaults to OFF unless enabled via Edit Params, so
+        // this is opt-in, never a silent behavior change for anything
+        // already deployed.
+        chopFilterEnabled: null,
+        chopPeriod: null,
+        chopMax: null,
     };
 }
 

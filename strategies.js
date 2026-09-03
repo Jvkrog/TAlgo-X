@@ -12,10 +12,14 @@ const c = require("./c");
 const {
     toHA, alma, atr, atrSeries, supertrend,
     adx, rsi, choppinessIndex, hmIndicator, dpi, getDPIState, sma, ema, adaptiveTrendEnvelope,
+    vwap, relativeVolume, deltaZScore,
 } = require("./indicators");
 const { istParts } = require("./istTime");
 const { evaluateMarketQuality } = require("./marketQuality");
 const { emitEvent } = require("./eventBridge"); // web dashboard only, see eventBridge.js header
+const { detectAbsorption } = require("./absorption");
+const { detectDivergence } = require("./cvdDivergence");
+const { isChopBlocked } = require("./chopGate");
 
 // ════════════════════════════════════════════════════════════════════════
 // DPI_TREND_MEANREV (key name kept as-is for DB-filename/continuity reasons
@@ -190,8 +194,10 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
             const rsiOk = side === "LONG" ? rsiLongOk : rsiShortOk;
             const dpiOk = side === "LONG" ? dpiState === "STRONG_BULL" : dpiState === "STRONG_BEAR";
             if (rsiOk && dpiOk) {
-                const ordered = await orders.enter(side);
-                if (engineConfig.LIVE_ORDERS && ordered === null) {
+                const chopBlocked = isChopBlocked(context, engineConfig, candles);
+                if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+                const ordered = chopBlocked ? null : await orders.enter(side);
+                if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
                 } else {
                     const slTrail = computeTrail(livePrice, atrVal, side);
@@ -559,8 +565,10 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
             const rsiOk = side === "LONG" ? rsiLongOk : rsiShortOk;
             const dpiOk = side === "LONG" ? dpiState === "STRONG_BULL" : dpiState === "STRONG_BEAR";
             if (rsiOk && dpiOk) {
-                const ordered = await orders.enter(side);
-                if (engineConfig.LIVE_ORDERS && ordered === null) {
+                const chopBlocked = isChopBlocked(context, engineConfig, candles);
+                if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+                const ordered = chopBlocked ? null : await orders.enter(side);
+                if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
                 } else {
                     const slTrail = computeTrail(livePrice, atrVal, side);
@@ -600,8 +608,10 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
             else if (rsiVal <= engineConfig.MEANREV_RSI_BUY) side = "LONG";
 
             if (side) {
-                const ordered = await orders.enter(side);
-                if (engineConfig.LIVE_ORDERS && ordered === null) {
+                const chopBlocked = isChopBlocked(context, engineConfig, candles);
+                if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+                const ordered = chopBlocked ? null : await orders.enter(side);
+                if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
                 } else {
                     const slTrail = computeTrail(livePrice, atrVal, side);
@@ -857,8 +867,10 @@ function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, 
             else if (dpiState === "STRONG_BEAR") side = "SHORT";
 
             if (side) {
-                const ordered = await orders.enter(side);
-                if (engineConfig.LIVE_ORDERS && ordered === null) {
+                const chopBlocked = isChopBlocked(context, engineConfig, candles);
+                if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+                const ordered = chopBlocked ? null : await orders.enter(side);
+                if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
                 } else {
                     const slTrail = computeTrail(livePrice, atrVal, side);
@@ -1066,8 +1078,10 @@ function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles,
         // agreement or band breakout); this block just executes it.
         if (engineConfig.ENGINE_ENABLED && !state.position && canEnter() && entrySide) {
             const side = entrySide;
-            const ordered = await orders.enter(side);
-            if (engineConfig.LIVE_ORDERS && ordered === null) {
+            const chopBlocked = isChopBlocked(context, engineConfig, candles);
+            if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+            const ordered = chopBlocked ? null : await orders.enter(side);
+            if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
             } else {
                 const slTrail = computeTrail(livePrice, atrVal, side);
@@ -1296,8 +1310,10 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
             else if (closeVal < almaLow)  side = "SHORT";
 
             if (side) {
-                const ordered = await orders.enter(side);
-                if (engineConfig.LIVE_ORDERS && ordered === null) {
+                const chopBlocked = isChopBlocked(context, engineConfig, candles);
+                if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+                const ordered = chopBlocked ? null : await orders.enter(side);
+                if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
                 } else {
                     const slTrail = computeTrail(livePrice, atrVal, side);
@@ -1510,8 +1526,10 @@ function createAlmaFastStrategy({ context, engineConfig, state, db, candles, slS
         // is the second, independent brake.
         if (engineConfig.ENGINE_ENABLED && !state.position && flipSide && canEnter() && chopOk) {
             const side = flipSide;
-            const ordered = await orders.enter(side);
-            if (engineConfig.LIVE_ORDERS && ordered === null) {
+            const chopBlocked = isChopBlocked(context, engineConfig, candles);
+            if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+            const ordered = chopBlocked ? null : await orders.enter(side);
+            if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
             } else {
                 const slTrail = computeTrail(livePrice, atrVal, side);
@@ -1806,8 +1824,10 @@ function createMaSlopeStrategy({ context, engineConfig, state, db, candles, slSt
         // fired — same pattern as ALMA_DUAL_BAND_SMA5's entry block.
         if (engineConfig.ENGINE_ENABLED && !state.position && entrySide && canEnter()) {
             const side = entrySide;
-            const ordered = await orders.enter(side);
-            if (engineConfig.LIVE_ORDERS && ordered === null) {
+            const chopBlocked = isChopBlocked(context, engineConfig, candles);
+            if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+            const ordered = chopBlocked ? null : await orders.enter(side);
+            if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
             } else {
                 const slTrail = computeTrail(livePrice, atrVal, side);
@@ -2182,8 +2202,10 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
         // only scalp entries did (see computeTarget's header comment).
         if (engineConfig.ENGINE_ENABLED && !state.position && entrySide && canEnter()) {
             const side = entrySide;
-            const ordered = await orders.enter(side);
-            if (engineConfig.LIVE_ORDERS && ordered === null) {
+            const chopBlocked = isChopBlocked(context, engineConfig, candles);
+            if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+            const ordered = chopBlocked ? null : await orders.enter(side);
+            if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
             } else {
                 const slTrail = computeTrail(livePrice, atrVal, side);
@@ -2512,8 +2534,10 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
             (entrySide === "SHORT" && haCloseVal < sma9Val);
         if (engineConfig.ENGINE_ENABLED && !state.position && entrySide && smaAligned && canEnter()) {
             const side = entrySide;
-            const ordered = await orders.enter(side);
-            if (engineConfig.LIVE_ORDERS && ordered === null) {
+            const chopBlocked = isChopBlocked(context, engineConfig, candles);
+            if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+            const ordered = chopBlocked ? null : await orders.enter(side);
+            if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
             } else {
                 const slTrail = computeTrail(livePrice, atrVal, side);
@@ -2746,8 +2770,10 @@ function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, sl
         // while flat, no trade in grey.
         if (engineConfig.ENGINE_ENABLED && !state.position && entrySide && canEnter()) {
             const side = entrySide;
-            const ordered = await orders.enter(side);
-            if (engineConfig.LIVE_ORDERS && ordered === null) {
+            const chopBlocked = isChopBlocked(context, engineConfig, candles);
+            if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+            const ordered = chopBlocked ? null : await orders.enter(side);
+            if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
             } else {
                 const slTrail = computeTrail(livePrice, atrVal, side);
@@ -2963,8 +2989,10 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
             const chopOk = chopVal !== null && chopVal <= engineConfig.DST_CHOP_MAX;
             if (chopOk) {
                 const side = st1Dir === 1 ? "LONG" : "SHORT";
-                const ordered = await orders.enter(side);
-                if (engineConfig.LIVE_ORDERS && ordered === null) {
+                const chopBlocked = isChopBlocked(context, engineConfig, candles);
+                if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+                const ordered = chopBlocked ? null : await orders.enter(side);
+                if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
                 } else {
                     const slTrail = computeTrail(livePrice, atrVal, side);
@@ -3158,8 +3186,10 @@ function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles
         // Entry: level-based on regime while flat — see header ASSUMPTION.
         if (engineConfig.ENGINE_ENABLED && !state.position && entrySide && canEnter()) {
             const side = entrySide;
-            const ordered = await orders.enter(side);
-            if (engineConfig.LIVE_ORDERS && ordered === null) {
+            const chopBlocked = isChopBlocked(context, engineConfig, candles);
+            if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+            const ordered = chopBlocked ? null : await orders.enter(side);
+            if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
             } else {
                 const slTrail = computeTrail(livePrice, atrVal, side);
@@ -3399,8 +3429,10 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
     }
 
     async function doEnter(side, livePrice, reason) {
-        const ordered = await orders.enter(side);
-        if (engineConfig.LIVE_ORDERS && ordered === null) {
+        const chopBlocked = isChopBlocked(context, engineConfig, candles);
+        if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+        const ordered = chopBlocked ? null : await orders.enter(side);
+        if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
             return false;
         }
@@ -3670,8 +3702,10 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
     }
 
     async function doEnter(side, livePrice, atrVal, reason) {
-        const ordered = await orders.enter(side);
-        if (engineConfig.LIVE_ORDERS && ordered === null) {
+        const chopBlocked = isChopBlocked(context, engineConfig, candles);
+        if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+        const ordered = chopBlocked ? null : await orders.enter(side);
+        if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
             return false;
         }
@@ -4032,8 +4066,10 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
     }
 
     async function doEnter(side, livePrice, atrVal, reason) {
-        const ordered = await orders.enter(side);
-        if (engineConfig.LIVE_ORDERS && ordered === null) {
+        const chopBlocked = isChopBlocked(context, engineConfig, candles);
+        if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+        const ordered = chopBlocked ? null : await orders.enter(side);
+        if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
             return false;
         }
@@ -4365,8 +4401,10 @@ function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, 
     }
 
     async function doEnter(side, livePrice, atrVal, reason) {
-        const ordered = await orders.enter(side);
-        if (engineConfig.LIVE_ORDERS && ordered === null) {
+        const chopBlocked = isChopBlocked(context, engineConfig, candles);
+        if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+        const ordered = chopBlocked ? null : await orders.enter(side);
+        if (chopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
             return false;
         }
@@ -5038,6 +5076,227 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
 }
 
 
+// ════════════════════════════════════════════════════════════════════════
+// VOLUME DELTA / CVD / ABSORPTION / DIVERGENCE
+//
+// Estimated tick-rule delta (tickVolumeDelta.js, fed by engine.js's tick
+// handler into a candleDeltaBuffer.js instance) + CVD, layered under
+// EMA20/50 trend, VWAP, relative volume, delta Z-score, absorption
+// (absorption.js) and CVD/price divergence (cvdDivergence.js), combined
+// into a 0-100 score per the spec this was built against. Sizing uses
+// context.lots like every other strategy here — there is no existing
+// per-trade %-risk position sizer in this codebase to plug into (checked:
+// orders.js's enter/exit always use the static context.lots), so this
+// does NOT invent one; it uses what's actually here.
+//
+// deltaBuffer is a NEW dependency beyond what every other factory in this
+// file receives — engine.js always constructs one and passes it into every
+// strategy's deps uniformly (cheap no-op for strategies that don't
+// destructure it), same way `clock` already has a default for factories
+// that don't need it.
+//
+// KNOWN LIMITATION (delta warmup): unlike the price-based indicators
+// (EMA/ATR/VWAP), which warm up instantly from preloaded historical
+// candles, deltaHistory only ever contains candles closed SINCE this
+// engine booted — there is no way to backfill genuine tick-based delta
+// for historical candles (this is deliberate, see tickVolumeDelta.js's
+// header: never fabricate historical aggressor delta from OHLCV). So
+// deltaZ/divergence/absorption stay unavailable (treated as neutral, not
+// blocking the EMA/VWAP/relVol-only portion of the score) for roughly the
+// first DELTA_Z_LOOKBACK candles after boot.
+function createVolumeDeltaCvdStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, deltaBuffer, clock = { now: () => new Date() } }) {
+
+    function computeSignal() {
+        const rawCandles = candles.getRawCandles();
+        const warmupNeeded = Math.max(engineConfig.VOLUME_DELTA_EMA_SLOW, engineConfig.VOLUME_DELTA_ATR_LEN, engineConfig.RELATIVE_VOLUME_LOOKBACK) + 5;
+        if (rawCandles.length < warmupNeeded) return null;
+
+        const latest = rawCandles[rawCandles.length - 1];
+        const closes = rawCandles.map(cd => cd.close);
+        const emaFastArr = ema(closes, engineConfig.VOLUME_DELTA_EMA_FAST);
+        const emaSlowArr = ema(closes, engineConfig.VOLUME_DELTA_EMA_SLOW);
+        const emaFast = emaFastArr[emaFastArr.length - 1];
+        const emaSlow = emaSlowArr[emaSlowArr.length - 1];
+        const atrVal = atr(rawCandles, engineConfig.VOLUME_DELTA_ATR_LEN);
+
+        // Session VWAP — same calendar-date bars only (candle.date is
+        // Kite's ISO-ish string, e.g. "2026-08-30T09:15:00+0530"; first 10
+        // chars are the calendar date). Falls back to the whole buffer if
+        // date parsing ever comes up empty, rather than returning null and
+        // silently dropping VWAP from the score.
+        const todayStr = String(latest.date).slice(0, 10);
+        const sessionCandles = rawCandles.filter(cd => String(cd.date).slice(0, 10) === todayStr);
+        const vwapVal = vwap(sessionCandles.length > 0 ? sessionCandles : rawCandles);
+
+        const relVol = relativeVolume(rawCandles, engineConfig.RELATIVE_VOLUME_LOOKBACK);
+
+        // Delta-derived signals — deltaBuffer is fed exclusively by LIVE
+        // ticks since boot, see this function's header comment on the
+        // resulting warmup gap. deltaHistory is aligned to the TAIL of
+        // rawCandles (it's shorter after a fresh boot, since it doesn't
+        // include preloaded history) — sliced to match before indexing
+        // into both arrays together.
+        const deltaHistory = deltaBuffer ? deltaBuffer.getDeltaHistory() : [];
+        const alignedCandles = deltaHistory.length > 0 ? rawCandles.slice(rawCandles.length - deltaHistory.length) : [];
+        const latestDeltaEntry = deltaHistory.length > 0 ? deltaHistory[deltaHistory.length - 1] : null;
+        const deltaZ = deltaZScore(deltaHistory, engineConfig.DELTA_Z_LOOKBACK);
+        const cvd = deltaBuffer ? deltaBuffer.getCvd() : 0;
+        const divergence = detectDivergence(alignedCandles, deltaHistory, engineConfig);
+        const absorptionResult = latestDeltaEntry
+            ? detectAbsorption(latest, latestDeltaEntry, vwapVal, engineConfig)
+            : { bullish: false, bearish: false, reason: "no delta data yet" };
+
+        // EMA trend classification — exactly the spec's three-way rule.
+        let emaTrend = "neutral";
+        if (emaFast > emaSlow && latest.close > emaFast) emaTrend = "bullish";
+        else if (emaFast < emaSlow && latest.close < emaFast) emaTrend = "bearish";
+
+        const delta = latestDeltaEntry ? latestDeltaEntry.delta : null;
+
+        // ─── SCORING — 0-100, spec's exact point weights ───────────────
+        let longScore = 0, shortScore = 0;
+        const longReasons = [], shortReasons = [];
+
+        if (emaTrend === "bullish") { longScore += 20; longReasons.push("bullish EMA trend"); }
+        if (emaTrend === "bearish") { shortScore += 20; shortReasons.push("bearish EMA trend"); }
+
+        if (vwapVal !== null && latest.close > vwapVal) { longScore += 15; longReasons.push("above VWAP"); }
+        if (vwapVal !== null && latest.close < vwapVal) { shortScore += 15; shortReasons.push("below VWAP"); }
+
+        if (delta !== null && delta > 0) { longScore += 15; longReasons.push("positive delta"); }
+        if (delta !== null && delta < 0) { shortScore += 15; shortReasons.push("negative delta"); }
+
+        if (deltaZ !== null && deltaZ >= engineConfig.DELTA_Z_THRESHOLD) { longScore += 15; longReasons.push(`delta Z-score ${deltaZ.toFixed(2)}`); }
+        if (deltaZ !== null && deltaZ <= -engineConfig.DELTA_Z_THRESHOLD) { shortScore += 15; shortReasons.push(`delta Z-score ${deltaZ.toFixed(2)}`); }
+
+        if (divergence.bullish) { longScore += 15; longReasons.push("bullish CVD divergence"); }
+        if (divergence.bearish) { shortScore += 15; shortReasons.push("bearish CVD divergence"); }
+
+        if (absorptionResult.bullish) { longScore += 10; longReasons.push("bullish absorption"); }
+        if (absorptionResult.bearish) { shortScore += 10; shortReasons.push("bearish absorption"); }
+
+        if (relVol !== null && relVol >= engineConfig.RELATIVE_VOLUME_MINIMUM) {
+            if (longScore >= shortScore) { longScore += 10; longReasons.push(`relative volume ${relVol.toFixed(2)}x`); }
+            else { shortScore += 10; shortReasons.push(`relative volume ${relVol.toFixed(2)}x`); }
+        }
+
+        return {
+            latest, emaFast, emaSlow, atrVal, vwapVal, relVol, delta, deltaZ, cvd,
+            divergence, absorption: absorptionResult, emaTrend,
+            longScore, shortScore, longReasons, shortReasons,
+        };
+    }
+
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown() || !engineConfig.ENGINE_ENABLED) return;
+        const sig = computeSignal();
+        if (!sig) return;
+
+        const livePrice = candles.getLivePrice() ?? rawCandle.close;
+
+        // ─── EXIT (only acts on a position this strategy itself opened) ──
+        if (state.position && state.positionSource === "VOLUME_DELTA_CVD") {
+            const bearishForLong  = state.position === "LONG"  && (sig.emaTrend === "bearish" || (sig.deltaZ !== null && sig.deltaZ <= -engineConfig.DELTA_Z_THRESHOLD) || sig.divergence.bearish);
+            const bullishForShort = state.position === "SHORT" && (sig.emaTrend === "bullish" || (sig.deltaZ !== null && sig.deltaZ >= engineConfig.DELTA_Z_THRESHOLD) || sig.divergence.bullish);
+            if (bearishForLong || bullishForShort) {
+                const closedSide = state.position;
+                await orders.exit(closedSide);
+                tg(`${closedSide} EXIT (VOLUME_DELTA_CVD) @ \u20b9${livePrice.toFixed(2)}\nreason: ${sig.emaTrend !== "neutral" ? "trend flip" : sig.divergence.bullish || sig.divergence.bearish ? "CVD divergence" : "delta Z-score reversal"}`);
+                await positionsClose(livePrice, "VOLUME_DELTA_CVD");
+                slStore.clearTrail();
+                targetStore.clearTarget();
+                db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0, null, null, null, null);
+                return;
+            }
+        }
+
+        // ─── SIGNAL STATE — FLAT -> *_SETUP -> LONG/SHORT, one-candle
+        // confirmation debounce so a single-candle score spike doesn't
+        // enter immediately; the score must still clear threshold on the
+        // NEXT candle too. In-memory only (state.vdSetup isn't persisted
+        // to the DB) — a restart mid-setup just drops back to FLAT and
+        // re-evaluates from scratch, same as never having been in setup;
+        // it never causes an incorrect entry, only a possibly-missed one.
+        if (!state.position) {
+            const longReady  = sig.longScore  >= engineConfig.VOLUME_DELTA_SIGNAL_THRESHOLD;
+            const shortReady = sig.shortScore >= engineConfig.VOLUME_DELTA_SIGNAL_THRESHOLD;
+
+            if (state.vdSetup === "LONG_SETUP" && longReady) {
+                await enterPosition("LONG", sig, livePrice);
+                state.vdSetup = null;
+            } else if (state.vdSetup === "SHORT_SETUP" && shortReady) {
+                await enterPosition("SHORT", sig, livePrice);
+                state.vdSetup = null;
+            } else if (longReady) {
+                state.vdSetup = "LONG_SETUP";
+            } else if (shortReady) {
+                state.vdSetup = "SHORT_SETUP";
+            } else {
+                state.vdSetup = null; // score dropped back below threshold — setup invalidated
+            }
+        }
+    }
+
+    async function enterPosition(side, sig, livePrice) {
+        const chopBlocked = isChopBlocked(context, engineConfig, candles);
+        if (chopBlocked) { console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`); return; }
+
+        const ordered = await orders.enter(side);
+        if (engineConfig.LIVE_ORDERS && ordered === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
+            return;
+        }
+
+        state.position       = side;
+        state.entryPrice     = livePrice;
+        state.positionSource = "VOLUME_DELTA_CVD";
+        state.openTradeId    = await db.insertOpenTrade(context.tgPrefix, context.symbol, side, context.lots, livePrice);
+
+        if (sig.atrVal !== null) {
+            const stopLevel = side === "LONG"
+                ? livePrice - engineConfig.VOLUME_DELTA_ATR_STOP_MULT * sig.atrVal
+                : livePrice + engineConfig.VOLUME_DELTA_ATR_STOP_MULT * sig.atrVal;
+            slStore.setTrail(stopLevel, side === "LONG" ? 1 : -1);
+        }
+
+        db.savePosition(context.tgPrefix, context.token, context.symbol, side, livePrice, "VOLUME_DELTA_CVD", null, null, null);
+
+        const score = side === "LONG" ? sig.longScore : sig.shortScore;
+        const reasons = side === "LONG" ? sig.longReasons : sig.shortReasons;
+        tg(
+            `${side} ENTRY (VOLUME_DELTA_CVD) @ \u20b9${livePrice.toFixed(2)}\n` +
+            `score: ${score}/100\n` +
+            `reasons: ${reasons.join(", ") || "none"}\n` +
+            `delta: ${sig.delta !== null ? sig.delta.toFixed(0) : "n/a"}  deltaZ: ${sig.deltaZ !== null ? sig.deltaZ.toFixed(2) : "n/a"}  CVD: ${sig.cvd.toFixed(0)}\n` +
+            `relVol: ${sig.relVol !== null ? sig.relVol.toFixed(2) + "x" : "n/a"}  VWAP: ${sig.vwapVal !== null ? sig.vwapVal.toFixed(2) : "n/a"}\n` +
+            `EMA20: ${sig.emaFast.toFixed(2)}  EMA50: ${sig.emaSlow.toFixed(2)}  ATR: ${sig.atrVal !== null ? sig.atrVal.toFixed(2) : "n/a"}`
+        );
+    }
+
+    async function initSignals() {
+        try {
+            if (deltaBuffer) deltaBuffer.resetSession();
+            state.vdSetup = null;
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+            if (saved?.position) {
+                state.position       = saved.position;
+                state.entryPrice     = saved.entry_price;
+                state.positionSource = saved.position_source || "VOLUME_DELTA_CVD";
+                const openTrade = await db.getOpenTrade(context.tgPrefix);
+                state.openTradeId = openTrade ? openTrade.id : null;
+            }
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+            console.log(`[${context.tgPrefix}] VOLUME_DELTA_CVD ${state.position ? `${state.position}@${state.entryPrice}` : "flat"}`);
+            tg(`VOLUME_DELTA_CVD started [${context.tgPrefix}] \u2014 estimated tick delta, not true exchange aggressor volume`);
+            await orders.reconcile(state);
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] VOLUME_DELTA_CVD restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
 const STRATEGIES = {
     DPI_TREND_MEANREV: createDpiTrendMeanrevStrategy,
     ALMA_BAND:          createAlmaBandStrategy,
@@ -5057,6 +5316,7 @@ const STRATEGIES = {
     ALMA_TRI_BAND:        createAlmaTriBandStrategy,
     ALMA_PRO_FAST:        createAlmaProFastStrategy,
     ALMA_PRO_SLOW:        createAlmaProSlowStrategy,
+    VOLUME_DELTA_CVD:     createVolumeDeltaCvdStrategy,
 };
 
 // Toolbox-facing labels only — not a full param schema yet (that's a later
@@ -5082,6 +5342,7 @@ const STRATEGY_INFO = {
     ALMA_TRI_BAND:        { label: "ALMA Tri-Band Agreement", description: "fast ALMA (HA close) + ALMA(high)/ALMA(low) bands driven by one shared bull/bear/grey state (green/red/grey), with big-candle and band-compression filters forcing grey; enters/exits on state flips, reverses immediately on the opposite decisive color; grey behavior while a position is open is configurable per instrument \u2014 exit flat or hold through it (default: hold); adds an ATR trailing stop and optional fixed target, neither present in the original indicator", short: "ATRIB" },
     ALMA_PRO_FAST:        { label: "ALMA Pro \u2014 Fast Engine", description: "the FAST half of strategy #17 (\"TAlgo \u2014 Pro Engine\"): fast ALMA (HA close) + ALMA(high)/ALMA(low) band, band-compression forces sideways/flat, slope+breakout confirm entries; band gate toggleable per instrument (default ON, OFF trades on slope alone), fast/band ALMA lengths also configurable per instrument (default 20/50); Choppiness Index entry filter toggleable per instrument (default ON, not in the original); run alongside ALMA_PRO_SLOW on a DIFFERENT underlying (e.g. the mini contract) for a genuine dual-engine setup \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APF" },
     ALMA_PRO_SLOW:        { label: "ALMA Pro \u2014 Slow Engine", description: "the SLOW half of strategy #17: single slow ALMA(100) on HA close, entry LEVEL-based on the line's own current slope direction (deadband-filtered, same whipsaw control ALMA_FAST uses) \u2014 no band/breakout confirmation, that's the fast engine's job; Choppiness Index entry filter toggleable per instrument (default ON, not in the original); run alongside ALMA_PRO_FAST on a DIFFERENT underlying (e.g. the full-lot contract) \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APS" },
+    VOLUME_DELTA_CVD:     { label: "Volume Delta / CVD", description: "estimated tick-rule buy/sell volume delta (price-direction based \u2014 Kite doesn't expose true exchange aggressor side) + CVD, layered under EMA20/50 trend, VWAP, relative volume, delta Z-score, absorption, and CVD/price divergence into a 0-100 score; two-candle setup\u2192confirm entry debounce, ATR stop-loss; delta-based signals need warmup time after boot (can't backfill genuine tick delta from historical candles)", short: "VDCVD" },
 };
 
 // Each strategy's live/paper candle interval — this is a property of the
@@ -5139,8 +5400,13 @@ const STRATEGY_TIMEFRAME = {
     ALMA_TRI_BAND:        "15m",
     ALMA_PRO_FAST:        "15m",
     ALMA_PRO_SLOW:        "15m",
+    // Finer granularity than the platform default — delta/CVD/absorption
+    // signals are inherently a shorter-horizon read on order flow than the
+    // trend-following strategies above default to; adjustable per
+    // instrument via TIMEFRAME_OVERRIDE same as everything else here.
+    VOLUME_DELTA_CVD:     "5m",
 };
 
 const DEFAULT_STRATEGY = "DPI_TREND_MEANREV";
 
-module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy };
+module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy, createVolumeDeltaCvdStrategy };

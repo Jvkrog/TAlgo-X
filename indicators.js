@@ -472,7 +472,65 @@ function ema(values, len) {
     return out;
 }
 
-module.exports = { toHA, alma, atr, atrSeries, supertrend, adx, rsi, choppinessIndex, hmIndicator, dpi, getDPIState, sma, ema, adaptiveTrendEnvelope };
+// ─── VWAP (session, cumulative) ──────────────────────────────────────────
+// Volume-weighted average price using each candle's typical price
+// (high+low+close)/3 — the standard approximation when only OHLCV bars are
+// available (no per-trade price/size data). Cumulative from the start of
+// the candles array passed in, so the CALLER controls what "session" means
+// by slicing candles to the current session's bars before calling this —
+// same "caller controls the window" convention every other indicator here
+// already follows (e.g. atr/adx take the full array and their own `len`).
+// Returns the single latest VWAP value, or null if there's no volume at
+// all in the window (every bar's volume is 0 — e.g. running before this
+// codebase's volume parsing existed, or a feed that doesn't supply it).
+function vwap(candles) {
+    if (!candles || candles.length === 0) return null;
+    let cumPV = 0, cumVol = 0;
+    for (const c of candles) {
+        const typical = (c.high + c.low + c.close) / 3;
+        const vol = c.volume || 0;
+        cumPV += typical * vol;
+        cumVol += vol;
+    }
+    if (cumVol === 0) return null;
+    return cumPV / cumVol;
+}
+
+// ─── RELATIVE VOLUME ──────────────────────────────────────────────────────
+// currentVolume / average(previous `len` candles' volume) — NOT including
+// the current candle in its own average (a still-forming or just-closed
+// candle comparing itself to a window that includes itself would bias the
+// ratio toward 1.0). Returns null until there are at least `len` PRIOR
+// candles to average.
+function relativeVolume(candles, len = config.RELATIVE_VOLUME_LOOKBACK) {
+    if (!candles || candles.length < len + 1) return null;
+    const current = candles[candles.length - 1].volume || 0;
+    const priorWindow = candles.slice(candles.length - 1 - len, candles.length - 1);
+    const avg = priorWindow.reduce((sum, c) => sum + (c.volume || 0), 0) / len;
+    if (avg === 0) return null; // avoid divide-by-zero — no volume in the comparison window at all
+    return current / avg;
+}
+
+// ─── DELTA Z-SCORE ────────────────────────────────────────────────────────
+// (currentDelta - mean) / stdDev over the trailing `len` delta values —
+// deltaHistory here is candleDeltaBuffer.js's array of {delta, ...}
+// entries (or a plain array of numbers — either works, see the .delta
+// extraction below). Returns null on insufficient history or a
+// zero-stdDev window (every value identical — a z-score is undefined
+// there, not zero; zero would falsely claim "exactly average" when the
+// window has no variance to be average WITHIN).
+function deltaZScore(deltaHistory, len = config.DELTA_Z_LOOKBACK) {
+    if (!deltaHistory || deltaHistory.length < len) return null;
+    const window = deltaHistory.slice(-len).map(d => (typeof d === "number" ? d : d.delta));
+    const mean = window.reduce((a, b) => a + b, 0) / len;
+    const variance = window.reduce((sum, v) => sum + (v - mean) ** 2, 0) / len;
+    const stdDev = Math.sqrt(variance);
+    if (stdDev === 0) return null;
+    const current = window[window.length - 1];
+    return (current - mean) / stdDev;
+}
+
+module.exports = { toHA, alma, atr, atrSeries, supertrend, adx, rsi, choppinessIndex, hmIndicator, dpi, getDPIState, sma, ema, adaptiveTrendEnvelope, vwap, relativeVolume, deltaZScore };
 
 // ─── ADAPTIVE TREND ENVELOPE [BackQuant] ──────────────────────────────────────
 // Direct port of the Pine v6 script "Adaptive Trend Envelope [BackQuant]"

@@ -21,6 +21,8 @@ const { KiteConnect, KiteTicker }     = require("kiteconnect");
 const { createTelegram }     = require("./telegram");
 const { createState }        = require("./state");
 const { createCandleBuffer } = require("./candleBuilder");
+const { createCandleDeltaBuffer } = require("./candleDeltaBuffer");
+const { createMarketDataHealth } = require("./marketDataHealth");
 const { createSLStore }      = require("./sl");
 const { createTargetStore }  = require("./target");
 const { createDb }           = require("./db");
@@ -279,6 +281,23 @@ async function main() {
     }
     console.log(c.dim(`[${context.tgPrefix}] session target: ${context.sessionTargetRupees ? c.yellow(`+₹${context.sessionTargetRupees} — quits for the day once reached (session total, irrespective of interim losses)`) : "off"}`));
 
+    // Choppiness Index entry filter — VOLUME_DELTA_CVD only (see
+    // context.js). null stays null here if the override isn't set; the
+    // strategy itself applies its own default when it sees null, not this
+    // block — same "context carries the override, the strategy carries
+    // the default" split every other per-instrument knob here uses.
+    if (process.env.CHOP_FILTER_OVERRIDE !== undefined && process.env.CHOP_FILTER_OVERRIDE !== "") {
+        context.chopFilterEnabled = process.env.CHOP_FILTER_OVERRIDE === "true";
+    }
+    if (process.env.CHOP_PERIOD_OVERRIDE !== undefined && process.env.CHOP_PERIOD_OVERRIDE !== "") {
+        const parsedPeriod = Number(process.env.CHOP_PERIOD_OVERRIDE);
+        context.chopPeriod = Number.isFinite(parsedPeriod) && parsedPeriod > 0 ? parsedPeriod : null;
+    }
+    if (process.env.CHOP_MAX_OVERRIDE !== undefined && process.env.CHOP_MAX_OVERRIDE !== "") {
+        const parsedMax = Number(process.env.CHOP_MAX_OVERRIDE);
+        context.chopMax = Number.isFinite(parsedMax) && parsedMax > 0 ? parsedMax : null;
+    }
+
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
 
@@ -290,6 +309,8 @@ async function main() {
     const { tg }   = createTelegram(context, engineConfig);
     const state    = createState();
     const candles  = createCandleBuffer();
+    const deltaBuffer = createCandleDeltaBuffer();
+    const marketDataHealth = createMarketDataHealth({ tg });
     const slStore  = createSLStore();
     const targetStore = createTargetStore();
     const db       = createDb(context);
@@ -304,11 +325,11 @@ async function main() {
     const lifecycleInstance = createLifecycle({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, tg });
     const signalsInstance   = await createSignals({
         context, engineConfig, state, db, candles, slStore, targetStore, orders,
-        positionsClose, positionsUnrealised, lifecycle: lifecycleInstance, tg,
+        positionsClose, positionsUnrealised, lifecycle: lifecycleInstance, tg, deltaBuffer,
     });
     const candlePollInstance = createCandlePoll({
         context, engineConfig, state, candles, slStore, targetStore, orders,
-        positionsClose, processCandle: signalsInstance.processCandle, db, tg,
+        positionsClose, processCandle: signalsInstance.processCandle, db, tg, deltaBuffer,
     });
 
     // ─── BOOT — WebSocket ticker ────────────────────────────────────────────
@@ -317,8 +338,18 @@ async function main() {
     ticker.connect();
 
     ticker.on("connect", async () => {
+        marketDataHealth.onConnect();
         ticker.subscribe([context.token]);
-        ticker.setMode(ticker.modeLTP, [context.token]);
+        marketDataHealth.onSubscribe();
+        // CHANGED: LTP -> Full. LTP mode only ever sent instrument_token +
+        // last_price — no volume_traded field at all, which
+        // createVolumeDeltaCvdStrategy's tick delta estimator needs (see
+        // tickVolumeDelta.js). Full mode is a strict superset for every
+        // OTHER strategy too (they only ever read tick.last_price /
+        // tick.instrument_token, same as before) — this is additive, not a
+        // behavior change for anything already running, just a larger tick
+        // payload every strategy now receives but only this one uses.
+        ticker.setMode(ticker.modeFull, [context.token]);
 
         await signalsInstance.initSignals();
 
@@ -363,6 +394,12 @@ async function main() {
 
         candlePollInstance.startPoll();
         lifecycleInstance.startLifecycle();
+
+        // Section 17 diagnostic — throttled inside marketDataHealth itself
+        // (won't spam Telegram every 10s during a prolonged outage, just
+        // once per throttleMs while the condition persists). 10s poll is
+        // cheap and independent of candle/tick cadence.
+        setInterval(() => marketDataHealth.checkStale(), 10 * 1000);
     });
 
     ticker.on("ticks", async (ticks) => {
@@ -370,6 +407,8 @@ async function main() {
         for (const tick of ticks) {
             if (tick.instrument_token === context.token && tick.last_price) {
                 candles.onTick(tick.last_price);
+                deltaBuffer.onTick(tick.last_price, tick.volume_traded);
+                marketDataHealth.onTick(tick);
                 await candlePollInstance.checkSL(tick.last_price);
                 await candlePollInstance.checkTarget(tick.last_price);
                 await candlePollInstance.checkDailyLoss(tick.last_price);
@@ -382,8 +421,8 @@ async function main() {
         if (err.message?.includes("403")) console.log(c.dim("WS  market closed"));
         else console.error(c.red("WS ERROR " + (err.message || err)));
     });
-    ticker.on("close",       ()  => console.log(c.dim("WS  closed")));
-    ticker.on("reconnect",   n   => console.log(c.dim(`WS  reconnect #${n}`)));
+    ticker.on("close",       ()  => { console.log(c.dim("WS  closed")); marketDataHealth.onClose(); });
+    ticker.on("reconnect",   n   => { console.log(c.dim(`WS  reconnect #${n}`)); deltaBuffer.resync(); });
     ticker.on("noreconnect", ()  => { console.error(c.red("WS  max reconnects")); process.exit(1); });
 }
 

@@ -29,7 +29,7 @@ const { selectAdaptiveTarget } = require("./adaptiveTarget");
 const { pnlStr, unrealised } = require("./positions");
 const { emitEvent } = require("./eventBridge"); // web dashboard only, see eventBridge.js header
 
-function createCandlePoll({ context, engineConfig, state, candles, slStore, targetStore, orders, positionsClose, processCandle, db, tg }) {
+function createCandlePoll({ context, engineConfig, state, candles, slStore, targetStore, orders, positionsClose, processCandle, db, tg, deltaBuffer = null }) {
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
     kc.setAccessToken(fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim());
 
@@ -337,6 +337,15 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                 high:  parseFloat(b.high),
                 low:   parseFloat(b.low),
                 close: parseFloat(b.close),
+                // Kite's historical-candle rows are [date, o, h, l, c, volume]
+                // — volume was previously unused/unparsed by this codebase
+                // entirely (no existing strategy needed it). Added for
+                // VWAP/relative-volume/delta% (createVolumeDeltaCvdStrategy)
+                // — every other existing strategy simply ignores this field,
+                // same as they already ignore `date` beyond the freshness
+                // check below, so this is additive, not a behavior change
+                // for anything already running.
+                volume: b.volume !== undefined ? parseFloat(b.volume) || 0 : 0,
                 date:  String(b.date),
             };
         } catch (err) {
@@ -375,6 +384,14 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
             buf.push(candle);
             if (buf.length > engineConfig.MAX_CANDLES) buf.shift();
             candles.setRawCandles(buf);
+            // Roll the live-tick delta accumulator into this just-closed
+            // candle's slot BEFORE processCandle runs — same ordering
+            // candleDeltaBuffer.js's own header assumes (a strategy reading
+            // deltaBuffer.getDeltaHistory() inside processCandle needs this
+            // candle's entry already pushed). No-op entirely for every
+            // strategy that isn't createVolumeDeltaCvdStrategy — deltaBuffer
+            // is null unless engine.js specifically instantiated one.
+            if (deltaBuffer) deltaBuffer.rollCandle(candle);
             await processCandle(candle);
             scheduleNext();
         } else {

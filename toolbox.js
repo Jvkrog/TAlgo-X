@@ -142,6 +142,9 @@ async function getEngineProcesses() {
             almaChopFilterEnabled: p.pm2_env.env?.ALMA_CHOP_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.ALMA_CHOP_FILTER_OVERRIDE === "true" : true,
             maxDailyLoss: p.pm2_env.env?.MAX_DAILY_LOSS_OVERRIDE ? Number(p.pm2_env.env.MAX_DAILY_LOSS_OVERRIDE) : null,
             sessionTargetRupees: p.pm2_env.env?.SESSION_TARGET_OVERRIDE ? Number(p.pm2_env.env.SESSION_TARGET_OVERRIDE) : null,
+            chopFilterEnabled: p.pm2_env.env?.CHOP_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.CHOP_FILTER_OVERRIDE === "true" : true,
+            chopPeriod: p.pm2_env.env?.CHOP_PERIOD_OVERRIDE ? Number(p.pm2_env.env.CHOP_PERIOD_OVERRIDE) : null,
+            chopMax: p.pm2_env.env?.CHOP_MAX_OVERRIDE ? Number(p.pm2_env.env.CHOP_MAX_OVERRIDE) : null,
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -405,6 +408,17 @@ function buildProcessEnv(p, overrides = {}) {
     if (p.strategy === "ALMA_PRO_FAST" && p.almaFastLen) env.ALMA_FAST_LEN_OVERRIDE = String(p.almaFastLen);
     if (p.strategy === "ALMA_PRO_FAST" && p.almaBandLen) env.ALMA_BAND_LEN_OVERRIDE = String(p.almaBandLen);
     if ((p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && p.almaChopFilterEnabled === false) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
+    if (p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW") {
+        // Always written explicitly (both true AND false), not just when
+        // disabling — an unset env var means OFF at runtime (isChopBlocked
+        // treats null as not-blocked, the safe default for anything never
+        // touched by this toolbox flow), which would silently contradict
+        // this prompt's own "default: Y" if a blank/Y answer just left the
+        // env var unset instead of writing "true".
+        env.CHOP_FILTER_OVERRIDE = p.chopFilterEnabled === false ? "false" : "true";
+        if (p.chopPeriod) env.CHOP_PERIOD_OVERRIDE = String(p.chopPeriod);
+        if (p.chopMax) env.CHOP_MAX_OVERRIDE = String(p.chopMax);
+    }
     if (p.maxDailyLoss) env.MAX_DAILY_LOSS_OVERRIDE = String(p.maxDailyLoss);
     if (p.sessionTargetRupees) env.SESSION_TARGET_OVERRIDE = String(p.sessionTargetRupees);
     return { ...env, ...overrides };
@@ -619,6 +633,46 @@ async function editInstrument(procs) {
             if (chopFilterInput) almaChopFilterEnabled = chopFilterInput !== "N";
         }
 
+        // Choppiness Index entry filter — available for any strategy except
+        // ALMA_PRO_FAST/SLOW (they keep their own dedicated, pre-existing
+        // toggle above — almaChopFilterEnabled). This is the universal one
+        // (chopGate.js's isChopBlocked, called from every other strategy's
+        // own entry site) — configurable period + max threshold, not just
+        // a toggle.
+        let chopFilterEnabled = p.chopFilterEnabled;
+        let chopPeriod = p.chopPeriod;
+        let chopMax = p.chopMax;
+        if (p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW") {
+            const chopFilterDefault = p.chopFilterEnabled !== false;
+            const chopFilterInput = (await ask(`  use Choppiness Index entry filter? [Y/n] (current: ${chopFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            if (chopFilterInput) chopFilterEnabled = chopFilterInput !== "N";
+
+            if (chopFilterEnabled) {
+                const periodDefault = chopPeriod !== null ? String(chopPeriod) : "14 (default)";
+                const periodInput = (await ask(`  Choppiness Index period (current: ${periodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                if (periodInput) {
+                    if (periodInput === "0" || periodInput.toLowerCase() === "clear") {
+                        chopPeriod = null;
+                    } else {
+                        const parsedPeriod = Number(periodInput);
+                        if (Number.isFinite(parsedPeriod) && parsedPeriod > 0) chopPeriod = parsedPeriod;
+                        else console.log(c.yellow(`  "${periodInput}" isn't a valid positive number — period left unchanged`));
+                    }
+                }
+                const maxDefault = chopMax !== null ? String(chopMax) : "50 (default)";
+                const maxInput = (await ask(`  Choppiness Index max threshold (current: ${maxDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                if (maxInput) {
+                    if (maxInput === "0" || maxInput.toLowerCase() === "clear") {
+                        chopMax = null;
+                    } else {
+                        const parsedMax = Number(maxInput);
+                        if (Number.isFinite(parsedMax) && parsedMax > 0) chopMax = parsedMax;
+                        else console.log(c.yellow(`  "${maxInput}" isn't a valid positive number — max threshold left unchanged`));
+                    }
+                }
+            }
+        }
+
         // Max daily loss circuit breaker — universal. "0"/"clear" removes
         // the floor entirely; blank keeps whatever's currently set.
         const maxDailyLossDefault = p.maxDailyLoss !== null ? String(p.maxDailyLoss) : "none";
@@ -637,14 +691,17 @@ async function editInstrument(procs) {
             }
         }
 
-        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees };
+        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
                 env: buildProcessEnv(updatedP),
             });
             const targetTag = targetPoints !== null ? c.yellow(` target:${targetPoints}pt`) : targetMode === "adaptive" ? c.yellow(" target:adaptive") : sessionTargetRupees !== null ? c.yellow(` target:session+₹${sessionTargetRupees}`) : c.dim(" target:none");
-            console.log(c.green(`  ${p.underlying} updated${targetTag} lots:${lots === "default" ? "1" : lots} (restarted)`));
+            const chopTag = p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW"
+                ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? 14}/${chopMax ?? 50}`) : c.yellow(" chop:off"))
+                : (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
+            console.log(c.green(`  ${p.underlying} updated${targetTag}${chopTag} lots:${lots === "default" ? "1" : lots} (restarted)`));
         } catch (err) {
             console.log(c.red(`  failed to update ${p.underlying}: ${err.message}`));
         }
@@ -880,6 +937,36 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         almaChopFilterEnabled = chopFilterInput !== "N";
     }
 
+    // Choppiness Index entry filter — available for any strategy except
+    // ALMA_PRO_FAST/SLOW (they keep their own dedicated, pre-existing
+    // toggle — almaChopFilterEnabled, unchanged). This is the universal
+    // one (chopGate.js's isChopBlocked, called from every other strategy's
+    // own entry site) — configurable period + max threshold, not just a
+    // toggle, unlike ALMA_PRO's fixed engineConfig threshold.
+    // Default ON, period 14 (engineConfig.CHOP_LEN), max 50 — same 50
+    // every other chop filter in this codebase uses.
+    let chopFilterEnabled = true;
+    let chopPeriod = null;
+    let chopMax = null;
+    if (strategy !== "ALMA_PRO_FAST" && strategy !== "ALMA_PRO_SLOW") {
+        const chopFilterInput = (await ask(`  use Choppiness Index entry filter? [Y/n] (default: Y): `)).trim().toUpperCase();
+        chopFilterEnabled = chopFilterInput !== "N";
+        if (chopFilterEnabled) {
+            const periodInput = await ask(`  Choppiness Index period (blank = 14): `);
+            if (periodInput) {
+                const parsedPeriod = Number(periodInput);
+                chopPeriod = Number.isFinite(parsedPeriod) && parsedPeriod > 0 ? parsedPeriod : null;
+                if (chopPeriod === null) console.log(c.yellow(`  "${periodInput}" isn't a valid positive number — using default (14)`));
+            }
+            const maxInput = await ask(`  Choppiness Index max threshold, blocks entries above this (blank = 50): `);
+            if (maxInput) {
+                const parsedMax = Number(maxInput);
+                chopMax = Number.isFinite(parsedMax) && parsedMax > 0 ? parsedMax : null;
+                if (chopMax === null) console.log(c.yellow(`  "${maxInput}" isn't a valid positive number — using default (50)`));
+            }
+        }
+    }
+
     // Max daily loss circuit breaker — universal, every strategy. Blank =
     // disabled, no floor (today's original behavior). Once today's
     // cumulative realized P&L drops to or below -this amount, candlePoll.js's
@@ -973,6 +1060,16 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (strategy === "ALMA_PRO_FAST" && almaFastLen !== null) env.ALMA_FAST_LEN_OVERRIDE = String(almaFastLen);
     if (strategy === "ALMA_PRO_FAST" && almaBandLen !== null) env.ALMA_BAND_LEN_OVERRIDE = String(almaBandLen);
     if ((strategy === "ALMA_PRO_FAST" || strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
+    if (strategy !== "ALMA_PRO_FAST" && strategy !== "ALMA_PRO_SLOW") {
+        // Always written explicitly — see the matching comment in
+        // buildProcessEnv (editInstrument's restart-env builder) for why
+        // "only write when disabling" would leave a blank/Y answer here
+        // silently unwritten, defaulting to OFF at runtime and
+        // contradicting this prompt's own "default: Y".
+        env.CHOP_FILTER_OVERRIDE = chopFilterEnabled ? "true" : "false";
+        if (chopPeriod !== null) env.CHOP_PERIOD_OVERRIDE = String(chopPeriod);
+        if (chopMax !== null) env.CHOP_MAX_OVERRIDE = String(chopMax);
+    }
     if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
     if (strategy === "ALMA_TRI_BAND" && greyExitEnabled !== null) env.GREY_EXIT_OVERRIDE = String(greyExitEnabled);
     if (maxDailyLoss !== null) env.MAX_DAILY_LOSS_OVERRIDE = String(maxDailyLoss);
@@ -987,10 +1084,11 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
             ? c.yellow(` alma:${almaFastLen ?? engineConfig.ALMA_PRO_FAST_LEN}/${almaBandLen ?? engineConfig.ALMA_PRO_BAND_LEN}`)
             : "";
         const almaChopTag = (strategy === "ALMA_PRO_FAST" || strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
+        const vdChopTag = strategy !== "ALMA_PRO_FAST" && strategy !== "ALMA_PRO_SLOW" ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? 14}/${chopMax ?? 50}`) : c.yellow(" chop:off")) : "";
         const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
         const greyExitTag = strategy === "ALMA_TRI_BAND" ? c.yellow(` grey:${(greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT) ? "exit" : "hold"}`) : "";
         const maxLossTag = maxDailyLoss !== null ? c.yellow(` maxLoss:-₹${maxDailyLoss}`) : "";
-        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${almaLenTag}${almaChopTag}${bandStepTag}${greyExitTag}${maxLossTag}`));
+        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${almaLenTag}${almaChopTag}${vdChopTag}${bandStepTag}${greyExitTag}${maxLossTag}`));
     } catch (err) {
         console.log(c.red(`  failed to start ${name}: ${err.message}`));
     }
