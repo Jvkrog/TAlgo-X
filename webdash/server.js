@@ -341,6 +341,7 @@ async function getEngineProcesses() {
             almaBandLen: p.pm2_env.env?.ALMA_BAND_LEN_OVERRIDE ? Number(p.pm2_env.env.ALMA_BAND_LEN_OVERRIDE) : null,
             almaChopFilterEnabled: p.pm2_env.env?.ALMA_CHOP_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.ALMA_CHOP_FILTER_OVERRIDE === "true" : true,
             maxDailyLoss: p.pm2_env.env?.MAX_DAILY_LOSS_OVERRIDE ? Number(p.pm2_env.env.MAX_DAILY_LOSS_OVERRIDE) : null,
+            disableDoubleOrders: p.pm2_env.env?.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true",
             outLogPath: p.pm2_env.pm_out_log_path,
             errLogPath: p.pm2_env.pm_err_log_path,
         }));
@@ -369,6 +370,12 @@ function buildProcessEnv(p, overrides = {}) {
     if (p.strategy === "ALMA_PRO_FAST" && p.almaBandLen) env.ALMA_BAND_LEN_OVERRIDE = String(p.almaBandLen);
     if ((p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && p.almaChopFilterEnabled === false) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
     if (p.maxDailyLoss) env.MAX_DAILY_LOSS_OVERRIDE = String(p.maxDailyLoss);
+    // Always written explicitly (both true AND false) — same
+    // write-asymmetry reasoning as ALMA_CHOP_FILTER_OVERRIDE above: an
+    // unset env var means OFF at runtime, which would silently contradict
+    // an explicit "disable" choice made in the edit form if only the
+    // true case were written.
+    env.DISABLE_DOUBLE_ORDERS_OVERRIDE = String(!!p.disableDoubleOrders);
     return { ...env, ...overrides };
 }
 
@@ -593,7 +600,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -635,6 +642,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
         if (greyExitEnabled !== undefined) updated.greyExitEnabled = !!greyExitEnabled;
         if (almaBandEnabled !== undefined) updated.almaBandEnabled = !!almaBandEnabled;
         if (almaChopFilterEnabled !== undefined) updated.almaChopFilterEnabled = !!almaChopFilterEnabled;
+        if (disableDoubleOrders !== undefined) updated.disableDoubleOrders = !!disableDoubleOrders;
 
         if (maxDailyLoss !== undefined) {
             if (maxDailyLoss === null || maxDailyLoss === "" || maxDailyLoss === "0" || maxDailyLoss === "clear") {
@@ -778,7 +786,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -872,6 +880,12 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             if (Number.isFinite(parsedStep) && parsedStep > 0) env.BAND_STEP_OVERRIDE = String(parsedStep);
         }
         if (stratKey === "ALMA_TRI_BAND" && greyExitEnabled !== undefined) env.GREY_EXIT_OVERRIDE = String(!!greyExitEnabled);
+        // Always written explicitly (both true AND false), same
+        // write-asymmetry reasoning as the other toggles above — unset
+        // means OFF/allowed at runtime, which is also the correct default
+        // here, but writing it explicitly avoids the same class of bug
+        // "only write when non-default" would risk elsewhere.
+        env.DISABLE_DOUBLE_ORDERS_OVERRIDE = String(!!disableDoubleOrders);
 
         await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name, cwd: ROOT, env });
         res.json({ ok: true, name, strategy: stratKey, timeframe: tf, live: !!live, carryOvernight: !!carryOvernight, lotMult });
