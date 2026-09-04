@@ -266,6 +266,23 @@ function buildContext(def, resolvedContract) {
         chopFilterEnabled: null,
         chopPeriod: null,
         chopMax: null,
+        // Double-order gate — caps entries at ONE per session per
+        // instrument when true. Enforced via doubleOrderGate.js's
+        // isDoubleOrderBlocked(), called from the same entry sites as
+        // chopFilterEnabled above (strategies.js), immediately before
+        // orders.enter() for the same paper-mode reason documented in
+        // chopGate.js's header. Default false (not null — there's no
+        // "strategy decides its own default" concern here the way
+        // chopFilterEnabled has; every strategy already re-enters freely
+        // today, so unset must mean "keep doing that", not "ask the
+        // strategy"). Opt-in via Edit Params — never a silent behavior
+        // change for anything already deployed.
+        //
+        // Whenever double orders remain ALLOWED (this stays false), any
+        // 2nd+ entry that session is ALSO forced through the Choppiness
+        // Index check regardless of chopFilterEnabled above — see
+        // chopGate.js's `force` option and strategies.js's call sites.
+        disableDoubleOrders: false,
     };
 }
 

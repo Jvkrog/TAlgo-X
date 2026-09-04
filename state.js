@@ -14,6 +14,11 @@ function createState() {
         entryPrice:  0,
         pnl:         0,
         trades:      0,
+        tradesToday: 0,  // entries taken TODAY (open or closed), for the double-order
+                          // gate (doubleOrderGate.js) — boot-seeded from
+                          // db.getTradeCountToday() in initSignals, NOT reset by an
+                          // in-process restart, unlike `trades` above which is a
+                          // lifetime-of-process counter with no daily meaning.
         stDir:       0,     // last known SuperTrend direction: 1 | -1 | 0
         peakDPI:     0,     // peak favorable DPI pressure since entry (for giveback exit)
         openTradeId: null,  // row id in db.trades while a position is OPEN

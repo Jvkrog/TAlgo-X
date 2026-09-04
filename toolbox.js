@@ -145,6 +145,7 @@ async function getEngineProcesses() {
             chopFilterEnabled: p.pm2_env.env?.CHOP_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.CHOP_FILTER_OVERRIDE === "true" : true,
             chopPeriod: p.pm2_env.env?.CHOP_PERIOD_OVERRIDE ? Number(p.pm2_env.env.CHOP_PERIOD_OVERRIDE) : null,
             chopMax: p.pm2_env.env?.CHOP_MAX_OVERRIDE ? Number(p.pm2_env.env.CHOP_MAX_OVERRIDE) : null,
+            disableDoubleOrders: p.pm2_env.env?.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true",
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -419,6 +420,10 @@ function buildProcessEnv(p, overrides = {}) {
         if (p.chopPeriod) env.CHOP_PERIOD_OVERRIDE = String(p.chopPeriod);
         if (p.chopMax) env.CHOP_MAX_OVERRIDE = String(p.chopMax);
     }
+    // Double-order gate — always written explicitly (both true AND false),
+    // same "unset is ambiguous" reasoning as CHOP_FILTER_OVERRIDE above.
+    // Default false = allowed, matching context.js's own default.
+    env.DISABLE_DOUBLE_ORDERS_OVERRIDE = p.disableDoubleOrders === true ? "true" : "false";
     if (p.maxDailyLoss) env.MAX_DAILY_LOSS_OVERRIDE = String(p.maxDailyLoss);
     if (p.sessionTargetRupees) env.SESSION_TARGET_OVERRIDE = String(p.sessionTargetRupees);
     return { ...env, ...overrides };
@@ -673,6 +678,19 @@ async function editInstrument(procs) {
             }
         }
 
+        // Double-order gate — universal, opt-in, default OFF (allowed).
+        // When double orders stay allowed, any 2nd+ entry that session
+        // ALSO gets a forced Choppiness Index check regardless of the
+        // chopFilterEnabled setting above — see chopGate.js's `force`
+        // option and doubleOrderGate.js.
+        const doubleOrderDefault = p.disableDoubleOrders === true;
+        const doubleOrderInput = (await ask(`  disable double orders (max 1 entry/session)? [y/N] (current: ${doubleOrderDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+        let disableDoubleOrders = p.disableDoubleOrders;
+        if (doubleOrderInput) disableDoubleOrders = doubleOrderInput === "Y";
+        if (!disableDoubleOrders) {
+            console.log(c.dim(`  double orders stay allowed — any 2nd+ entry this session will force a Choppiness Index check`));
+        }
+
         // Max daily loss circuit breaker — universal. "0"/"clear" removes
         // the floor entirely; blank keeps whatever's currently set.
         const maxDailyLossDefault = p.maxDailyLoss !== null ? String(p.maxDailyLoss) : "none";
@@ -691,7 +709,7 @@ async function editInstrument(procs) {
             }
         }
 
-        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax };
+        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -967,6 +985,18 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     }
 
+    // Double-order gate — universal, every strategy, opt-in. Default N
+    // (allowed — today's original behavior, unlimited re-entries per
+    // session). When double orders stay allowed, any 2nd+ entry that
+    // session ALSO gets a forced Choppiness Index check regardless of the
+    // chop filter setting above — see chopGate.js's `force` option and
+    // doubleOrderGate.js.
+    const doubleOrderInput = (await ask(`  disable double orders (max 1 entry/session)? [y/N] (default: N): `)).trim().toUpperCase();
+    const disableDoubleOrders = doubleOrderInput === "Y";
+    if (!disableDoubleOrders) {
+        console.log(c.dim(`  double orders stay allowed — any 2nd+ entry this session will force a Choppiness Index check`));
+    }
+
     // Max daily loss circuit breaker — universal, every strategy. Blank =
     // disabled, no floor (today's original behavior). Once today's
     // cumulative realized P&L drops to or below -this amount, candlePoll.js's
@@ -1070,6 +1100,8 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         if (chopPeriod !== null) env.CHOP_PERIOD_OVERRIDE = String(chopPeriod);
         if (chopMax !== null) env.CHOP_MAX_OVERRIDE = String(chopMax);
     }
+    // Double-order gate — always written explicitly, same reasoning.
+    env.DISABLE_DOUBLE_ORDERS_OVERRIDE = disableDoubleOrders ? "true" : "false";
     if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
     if (strategy === "ALMA_TRI_BAND" && greyExitEnabled !== null) env.GREY_EXIT_OVERRIDE = String(greyExitEnabled);
     if (maxDailyLoss !== null) env.MAX_DAILY_LOSS_OVERRIDE = String(maxDailyLoss);

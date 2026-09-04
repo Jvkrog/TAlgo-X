@@ -298,6 +298,15 @@ async function main() {
         context.chopMax = Number.isFinite(parsedMax) && parsedMax > 0 ? parsedMax : null;
     }
 
+    // Double-order gate — every strategy, opt-in, false/unset = disabled
+    // (today's original behavior: unlimited re-entries per session, each
+    // strategy's own gates decide). See doubleOrderGate.js and
+    // context.disableDoubleOrders.
+    if (process.env.DISABLE_DOUBLE_ORDERS_OVERRIDE !== undefined && process.env.DISABLE_DOUBLE_ORDERS_OVERRIDE !== "") {
+        context.disableDoubleOrders = process.env.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true";
+    }
+    console.log(c.dim(`[${context.tgPrefix}] double orders: ${context.disableDoubleOrders ? c.yellow("disabled — only 1 entry allowed per session") : "allowed (default) — 2nd+ entry forces a Choppiness Index check regardless of the chop filter setting"}`));
+
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
 

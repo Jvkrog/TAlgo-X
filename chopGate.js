@@ -29,8 +29,17 @@
 
 const { choppinessIndex } = require("./indicators");
 
-function isChopBlocked(context, engineConfig, candles) {
-    if (!context.chopFilterEnabled) return false; // OFF by default for every strategy that never had a chop filter before — opt IN via Edit Params, not a silent behavior change for anything already deployed
+// `force` — added for doubleOrderGate.js: when double orders remain
+// ALLOWED for an instrument (context.disableDoubleOrders is off), any
+// 2nd+ entry that session must ALSO be checked against the Choppiness
+// Index specifically, independent of whether this instrument's own
+// context.chopFilterEnabled toggle is on — a double order is exactly the
+// situation where skipping the chop check is riskiest, so it isn't left
+// opt-in. force:true skips the chopFilterEnabled gate below and always
+// evaluates chop; every other behavior (period/max resolution, the actual
+// indicator call) is unchanged and shared with the normal path.
+function isChopBlocked(context, engineConfig, candles, { force = false } = {}) {
+    if (!force && !context.chopFilterEnabled) return false; // OFF by default for every strategy that never had a chop filter before — opt IN via Edit Params, not a silent behavior change for anything already deployed
     const chopPeriod = context.chopPeriod ?? engineConfig.CHOP_LEN;
     const chopMax = context.chopMax ?? 50; // same 50 every chop filter in this codebase uses
     const rawCandles = candles.getRawCandles();

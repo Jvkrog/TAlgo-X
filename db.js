@@ -197,6 +197,24 @@ function createDb(context) {
         });
     }
 
+    // Mirrors getRealizedPnlToday exactly (COUNT instead of SUM, same
+    // trade_date filter) — counts every trade opened today regardless of
+    // whether it's still OPEN or already CLOSED, since an entry counts
+    // against the double-order limit the moment it's taken, not when it's
+    // exited. Used to boot-seed state.tradesToday (doubleOrderGate.js) so
+    // a mid-day restart doesn't let a capped instrument double-order again.
+    function getTradeCountToday(engine) {
+        const today = new Date().toISOString().split("T")[0];
+        return new Promise(resolve => {
+            db.get(
+                `SELECT COUNT(*) AS total FROM trades
+                 WHERE engine = ? AND trade_date = ?`,
+                [engine, today],
+                (err, row) => resolve(err ? 0 : row.total)
+            );
+        });
+    }
+
     function getTradesForDate(engine, dateStr) {
         return new Promise(resolve => {
             db.all(
@@ -274,7 +292,7 @@ function createDb(context) {
 
     return {
         initDB, savePosition, loadPosition, saveRegime, loadRegime, clearAllPositions,
-        insertOpenTrade, closeTrade, getOpenTrade, getRealizedPnlToday, getTradesForDate,
+        insertOpenTrade, closeTrade, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate,
     };
 }
 
