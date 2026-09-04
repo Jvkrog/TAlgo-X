@@ -197,9 +197,9 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
             if (rsiOk && dpiOk) {
                 const isDoubleOrder = (state.tradesToday || 0) > 0;
                 const doubleBlocked = isDoubleOrderBlocked(context, state);
-                const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+                const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-                else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+                else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
                 if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -573,9 +573,9 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
             if (rsiOk && dpiOk) {
                 const isDoubleOrder = (state.tradesToday || 0) > 0;
                 const doubleBlocked = isDoubleOrderBlocked(context, state);
-                const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+                const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-                else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+                else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
                 if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -620,9 +620,9 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
             if (side) {
                 const isDoubleOrder = (state.tradesToday || 0) > 0;
                 const doubleBlocked = isDoubleOrderBlocked(context, state);
-                const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+                const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-                else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+                else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
                 if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -884,9 +884,9 @@ function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, 
             if (side) {
                 const isDoubleOrder = (state.tradesToday || 0) > 0;
                 const doubleBlocked = isDoubleOrderBlocked(context, state);
-                const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+                const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-                else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+                else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
                 if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -1100,9 +1100,9 @@ function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles,
             const side = entrySide;
             const isDoubleOrder = (state.tradesToday || 0) > 0;
             const doubleBlocked = isDoubleOrderBlocked(context, state);
-            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -1337,9 +1337,9 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
             if (side) {
                 const isDoubleOrder = (state.tradesToday || 0) > 0;
                 const doubleBlocked = isDoubleOrderBlocked(context, state);
-                const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+                const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-                else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+                else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
                 if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -1558,9 +1558,9 @@ function createAlmaFastStrategy({ context, engineConfig, state, db, candles, slS
             const side = flipSide;
             const isDoubleOrder = (state.tradesToday || 0) > 0;
             const doubleBlocked = isDoubleOrderBlocked(context, state);
-            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -1861,9 +1861,9 @@ function createMaSlopeStrategy({ context, engineConfig, state, db, candles, slSt
             const side = entrySide;
             const isDoubleOrder = (state.tradesToday || 0) > 0;
             const doubleBlocked = isDoubleOrderBlocked(context, state);
-            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -2244,9 +2244,9 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
             const side = entrySide;
             const isDoubleOrder = (state.tradesToday || 0) > 0;
             const doubleBlocked = isDoubleOrderBlocked(context, state);
-            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -2581,9 +2581,9 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
             const side = entrySide;
             const isDoubleOrder = (state.tradesToday || 0) > 0;
             const doubleBlocked = isDoubleOrderBlocked(context, state);
-            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -2822,9 +2822,9 @@ function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, sl
             const side = entrySide;
             const isDoubleOrder = (state.tradesToday || 0) > 0;
             const doubleBlocked = isDoubleOrderBlocked(context, state);
-            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -3046,9 +3046,9 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
                 const side = st1Dir === 1 ? "LONG" : "SHORT";
                 const isDoubleOrder = (state.tradesToday || 0) > 0;
                 const doubleBlocked = isDoubleOrderBlocked(context, state);
-                const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+                const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-                else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+                else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
                 if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -3248,9 +3248,9 @@ function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles
             const side = entrySide;
             const isDoubleOrder = (state.tradesToday || 0) > 0;
             const doubleBlocked = isDoubleOrderBlocked(context, state);
-            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -3496,9 +3496,9 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
     async function doEnter(side, livePrice, reason) {
         const isDoubleOrder = (state.tradesToday || 0) > 0;
         const doubleBlocked = isDoubleOrderBlocked(context, state);
-        const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+        const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-        else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+        else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
         if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
@@ -3774,9 +3774,9 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
     async function doEnter(side, livePrice, atrVal, reason) {
         const isDoubleOrder = (state.tradesToday || 0) > 0;
         const doubleBlocked = isDoubleOrderBlocked(context, state);
-        const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+        const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-        else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+        else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
         if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
@@ -4143,9 +4143,9 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
     async function doEnter(side, livePrice, atrVal, reason) {
         const isDoubleOrder = (state.tradesToday || 0) > 0;
         const doubleBlocked = isDoubleOrderBlocked(context, state);
-        const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+        const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-        else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+        else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
         if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
@@ -4483,9 +4483,9 @@ function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, 
     async function doEnter(side, livePrice, atrVal, reason) {
         const isDoubleOrder = (state.tradesToday || 0) > 0;
         const doubleBlocked = isDoubleOrderBlocked(context, state);
-        const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder && !doubleBlocked });
+        const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-        else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`);
+        else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
         if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
@@ -4789,9 +4789,11 @@ function createAlmaProFastStrategy({ context, engineConfig, state, db, candles, 
         }
         // Not this strategy's own dedicated chop filter (almaChopFilterEnabled,
         // unchanged, checked earlier in the caller) — this is the separate,
-        // universal chopGate check, forced ONLY when this is a double order.
-        if (isDoubleOrder && isChopBlocked(context, engineConfig, candles, { force: true })) {
-            console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter (forced check on double order)`);
+        // universal chopGate check, run on every entry (including the 9:15
+        // boot/history-replay entry, since HIST REPLAY ENTRY calls this same
+        // doEnter()), regardless of the double-order gate above.
+        if (isChopBlocked(context, engineConfig, candles, { force: true })) {
+            console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             return false;
         }
         const ordered = await orders.enter(side);
@@ -5071,11 +5073,11 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
             const isDoubleOrder = (state.tradesToday || 0) > 0;
             const doubleBlocked = isDoubleOrderBlocked(context, state);
             // Not this strategy's own dedicated chop filter (chopOk above,
-            // unchanged) — the separate, universal chopGate check, forced
-            // ONLY when this is a double order.
-            const forcedChopBlocked = !doubleBlocked && isDoubleOrder && isChopBlocked(context, engineConfig, candles, { force: true });
+            // unchanged) — the separate, universal chopGate check, run on
+            // every entry regardless of the double-order gate above.
+            const forcedChopBlocked = !doubleBlocked && isChopBlocked(context, engineConfig, candles, { force: true });
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-            else if (forcedChopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter (forced check on double order)`);
+            else if (forcedChopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             const ordered = (doubleBlocked || forcedChopBlocked) ? null : await orders.enter(side);
             if (doubleBlocked || forcedChopBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 if (!doubleBlocked && !forcedChopBlocked) console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -5351,8 +5353,8 @@ function createVolumeDeltaCvdStrategy({ context, engineConfig, state, db, candle
         const isDoubleOrder = (state.tradesToday || 0) > 0;
         const doubleBlocked = isDoubleOrderBlocked(context, state);
         if (doubleBlocked) { console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`); return; }
-        const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: isDoubleOrder });
-        if (chopBlocked) { console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter${isDoubleOrder ? " (forced check on double order)" : ""}`); return; }
+        const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
+        if (chopBlocked) { console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`); return; }
 
         const ordered = await orders.enter(side);
         if (engineConfig.LIVE_ORDERS && ordered === null) {
