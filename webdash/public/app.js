@@ -982,6 +982,10 @@ function openEditModal(inst) {
       <label class="tb-form-row-inline"><input type="checkbox" id="editGreyExit" ${inst.greyExitEnabled ? "checked" : ""}><span>exit on grey state instead of holding through it</span></label>
     </div>
     <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editDisableDouble" ${inst.disableDoubleOrders ? "checked" : ""}><span>disable double orders (max 1 entry/session)</span></label>
+      <div class="tb-form-hint">when left unchecked, any 2nd+ entry this session forces a Choppiness Index check regardless of the chop filter setting</div>
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">max daily loss in rupees (blank = no floor)</div>
       <input type="number" id="editMaxDailyLoss" min="0" step="any" value="${inst.maxDailyLoss ?? ""}">
     </div>
@@ -1026,6 +1030,7 @@ function openEditModal(inst) {
       body.greyExitEnabled = tbEditBody.querySelector("#editGreyExit").checked;
     }
     body.maxDailyLoss = tbEditBody.querySelector("#editMaxDailyLoss").value || null;
+    body.disableDoubleOrders = tbEditBody.querySelector("#editDisableDouble").checked;
 
     try {
       const res = await fetch("/api/toolbox/edit", {
@@ -1304,6 +1309,10 @@ function renderAddConfigStep() {
       <label class="tb-form-row-inline"><input type="checkbox" id="addGreyExit"><span>exit on grey state instead of holding through it (ALMA_TRI_BAND only, default: hold)</span></label>
     </div>
     <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="addDisableDouble"><span>disable double orders (max 1 entry/session, default: allowed)</span></label>
+      <div class="tb-form-hint">when left unchecked, any 2nd+ entry that session forces a Choppiness Index check regardless of the chop filter setting</div>
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">max daily loss in rupees, quits for the day if breached (blank = no floor)</div>
       <input type="number" id="addMaxDailyLoss" min="0" step="any">
     </div>
@@ -1410,6 +1419,7 @@ function renderAddConfigStep() {
         maxDailyLoss: tbAddBody.querySelector("#addMaxDailyLoss").value || undefined,
         bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || pickedStrategy === "DYNAMIC_MID_COLOR_HL") ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
         greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
+        disableDoubleOrders: tbAddBody.querySelector("#addDisableDouble").checked,
       };
       const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
