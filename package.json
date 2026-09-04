@@ -4,7 +4,8 @@
   "description": "TAlgo-X — live algorithmic trading platform (operator toolbox).",
   "private": true,
   "bin": {
-    "talgox": "./toolbox.js"
+    "talgox": "./toolbox.js",
+	"webdash":"./webdash/server.js"
   },
   "main": "engine.js",
   "scripts": {
