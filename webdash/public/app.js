@@ -986,6 +986,15 @@ function openEditModal(inst) {
       <div class="tb-form-hint">when left unchecked, any 2nd+ entry this session forces a Choppiness Index check regardless of the chop filter setting</div>
     </div>
     <div class="tb-form-row">
+      <div class="tb-form-label">ATR stop-loss multiplier (blank = default)</div>
+      <input type="number" id="editAtrSlMult" min="0" step="any" value="${inst.atrSlMult ?? ""}">
+    </div>
+    ${inst.strategy === "PURE_HA" ? `
+    <div class="tb-form-row">
+      <div class="tb-form-label">reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
+      <input type="number" id="editFlipConfirm" min="1" step="1" value="${inst.flipConfirmCandles ?? ""}">
+    </div>` : ""}
+    <div class="tb-form-row">
       <div class="tb-form-label">max daily loss in rupees (blank = no floor)</div>
       <input type="number" id="editMaxDailyLoss" min="0" step="any" value="${inst.maxDailyLoss ?? ""}">
     </div>
@@ -1031,6 +1040,9 @@ function openEditModal(inst) {
     }
     body.maxDailyLoss = tbEditBody.querySelector("#editMaxDailyLoss").value || null;
     body.disableDoubleOrders = tbEditBody.querySelector("#editDisableDouble").checked;
+    body.atrSlMult = tbEditBody.querySelector("#editAtrSlMult").value || null;
+    const editFlipConfirmEl = tbEditBody.querySelector("#editFlipConfirm");
+    if (editFlipConfirmEl) body.flipConfirmCandles = editFlipConfirmEl.value || null;
 
     try {
       const res = await fetch("/api/toolbox/edit", {
@@ -1313,6 +1325,14 @@ function renderAddConfigStep() {
       <div class="tb-form-hint">when left unchecked, any 2nd+ entry that session forces a Choppiness Index check regardless of the chop filter setting</div>
     </div>
     <div class="tb-form-row">
+      <div class="tb-form-label">ATR stop-loss multiplier (blank = default)</div>
+      <input type="number" id="addAtrSlMult" min="0" step="any">
+    </div>
+    <div class="tb-form-row" id="addFlipConfirmRow" style="display:none">
+      <div class="tb-form-label">reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
+      <input type="number" id="addFlipConfirm" min="1" step="1">
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">max daily loss in rupees, quits for the day if breached (blank = no floor)</div>
       <input type="number" id="addMaxDailyLoss" min="0" step="any">
     </div>
@@ -1329,6 +1349,7 @@ function renderAddConfigStep() {
   const almaChopRow = tbAddBody.querySelector("#addAlmaChopRow");
   const bandStepRow = tbAddBody.querySelector("#addBandStepRow");
   const greyExitRow = tbAddBody.querySelector("#addGreyExitRow");
+  const flipConfirmRow = tbAddBody.querySelector("#addFlipConfirmRow");
   strategies.forEach(s => {
     const div = document.createElement("div");
     div.className = "tb-strategy-item" + (s.key === defaultStrat ? " picked" : "");
@@ -1344,6 +1365,7 @@ function renderAddConfigStep() {
       almaChopRow.style.display = (s.key === "ALMA_PRO_FAST" || s.key === "ALMA_PRO_SLOW") ? "" : "none";
       bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_MID_COLOR" || s.key === "DYNAMIC_MID_COLOR_HL") ? "" : "none";
       greyExitRow.style.display = s.key === "ALMA_TRI_BAND" ? "" : "none";
+      flipConfirmRow.style.display = s.key === "PURE_HA" ? "" : "none";
     });
     stratList.appendChild(div);
   });
@@ -1420,6 +1442,8 @@ function renderAddConfigStep() {
         bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || pickedStrategy === "DYNAMIC_MID_COLOR_HL") ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
         greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
         disableDoubleOrders: tbAddBody.querySelector("#addDisableDouble").checked,
+        atrSlMult: tbAddBody.querySelector("#addAtrSlMult").value || undefined,
+        flipConfirmCandles: pickedStrategy === "PURE_HA" ? (tbAddBody.querySelector("#addFlipConfirm").value || undefined) : undefined,
       };
       const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
