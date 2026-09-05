@@ -342,6 +342,8 @@ async function getEngineProcesses() {
             almaChopFilterEnabled: p.pm2_env.env?.ALMA_CHOP_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.ALMA_CHOP_FILTER_OVERRIDE === "true" : true,
             maxDailyLoss: p.pm2_env.env?.MAX_DAILY_LOSS_OVERRIDE ? Number(p.pm2_env.env.MAX_DAILY_LOSS_OVERRIDE) : null,
             disableDoubleOrders: p.pm2_env.env?.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true",
+            atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
+            flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
             outLogPath: p.pm2_env.pm_out_log_path,
             errLogPath: p.pm2_env.pm_err_log_path,
         }));
@@ -376,6 +378,8 @@ function buildProcessEnv(p, overrides = {}) {
     // an explicit "disable" choice made in the edit form if only the
     // true case were written.
     env.DISABLE_DOUBLE_ORDERS_OVERRIDE = String(!!p.disableDoubleOrders);
+    if (p.atrSlMult) env.ATR_SL_MULT_OVERRIDE = String(p.atrSlMult);
+    if (p.flipConfirmCandles) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(p.flipConfirmCandles);
     return { ...env, ...overrides };
 }
 
@@ -600,7 +604,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -643,6 +647,24 @@ app.post("/api/toolbox/edit", async (req, res) => {
         if (almaBandEnabled !== undefined) updated.almaBandEnabled = !!almaBandEnabled;
         if (almaChopFilterEnabled !== undefined) updated.almaChopFilterEnabled = !!almaChopFilterEnabled;
         if (disableDoubleOrders !== undefined) updated.disableDoubleOrders = !!disableDoubleOrders;
+        if (atrSlMult !== undefined) {
+            if (atrSlMult === null || atrSlMult === "" || atrSlMult === "0" || atrSlMult === "clear") {
+                updated.atrSlMult = null;
+            } else {
+                const parsedAtrMult = Number(atrSlMult);
+                if (!Number.isFinite(parsedAtrMult) || parsedAtrMult <= 0) return res.status(400).json({ error: "invalid atrSlMult value" });
+                updated.atrSlMult = parsedAtrMult;
+            }
+        }
+        if (flipConfirmCandles !== undefined) {
+            if (flipConfirmCandles === null || flipConfirmCandles === "" || flipConfirmCandles === "0" || flipConfirmCandles === "clear") {
+                updated.flipConfirmCandles = null;
+            } else {
+                const parsedConfirm = Number(flipConfirmCandles);
+                if (!Number.isInteger(parsedConfirm) || parsedConfirm < 1) return res.status(400).json({ error: "invalid flipConfirmCandles value" });
+                updated.flipConfirmCandles = parsedConfirm;
+            }
+        }
 
         if (maxDailyLoss !== undefined) {
             if (maxDailyLoss === null || maxDailyLoss === "" || maxDailyLoss === "0" || maxDailyLoss === "clear") {
@@ -786,7 +808,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -886,6 +908,14 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         // here, but writing it explicitly avoids the same class of bug
         // "only write when non-default" would risk elsewhere.
         env.DISABLE_DOUBLE_ORDERS_OVERRIDE = String(!!disableDoubleOrders);
+        if (atrSlMult !== undefined && atrSlMult !== null && atrSlMult !== "") {
+            const parsedAtrMult = Number(atrSlMult);
+            if (Number.isFinite(parsedAtrMult) && parsedAtrMult > 0) env.ATR_SL_MULT_OVERRIDE = String(parsedAtrMult);
+        }
+        if (stratKey === "PURE_HA" && flipConfirmCandles !== undefined && flipConfirmCandles !== null && flipConfirmCandles !== "") {
+            const parsedConfirm = Number(flipConfirmCandles);
+            if (Number.isInteger(parsedConfirm) && parsedConfirm >= 1) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(parsedConfirm);
+        }
 
         await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name, cwd: ROOT, env });
         res.json({ ok: true, name, strategy: stratKey, timeframe: tf, live: !!live, carryOvernight: !!carryOvernight, lotMult });
