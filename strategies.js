@@ -5414,6 +5414,279 @@ function createVolumeDeltaCvdStrategy({ context, engineConfig, state, db, candle
     return { processCandle, initSignals };
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// PURE_HA — strategy #20. Pure Heikin-Ashi candle color, no indicator of
+// any kind (no ALMA, no ATR, no band, no RSI/DPI/EMA) — the HA candle
+// itself IS the entire signal. Always-in-market, same as DYNAMIC_MID_COLOR
+// (#14): green HA candle -> LONG, red HA candle -> SHORT, a color change
+// exits the current position and enters the opposite side same candle, no
+// gap. A doji (haClose === haOpen, rare given HA's own smoothing) holds
+// whatever position is already open rather than forcing a flat/ambiguous
+// side. Already positioned on the side the current candle agrees with?
+// Hold — no re-entry every candle of an ongoing trend.
+//
+// "Pure trend" candle — a HA candle with no wick on the side opposite its
+// body: a green candle whose low never dipped below its own open (haLow
+// === haOpen, no lower wick), or a red candle whose high never exceeded
+// its own open (haHigh === haOpen, no upper wick). The classic Heikin-Ashi
+// "clean trend" tell — price moved one direction the entire bar, no
+// give-back. Tracked and tagged (state.pureTrend, console log, Telegram,
+// emitEvent "pure" field) on every entry and every tick, but — per how
+// this was asked for ("based on color entry ie green long and red short
+// AND differentiate pure trend...") — implemented as a CLASSIFICATION
+// layered on top of the color entry, not an additional gate: every color
+// change still enters/reverses regardless of whether that candle happens
+// to be a pure-trend one. If the intent was instead "only enter on
+// pure-trend candles, ignore an ordinary colored candle with a wick,"
+// that's a one-line change (runSignals()'s `if (!engineConfig.ENGINE_ENABLED
+// || !side)` guard would need `|| !pure`) — flagging this explicitly since
+// the request could support either reading.
+//
+// Choppiness Index — full Edit Params/Add Instrument support
+// (context.chopFilterEnabled/chopPeriod/chopMax), the same generic fields
+// every other strategy in this file already uses — nothing new needed for
+// those prompts to apply here too. Per the "make every strategy use check
+// chopiness index at entry even at 9.15" change earlier this session,
+// isChopBlocked() below is called with force:true, same as every other
+// strategy's entry site — meaning the enable/disable toggle is (like
+// everywhere else in the codebase right now) a currently-dead gate and
+// only chopPeriod/chopMax actually vary behavior. Kept consistent with
+// all 19 other strategies rather than carved out as the one exception
+// with a real working toggle — flagging this too, in case a genuinely
+// toggleable filter (respecting chopFilterEnabled, force only on a
+// double order) was actually wanted just for this strategy.
+//
+// Boot/restart: same history-replay convention as DYNAMIC_MID_COLOR —
+// haOpen/haClose aren't persisted to SQLite (no column for them, and
+// adding one is unnecessary), so a restart replays whatever candles are
+// already in the buffer through the same HA math to rebuild them
+// accurately, then places a real entry immediately at today's live price
+// if that replay implies one and nothing was already resumed from a real
+// saved position — same "entering at 9:15" convention as every other
+// color-coded/ALMA strategy in this file, and specifically the thing
+// confirmed earlier this session to already cover boot-time entries for
+// the universal chop check (this strategy's replay entry goes through
+// the same doEnter() as every live-candle entry, no separate path).
+// ════════════════════════════════════════════════════════════════════════
+function createPureHaStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+    function persist(position, entryPrice, positionSource) {
+        db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
+    }
+
+    // One HA candle from the previous running HA state + this raw candle.
+    // Standard Heikin-Ashi formula — haOpen seeds from (open+close)/2 on
+    // the very first candle only (prevHaOpen === null), then every
+    // subsequent candle averages the PREVIOUS ha candle's own open/close.
+    function computeHA(rawCandle, prevHaOpen, prevHaClose) {
+        const haClose = (rawCandle.open + rawCandle.high + rawCandle.low + rawCandle.close) / 4;
+        const haOpen  = prevHaOpen === null ? (rawCandle.open + rawCandle.close) / 2 : (prevHaOpen + prevHaClose) / 2;
+        const haHigh  = Math.max(rawCandle.high, haOpen, haClose);
+        const haLow   = Math.min(rawCandle.low, haOpen, haClose);
+        return { haOpen, haClose, haHigh, haLow };
+    }
+
+    // green -> LONG, red -> SHORT, doji (haClose === haOpen) -> null (no
+    // signal this candle, hold whatever's already open).
+    function haSide(ha) {
+        if (ha.haClose > ha.haOpen) return "LONG";
+        if (ha.haClose < ha.haOpen) return "SHORT";
+        return null;
+    }
+
+    // No opposite-side wick — see this strategy's header comment. Exact
+    // === is safe here (no floating-point tolerance needed): haLow/haHigh
+    // are themselves Math.min/max over {raw low/high, haOpen, haClose} —
+    // picking one of those exact values, never a new computed value — so
+    // "the raw wick never crossed haOpen" really does produce bit-for-bit
+    // haLow === haOpen / haHigh === haOpen, not an approximation of it.
+    function isPureTrend(ha, side) {
+        if (side === "LONG")  return ha.haLow  === ha.haOpen;
+        if (side === "SHORT") return ha.haHigh === ha.haOpen;
+        return false;
+    }
+
+    async function doExit(side, livePrice, reason) {
+        const closed = await orders.exit(side);
+        if (engineConfig.LIVE_ORDERS && closed === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} exit failed (${reason}) — will retry next candle`));
+            return false;
+        }
+        tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
+        await positionsClose(livePrice, reason);
+        targetStore.clearTarget();
+        persist(null, 0);
+        console.log(c.red(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        return true;
+    }
+
+    async function doEnter(side, livePrice, reason, pure) {
+        const doubleBlocked = isDoubleOrderBlocked(context, state);
+        const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: true });
+        if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
+        else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+        const ordered = (doubleBlocked || chopBlocked) ? null : await orders.enter(side);
+        if (chopBlocked || doubleBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
+            return false;
+        }
+
+        state.position       = side;
+        state.tradesToday    = (state.tradesToday || 0) + 1;
+        state.entryPrice     = livePrice;
+        state.positionSource = "PURE_HA";
+        state.pureTrend      = pure;
+        state.openTradeId    = await db.insertOpenTrade(
+            context.tgPrefix, context.symbol, side, context.lots, livePrice
+        );
+
+        // Universal opt-in target — same mechanism as every other
+        // strategy, off unless this instrument has context.targetPoints
+        // configured. No ATR (or any) stop-loss here — see this
+        // strategy's header comment ("no indicator of any kind"); an
+        // opposite color flip is the only exit this strategy has.
+        if (context.targetPoints) {
+            const targetLevel = side === "LONG" ? livePrice + context.targetPoints : livePrice - context.targetPoints;
+            targetStore.setTarget(targetLevel, side === "LONG" ? 1 : -1);
+        }
+
+        persist(side, livePrice, "PURE_HA");
+        const tag = pure ? " [PURE TREND]" : "";
+        console.log(c.green(`[${context.tgPrefix}] ${side} ${reason}${tag}  @ ${livePrice.toFixed(2)}`));
+        emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: null, pure });
+        tg(`${side} ${reason}${tag} @ \u20b9${livePrice.toFixed(2)}`);
+        return true;
+    }
+
+    async function runSignals(rawCandle) {
+        const ha = computeHA(rawCandle, state.haOpen, state.haClose);
+        state.haOpen  = ha.haOpen;
+        state.haClose = ha.haClose;
+        const side = haSide(ha);
+        const pure = isPureTrend(ha, side);
+        state.pureTrend = pure;
+
+        const livePrice = candles.getLivePrice() ?? rawCandle.close;
+
+        const uPnL = positionsUnrealised(livePrice);
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+        const session   = (state.pnl || 0) + uPnL;
+        const lineColor = !state.position ? c.white : uPnL > 0 ? c.green : uPnL < 0 ? c.red : c.white;
+        const pureTag = pure ? c.cyan(" PURE") : "";
+        console.log(lineColor(`[${context.tgPrefix}] ${ts} PHA  ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  HA:${ha.haOpen.toFixed(2)}/${ha.haClose.toFixed(2)}${pureTag}`));
+        emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, pure });
+
+        if (!engineConfig.ENGINE_ENABLED || !side) return; // no engine, or a doji — hold whatever's open
+
+        if (state.position && state.position !== side) {
+            const exited = await doExit(state.position, livePrice, "COLOR FLIP EXIT");
+            if (exited) await doEnter(side, livePrice, side === "LONG" ? "REVERSAL LONG" : "REVERSAL SHORT", pure);
+        } else if (!state.position) {
+            await doEnter(side, livePrice, side === "LONG" ? "LONG ENTRY" : "SHORT ENTRY", pure);
+        }
+        // else: already positioned on this side — hold.
+    }
+
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown()) return;
+        const rawCandles = candles.getRawCandles();
+
+        // ONE-TIME HISTORY REPLAY — same reasoning/placement as
+        // DYNAMIC_MID_COLOR's (see that strategy's header comment):
+        // engine.js calls initSignals() BEFORE preload() populates the
+        // candle buffer (backtestRun.js the same), so haOpen/haClose can
+        // only be rebuilt here, on this process's first processCandle()
+        // call — which by now already includes THIS candle too.
+        if (!state.historyReplayed) {
+            state.historyReplayed = true;
+            const replayWindow = rawCandles.slice(-engineConfig.MAX_CANDLES);
+            const replay = replayHistory(replayWindow);
+
+            state.haOpen  = replay.haOpen;
+            state.haClose = replay.haClose;
+            console.log(c.cyan(`[${context.tgPrefix}] HIST REPLAY  ${replayWindow.length} candles -> HA:${replay.haOpen?.toFixed(2)}/${replay.haClose?.toFixed(2)}  implied:${replay.position ?? "flat"}${replay.pure ? " [PURE TREND]" : ""}`));
+
+            if (!state.resumedFromDb && engineConfig.ENGINE_ENABLED && replay.position) {
+                const livePrice = candles.getLivePrice() ?? rawCandle.close;
+                await doEnter(replay.position, livePrice, "HIST REPLAY ENTRY", replay.pure);
+            }
+            return; // this candle is fully accounted for by the replay above
+        }
+
+        await runSignals(rawCandle);
+    }
+
+    // Pure simulation — no orders, no DB, no logs. Walks the exact same
+    // HA-color state machine runSignals() uses, over whatever historical
+    // candles are already in the buffer, so the implied position reflects
+    // real market history instead of an arbitrary hardcoded flat start.
+    function replayHistory(rawCandles) {
+        if (!rawCandles || rawCandles.length === 0) return { haOpen: null, haClose: null, position: null, pure: false };
+
+        let haOpen = null, haClose = null, position = null, pure = false;
+        for (const rawCandle of rawCandles) {
+            const ha = computeHA(rawCandle, haOpen, haClose);
+            haOpen  = ha.haOpen;
+            haClose = ha.haClose;
+            const side = haSide(ha);
+            if (side) {
+                pure = isPureTrend(ha, side);
+                position = side;
+            }
+        }
+        return { haOpen, haClose, position, pure };
+    }
+
+    async function initSignals() {
+        try {
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+            const today = clock.now().toISOString().split("T")[0];
+
+            // haOpen/haClose deferred to processCandle's first call, same
+            // reasoning as DYNAMIC_MID_COLOR's band geometry — the candle
+            // buffer is always empty here (see processCandle's comment).
+            state.haOpen          = null;
+            state.haClose         = null;
+            state.historyReplayed = false;
+            state.pureTrend       = false;
+
+            state.resumedFromDb = false;
+            if (engineConfig.RESUME_INTRADAY_ONLY && saved?.position) {
+                const sameDay      = (saved.entry_date ?? null) === today;
+                const shouldResume = sameDay || context.carryOvernight;
+                if (shouldResume) {
+                    state.position   = saved.position;
+                    state.entryPrice = saved.entry_price;
+                    state.positionSource = saved.position_source || "PURE_HA";
+
+                    const openTrade = await db.getOpenTrade(context.tgPrefix);
+                    state.openTradeId = openTrade ? openTrade.id : null;
+                    state.resumedFromDb = true;
+                } else {
+                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                }
+            }
+
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+            state.tradesToday = await db.getTradeCountToday(context.tgPrefix);
+
+            const info = state.position
+                ? `${state.position}@${state.entryPrice}`
+                : "flat (pending history replay on first candle)";
+            console.log();
+            console.log(c.green(`[${context.tgPrefix}] ${info}`));
+            console.log();
+
+            await orders.reconcile(state);
+
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
 const STRATEGIES = {
     DPI_TREND_MEANREV: createDpiTrendMeanrevStrategy,
     ALMA_BAND:          createAlmaBandStrategy,
@@ -5434,6 +5707,7 @@ const STRATEGIES = {
     ALMA_PRO_FAST:        createAlmaProFastStrategy,
     ALMA_PRO_SLOW:        createAlmaProSlowStrategy,
     VOLUME_DELTA_CVD:     createVolumeDeltaCvdStrategy,
+    PURE_HA:              createPureHaStrategy,
 };
 
 // Toolbox-facing labels only — not a full param schema yet (that's a later
@@ -5460,6 +5734,7 @@ const STRATEGY_INFO = {
     ALMA_PRO_FAST:        { label: "ALMA Pro \u2014 Fast Engine", description: "the FAST half of strategy #17 (\"TAlgo \u2014 Pro Engine\"): fast ALMA (HA close) + ALMA(high)/ALMA(low) band, band-compression forces sideways/flat, slope+breakout confirm entries; band gate toggleable per instrument (default ON, OFF trades on slope alone), fast/band ALMA lengths also configurable per instrument (default 20/50); Choppiness Index entry filter toggleable per instrument (default ON, not in the original); run alongside ALMA_PRO_SLOW on a DIFFERENT underlying (e.g. the mini contract) for a genuine dual-engine setup \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APF" },
     ALMA_PRO_SLOW:        { label: "ALMA Pro \u2014 Slow Engine", description: "the SLOW half of strategy #17: single slow ALMA(100) on HA close, entry LEVEL-based on the line's own current slope direction (deadband-filtered, same whipsaw control ALMA_FAST uses) \u2014 no band/breakout confirmation, that's the fast engine's job; Choppiness Index entry filter toggleable per instrument (default ON, not in the original); run alongside ALMA_PRO_FAST on a DIFFERENT underlying (e.g. the full-lot contract) \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APS" },
     VOLUME_DELTA_CVD:     { label: "Volume Delta / CVD", description: "estimated tick-rule buy/sell volume delta (price-direction based \u2014 Kite doesn't expose true exchange aggressor side) + CVD, layered under EMA20/50 trend, VWAP, relative volume, delta Z-score, absorption, and CVD/price divergence into a 0-100 score; two-candle setup\u2192confirm entry debounce, ATR stop-loss; delta-based signals need warmup time after boot (can't backfill genuine tick delta from historical candles)", short: "VDCVD" },
+    PURE_HA:              { label: "Pure Heikin-Ashi Color", description: "no indicator at all \u2014 pure HA candle color decides everything: green candle -> LONG, red -> SHORT, always-in-market, a color flip exits and reverses same candle; separately tags each candle as a \"pure trend\" candle (no wick on the side opposite the body \u2014 no lower wick on green, no upper wick on red) for logging/dashboard purposes, without gating entry on it; Choppiness Index filter available same as every other strategy (currently always-on per the codebase-wide forced check, see this strategy's header comment)", short: "PHA" },
 };
 
 // Each strategy's live/paper candle interval — this is a property of the
@@ -5522,8 +5797,12 @@ const STRATEGY_TIMEFRAME = {
     // trend-following strategies above default to; adjustable per
     // instrument via TIMEFRAME_OVERRIDE same as everything else here.
     VOLUME_DELTA_CVD:     "5m",
+    // No indicator, no lookback, no strategy-specific reason to pick
+    // otherwise — 15m matches the platform default, adjustable per
+    // instrument via TIMEFRAME_OVERRIDE same as everything else here.
+    PURE_HA:              "15m",
 };
 
 const DEFAULT_STRATEGY = "DPI_TREND_MEANREV";
 
-module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy, createVolumeDeltaCvdStrategy };
+module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy, createVolumeDeltaCvdStrategy, createPureHaStrategy };
