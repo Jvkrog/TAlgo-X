@@ -29,25 +29,30 @@
 
 const { choppinessIndex } = require("./indicators");
 
-// `force` — every one of strategies.js's entry sites now calls with
-// force:true UNCONDITIONALLY: the Choppiness Index check runs on every
-// single entry for every strategy, including the very first entry of the
-// day (the 9:15 market-open boot/history-replay entry — see
-// strategies.js's replayHistory()/doEnter() and ALMA's initSignals()
-// boot-time entries, which route through the exact same doEnter()/
-// enterPosition() functions as every live-candle entry, so there's no
-// separate code path to have missed). context.chopFilterEnabled is no
-// longer read for gating purposes as a result — every strategy is
-// checked regardless of that per-instrument toggle's value — but
-// context.chopPeriod/chopMax below are still fully respected, so Edit
-// Params' period/threshold customization keeps working exactly as before.
-// force:true skips the chopFilterEnabled gate below and always evaluates
-// chop; every other behavior (period/max resolution, the actual
-// indicator call) is unchanged and shared with the normal path.
+// `force` — every one of strategies.js's entry sites calls with
+// { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false } — defaulting
+// true (engineConfigDefaults.js's CHOP_GATE_ALWAYS_FORCE), so the
+// Choppiness Index check runs on every single live entry for every
+// strategy, including the very first entry of the day (the 9:15
+// market-open boot/history-replay entry — see strategies.js's
+// replayHistory()/doEnter() and ALMA's initSignals() boot-time entries,
+// which route through the exact same doEnter()/enterPosition() functions
+// as every live-candle entry, so there's no separate code path to have
+// missed). context.chopFilterEnabled is not read for gating purposes as
+// a result in live trading — every strategy is checked regardless of
+// that per-instrument toggle's value — but context.chopPeriod/chopMax
+// below are still fully respected, so Edit Params' period/threshold
+// customization keeps working exactly as before. Backtests are the one
+// place engineConfig.CHOP_GATE_ALWAYS_FORCE can be set false (via
+// backtestFlow.js's Step 6, params merged onto a per-run engineConfig
+// copy — see backtestRun.js), to compare a run with the chop gate
+// on vs off — force:true skips the chopFilterEnabled gate below and
+// always evaluates chop; every other behavior (period/max resolution,
+// the actual indicator call) is unchanged and shared with the normal path.
 function isChopBlocked(context, engineConfig, candles, { force = false } = {}) {
-    if (!force && !context.chopFilterEnabled) return false; // dead path today — every real call site now passes force:true — kept only so a future caller could still opt back into the old "off by default" behavior without touching this file
+    if (!force && !context.chopFilterEnabled) return false; // reached in live trading only if a caller ever passes force:false explicitly — no current call site does; reached routinely in backtests when CHOP_GATE_ALWAYS_FORCE is set false
     const chopPeriod = context.chopPeriod ?? engineConfig.CHOP_LEN;
-    const chopMax = context.chopMax ?? 50; // same 50 every chop filter in this codebase uses
+    const chopMax = context.chopMax ?? engineConfig.CHOP_GATE_MAX_DEFAULT;
     const rawCandles = candles.getRawCandles();
     const chopArr = choppinessIndex(rawCandles, chopPeriod);
     const chopVal = chopArr.length ? chopArr[chopArr.length - 1] : null;

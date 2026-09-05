@@ -187,6 +187,27 @@ function buildContext(def, resolvedContract) {
         // backtest tuning BAND_STEP_DEFAULT via STRATEGY_PARAMS needs this
         // to stay unset so it doesn't override the tuned value.
         bandStep: null,
+        // PURE_HA only (strategy #20) — anti-whipsaw filter: how many
+        // CONSECUTIVE opposite-color HA candles are required before an
+        // already-open position actually flips/exits. null (not a
+        // literal default) for the same STRATEGY_PARAMS-backtest-tuning
+        // reason as bandStep above; strategies.js's own
+        // `context.flipConfirmCandles ?? 1` fallback is where the actual
+        // default (1 — immediate flip on the very first opposite candle,
+        // today's original PURE_HA behavior) lives. Does NOT apply to the
+        // very first entry from flat — only to reversing an already-open
+        // position, since a whipsaw is specifically "flip, flip back,"
+        // not "was slow to get in."
+        flipConfirmCandles: null,
+        // Per-instrument ATR stop-loss multiplier override. null (not a
+        // literal default) for the same STRATEGY_PARAMS-backtest-tuning
+        // reason as bandStep/flipConfirmCandles above — every
+        // computeTrail() in strategies.js falls back to the global
+        // engineConfig.ATR_SL_MULT when this is unset, exactly matching
+        // every instrument's behavior before this field existed. Has no
+        // effect on PURE_HA, DYNAMIC_BAND, DYNAMIC_MID_COLOR(_HL) — none
+        // of those call computeTrail()/use an ATR stop at all.
+        atrSlMult: null,
         // Overridden per-process by engine.js from GREY_EXIT_OVERRIDE
         // (toolbox prompt, asked only when ALMA_TRI_BAND is picked). Only
         // controls what happens when strategy #15's state reads GREY while

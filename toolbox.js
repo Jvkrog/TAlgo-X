@@ -146,6 +146,8 @@ async function getEngineProcesses() {
             chopPeriod: p.pm2_env.env?.CHOP_PERIOD_OVERRIDE ? Number(p.pm2_env.env.CHOP_PERIOD_OVERRIDE) : null,
             chopMax: p.pm2_env.env?.CHOP_MAX_OVERRIDE ? Number(p.pm2_env.env.CHOP_MAX_OVERRIDE) : null,
             disableDoubleOrders: p.pm2_env.env?.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true",
+            flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
+            atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -279,7 +281,7 @@ const HELP_ROWS = [
     [["R", "Restart"], ["D", "Remove"], ["C", "Roll"], ["M", "Live/Paper"]],
     [["L", "Logs"], ["T", "Token"], ["B", "Backtest"], ["N", "Trending"]],
     [["Q", "Quit"], ["E", "Creds"], ["K", "Market"], ["P", "Edit Params"]],
-    [["U", "Custom Strategy"]],
+    [["U", "Custom Strategy"], ["V", "Risk Mgmt"]],
 ];
 function renderMenuHelpLines() {
     return HELP_ROWS.map(row => {
@@ -426,6 +428,11 @@ function buildProcessEnv(p, overrides = {}) {
     env.DISABLE_DOUBLE_ORDERS_OVERRIDE = p.disableDoubleOrders === true ? "true" : "false";
     if (p.maxDailyLoss) env.MAX_DAILY_LOSS_OVERRIDE = String(p.maxDailyLoss);
     if (p.sessionTargetRupees) env.SESSION_TARGET_OVERRIDE = String(p.sessionTargetRupees);
+    // Universal (unread by strategies with no ATR trail at all).
+    if (p.atrSlMult) env.ATR_SL_MULT_OVERRIDE = String(p.atrSlMult);
+    // PURE_HA only, but harmless to always write when set regardless of
+    // p.strategy — every other strategy simply never reads it.
+    if (p.flipConfirmCandles) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(p.flipConfirmCandles);
     return { ...env, ...overrides };
 }
 
@@ -691,6 +698,48 @@ async function editInstrument(procs) {
             console.log(c.dim(`  double orders stay allowed — any 2nd+ entry this session will force a Choppiness Index check`));
         }
 
+        // ATR stop-loss multiplier — universal, but only read by
+        // strategies that call computeTrail() (not PURE_HA/DYNAMIC_BAND/
+        // DYNAMIC_MID_COLOR(_HL)). "0"/"clear" reverts to the global
+        // engineConfig.ATR_SL_MULT default; blank keeps whatever's set.
+        const atrSlMultDefault = p.atrSlMult !== null ? String(p.atrSlMult) : `default (${engineConfig.ATR_SL_MULT})`;
+        const atrSlMultInput = (await ask(`  ATR stop-loss multiplier (current: ${atrSlMultDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+        let atrSlMult = p.atrSlMult;
+        if (atrSlMultInput) {
+            if (atrSlMultInput === "0" || atrSlMultInput.toLowerCase() === "clear") {
+                atrSlMult = null;
+            } else {
+                const parsedAtrMult = Number(atrSlMultInput);
+                if (!Number.isFinite(parsedAtrMult) || parsedAtrMult <= 0) {
+                    console.log(c.yellow(`  "${atrSlMultInput}" isn't a valid positive number — ATR multiplier left unchanged (${atrSlMultDefault})`));
+                } else {
+                    atrSlMult = parsedAtrMult;
+                }
+            }
+        }
+
+        // Anti-whipsaw flip confirmation — PURE_HA only. How many
+        // CONSECUTIVE opposite-color HA candles are required before an
+        // already-open position actually flips. "0"/"clear"/"1" all mean
+        // immediate flip (today's original behavior).
+        let flipConfirmCandles = p.flipConfirmCandles;
+        if (p.strategy === "PURE_HA") {
+            const flipDefault = p.flipConfirmCandles !== null ? String(p.flipConfirmCandles) : "1 (immediate flip)";
+            const flipInput = (await ask(`  reversal candles required to flip, anti-whipsaw (current: ${flipDefault}, "0"/"clear" for immediate, blank = keep): `)).trim();
+            if (flipInput) {
+                if (flipInput === "0" || flipInput.toLowerCase() === "clear") {
+                    flipConfirmCandles = null;
+                } else {
+                    const parsedConfirm = Number(flipInput);
+                    if (!Number.isInteger(parsedConfirm) || parsedConfirm < 1) {
+                        console.log(c.yellow(`  "${flipInput}" isn't a valid whole number >= 1 — left unchanged (${flipDefault})`));
+                    } else {
+                        flipConfirmCandles = parsedConfirm;
+                    }
+                }
+            }
+        }
+
         // Max daily loss circuit breaker — universal. "0"/"clear" removes
         // the floor entirely; blank keeps whatever's currently set.
         const maxDailyLossDefault = p.maxDailyLoss !== null ? String(p.maxDailyLoss) : "none";
@@ -709,7 +758,7 @@ async function editInstrument(procs) {
             }
         }
 
-        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders };
+        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -720,6 +769,148 @@ async function editInstrument(procs) {
                 ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? 14}/${chopMax ?? 50}`) : c.yellow(" chop:off"))
                 : (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
             console.log(c.green(`  ${p.underlying} updated${targetTag}${chopTag} lots:${lots === "default" ? "1" : lots} (restarted)`));
+        } catch (err) {
+            console.log(c.red(`  failed to update ${p.underlying}: ${err.message}`));
+        }
+    }
+    await pauseForReview();
+}
+
+// ─── RISK MANAGEMENT — a consolidated view/edit of every risk-limiting
+// setting in one place, instead of hunting for them scattered through
+// editInstrument's full field list. Same targets (selected set), same
+// buildProcessEnv() + pm2Restart() apply mechanism as editInstrument —
+// this is a narrower prompt sequence over the exact same underlying
+// fields, not a separate code path for applying them.
+async function riskManagement(procs) {
+    const targets = procs.filter(p => selected.has(p.name));
+    if (targets.length === 0) { console.log(c.yellow("  nothing selected")); await pauseForReview(); return; }
+
+    for (const p of targets) {
+        console.log();
+        console.log(c.dim(`  risk settings for ${p.underlying} (${(STRATEGY_INFO[p.strategy] || { label: p.strategy }).label}) — blank keeps current value`));
+
+        // Choppiness Index entry filter toggle — ALMA_PRO_FAST/ALMA_PRO_SLOW only.
+        let almaChopFilterEnabled = p.almaChopFilterEnabled;
+        if (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") {
+            const chopFilterDefault = p.almaChopFilterEnabled !== false;
+            const chopFilterInput = (await ask(`  use Choppiness Index entry filter? [Y/n] (current: ${chopFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            if (chopFilterInput) almaChopFilterEnabled = chopFilterInput !== "N";
+        }
+
+        // Choppiness Index entry filter — universal (every other strategy).
+        let chopFilterEnabled = p.chopFilterEnabled;
+        let chopPeriod = p.chopPeriod;
+        let chopMax = p.chopMax;
+        if (p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW") {
+            const chopFilterDefault = p.chopFilterEnabled !== false;
+            const chopFilterInput = (await ask(`  use Choppiness Index entry filter? [Y/n] (current: ${chopFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            if (chopFilterInput) chopFilterEnabled = chopFilterInput !== "N";
+
+            if (chopFilterEnabled) {
+                const periodDefault = chopPeriod !== null ? String(chopPeriod) : "14 (default)";
+                const periodInput = (await ask(`  Choppiness Index period (current: ${periodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                if (periodInput) {
+                    if (periodInput === "0" || periodInput.toLowerCase() === "clear") {
+                        chopPeriod = null;
+                    } else {
+                        const parsedPeriod = Number(periodInput);
+                        if (Number.isFinite(parsedPeriod) && parsedPeriod > 0) chopPeriod = parsedPeriod;
+                        else console.log(c.yellow(`  "${periodInput}" isn't a valid positive number — period left unchanged`));
+                    }
+                }
+                const maxDefault = chopMax !== null ? String(chopMax) : "50 (default)";
+                const maxInput = (await ask(`  Choppiness Index max threshold (current: ${maxDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                if (maxInput) {
+                    if (maxInput === "0" || maxInput.toLowerCase() === "clear") {
+                        chopMax = null;
+                    } else {
+                        const parsedMax = Number(maxInput);
+                        if (Number.isFinite(parsedMax) && parsedMax > 0) chopMax = parsedMax;
+                        else console.log(c.yellow(`  "${maxInput}" isn't a valid positive number — max threshold left unchanged`));
+                    }
+                }
+            }
+        }
+
+        // Double-order gate — universal, opt-in, default OFF (allowed).
+        const doubleOrderDefault = p.disableDoubleOrders === true;
+        const doubleOrderInput = (await ask(`  disable double orders (max 1 entry/session)? [y/N] (current: ${doubleOrderDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+        let disableDoubleOrders = p.disableDoubleOrders;
+        if (doubleOrderInput) disableDoubleOrders = doubleOrderInput === "Y";
+        if (!disableDoubleOrders) {
+            console.log(c.dim(`  double orders stay allowed — any 2nd+ entry this session will force a Choppiness Index check`));
+        }
+
+        // ATR stop-loss multiplier — universal, but only read by
+        // strategies that call computeTrail() (not PURE_HA/DYNAMIC_BAND/
+        // DYNAMIC_MID_COLOR(_HL)).
+        const atrSlMultDefault = p.atrSlMult !== null ? String(p.atrSlMult) : `default (${engineConfig.ATR_SL_MULT})`;
+        const atrSlMultInput = (await ask(`  ATR stop-loss multiplier (current: ${atrSlMultDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+        let atrSlMult = p.atrSlMult;
+        if (atrSlMultInput) {
+            if (atrSlMultInput === "0" || atrSlMultInput.toLowerCase() === "clear") {
+                atrSlMult = null;
+            } else {
+                const parsedAtrMult = Number(atrSlMultInput);
+                if (!Number.isFinite(parsedAtrMult) || parsedAtrMult <= 0) {
+                    console.log(c.yellow(`  "${atrSlMultInput}" isn't a valid positive number — ATR multiplier left unchanged (${atrSlMultDefault})`));
+                } else {
+                    atrSlMult = parsedAtrMult;
+                }
+            }
+        }
+
+        // Anti-whipsaw flip confirmation — PURE_HA only.
+        let flipConfirmCandles = p.flipConfirmCandles;
+        if (p.strategy === "PURE_HA") {
+            const flipDefault = p.flipConfirmCandles !== null ? String(p.flipConfirmCandles) : "1 (immediate flip)";
+            const flipInput = (await ask(`  reversal candles required to flip, anti-whipsaw (current: ${flipDefault}, "0"/"clear" for immediate, blank = keep): `)).trim();
+            if (flipInput) {
+                if (flipInput === "0" || flipInput.toLowerCase() === "clear") {
+                    flipConfirmCandles = null;
+                } else {
+                    const parsedConfirm = Number(flipInput);
+                    if (!Number.isInteger(parsedConfirm) || parsedConfirm < 1) {
+                        console.log(c.yellow(`  "${flipInput}" isn't a valid whole number >= 1 — left unchanged (${flipDefault})`));
+                    } else {
+                        flipConfirmCandles = parsedConfirm;
+                    }
+                }
+            }
+        }
+
+        // Max daily loss circuit breaker — universal, every strategy.
+        const maxDailyLossDefault = p.maxDailyLoss !== null ? String(p.maxDailyLoss) : "none";
+        const maxDailyLossInput = (await ask(`  max daily loss in rupees (current: ${maxDailyLossDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
+        let maxDailyLoss = p.maxDailyLoss;
+        if (maxDailyLossInput) {
+            if (maxDailyLossInput === "0" || maxDailyLossInput.toLowerCase() === "clear") {
+                maxDailyLoss = null;
+            } else {
+                const parsedLoss = Number(maxDailyLossInput);
+                if (!Number.isFinite(parsedLoss) || parsedLoss <= 0) {
+                    console.log(c.yellow(`  "${maxDailyLossInput}" isn't a valid positive number — daily loss floor left unchanged (${maxDailyLossDefault})`));
+                } else {
+                    maxDailyLoss = parsedLoss;
+                }
+            }
+        }
+
+        const updatedP = { ...p, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles, maxDailyLoss };
+        try {
+            await pm2Restart({
+                ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
+                env: buildProcessEnv(updatedP),
+            });
+            const chopTag = p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW"
+                ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? 14}/${chopMax ?? 50}`) : c.yellow(" chop:off"))
+                : (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
+            const doubleTag = disableDoubleOrders ? c.yellow(" double:off") : c.dim(" double:on");
+            const atrTag = atrSlMult !== null ? c.dim(` atr:${atrSlMult}x`) : "";
+            const flipTag = p.strategy === "PURE_HA" ? c.dim(` flip:${flipConfirmCandles ?? 1}`) : "";
+            const lossTag = maxDailyLoss !== null ? c.dim(` maxloss:-₹${maxDailyLoss}`) : "";
+            console.log(c.green(`  ${p.underlying} risk settings updated${chopTag}${doubleTag}${atrTag}${flipTag}${lossTag} (restarted)`));
         } catch (err) {
             console.log(c.red(`  failed to update ${p.underlying}: ${err.message}`));
         }
@@ -997,6 +1188,36 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         console.log(c.dim(`  double orders stay allowed — any 2nd+ entry this session will force a Choppiness Index check`));
     }
 
+    // ATR stop-loss multiplier — universal prompt, but only read by
+    // strategies that call computeTrail() (not PURE_HA/DYNAMIC_BAND/
+    // DYNAMIC_MID_COLOR(_HL)). Blank = use the global engineConfig.ATR_SL_MULT.
+    let atrSlMult = null;
+    const atrSlMultInput = (await ask(`  ATR stop-loss multiplier (blank = default ${engineConfig.ATR_SL_MULT}): `)).trim();
+    if (atrSlMultInput) {
+        const parsedAtrMult = Number(atrSlMultInput);
+        if (!Number.isFinite(parsedAtrMult) || parsedAtrMult <= 0) {
+            console.log(c.yellow(`  "${atrSlMultInput}" isn't a valid positive number — using default (${engineConfig.ATR_SL_MULT}) instead`));
+        } else {
+            atrSlMult = parsedAtrMult;
+        }
+    }
+
+    // Anti-whipsaw flip confirmation — PURE_HA only. How many CONSECUTIVE
+    // opposite-color HA candles are required before an already-open
+    // position actually flips. Blank = 1 (immediate flip).
+    let flipConfirmCandles = null;
+    if (strategy === "PURE_HA") {
+        const flipInput = (await ask(`  reversal candles required to flip, anti-whipsaw (blank = 1, immediate): `)).trim();
+        if (flipInput) {
+            const parsedConfirm = Number(flipInput);
+            if (!Number.isInteger(parsedConfirm) || parsedConfirm < 1) {
+                console.log(c.yellow(`  "${flipInput}" isn't a valid whole number >= 1 — using default (1, immediate flip) instead`));
+            } else {
+                flipConfirmCandles = parsedConfirm;
+            }
+        }
+    }
+
     // Max daily loss circuit breaker — universal, every strategy. Blank =
     // disabled, no floor (today's original behavior). Once today's
     // cumulative realized P&L drops to or below -this amount, candlePoll.js's
@@ -1102,6 +1323,8 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     }
     // Double-order gate — always written explicitly, same reasoning.
     env.DISABLE_DOUBLE_ORDERS_OVERRIDE = disableDoubleOrders ? "true" : "false";
+    if (atrSlMult !== null) env.ATR_SL_MULT_OVERRIDE = String(atrSlMult);
+    if (strategy === "PURE_HA" && flipConfirmCandles !== null) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(flipConfirmCandles);
     if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
     if (strategy === "ALMA_TRI_BAND" && greyExitEnabled !== null) env.GREY_EXIT_OVERRIDE = String(greyExitEnabled);
     if (maxDailyLoss !== null) env.MAX_DAILY_LOSS_OVERRIDE = String(maxDailyLoss);
@@ -2176,6 +2399,7 @@ async function main() {
         else if (input === "E")           await setupCredentials();
         else if (input === "K")           await marketStatusScreen();
         else if (input === "U")           await createCustomStrategy();
+        else if (input === "V")           await riskManagement(procs);
         else if (input === "Q")           { running = false; redraw = false; }
         else                               { console.log(c.yellow("  unrecognized option")); redraw = false; }
 

@@ -307,6 +307,23 @@ async function main() {
     }
     console.log(c.dim(`[${context.tgPrefix}] double orders: ${context.disableDoubleOrders ? c.yellow("disabled — only 1 entry allowed per session") : "allowed (default) — 2nd+ entry forces a Choppiness Index check regardless of the chop filter setting"}`));
 
+    // PURE_HA anti-whipsaw filter — consecutive opposite-color candles
+    // required before an open position actually flips. Harmless/unread by
+    // every other strategy. See context.flipConfirmCandles.
+    if (process.env.FLIP_CONFIRM_CANDLES_OVERRIDE !== undefined && process.env.FLIP_CONFIRM_CANDLES_OVERRIDE !== "") {
+        const parsedConfirm = Number(process.env.FLIP_CONFIRM_CANDLES_OVERRIDE);
+        context.flipConfirmCandles = Number.isFinite(parsedConfirm) && parsedConfirm >= 1 ? parsedConfirm : null;
+    }
+
+    // Per-instrument ATR stop-loss multiplier override — every
+    // computeTrail() falls back to the global engineConfig.ATR_SL_MULT
+    // when this is unset. See context.atrSlMult.
+    if (process.env.ATR_SL_MULT_OVERRIDE !== undefined && process.env.ATR_SL_MULT_OVERRIDE !== "") {
+        const parsedAtrMult = Number(process.env.ATR_SL_MULT_OVERRIDE);
+        context.atrSlMult = Number.isFinite(parsedAtrMult) && parsedAtrMult > 0 ? parsedAtrMult : null;
+    }
+    console.log(c.dim(`[${context.tgPrefix}] ATR SL multiplier: ${context.atrSlMult ?? `${engineConfig.ATR_SL_MULT} (default)`}${context.strategy === "PURE_HA" ? `  |  flip confirm: ${context.flipConfirmCandles ?? 1} candle(s)` : ""}`));
+
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
 

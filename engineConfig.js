@@ -123,6 +123,19 @@ module.exports = {
     CHOP_MAX:        50,               // above this = choppy, block entry
     USE_CHOP_FILTER: false,
 
+    // chopGate.js's universal Choppiness Index gate (isChopBlocked) —
+    // deliberately separate constants from CHOP_MAX/USE_CHOP_FILTER above,
+    // which belong to DPI_TREND_MEANREV's own older, unrelated chop logic;
+    // reusing those would couple tuning one to the other. CHOP_LEN above
+    // IS shared (chopGate.js's period default is context.chopPeriod ??
+    // engineConfig.CHOP_LEN, same constant, intentionally) since it's
+    // just "the standard Choppiness Index period," not strategy-specific.
+    // Both backtest-tunable (backtestFlow.js's Step 6 always includes
+    // these, since chopGate.js applies to every strategy now) via
+    // STRATEGY_PARAMS-style engineConfig overrides — see backtestFlow.js.
+    CHOP_GATE_MAX_DEFAULT:   50,    // chopGate.js's max threshold when context.chopMax is unset
+    CHOP_GATE_ALWAYS_FORCE:  true,  // live default: every entry always checks chop, see chopGate.js's header comment. Backtests can set this false to compare with/without.
+
     // ─── ADAPTIVE TARGET (target.js's ARM step, not entry filtering) ────────
     // "fixed" (default) = today's unchanged behavior: TARGET_POINTS_OVERRIDE
     // is the only source of a target, same distance every trade.

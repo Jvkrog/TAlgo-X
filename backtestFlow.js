@@ -271,6 +271,36 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         }
     }
 
+    // Choppiness Index gate (chopGate.js's isChopBlocked) — universal,
+    // asked for every strategy regardless of STRATEGY_PARAMS above, since
+    // as of the "make every strategy check chop at entry" change every
+    // one of the 21 entry sites in strategies.js checks it live by
+    // default. Lets a backtest compare with/without and tune period/max
+    // the same way ATR_SL_MULT etc. above do — these three merge onto
+    // engineConfig the same way (see runBacktest in backtestRun.js),
+    // they're just not tied to one strategy's STRATEGY_PARAMS entry since
+    // this gate isn't strategy-specific.
+    const chopUseDefault = engineConfig.CHOP_GATE_ALWAYS_FORCE !== false;
+    const chopUseInput = (await ask(`  Use Choppiness Index filter on every entry? [Y/n] (default ${chopUseDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+    if (chopUseInput) params.CHOP_GATE_ALWAYS_FORCE = chopUseInput !== "N";
+    const chopUseForRun = chopUseInput ? params.CHOP_GATE_ALWAYS_FORCE : chopUseDefault;
+    if (chopUseForRun) {
+        const periodInput = await ask(`  Choppiness Index period (default ${engineConfig.CHOP_LEN}): `);
+        if (periodInput) {
+            const parsedPeriod = Number(periodInput);
+            if (Number.isFinite(parsedPeriod) && parsedPeriod > 0) params.CHOP_LEN = parsedPeriod;
+            else console.log(c.yellow(`  invalid value for Choppiness Index period, using default`));
+        }
+        const maxInput = await ask(`  Choppiness Index max threshold, blocks entries above this (default ${engineConfig.CHOP_GATE_MAX_DEFAULT}): `);
+        if (maxInput) {
+            const parsedMax = Number(maxInput);
+            if (Number.isFinite(parsedMax) && parsedMax > 0) params.CHOP_GATE_MAX_DEFAULT = parsedMax;
+            else console.log(c.yellow(`  invalid value for Choppiness Index max threshold, using default`));
+        }
+    } else {
+        console.log(c.dim(`  Choppiness Index filter off for this run — period/max threshold prompts skipped`));
+    }
+
     // ── Step 7: Confirmation ───────────────────────────────────────────────
     console.log();
     console.log(c.bold("  Step 7/7 — Confirm"));
