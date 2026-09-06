@@ -346,6 +346,10 @@ async function getEngineProcesses() {
             flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
             volumeFilterEnabled: p.pm2_env.env?.VOLUME_FILTER_OVERRIDE === "true",
             volumeSmaPeriod: p.pm2_env.env?.VOLUME_SMA_PERIOD_OVERRIDE ? Number(p.pm2_env.env.VOLUME_SMA_PERIOD_OVERRIDE) : null,
+            longCandleFilterEnabled: p.pm2_env.env?.LONG_CANDLE_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.LONG_CANDLE_FILTER_OVERRIDE === "true" : true,
+            longCandleAtrPeriod: p.pm2_env.env?.LONG_CANDLE_ATR_PERIOD_OVERRIDE ? Number(p.pm2_env.env.LONG_CANDLE_ATR_PERIOD_OVERRIDE) : null,
+            longCandleAtrMult: p.pm2_env.env?.LONG_CANDLE_ATR_MULT_OVERRIDE ? Number(p.pm2_env.env.LONG_CANDLE_ATR_MULT_OVERRIDE) : null,
+            longCandleCooldownCandles: p.pm2_env.env?.LONG_CANDLE_COOLDOWN_OVERRIDE !== undefined && p.pm2_env.env.LONG_CANDLE_COOLDOWN_OVERRIDE !== "" ? Number(p.pm2_env.env.LONG_CANDLE_COOLDOWN_OVERRIDE) : null,
             outLogPath: p.pm2_env.pm_out_log_path,
             errLogPath: p.pm2_env.pm_err_log_path,
         }));
@@ -384,6 +388,10 @@ function buildProcessEnv(p, overrides = {}) {
     if (p.flipConfirmCandles) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(p.flipConfirmCandles);
     env.VOLUME_FILTER_OVERRIDE = String(!!p.volumeFilterEnabled);
     if (p.volumeSmaPeriod) env.VOLUME_SMA_PERIOD_OVERRIDE = String(p.volumeSmaPeriod);
+    env.LONG_CANDLE_FILTER_OVERRIDE = p.longCandleFilterEnabled === false ? "false" : "true";
+    if (p.longCandleAtrPeriod) env.LONG_CANDLE_ATR_PERIOD_OVERRIDE = String(p.longCandleAtrPeriod);
+    if (p.longCandleAtrMult) env.LONG_CANDLE_ATR_MULT_OVERRIDE = String(p.longCandleAtrMult);
+    if (p.longCandleCooldownCandles !== null && p.longCandleCooldownCandles !== undefined) env.LONG_CANDLE_COOLDOWN_OVERRIDE = String(p.longCandleCooldownCandles);
     return { ...env, ...overrides };
 }
 
@@ -608,7 +616,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -677,6 +685,34 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 const parsedVolPeriod = Number(volumeSmaPeriod);
                 if (!Number.isFinite(parsedVolPeriod) || parsedVolPeriod <= 0) return res.status(400).json({ error: "invalid volumeSmaPeriod value" });
                 updated.volumeSmaPeriod = parsedVolPeriod;
+            }
+        }
+        if (longCandleFilterEnabled !== undefined) updated.longCandleFilterEnabled = !!longCandleFilterEnabled;
+        if (longCandleAtrPeriod !== undefined) {
+            if (longCandleAtrPeriod === null || longCandleAtrPeriod === "" || longCandleAtrPeriod === "0" || longCandleAtrPeriod === "clear") {
+                updated.longCandleAtrPeriod = null;
+            } else {
+                const parsedLcPeriod = Number(longCandleAtrPeriod);
+                if (!Number.isFinite(parsedLcPeriod) || parsedLcPeriod <= 0) return res.status(400).json({ error: "invalid longCandleAtrPeriod value" });
+                updated.longCandleAtrPeriod = parsedLcPeriod;
+            }
+        }
+        if (longCandleAtrMult !== undefined) {
+            if (longCandleAtrMult === null || longCandleAtrMult === "" || longCandleAtrMult === "0" || longCandleAtrMult === "clear") {
+                updated.longCandleAtrMult = null;
+            } else {
+                const parsedLcMult = Number(longCandleAtrMult);
+                if (!Number.isFinite(parsedLcMult) || parsedLcMult <= 0) return res.status(400).json({ error: "invalid longCandleAtrMult value" });
+                updated.longCandleAtrMult = parsedLcMult;
+            }
+        }
+        if (longCandleCooldownCandles !== undefined) {
+            if (longCandleCooldownCandles === null || longCandleCooldownCandles === "" || longCandleCooldownCandles === "clear") {
+                updated.longCandleCooldownCandles = null;
+            } else {
+                const parsedLcCooldown = Number(longCandleCooldownCandles);
+                if (!Number.isInteger(parsedLcCooldown) || parsedLcCooldown < 0) return res.status(400).json({ error: "invalid longCandleCooldownCandles value" });
+                updated.longCandleCooldownCandles = parsedLcCooldown;
             }
         }
 
@@ -822,7 +858,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -934,6 +970,19 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         if (volumeSmaPeriod !== undefined && volumeSmaPeriod !== null && volumeSmaPeriod !== "") {
             const parsedVolPeriod = Number(volumeSmaPeriod);
             if (Number.isFinite(parsedVolPeriod) && parsedVolPeriod > 0) env.VOLUME_SMA_PERIOD_OVERRIDE = String(parsedVolPeriod);
+        }
+        env.LONG_CANDLE_FILTER_OVERRIDE = longCandleFilterEnabled === false ? "false" : "true";
+        if (longCandleAtrPeriod !== undefined && longCandleAtrPeriod !== null && longCandleAtrPeriod !== "") {
+            const parsedLcPeriod = Number(longCandleAtrPeriod);
+            if (Number.isFinite(parsedLcPeriod) && parsedLcPeriod > 0) env.LONG_CANDLE_ATR_PERIOD_OVERRIDE = String(parsedLcPeriod);
+        }
+        if (longCandleAtrMult !== undefined && longCandleAtrMult !== null && longCandleAtrMult !== "") {
+            const parsedLcMult = Number(longCandleAtrMult);
+            if (Number.isFinite(parsedLcMult) && parsedLcMult > 0) env.LONG_CANDLE_ATR_MULT_OVERRIDE = String(parsedLcMult);
+        }
+        if (longCandleCooldownCandles !== undefined && longCandleCooldownCandles !== null && longCandleCooldownCandles !== "") {
+            const parsedLcCooldown = Number(longCandleCooldownCandles);
+            if (Number.isInteger(parsedLcCooldown) && parsedLcCooldown >= 0) env.LONG_CANDLE_COOLDOWN_OVERRIDE = String(parsedLcCooldown);
         }
 
         await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name, cwd: ROOT, env });
