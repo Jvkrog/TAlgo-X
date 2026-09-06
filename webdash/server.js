@@ -344,6 +344,8 @@ async function getEngineProcesses() {
             disableDoubleOrders: p.pm2_env.env?.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true",
             atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
             flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
+            volumeFilterEnabled: p.pm2_env.env?.VOLUME_FILTER_OVERRIDE === "true",
+            volumeSmaPeriod: p.pm2_env.env?.VOLUME_SMA_PERIOD_OVERRIDE ? Number(p.pm2_env.env.VOLUME_SMA_PERIOD_OVERRIDE) : null,
             outLogPath: p.pm2_env.pm_out_log_path,
             errLogPath: p.pm2_env.pm_err_log_path,
         }));
@@ -380,6 +382,8 @@ function buildProcessEnv(p, overrides = {}) {
     env.DISABLE_DOUBLE_ORDERS_OVERRIDE = String(!!p.disableDoubleOrders);
     if (p.atrSlMult) env.ATR_SL_MULT_OVERRIDE = String(p.atrSlMult);
     if (p.flipConfirmCandles) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(p.flipConfirmCandles);
+    env.VOLUME_FILTER_OVERRIDE = String(!!p.volumeFilterEnabled);
+    if (p.volumeSmaPeriod) env.VOLUME_SMA_PERIOD_OVERRIDE = String(p.volumeSmaPeriod);
     return { ...env, ...overrides };
 }
 
@@ -604,7 +608,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -663,6 +667,16 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 const parsedConfirm = Number(flipConfirmCandles);
                 if (!Number.isInteger(parsedConfirm) || parsedConfirm < 1) return res.status(400).json({ error: "invalid flipConfirmCandles value" });
                 updated.flipConfirmCandles = parsedConfirm;
+            }
+        }
+        if (volumeFilterEnabled !== undefined) updated.volumeFilterEnabled = !!volumeFilterEnabled;
+        if (volumeSmaPeriod !== undefined) {
+            if (volumeSmaPeriod === null || volumeSmaPeriod === "" || volumeSmaPeriod === "0" || volumeSmaPeriod === "clear") {
+                updated.volumeSmaPeriod = null;
+            } else {
+                const parsedVolPeriod = Number(volumeSmaPeriod);
+                if (!Number.isFinite(parsedVolPeriod) || parsedVolPeriod <= 0) return res.status(400).json({ error: "invalid volumeSmaPeriod value" });
+                updated.volumeSmaPeriod = parsedVolPeriod;
             }
         }
 
@@ -808,7 +822,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -915,6 +929,11 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         if (stratKey === "PURE_HA" && flipConfirmCandles !== undefined && flipConfirmCandles !== null && flipConfirmCandles !== "") {
             const parsedConfirm = Number(flipConfirmCandles);
             if (Number.isInteger(parsedConfirm) && parsedConfirm >= 1) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(parsedConfirm);
+        }
+        env.VOLUME_FILTER_OVERRIDE = String(!!volumeFilterEnabled);
+        if (volumeSmaPeriod !== undefined && volumeSmaPeriod !== null && volumeSmaPeriod !== "") {
+            const parsedVolPeriod = Number(volumeSmaPeriod);
+            if (Number.isFinite(parsedVolPeriod) && parsedVolPeriod > 0) env.VOLUME_SMA_PERIOD_OVERRIDE = String(parsedVolPeriod);
         }
 
         await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name, cwd: ROOT, env });
