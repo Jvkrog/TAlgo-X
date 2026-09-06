@@ -208,6 +208,16 @@ function buildContext(def, resolvedContract) {
         // effect on PURE_HA, DYNAMIC_BAND, DYNAMIC_MID_COLOR(_HL) — none
         // of those call computeTrail()/use an ATR stop at all.
         atrSlMult: null,
+        // volumeGate.js's universal entry gate — only enter when current
+        // volume is strictly above its own SMA. Off by default (opt-in,
+        // never a silent behavior change for anything already deployed —
+        // same reasoning as chopFilterEnabled, disableDoubleOrders above).
+        volumeFilterEnabled: false,
+        // null (not a literal default) for the same STRATEGY_PARAMS-
+        // backtest-tuning reason as chopPeriod above — volumeGate.js's own
+        // `context.volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT`
+        // fallback (9) is where the actual default lives.
+        volumeSmaPeriod: null,
         // Overridden per-process by engine.js from GREY_EXIT_OVERRIDE
         // (toolbox prompt, asked only when ALMA_TRI_BAND is picked). Only
         // controls what happens when strategy #15's state reads GREY while

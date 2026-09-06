@@ -136,6 +136,12 @@ module.exports = {
     CHOP_GATE_MAX_DEFAULT:   50,    // chopGate.js's max threshold when context.chopMax is unset
     CHOP_GATE_ALWAYS_FORCE:  true,  // live default: every entry always checks chop, see chopGate.js's header comment. Backtests can set this false to compare with/without.
 
+    // volumeGate.js's universal "volume above its own SMA" entry gate —
+    // off by default (context.volumeFilterEnabled), opt-in via Edit
+    // Params/Risk Management. This is just the period default when
+    // context.volumeSmaPeriod is unset — same pattern as CHOP_LEN above.
+    VOLUME_SMA_LEN_DEFAULT: 20,
+
     // ─── ADAPTIVE TARGET (target.js's ARM step, not entry filtering) ────────
     // "fixed" (default) = today's unchanged behavior: TARGET_POINTS_OVERRIDE
     // is the only source of a target, same distance every trade.

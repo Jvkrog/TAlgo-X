@@ -148,6 +148,8 @@ async function getEngineProcesses() {
             disableDoubleOrders: p.pm2_env.env?.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true",
             flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
             atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
+            volumeFilterEnabled: p.pm2_env.env?.VOLUME_FILTER_OVERRIDE === "true",
+            volumeSmaPeriod: p.pm2_env.env?.VOLUME_SMA_PERIOD_OVERRIDE ? Number(p.pm2_env.env.VOLUME_SMA_PERIOD_OVERRIDE) : null,
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -433,6 +435,10 @@ function buildProcessEnv(p, overrides = {}) {
     // PURE_HA only, but harmless to always write when set regardless of
     // p.strategy — every other strategy simply never reads it.
     if (p.flipConfirmCandles) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(p.flipConfirmCandles);
+    // Universal, always written explicitly (both true AND false), same
+    // "unset is ambiguous" reasoning as CHOP_FILTER_OVERRIDE.
+    env.VOLUME_FILTER_OVERRIDE = p.volumeFilterEnabled === true ? "true" : "false";
+    if (p.volumeSmaPeriod) env.VOLUME_SMA_PERIOD_OVERRIDE = String(p.volumeSmaPeriod);
     return { ...env, ...overrides };
 }
 
@@ -880,6 +886,29 @@ async function riskManagement(procs) {
             }
         }
 
+        // Volume SMA entry gate — universal, opt-in, default OFF.
+        const volumeFilterDefault = p.volumeFilterEnabled === true;
+        const volumeFilterInput = (await ask(`  only enter when volume is above its SMA? [y/N] (current: ${volumeFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+        let volumeFilterEnabled = p.volumeFilterEnabled;
+        if (volumeFilterInput) volumeFilterEnabled = volumeFilterInput === "Y";
+        let volumeSmaPeriod = p.volumeSmaPeriod;
+        if (volumeFilterEnabled) {
+            const volPeriodDefault = p.volumeSmaPeriod !== null ? String(p.volumeSmaPeriod) : `${engineConfig.VOLUME_SMA_LEN_DEFAULT} (default)`;
+            const volPeriodInput = (await ask(`  volume SMA period (current: ${volPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+            if (volPeriodInput) {
+                if (volPeriodInput === "0" || volPeriodInput.toLowerCase() === "clear") {
+                    volumeSmaPeriod = null;
+                } else {
+                    const parsedVolPeriod = Number(volPeriodInput);
+                    if (!Number.isFinite(parsedVolPeriod) || parsedVolPeriod <= 0) {
+                        console.log(c.yellow(`  "${volPeriodInput}" isn't a valid positive number — period left unchanged (${volPeriodDefault})`));
+                    } else {
+                        volumeSmaPeriod = parsedVolPeriod;
+                    }
+                }
+            }
+        }
+
         // Max daily loss circuit breaker — universal, every strategy.
         const maxDailyLossDefault = p.maxDailyLoss !== null ? String(p.maxDailyLoss) : "none";
         const maxDailyLossInput = (await ask(`  max daily loss in rupees (current: ${maxDailyLossDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
@@ -897,7 +926,7 @@ async function riskManagement(procs) {
             }
         }
 
-        const updatedP = { ...p, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles, maxDailyLoss };
+        const updatedP = { ...p, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, maxDailyLoss };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -909,8 +938,9 @@ async function riskManagement(procs) {
             const doubleTag = disableDoubleOrders ? c.yellow(" double:off") : c.dim(" double:on");
             const atrTag = atrSlMult !== null ? c.dim(` atr:${atrSlMult}x`) : "";
             const flipTag = p.strategy === "PURE_HA" ? c.dim(` flip:${flipConfirmCandles ?? 1}`) : "";
+            const volTag = volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
             const lossTag = maxDailyLoss !== null ? c.dim(` maxloss:-₹${maxDailyLoss}`) : "";
-            console.log(c.green(`  ${p.underlying} risk settings updated${chopTag}${doubleTag}${atrTag}${flipTag}${lossTag} (restarted)`));
+            console.log(c.green(`  ${p.underlying} risk settings updated${chopTag}${doubleTag}${atrTag}${flipTag}${volTag}${lossTag} (restarted)`));
         } catch (err) {
             console.log(c.red(`  failed to update ${p.underlying}: ${err.message}`));
         }

@@ -324,6 +324,17 @@ async function main() {
     }
     console.log(c.dim(`[${context.tgPrefix}] ATR SL multiplier: ${context.atrSlMult ?? `${engineConfig.ATR_SL_MULT} (default)`}${context.strategy === "PURE_HA" ? `  |  flip confirm: ${context.flipConfirmCandles ?? 1} candle(s)` : ""}`));
 
+    // volumeGate.js's universal "volume above its own SMA" entry gate —
+    // off by default. See context.volumeFilterEnabled/volumeSmaPeriod.
+    if (process.env.VOLUME_FILTER_OVERRIDE !== undefined && process.env.VOLUME_FILTER_OVERRIDE !== "") {
+        context.volumeFilterEnabled = process.env.VOLUME_FILTER_OVERRIDE === "true";
+    }
+    if (process.env.VOLUME_SMA_PERIOD_OVERRIDE !== undefined && process.env.VOLUME_SMA_PERIOD_OVERRIDE !== "") {
+        const parsedVolPeriod = Number(process.env.VOLUME_SMA_PERIOD_OVERRIDE);
+        context.volumeSmaPeriod = Number.isFinite(parsedVolPeriod) && parsedVolPeriod > 0 ? parsedVolPeriod : null;
+    }
+    console.log(c.dim(`[${context.tgPrefix}] volume filter: ${context.volumeFilterEnabled ? c.yellow(`on — entries only above SMA(${context.volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT})`) : "off (default)"}`));
+
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
 
