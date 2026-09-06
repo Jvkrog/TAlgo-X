@@ -995,6 +995,11 @@ function openEditModal(inst) {
       <input type="number" id="editFlipConfirm" min="1" step="1" value="${inst.flipConfirmCandles ?? ""}">
     </div>` : ""}
     <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editVolumeFilter" ${inst.volumeFilterEnabled ? "checked" : ""}><span>only enter when volume is above its SMA</span></label>
+      <div class="tb-form-hint">period below only applies while this is checked</div>
+      <input type="number" id="editVolumeSmaPeriod" min="1" step="1" value="${inst.volumeSmaPeriod ?? ""}" placeholder="SMA period, blank = default">
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">max daily loss in rupees (blank = no floor)</div>
       <input type="number" id="editMaxDailyLoss" min="0" step="any" value="${inst.maxDailyLoss ?? ""}">
     </div>
@@ -1043,6 +1048,8 @@ function openEditModal(inst) {
     body.atrSlMult = tbEditBody.querySelector("#editAtrSlMult").value || null;
     const editFlipConfirmEl = tbEditBody.querySelector("#editFlipConfirm");
     if (editFlipConfirmEl) body.flipConfirmCandles = editFlipConfirmEl.value || null;
+    body.volumeFilterEnabled = tbEditBody.querySelector("#editVolumeFilter").checked;
+    body.volumeSmaPeriod = tbEditBody.querySelector("#editVolumeSmaPeriod").value || null;
 
     try {
       const res = await fetch("/api/toolbox/edit", {
@@ -1333,6 +1340,11 @@ function renderAddConfigStep() {
       <input type="number" id="addFlipConfirm" min="1" step="1">
     </div>
     <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="addVolumeFilter"><span>only enter when volume is above its SMA</span></label>
+      <div class="tb-form-hint">period below only applies while this is checked</div>
+      <input type="number" id="addVolumeSmaPeriod" min="1" step="1" placeholder="SMA period, blank = default">
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">max daily loss in rupees, quits for the day if breached (blank = no floor)</div>
       <input type="number" id="addMaxDailyLoss" min="0" step="any">
     </div>
@@ -1444,6 +1456,8 @@ function renderAddConfigStep() {
         disableDoubleOrders: tbAddBody.querySelector("#addDisableDouble").checked,
         atrSlMult: tbAddBody.querySelector("#addAtrSlMult").value || undefined,
         flipConfirmCandles: pickedStrategy === "PURE_HA" ? (tbAddBody.querySelector("#addFlipConfirm").value || undefined) : undefined,
+        volumeFilterEnabled: tbAddBody.querySelector("#addVolumeFilter").checked,
+        volumeSmaPeriod: tbAddBody.querySelector("#addVolumeSmaPeriod").value || undefined,
       };
       const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
