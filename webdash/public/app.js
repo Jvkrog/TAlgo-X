@@ -733,13 +733,17 @@ async function initAuth() {
 // ── toolbox tab ──────────────────────────────────────────────────────────
 const tabDashboard = document.getElementById("tabDashboard");
 const tabToolbox = document.getElementById("tabToolbox");
+const tabRisk = document.getElementById("tabRisk");
 const dashboardView = document.getElementById("dashboardView");
 const toolboxView = document.getElementById("toolboxView");
+const riskView = document.getElementById("riskView");
 const tbBoot = document.getElementById("tbBoot");
 const tbBanner = document.getElementById("tbBanner");
 const tbChecklist = document.getElementById("tbChecklist");
 const toolboxList = document.getElementById("toolboxList");
 const toolboxRefreshBtn = document.getElementById("toolboxRefreshBtn");
+const riskList = document.getElementById("riskList");
+const riskRefreshBtn = document.getElementById("riskRefreshBtn");
 const tbSelectAll = document.getElementById("tbSelectAll");
 const tbStart = document.getElementById("tbStart");
 const tbStop = document.getElementById("tbStop");
@@ -764,18 +768,33 @@ const TB_BANNER_TEXT = "TALGO-X";
 
 let toolboxBootPlayed = false;
 let toolboxInstruments = [];
+let riskInstruments = [];
 
 function switchTab(tab) {
   if (tab === "dashboard") {
     tabDashboard.classList.add("active");
     tabToolbox.classList.remove("active");
+    tabRisk.classList.remove("active");
     dashboardView.style.display = "";
     toolboxView.style.display = "none";
+    riskView.style.display = "none";
+    return;
+  }
+  if (tab === "risk") {
+    tabRisk.classList.add("active");
+    tabDashboard.classList.remove("active");
+    tabToolbox.classList.remove("active");
+    dashboardView.style.display = "none";
+    toolboxView.style.display = "none";
+    riskView.style.display = "";
+    loadRiskList();
     return;
   }
   tabToolbox.classList.add("active");
   tabDashboard.classList.remove("active");
+  tabRisk.classList.remove("active");
   dashboardView.style.display = "none";
+  riskView.style.display = "none";
 
   if (toolboxBootPlayed) {
     toolboxView.style.display = "";
@@ -787,6 +806,57 @@ function switchTab(tab) {
 
 tabDashboard.addEventListener("click", () => switchTab("dashboard"));
 tabToolbox.addEventListener("click", () => switchTab("toolbox"));
+tabRisk.addEventListener("click", () => switchTab("risk"));
+
+async function loadRiskList() {
+  try {
+    riskInstruments = await (await fetch("/api/instruments")).json();
+    renderRiskList();
+  } catch (err) {
+    riskList.innerHTML = `<div class="empty-state">failed to load: ${err.message}</div>`;
+  }
+}
+
+function renderRiskList() {
+  if (riskInstruments.length === 0) {
+    riskList.innerHTML = `<div class="empty-state">no engines detected</div>`;
+    return;
+  }
+  riskList.innerHTML = "";
+  riskInstruments.forEach(inst => {
+    const row = document.createElement("div");
+    row.className = "tb-row";
+    const chopOn = (inst.strategy === "ALMA_PRO_FAST" || inst.strategy === "ALMA_PRO_SLOW") ? inst.almaChopFilterEnabled !== false : inst.chopFilterEnabled !== false;
+    const badges = [
+      `<span class="mode-pill ${chopOn ? "live" : ""}">chop ${chopOn ? "on" : "off"}</span>`,
+      `<span class="mode-pill ${inst.disableDoubleOrders ? "" : "live"}">double ${inst.disableDoubleOrders ? "off" : "on"}</span>`,
+      `<span class="mode-pill ${inst.volumeFilterEnabled ? "live" : ""}">vol ${inst.volumeFilterEnabled ? `sma${inst.volumeSmaPeriod ?? 20}` : "off"}</span>`,
+      `<span class="mode-pill ${inst.longCandleFilterEnabled !== false ? "live" : ""}">long-candle ${inst.longCandleFilterEnabled !== false ? "on" : "off"}</span>`,
+    ];
+    if (inst.strategy === "PURE_HA") badges.push(`<span class="mode-pill">flip ${inst.flipConfirmCandles ?? 1}</span>`);
+    if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
+    if (inst.maxDailyLoss) badges.push(`<span class="mode-pill">maxloss -₹${inst.maxDailyLoss}</span>`);
+    row.innerHTML = `
+      <div class="tb-row-id">
+        <span class="tb-underlying">${inst.underlying}</span>
+        <span class="tb-strategy">${inst.strategy}</span>
+      </div>
+      <div class="tb-row-pills" style="flex-wrap:wrap">${badges.join("")}</div>
+      <button class="tb-row-edit" data-name="${inst.name}">manage risk</button>
+    `;
+    riskList.appendChild(row);
+  });
+}
+
+riskList.addEventListener("click", e => {
+  const btn = e.target.closest(".tb-row-edit");
+  if (!btn) return;
+  const inst = riskInstruments.find(i => i.name === btn.dataset.name);
+  if (inst) openEditModal(inst);
+});
+
+riskRefreshBtn.addEventListener("click", loadRiskList);
+
 
 function addCheckLine(text, state) {
   const line = document.createElement("div");
@@ -1000,6 +1070,13 @@ function openEditModal(inst) {
       <input type="number" id="editVolumeSmaPeriod" min="1" step="1" value="${inst.volumeSmaPeriod ?? ""}" placeholder="SMA period, blank = default">
     </div>
     <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editLongCandleFilter" ${inst.longCandleFilterEnabled !== false ? "checked" : ""}><span>block new entries after an abnormally large candle</span></label>
+      <div class="tb-form-hint">on by default — Sep 2 NATGASMINI/DYNAMIC_BAND fix. Range >= ATR x multiplier blocks new entries/reversals for a cooldown; existing SL/target/exit are never affected.</div>
+      <input type="number" id="editLongCandleAtrPeriod" min="1" step="1" value="${inst.longCandleAtrPeriod ?? ""}" placeholder="ATR period, blank = default (14)">
+      <input type="number" id="editLongCandleAtrMult" min="0" step="any" value="${inst.longCandleAtrMult ?? ""}" placeholder="ATR multiplier, blank = default (1.5)">
+      <input type="number" id="editLongCandleCooldown" min="0" step="1" value="${inst.longCandleCooldownCandles ?? ""}" placeholder="cooldown candles, blank = default (2)">
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">max daily loss in rupees (blank = no floor)</div>
       <input type="number" id="editMaxDailyLoss" min="0" step="any" value="${inst.maxDailyLoss ?? ""}">
     </div>
@@ -1050,6 +1127,10 @@ function openEditModal(inst) {
     if (editFlipConfirmEl) body.flipConfirmCandles = editFlipConfirmEl.value || null;
     body.volumeFilterEnabled = tbEditBody.querySelector("#editVolumeFilter").checked;
     body.volumeSmaPeriod = tbEditBody.querySelector("#editVolumeSmaPeriod").value || null;
+    body.longCandleFilterEnabled = tbEditBody.querySelector("#editLongCandleFilter").checked;
+    body.longCandleAtrPeriod = tbEditBody.querySelector("#editLongCandleAtrPeriod").value || null;
+    body.longCandleAtrMult = tbEditBody.querySelector("#editLongCandleAtrMult").value || null;
+    body.longCandleCooldownCandles = tbEditBody.querySelector("#editLongCandleCooldown").value || null;
 
     try {
       const res = await fetch("/api/toolbox/edit", {
@@ -1345,6 +1426,13 @@ function renderAddConfigStep() {
       <input type="number" id="addVolumeSmaPeriod" min="1" step="1" placeholder="SMA period, blank = default">
     </div>
     <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="addLongCandleFilter" checked><span>block new entries after an abnormally large candle</span></label>
+      <div class="tb-form-hint">on by default — Sep 2 NATGASMINI/DYNAMIC_BAND fix. Existing SL/target/exit are never affected.</div>
+      <input type="number" id="addLongCandleAtrPeriod" min="1" step="1" placeholder="ATR period, blank = default (14)">
+      <input type="number" id="addLongCandleAtrMult" min="0" step="any" placeholder="ATR multiplier, blank = default (1.5)">
+      <input type="number" id="addLongCandleCooldown" min="0" step="1" placeholder="cooldown candles, blank = default (2)">
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">max daily loss in rupees, quits for the day if breached (blank = no floor)</div>
       <input type="number" id="addMaxDailyLoss" min="0" step="any">
     </div>
@@ -1458,6 +1546,10 @@ function renderAddConfigStep() {
         flipConfirmCandles: pickedStrategy === "PURE_HA" ? (tbAddBody.querySelector("#addFlipConfirm").value || undefined) : undefined,
         volumeFilterEnabled: tbAddBody.querySelector("#addVolumeFilter").checked,
         volumeSmaPeriod: tbAddBody.querySelector("#addVolumeSmaPeriod").value || undefined,
+        longCandleFilterEnabled: tbAddBody.querySelector("#addLongCandleFilter").checked,
+        longCandleAtrPeriod: tbAddBody.querySelector("#addLongCandleAtrPeriod").value || undefined,
+        longCandleAtrMult: tbAddBody.querySelector("#addLongCandleAtrMult").value || undefined,
+        longCandleCooldownCandles: tbAddBody.querySelector("#addLongCandleCooldown").value || undefined,
       };
       const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();

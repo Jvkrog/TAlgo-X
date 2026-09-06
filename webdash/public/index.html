@@ -95,6 +95,7 @@
 <div class="tabbar">
   <button class="tab active" id="tabDashboard" data-tab="dashboard">dashboard</button>
   <button class="tab" id="tabToolbox" data-tab="toolbox">toolbox</button>
+  <button class="tab" id="tabRisk" data-tab="risk">risk</button>
 </div>
 
 <main class="layout" id="dashboardView">
@@ -157,6 +158,17 @@
         <button class="tb-cli-action" id="tbOpenCustomStrategy">⚒ custom strategy</button>
       </div>
     </div>
+  </section>
+</main>
+
+<main class="layout" id="riskView" style="display:none">
+  <section class="panel toolbox-panel" style="flex:1">
+    <div class="panel-head">
+      <span class="panel-title">┌─ RISK MANAGEMENT ─┐</span>
+      <button class="btn btn-ghost" id="riskRefreshBtn">refresh</button>
+    </div>
+    <div class="tb-form-hint" style="padding:8px 16px 0">Per-instrument entry gates — chop filter, double-order cap, ATR SL, volume SMA, and the long-candle/volatility-shock filter. Tap an instrument to open its full risk settings.</div>
+    <div class="toolbox-list" id="riskList"></div>
   </section>
 </main>
 
