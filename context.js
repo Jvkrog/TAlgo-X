@@ -218,6 +218,28 @@ function buildContext(def, resolvedContract) {
         // `context.volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT`
         // fallback (9) is where the actual default lives.
         volumeSmaPeriod: null,
+
+        // longCandleGate.js — "Long-Candle / Volatility-Shock Entry
+        // Filter", built for the Sep 2 2026 NATGASMINI/DYNAMIC_BAND
+        // incident. Unlike every other gate above, this defaults to
+        // TRUE — it's a targeted fix for a real, already-experienced
+        // loss, not an opt-in nice-to-have. Still overridable per
+        // instrument (off) via Edit Params/Risk Management, same as
+        // everything else here.
+        longCandleFilterEnabled: true,
+        // All null (not literal defaults) for the same STRATEGY_PARAMS-
+        // backtest-tuning-safe reason as chopPeriod/volumeSmaPeriod
+        // above — longCandleGate.js's own
+        // `context.X ?? engineConfig.LONG_CANDLE_X_DEFAULT` fallbacks
+        // are where the actual defaults (period 14, mult 1.5x, cooldown
+        // 2 candles) live.
+        longCandleAtrPeriod: null,
+        longCandleAtrMult: null,
+        longCandleCooldownCandles: null,
+        // Optional body confirmation — off by default, see
+        // longCandleGate.js's header comment.
+        longCandleUseBodyFilter: false,
+        longCandleBodyAtrMult: null,
         // Overridden per-process by engine.js from GREY_EXIT_OVERRIDE
         // (toolbox prompt, asked only when ALMA_TRI_BAND is picked). Only
         // controls what happens when strategy #15's state reads GREY while

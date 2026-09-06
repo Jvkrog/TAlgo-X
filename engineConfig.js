@@ -142,6 +142,17 @@ module.exports = {
     // context.volumeSmaPeriod is unset — same pattern as CHOP_LEN above.
     VOLUME_SMA_LEN_DEFAULT: 20,
 
+    // longCandleGate.js's "Long-Candle / Volatility-Shock Entry Filter"
+    // — built for the Sep 2 2026 NATGASMINI/DYNAMIC_BAND incident.
+    // Defaults per the incident write-up: on by default (this is a
+    // targeted fix for a real, already-experienced loss, not an
+    // opt-in nice-to-have like the other gates above), ATR(14),
+    // 1.5x multiplier, 2-candle cooldown, body confirmation off.
+    LONG_CANDLE_ATR_PERIOD_DEFAULT: 14,
+    LONG_CANDLE_ATR_MULT_DEFAULT: 1.5,
+    LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT: 2,
+    LONG_CANDLE_BODY_ATR_MULT_DEFAULT: 1.0,
+
     // ─── ADAPTIVE TARGET (target.js's ARM step, not entry filtering) ────────
     // "fixed" (default) = today's unchanged behavior: TARGET_POINTS_OVERRIDE
     // is the only source of a target, same distance every trade.

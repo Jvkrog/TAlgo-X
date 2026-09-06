@@ -335,6 +335,33 @@ async function main() {
     }
     console.log(c.dim(`[${context.tgPrefix}] volume filter: ${context.volumeFilterEnabled ? c.yellow(`on — entries only above SMA(${context.volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT})`) : "off (default)"}`));
 
+    // longCandleGate.js's "Long-Candle / Volatility-Shock Entry Filter" —
+    // built for the Sep 2 2026 NATGASMINI/DYNAMIC_BAND incident. On by
+    // default (see context.js's longCandleFilterEnabled comment).
+    if (process.env.LONG_CANDLE_FILTER_OVERRIDE !== undefined && process.env.LONG_CANDLE_FILTER_OVERRIDE !== "") {
+        context.longCandleFilterEnabled = process.env.LONG_CANDLE_FILTER_OVERRIDE === "true";
+    }
+    if (process.env.LONG_CANDLE_ATR_PERIOD_OVERRIDE !== undefined && process.env.LONG_CANDLE_ATR_PERIOD_OVERRIDE !== "") {
+        const parsedLcPeriod = Number(process.env.LONG_CANDLE_ATR_PERIOD_OVERRIDE);
+        context.longCandleAtrPeriod = Number.isFinite(parsedLcPeriod) && parsedLcPeriod > 0 ? parsedLcPeriod : null;
+    }
+    if (process.env.LONG_CANDLE_ATR_MULT_OVERRIDE !== undefined && process.env.LONG_CANDLE_ATR_MULT_OVERRIDE !== "") {
+        const parsedLcMult = Number(process.env.LONG_CANDLE_ATR_MULT_OVERRIDE);
+        context.longCandleAtrMult = Number.isFinite(parsedLcMult) && parsedLcMult > 0 ? parsedLcMult : null;
+    }
+    if (process.env.LONG_CANDLE_COOLDOWN_OVERRIDE !== undefined && process.env.LONG_CANDLE_COOLDOWN_OVERRIDE !== "") {
+        const parsedLcCooldown = Number(process.env.LONG_CANDLE_COOLDOWN_OVERRIDE);
+        context.longCandleCooldownCandles = Number.isInteger(parsedLcCooldown) && parsedLcCooldown >= 0 ? parsedLcCooldown : null;
+    }
+    if (process.env.LONG_CANDLE_BODY_FILTER_OVERRIDE !== undefined && process.env.LONG_CANDLE_BODY_FILTER_OVERRIDE !== "") {
+        context.longCandleUseBodyFilter = process.env.LONG_CANDLE_BODY_FILTER_OVERRIDE === "true";
+    }
+    if (process.env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE !== undefined && process.env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE !== "") {
+        const parsedBodyMult = Number(process.env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE);
+        context.longCandleBodyAtrMult = Number.isFinite(parsedBodyMult) && parsedBodyMult > 0 ? parsedBodyMult : null;
+    }
+    console.log(c.dim(`[${context.tgPrefix}] long-candle filter: ${context.longCandleFilterEnabled ? c.yellow(`on — ATR(${context.longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}) x${context.longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}, cooldown ${context.longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT} candle(s)${context.longCandleUseBodyFilter ? `, body x${context.longCandleBodyAtrMult ?? engineConfig.LONG_CANDLE_BODY_ATR_MULT_DEFAULT}` : ""}`) : "off"}`));
+
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
 

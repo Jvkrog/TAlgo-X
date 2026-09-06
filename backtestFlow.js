@@ -301,6 +301,39 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         console.log(c.dim(`  Choppiness Index filter off for this run — period/max threshold prompts skipped`));
     }
 
+    // Long-Candle / Volatility-Shock Entry Filter — universal, same
+    // merge-onto-engineConfig mechanism as CHOP_GATE_ALWAYS_FORCE above.
+    // ON by default (params.LONG_CANDLE_FILTER_OVERRIDE isn't an
+    // engineConfig field name that longCandleGate.js reads directly — it
+    // reads context.longCandleFilterEnabled, set from this env var the
+    // same way engine.js does live; runBacktest constructs context the
+    // same way, so this merges in identically for both).
+    const lcUseDefault = context.longCandleFilterEnabled !== false;
+    const lcUseInput = (await ask(`  Block new entries after an abnormally large candle? [Y/n] (default ${lcUseDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+    if (lcUseInput) context.longCandleFilterEnabled = lcUseInput !== "N";
+    if (context.longCandleFilterEnabled) {
+        const lcPeriodInput = await ask(`  Long-candle ATR period (default ${engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}): `);
+        if (lcPeriodInput) {
+            const parsed = Number(lcPeriodInput);
+            if (Number.isFinite(parsed) && parsed > 0) context.longCandleAtrPeriod = parsed;
+            else console.log(c.yellow(`  invalid value for long-candle ATR period, using default`));
+        }
+        const lcMultInput = await ask(`  Long-candle ATR multiplier (default ${engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}): `);
+        if (lcMultInput) {
+            const parsed = Number(lcMultInput);
+            if (Number.isFinite(parsed) && parsed > 0) context.longCandleAtrMult = parsed;
+            else console.log(c.yellow(`  invalid value for long-candle ATR multiplier, using default`));
+        }
+        const lcCooldownInput = await ask(`  Long-candle cooldown, candles blocked after (default ${engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}): `);
+        if (lcCooldownInput) {
+            const parsed = Number(lcCooldownInput);
+            if (Number.isInteger(parsed) && parsed >= 0) context.longCandleCooldownCandles = parsed;
+            else console.log(c.yellow(`  invalid value for long-candle cooldown, using default`));
+        }
+    } else {
+        console.log(c.dim(`  Long-candle filter off for this run — period/multiplier/cooldown prompts skipped`));
+    }
+
     // ── Step 7: Confirmation ───────────────────────────────────────────────
     console.log();
     console.log(c.bold("  Step 7/7 — Confirm"));
