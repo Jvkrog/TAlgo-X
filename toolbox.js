@@ -1332,6 +1332,73 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     }
 
+    // Volume SMA entry gate — universal, opt-in, default OFF. Only enters
+    // when the current candle's volume is strictly above a plain SMA
+    // (volumeGate.js's isVolumeBlocked) of the configured period. Same
+    // gate riskManagement() exposes post-deploy — asked here too so it
+    // doesn't require an immediate restart just to turn on.
+    const volumeFilterInput = (await ask(`  only enter when volume is above its SMA? [y/N] (default: N): `)).trim().toUpperCase();
+    const volumeFilterEnabled = volumeFilterInput === "Y";
+    let volumeSmaPeriod = null;
+    if (volumeFilterEnabled) {
+        const volPeriodInput = (await ask(`  volume SMA period (blank = default ${engineConfig.VOLUME_SMA_LEN_DEFAULT}): `)).trim();
+        if (volPeriodInput) {
+            const parsedVolPeriod = Number(volPeriodInput);
+            if (!Number.isFinite(parsedVolPeriod) || parsedVolPeriod <= 0) {
+                console.log(c.yellow(`  "${volPeriodInput}" isn't a valid positive number — using default (${engineConfig.VOLUME_SMA_LEN_DEFAULT}) instead`));
+            } else {
+                volumeSmaPeriod = parsedVolPeriod;
+            }
+        }
+    }
+
+    // Long-candle / volatility-shock entry filter — universal, default ON
+    // (fix for a real already-experienced loss, not opt-in like the gates
+    // above — see longCandleGate.js's header comment). Blocks new entries/
+    // re-entries/signal-reversals for a cooldown period after an abnormally
+    // large candle (range >= ATR x multiplier). Same gate riskManagement()
+    // exposes post-deploy — asked here too so a freshly-added instrument
+    // starts protected instead of needing an immediate restart.
+    const lcFilterInput = (await ask(`  block new entries after an abnormally large candle? [Y/n] (default: Y): `)).trim().toUpperCase();
+    const longCandleFilterEnabled = lcFilterInput !== "N";
+    let longCandleAtrPeriod = null;
+    let longCandleAtrMult = null;
+    let longCandleCooldownCandles = null;
+    let longCandleUseBodyFilter = false;
+    let longCandleBodyAtrMult = null;
+    if (longCandleFilterEnabled) {
+        const lcPeriodInput = (await ask(`  long-candle ATR period (blank = default ${engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}): `)).trim();
+        if (lcPeriodInput) {
+            const parsedLcPeriod = Number(lcPeriodInput);
+            if (Number.isFinite(parsedLcPeriod) && parsedLcPeriod > 0) longCandleAtrPeriod = parsedLcPeriod;
+            else console.log(c.yellow(`  "${lcPeriodInput}" isn't a valid positive number — using default (${engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT})`));
+        }
+        const lcMultInput = (await ask(`  long-candle ATR multiplier (blank = default ${engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}): `)).trim();
+        if (lcMultInput) {
+            const parsedLcMult = Number(lcMultInput);
+            if (Number.isFinite(parsedLcMult) && parsedLcMult > 0) longCandleAtrMult = parsedLcMult;
+            else console.log(c.yellow(`  "${lcMultInput}" isn't a valid positive number — using default (${engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT})`));
+        }
+        const lcCooldownInput = (await ask(`  long-candle cooldown, candles blocked after (blank = default ${engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}): `)).trim();
+        if (lcCooldownInput) {
+            const parsedLcCooldown = Number(lcCooldownInput);
+            if (Number.isInteger(parsedLcCooldown) && parsedLcCooldown >= 0) longCandleCooldownCandles = parsedLcCooldown;
+            else console.log(c.yellow(`  "${lcCooldownInput}" isn't a valid whole number >= 0 — using default (${engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT})`));
+        }
+        const lcBodyInput = (await ask(`  also require body confirmation (|close-open| >= ATR x mult)? [y/N] (default: N): `)).trim().toUpperCase();
+        longCandleUseBodyFilter = lcBodyInput === "Y";
+        if (longCandleUseBodyFilter) {
+            const lcBodyMultInput = (await ask(`  body confirmation ATR multiplier (blank = default ${engineConfig.LONG_CANDLE_BODY_ATR_MULT_DEFAULT}): `)).trim();
+            if (lcBodyMultInput) {
+                const parsedLcBodyMult = Number(lcBodyMultInput);
+                if (Number.isFinite(parsedLcBodyMult) && parsedLcBodyMult > 0) longCandleBodyAtrMult = parsedLcBodyMult;
+                else console.log(c.yellow(`  "${lcBodyMultInput}" isn't a valid positive number — using default (${engineConfig.LONG_CANDLE_BODY_ATR_MULT_DEFAULT})`));
+            }
+        }
+    } else {
+        console.log(c.dim(`  long-candle filter off — entries will NOT be blocked after abnormally large candles`));
+    }
+
     // Max daily loss circuit breaker — universal, every strategy. Blank =
     // disabled, no floor (today's original behavior). Once today's
     // cumulative realized P&L drops to or below -this amount, candlePoll.js's
@@ -1439,6 +1506,17 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     env.DISABLE_DOUBLE_ORDERS_OVERRIDE = disableDoubleOrders ? "true" : "false";
     if (atrSlMult !== null) env.ATR_SL_MULT_OVERRIDE = String(atrSlMult);
     if (strategy === "PURE_HA" && flipConfirmCandles !== null) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(flipConfirmCandles);
+    // Volume SMA gate + long-candle gate — always written explicitly (both
+    // true AND false), same write-asymmetry reasoning as CHOP_FILTER_OVERRIDE
+    // and DISABLE_DOUBLE_ORDERS_OVERRIDE above.
+    env.VOLUME_FILTER_OVERRIDE = volumeFilterEnabled ? "true" : "false";
+    if (volumeSmaPeriod !== null) env.VOLUME_SMA_PERIOD_OVERRIDE = String(volumeSmaPeriod);
+    env.LONG_CANDLE_FILTER_OVERRIDE = longCandleFilterEnabled ? "true" : "false";
+    if (longCandleAtrPeriod !== null) env.LONG_CANDLE_ATR_PERIOD_OVERRIDE = String(longCandleAtrPeriod);
+    if (longCandleAtrMult !== null) env.LONG_CANDLE_ATR_MULT_OVERRIDE = String(longCandleAtrMult);
+    if (longCandleCooldownCandles !== null) env.LONG_CANDLE_COOLDOWN_OVERRIDE = String(longCandleCooldownCandles);
+    env.LONG_CANDLE_BODY_FILTER_OVERRIDE = longCandleUseBodyFilter ? "true" : "false";
+    if (longCandleBodyAtrMult !== null) env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE = String(longCandleBodyAtrMult);
     if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
     if (strategy === "ALMA_TRI_BAND" && greyExitEnabled !== null) env.GREY_EXIT_OVERRIDE = String(greyExitEnabled);
     if (maxDailyLoss !== null) env.MAX_DAILY_LOSS_OVERRIDE = String(maxDailyLoss);
@@ -1457,7 +1535,9 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
         const greyExitTag = strategy === "ALMA_TRI_BAND" ? c.yellow(` grey:${(greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT) ? "exit" : "hold"}`) : "";
         const maxLossTag = maxDailyLoss !== null ? c.yellow(` maxLoss:-₹${maxDailyLoss}`) : "";
-        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${almaLenTag}${almaChopTag}${vdChopTag}${bandStepTag}${greyExitTag}${maxLossTag}`));
+        const volTag = volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
+        const lcTag = longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
+        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${almaLenTag}${almaChopTag}${vdChopTag}${bandStepTag}${greyExitTag}${volTag}${lcTag}${maxLossTag}`));
     } catch (err) {
         console.log(c.red(`  failed to start ${name}: ${err.message}`));
     }
