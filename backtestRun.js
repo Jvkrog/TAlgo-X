@@ -147,6 +147,17 @@ async function runBacktest({ strategyKey, strategyLabel, context, timeframe, fro
     let lastEodDate     = null;
     let postEodBlackout = false;
     let lastSeenDay     = null;   // tracks day rollover for the state.pnl reset below, independent of the EOD blackout's own day-tracking
+    // Daily loss floor / session target ceiling — mirrors
+    // candlePoll.js's checkDailyLoss()/checkSessionTarget() exactly
+    // (same force-close-then-quit-for-the-day shape as EOD above), just
+    // evaluated once per completed candle here instead of per live tick
+    // (a backtest has no ticks — the candle close is the natural analog,
+    // same as slCheck.checkSL below). Reset at day rollover alongside
+    // the EOD blackout, since "quit for the day" is exactly what both
+    // of these already mean live too (candlePoll.js calls process.exit(0),
+    // and PM2 doesn't relaunch until the next trading day).
+    let circuitBreakerBlackout = false;
+    let circuitBreakerDate     = null;
 
     let processed = 0;
     while (feed.hasNext()) {
@@ -192,15 +203,47 @@ async function runBacktest({ strategyKey, strategyLabel, context, timeframe, fro
             console.log(c.bold(`--- ${(context.name || context.tgPrefix || "").padEnd(12)} ${candleDate.toLocaleString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })} ---`));
         }
 
-        // New calendar day — lift yesterday's blackout so the strategy can
-        // make decisions again starting from this candle.
+        // New calendar day — lift yesterday's blackout(s) so the strategy
+        // can make decisions again starting from this candle.
         if (postEodBlackout && dayKey !== lastEodDate) {
             postEodBlackout = false;
         }
+        if (circuitBreakerBlackout && dayKey !== circuitBreakerDate) {
+            circuitBreakerBlackout = false;
+        }
 
-        if (!postEodBlackout) {
+        if (!postEodBlackout && !circuitBreakerBlackout) {
             await strategy.processCandle(currentCandle);
             await slCheck.checkSL(currentCandle);
+
+            // Daily loss floor — realized P&L only, same as live.
+            if (context.maxDailyLoss && state.pnl <= -context.maxDailyLoss) {
+                circuitBreakerBlackout = true;
+                circuitBreakerDate     = dayKey;
+                console.log(c.red(`*** MAX DAILY LOSS BREACHED — day net ${state.pnl.toFixed(0)}, floor -₹${context.maxDailyLoss} — FORCE CLOSING, DAY OVER ***`));
+                if (state.position) {
+                    await positionsClose(currentCandle.close, "MAX_DAILY_LOSS");
+                    slStore.clearTrail();
+                }
+            }
+            // Session target ceiling — realized + current open position's
+            // unrealised, same combined-total reasoning as candlePoll.js's
+            // checkSessionTarget(). Mutually exclusive in practice with
+            // the daily-loss check firing the same candle (one is a floor,
+            // the other a ceiling), but check independently anyway, same
+            // as live does.
+            if (!circuitBreakerBlackout && context.sessionTargetRupees) {
+                const combined = state.pnl + (state.position ? positionsUnrealised(currentCandle.close) : 0);
+                if (combined >= context.sessionTargetRupees) {
+                    circuitBreakerBlackout = true;
+                    circuitBreakerDate     = dayKey;
+                    console.log(c.bold(`*** SESSION TARGET REACHED — day total ${combined.toFixed(0)}, ceiling +₹${context.sessionTargetRupees} — FORCE CLOSING, DAY OVER ***`));
+                    if (state.position) {
+                        await positionsClose(currentCandle.close, "SESSION_TARGET");
+                        slStore.clearTrail();
+                    }
+                }
+            }
         }
 
         const { hours, minutes } = istParts(candleDate);
@@ -209,7 +252,15 @@ async function runBacktest({ strategyKey, strategyLabel, context, timeframe, fro
         if (pastEod && !postEodBlackout) {
             postEodBlackout = true;
             lastEodDate     = dayKey;
-            if (state.position) {
+            if (state.position && context.carryOvernight) {
+                // Matches lifecycle.js's live EOD handler exactly: carry-
+                // overnight leaves the position, SL trail, and target
+                // as-is — no exit placed. The position simply persists
+                // across the day-boundary in this continuous replay loop,
+                // the same practical effect live gets from initSignals()
+                // resuming an unclosed position on next boot.
+                console.log(c.yellow(`EOD  [${context.tgPrefix}] carrying ${state.position}@${state.entryPrice} overnight — no exit placed`));
+            } else if (state.position) {
                 await positionsClose(currentCandle.close, "EOD_FORCE");
                 slStore.clearTrail();
             }

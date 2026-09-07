@@ -334,6 +334,74 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         console.log(c.dim(`  Long-candle filter off for this run — period/multiplier/cooldown prompts skipped`));
     }
 
+    // Double-order gate — universal, same context mutation as chop/
+    // long-candle above (backtestFlow.js's context object is passed by
+    // reference straight into runBacktest, so mutating it here is
+    // sufficient — no separate params/engineConfig channel needed).
+    const doubleDefault = context.disableDoubleOrders === true;
+    const doubleInput = (await ask(`  Disable double orders, max 1 entry/session? [y/N] (default ${doubleDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+    if (doubleInput) context.disableDoubleOrders = doubleInput === "Y";
+
+    // Per-instrument ATR stop-loss multiplier — unread by strategies with
+    // no ATR trail at all (PURE_HA/DYNAMIC_BAND/DYNAMIC_MID_COLOR(_HL)).
+    const atrMultInput = await ask(`  ATR stop-loss multiplier (blank = default ${engineConfig.ATR_SL_MULT}): `);
+    if (atrMultInput) {
+        const parsed = Number(atrMultInput);
+        if (Number.isFinite(parsed) && parsed > 0) context.atrSlMult = parsed;
+        else console.log(c.yellow(`  invalid value for ATR stop-loss multiplier, using default`));
+    }
+
+    // Volume SMA entry gate — universal, off by default.
+    const volDefault = context.volumeFilterEnabled === true;
+    const volInput = (await ask(`  Only enter when volume is above its SMA? [y/N] (default ${volDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+    if (volInput) context.volumeFilterEnabled = volInput === "Y";
+    if (context.volumeFilterEnabled) {
+        const volPeriodInput = await ask(`  Volume SMA period (default ${engineConfig.VOLUME_SMA_LEN_DEFAULT}): `);
+        if (volPeriodInput) {
+            const parsed = Number(volPeriodInput);
+            if (Number.isFinite(parsed) && parsed > 0) context.volumeSmaPeriod = parsed;
+            else console.log(c.yellow(`  invalid value for volume SMA period, using default`));
+        }
+    }
+
+    // PURE_HA-only anti-whipsaw flip confirmation.
+    if (strategyKey === "PURE_HA") {
+        const flipInput = await ask(`  Reversal candles required to flip, anti-whipsaw (blank = 1, immediate): `);
+        if (flipInput) {
+            const parsed = Number(flipInput);
+            if (Number.isInteger(parsed) && parsed >= 1) context.flipConfirmCandles = parsed;
+            else console.log(c.yellow(`  invalid value for flip confirmation, using default (1, immediate)`));
+        }
+    }
+
+    // Carry-overnight — now meaningful for a multi-day backtest range
+    // since backtestRun.js's EOD handler respects it exactly like
+    // lifecycle.js does live (see that file's EOD block): on, a position
+    // open at EOD carries into the next day instead of force-closing.
+    const carryDefault = context.carryOvernight === true;
+    const carryInput = (await ask(`  Carry positions overnight past EOD (NRML-style)? [y/N] (default ${carryDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+    if (carryInput) context.carryOvernight = carryInput === "Y";
+
+    // Max daily loss circuit breaker — universal, every strategy.
+    const maxLossInput = await ask(`  Max daily loss in rupees, quits for the day if breached (blank = no floor): `);
+    if (maxLossInput) {
+        const parsed = Number(maxLossInput);
+        if (Number.isFinite(parsed) && parsed > 0) context.maxDailyLoss = parsed;
+        else console.log(c.yellow(`  invalid value for max daily loss, no floor applied`));
+    }
+
+    // Session target ceiling — realized + current open position's
+    // unrealised, whole-day running total. Mutually exclusive with
+    // targetPoints/targetMode in practice (toolbox.js's live wizard only
+    // ever offers one or the other), but nothing enforces that here —
+    // same as live.
+    const sessionTargetInput = await ask(`  Session target in rupees, quits for the day once reached (blank = no ceiling): `);
+    if (sessionTargetInput) {
+        const parsed = Number(sessionTargetInput);
+        if (Number.isFinite(parsed) && parsed > 0) context.sessionTargetRupees = parsed;
+        else console.log(c.yellow(`  invalid value for session target, no ceiling applied`));
+    }
+
     // ── Step 7: Confirmation ───────────────────────────────────────────────
     console.log();
     console.log(c.bold("  Step 7/7 — Confirm"));
@@ -342,6 +410,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     console.log(`  Timeframe:  ${timeframe}`);
     console.log(`  Range:      ${from.toISOString().split("T")[0]} -> ${to.toISOString().split("T")[0]}`);
     console.log(`  Params:     ${Object.keys(params).length ? JSON.stringify(params) : "(all defaults)"}`);
+    console.log(`  Risk:       chop:${params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on"} lc:${context.longCandleFilterEnabled === false ? "off" : "on"} double:${context.disableDoubleOrders ? "off" : "on"} vol:${context.volumeFilterEnabled ? "on" : "off"} atr:${context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"} maxloss:${context.maxDailyLoss ?? "none"} sessionTarget:${context.sessionTargetRupees ?? "none"}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);
     const confirm = (await ask("  Proceed? (Y/N): ")).trim().toUpperCase();
     if (confirm !== "Y") { console.log(c.dim("  cancelled")); await pauseForReview(); return; }
 
