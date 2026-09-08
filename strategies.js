@@ -81,6 +81,13 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
     // ─── MAIN SIGNAL LOOP ─────────────────────────────────────────────────────
     async function runSignals(price, stResult, atrVal, adxVal, rsiVal, chopVal, hmPrev, hmNow, dpiResult) {
         const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
 
         const stLast     = stResult[stResult.length - 1];
         const stDir      = stLast ? stLast.dir : prevSTDir;
@@ -197,8 +204,9 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
             const rsiOk = side === "LONG" ? rsiLongOk : rsiShortOk;
             const dpiOk = side === "LONG" ? dpiState === "STRONG_BULL" : dpiState === "STRONG_BEAR";
             if (rsiOk && dpiOk) {
-                const isDoubleOrder = (state.tradesToday || 0) > 0;
-                const doubleBlocked = isDoubleOrderBlocked(context, state);
+                // Reversal-only, not count-based — see doubleOrderGate.js.
+                const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+                const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
                 const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
                 const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
                 const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -434,6 +442,13 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
     // ─── MAIN SIGNAL LOOP ─────────────────────────────────────────────────────
     async function runSignals(price, stResult, atrVal, adxVal, rsiVal, chopVal, hmPrev, hmNow, dpiResult) {
         const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
 
         const stLast     = stResult[stResult.length - 1];
         const stDir      = stLast ? stLast.dir : prevSTDir;
@@ -577,8 +592,9 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
             const rsiOk = side === "LONG" ? rsiLongOk : rsiShortOk;
             const dpiOk = side === "LONG" ? dpiState === "STRONG_BULL" : dpiState === "STRONG_BEAR";
             if (rsiOk && dpiOk) {
-                const isDoubleOrder = (state.tradesToday || 0) > 0;
-                const doubleBlocked = isDoubleOrderBlocked(context, state);
+                // Reversal-only, not count-based — see doubleOrderGate.js.
+                const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+                const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
                 const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
                 const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
                 const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -628,8 +644,9 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
             else if (rsiVal <= engineConfig.MEANREV_RSI_BUY) side = "LONG";
 
             if (side) {
-                const isDoubleOrder = (state.tradesToday || 0) > 0;
-                const doubleBlocked = isDoubleOrderBlocked(context, state);
+                // Reversal-only, not count-based — see doubleOrderGate.js.
+                const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+                const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
                 const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
                 const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
                 const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -858,6 +875,13 @@ function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, 
 
     async function runSignals(price, dpiState, sma5Val, atrVal, closeVal) {
         const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
         const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
@@ -896,8 +920,9 @@ function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, 
             else if (dpiState === "STRONG_BEAR") side = "SHORT";
 
             if (side) {
-                const isDoubleOrder = (state.tradesToday || 0) > 0;
-                const doubleBlocked = isDoubleOrderBlocked(context, state);
+                // Reversal-only, not count-based — see doubleOrderGate.js.
+                const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+                const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
                 const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
                 const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
                 const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -1081,6 +1106,13 @@ function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles,
 
     async function runSignals(price, entrySide, entryReason, sma5Val, atrVal, closeVal) {
         const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
         const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
@@ -1116,8 +1148,9 @@ function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles,
         // agreement or band breakout); this block just executes it.
         if (engineConfig.ENGINE_ENABLED && !state.position && canEnter() && entrySide) {
             const side = entrySide;
-            const isDoubleOrder = (state.tradesToday || 0) > 0;
-            const doubleBlocked = isDoubleOrderBlocked(context, state);
+            // Reversal-only, not count-based — see doubleOrderGate.js.
+            const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+            const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
             const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
             const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
             const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -1320,6 +1353,13 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
 
     async function runSignals(price, almaHigh, almaLow, atrVal, closeVal) {
         const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
         const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
@@ -1357,8 +1397,9 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
             else if (closeVal < almaLow)  side = "SHORT";
 
             if (side) {
-                const isDoubleOrder = (state.tradesToday || 0) > 0;
-                const doubleBlocked = isDoubleOrderBlocked(context, state);
+                // Reversal-only, not count-based — see doubleOrderGate.js.
+                const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+                const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
                 const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
                 const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
                 const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -1547,6 +1588,13 @@ function createAlmaFastStrategy({ context, engineConfig, state, db, candles, slS
 
     async function runSignals(price, flipSide, atrVal, currentState, chopOk) {
         const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
         const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
@@ -1582,8 +1630,9 @@ function createAlmaFastStrategy({ context, engineConfig, state, db, candles, slS
         // is the second, independent brake.
         if (engineConfig.ENGINE_ENABLED && !state.position && flipSide && canEnter() && chopOk) {
             const side = flipSide;
-            const isDoubleOrder = (state.tradesToday || 0) > 0;
-            const doubleBlocked = isDoubleOrderBlocked(context, state);
+            // Reversal-only, not count-based — see doubleOrderGate.js.
+            const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+            const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
             const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
             const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
             const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -1818,6 +1867,13 @@ function createMaSlopeStrategy({ context, engineConfig, state, db, candles, slSt
 
     async function runSignals(price, flipSide, entrySide, entryReason, atrVal, currentState, almaHigh, almaLow, haCloseVal) {
         const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
         const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
@@ -1889,8 +1945,9 @@ function createMaSlopeStrategy({ context, engineConfig, state, db, candles, slSt
         // fired — same pattern as ALMA_DUAL_BAND_SMA5's entry block.
         if (engineConfig.ENGINE_ENABLED && !state.position && entrySide && canEnter()) {
             const side = entrySide;
-            const isDoubleOrder = (state.tradesToday || 0) > 0;
-            const doubleBlocked = isDoubleOrderBlocked(context, state);
+            // Reversal-only, not count-based — see doubleOrderGate.js.
+            const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+            const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
             const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
             const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
             const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -2206,6 +2263,13 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
 
     async function runSignals(price, flipSide, entrySide, entryReason, atrVal, currentState, almaHigh, almaLow, haCloseVal) {
         const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
         const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
@@ -2276,8 +2340,9 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
         // only scalp entries did (see computeTarget's header comment).
         if (engineConfig.ENGINE_ENABLED && !state.position && entrySide && canEnter()) {
             const side = entrySide;
-            const isDoubleOrder = (state.tradesToday || 0) > 0;
-            const doubleBlocked = isDoubleOrderBlocked(context, state);
+            // Reversal-only, not count-based — see doubleOrderGate.js.
+            const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+            const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
             const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
             const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
             const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -2562,6 +2627,13 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
 
     async function runSignals(price, flipSide, entrySide, atrVal, currentState, haCloseVal, sma9Val) {
         const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
         const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
@@ -2617,8 +2689,9 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
             (entrySide === "SHORT" && haCloseVal < sma9Val);
         if (engineConfig.ENGINE_ENABLED && !state.position && entrySide && smaAligned && canEnter()) {
             const side = entrySide;
-            const isDoubleOrder = (state.tradesToday || 0) > 0;
-            const doubleBlocked = isDoubleOrderBlocked(context, state);
+            // Reversal-only, not count-based — see doubleOrderGate.js.
+            const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+            const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
             const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
             const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
             const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -2824,6 +2897,13 @@ function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, sl
 
     async function runSignals(price, entrySide, atrVal, currentState, hmPrev, hmNow) {
         const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
         const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
@@ -2862,8 +2942,9 @@ function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, sl
         // while flat, no trade in grey.
         if (engineConfig.ENGINE_ENABLED && !state.position && entrySide && canEnter()) {
             const side = entrySide;
-            const isDoubleOrder = (state.tradesToday || 0) > 0;
-            const doubleBlocked = isDoubleOrderBlocked(context, state);
+            // Reversal-only, not count-based — see doubleOrderGate.js.
+            const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+            const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
             const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
             const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
             const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -3057,6 +3138,13 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
 
     async function runSignals(price, st1Dir, st2Dir, atrVal, chopVal) {
         const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
         const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
@@ -3090,8 +3178,9 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
             const chopOk = chopVal !== null && chopVal <= engineConfig.DST_CHOP_MAX;
             if (chopOk) {
                 const side = st1Dir === 1 ? "LONG" : "SHORT";
-                const isDoubleOrder = (state.tradesToday || 0) > 0;
-                const doubleBlocked = isDoubleOrderBlocked(context, state);
+                // Reversal-only, not count-based — see doubleOrderGate.js.
+                const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+                const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
                 const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
                 const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
                 const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -3259,6 +3348,13 @@ function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles
 
     async function runSignals(price, entrySide, atrVal, regime) {
         const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
         const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
@@ -3296,8 +3392,9 @@ function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles
         // Entry: level-based on regime while flat — see header ASSUMPTION.
         if (engineConfig.ENGINE_ENABLED && !state.position && entrySide && canEnter()) {
             const side = entrySide;
-            const isDoubleOrder = (state.tradesToday || 0) > 0;
-            const doubleBlocked = isDoubleOrderBlocked(context, state);
+            // Reversal-only, not count-based — see doubleOrderGate.js.
+            const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+            const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
             const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
             const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
             const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -3548,8 +3645,13 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
     }
 
     async function doEnter(side, livePrice, reason) {
-        const isDoubleOrder = (state.tradesToday || 0) > 0;
-        const doubleBlocked = isDoubleOrderBlocked(context, state);
+        // Reason-based, not count-based: disableDoubleOrders only ever
+        // blocks a REVERSAL re-entry (see doubleOrderGate.js), and every
+        // call site here already tags reversal re-entries with a reason
+        // containing "REVERSAL" — a fresh/breakout entry after being flat
+        // since an earlier target/SL exit never carries that word.
+        const isReversal = /REVERSAL/i.test(reason);
+        const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
         const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
         const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
         const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -3849,8 +3951,13 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
     }
 
     async function doEnter(side, livePrice, atrVal, reason) {
-        const isDoubleOrder = (state.tradesToday || 0) > 0;
-        const doubleBlocked = isDoubleOrderBlocked(context, state);
+        // Reason-based, not count-based: disableDoubleOrders only ever
+        // blocks a REVERSAL re-entry (see doubleOrderGate.js), and every
+        // call site here already tags reversal re-entries with a reason
+        // containing "REVERSAL" — a fresh/breakout entry after being flat
+        // since an earlier target/SL exit never carries that word.
+        const isReversal = /REVERSAL/i.test(reason);
+        const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
         const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
         const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
         const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -3926,7 +4033,7 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
                 if (exited) {
                     shiftBand(-1, bandStep);
                     console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT DOWN  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
-                    await doEnter("SHORT", livePrice, atrVal, "SHORT ENTRY");
+                    await doEnter("SHORT", livePrice, atrVal, "REVERSAL SHORT");
                 }
             }
         } else if (state.position === "SHORT") {
@@ -3939,7 +4046,7 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
                 if (exited) {
                     shiftBand(+1, bandStep);
                     console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT UP  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
-                    await doEnter("LONG", livePrice, atrVal, "LONG ENTRY");
+                    await doEnter("LONG", livePrice, atrVal, "REVERSAL LONG");
                 }
             }
         } else {
@@ -4222,8 +4329,13 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
     }
 
     async function doEnter(side, livePrice, atrVal, reason) {
-        const isDoubleOrder = (state.tradesToday || 0) > 0;
-        const doubleBlocked = isDoubleOrderBlocked(context, state);
+        // Reason-based, not count-based: disableDoubleOrders only ever
+        // blocks a REVERSAL re-entry (see doubleOrderGate.js), and every
+        // call site here already tags reversal re-entries with a reason
+        // containing "REVERSAL" — a fresh/breakout entry after being flat
+        // since an earlier target/SL exit never carries that word.
+        const isReversal = /REVERSAL/i.test(reason);
+        const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
         const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
         const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
         const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -4297,7 +4409,7 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
                 if (exited) {
                     shiftBand(-1, bandStep);
                     console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT DOWN  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
-                    await doEnter("SHORT", livePrice, atrVal, "SHORT ENTRY");
+                    await doEnter("SHORT", livePrice, atrVal, "REVERSAL SHORT");
                 }
             }
         } else if (state.position === "SHORT") {
@@ -4310,7 +4422,7 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
                 if (exited) {
                     shiftBand(+1, bandStep);
                     console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT UP  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
-                    await doEnter("LONG", livePrice, atrVal, "LONG ENTRY");
+                    await doEnter("LONG", livePrice, atrVal, "REVERSAL LONG");
                 }
             }
         } else {
@@ -4566,8 +4678,13 @@ function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, 
     }
 
     async function doEnter(side, livePrice, atrVal, reason) {
-        const isDoubleOrder = (state.tradesToday || 0) > 0;
-        const doubleBlocked = isDoubleOrderBlocked(context, state);
+        // Reason-based, not count-based: disableDoubleOrders only ever
+        // blocks a REVERSAL re-entry (see doubleOrderGate.js), and every
+        // call site here already tags reversal re-entries with a reason
+        // containing "REVERSAL" — a fresh/breakout entry after being flat
+        // since an earlier target/SL exit never carries that word.
+        const isReversal = /REVERSAL/i.test(reason);
+        const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
         const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
         const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
         const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
@@ -4870,8 +4987,13 @@ function createAlmaProFastStrategy({ context, engineConfig, state, db, candles, 
     }
 
     async function doEnter(side, livePrice, atrVal, reason) {
-        const isDoubleOrder = (state.tradesToday || 0) > 0;
-        const doubleBlocked = isDoubleOrderBlocked(context, state);
+        // Reason-based, not count-based: disableDoubleOrders only ever
+        // blocks a REVERSAL re-entry (see doubleOrderGate.js), and every
+        // call site here already tags reversal re-entries with a reason
+        // containing "REVERSAL" — a fresh/breakout entry after being flat
+        // since an earlier target/SL exit never carries that word.
+        const isReversal = /REVERSAL/i.test(reason);
+        const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
         if (doubleBlocked) {
             console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             return false;
@@ -5130,6 +5252,13 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
     // state, not a stored transition.
     async function runSignals(price, desiredSide, atrVal, currentState, chopOk) {
         const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
         const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
@@ -5167,8 +5296,9 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
         // waiting indefinitely for a transition.
         if (engineConfig.ENGINE_ENABLED && !state.position && desiredSide && canEnter() && chopOk) {
             const side = desiredSide;
-            const isDoubleOrder = (state.tradesToday || 0) > 0;
-            const doubleBlocked = isDoubleOrderBlocked(context, state);
+            // Reversal-only, not count-based — see doubleOrderGate.js.
+            const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+            const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
             // Not this strategy's own dedicated chop filter (chopOk above,
             // unchanged) — the separate, universal chopGate check, run on
             // every entry regardless of the double-order gate above.
@@ -5451,8 +5581,12 @@ function createVolumeDeltaCvdStrategy({ context, engineConfig, state, db, candle
     }
 
     async function enterPosition(side, sig, livePrice) {
-        const isDoubleOrder = (state.tradesToday || 0) > 0;
-        const doubleBlocked = isDoubleOrderBlocked(context, state);
+        // VOLUME_DELTA_CVD's entries always go through a multi-candle
+        // vdSetup confirmation (LONG_SETUP/SHORT_SETUP persisted across
+        // candles) even right after an opposite exit — never an immediate
+        // same-candle flip — so this strategy never produces a reversal for
+        // doubleOrderGate.js's purposes; disableDoubleOrders is a no-op here.
+        const doubleBlocked = isDoubleOrderBlocked(context, state, false);
         if (doubleBlocked) { console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`); return; }
         const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
         if (chopBlocked) { console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`); return; }
@@ -5625,7 +5759,10 @@ function createPureHaStrategy({ context, engineConfig, state, db, candles, slSto
     }
 
     async function doEnter(side, livePrice, reason, pure) {
-        const doubleBlocked = isDoubleOrderBlocked(context, state);
+        // See doEnter(...reason) sites above — reason-based reversal
+        // detection, same reasoning.
+        const isReversal = /REVERSAL/i.test(reason);
+        const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
         const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
         const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
         const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);

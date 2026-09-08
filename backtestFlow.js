@@ -339,7 +339,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     // reference straight into runBacktest, so mutating it here is
     // sufficient — no separate params/engineConfig channel needed).
     const doubleDefault = context.disableDoubleOrders === true;
-    const doubleInput = (await ask(`  Disable double orders, max 1 entry/session? [y/N] (default ${doubleDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+    const doubleInput = (await ask(`  Disable double orders, blocks reversal re-entries only? [y/N] (default ${doubleDefault ? "Y" : "N"}): `)).trim().toUpperCase();
     if (doubleInput) context.disableDoubleOrders = doubleInput === "Y";
 
     // Per-instrument ATR stop-loss multiplier — unread by strategies with

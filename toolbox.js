@@ -731,16 +731,19 @@ async function editInstrument(procs) {
         }
 
         // Double-order gate — universal, opt-in, default OFF (allowed).
-        // When double orders stay allowed, any 2nd+ entry that session
-        // ALSO gets a forced Choppiness Index check regardless of the
-        // chopFilterEnabled setting above — see chopGate.js's `force`
-        // option and doubleOrderGate.js.
+        // Only ever blocks a REVERSAL re-entry (exit + immediate
+        // opposite-side entry, same candle), never a later unrelated
+        // fresh entry after an earlier target/SL exit — see
+        // doubleOrderGate.js's header. Every entry, reversal or not,
+        // is separately always run through the Choppiness Index check
+        // regardless of the chopFilterEnabled setting above — see
+        // chopGate.js's `force` option.
         const doubleOrderDefault = p.disableDoubleOrders === true;
-        const doubleOrderInput = (await ask(`  disable double orders (max 1 entry/session)? [y/N] (current: ${doubleOrderDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+        const doubleOrderInput = (await ask(`  disable double orders (blocks reversal re-entries only)? [y/N] (current: ${doubleOrderDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
         let disableDoubleOrders = p.disableDoubleOrders;
         if (doubleOrderInput) disableDoubleOrders = doubleOrderInput === "Y";
         if (!disableDoubleOrders) {
-            console.log(c.dim(`  double orders stay allowed — any 2nd+ entry this session will force a Choppiness Index check`));
+            console.log(c.dim(`  double orders stay allowed — reversal re-entries stay gated only by the Choppiness Index check every entry already gets`));
         }
 
         // ATR stop-loss multiplier — universal, but only read by
@@ -880,11 +883,11 @@ async function riskManagement(procs) {
 
         // Double-order gate — universal, opt-in, default OFF (allowed).
         const doubleOrderDefault = p.disableDoubleOrders === true;
-        const doubleOrderInput = (await ask(`  disable double orders (max 1 entry/session)? [y/N] (current: ${doubleOrderDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+        const doubleOrderInput = (await ask(`  disable double orders (blocks reversal re-entries only)? [y/N] (current: ${doubleOrderDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
         let disableDoubleOrders = p.disableDoubleOrders;
         if (doubleOrderInput) disableDoubleOrders = doubleOrderInput === "Y";
         if (!disableDoubleOrders) {
-            console.log(c.dim(`  double orders stay allowed — any 2nd+ entry this session will force a Choppiness Index check`));
+            console.log(c.dim(`  double orders stay allowed — reversal re-entries stay gated only by the Choppiness Index check every entry already gets`));
         }
 
         // ATR stop-loss multiplier — universal, but only read by
@@ -1320,15 +1323,16 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     }
 
     // Double-order gate — universal, every strategy, opt-in. Default N
-    // (allowed — today's original behavior, unlimited re-entries per
-    // session). When double orders stay allowed, any 2nd+ entry that
-    // session ALSO gets a forced Choppiness Index check regardless of the
-    // chop filter setting above — see chopGate.js's `force` option and
-    // doubleOrderGate.js.
-    const doubleOrderInput = (await ask(`  disable double orders (max 1 entry/session)? [y/N] (default: N): `)).trim().toUpperCase();
+    // (allowed — today's original behavior). Only ever blocks a REVERSAL
+    // re-entry (exit + immediate opposite-side entry, same candle), never
+    // a later unrelated fresh entry after an earlier target/SL exit — see
+    // doubleOrderGate.js's header. Every entry, reversal or not, is
+    // separately always run through the Choppiness Index check regardless
+    // of the chop filter setting above — see chopGate.js's `force` option.
+    const doubleOrderInput = (await ask(`  disable double orders (blocks reversal re-entries only)? [y/N] (default: N): `)).trim().toUpperCase();
     const disableDoubleOrders = doubleOrderInput === "Y";
     if (!disableDoubleOrders) {
-        console.log(c.dim(`  double orders stay allowed — any 2nd+ entry this session will force a Choppiness Index check`));
+        console.log(c.dim(`  double orders stay allowed — reversal re-entries stay gated only by the Choppiness Index check every entry already gets`));
     }
 
     // ATR stop-loss multiplier — universal prompt, but only read by
