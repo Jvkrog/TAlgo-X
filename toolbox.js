@@ -253,7 +253,7 @@ function wrapText(text, indent = "      ") {
 }
 
 // ─── SCREENS ──────────────────────────────────────────────────────────────────
-const BOX_WIDTH = 63;
+const BOX_WIDTH = 94;
 // Computed fresh on every call (not cached) so a mid-session terminal
 // resize is picked up naturally rather than centering against stale
 // dimensions. Gracefully degrades to 0 (flush-left, today's old behavior)
@@ -279,7 +279,7 @@ function boxBottom() { return `${boxLeftPad()}└${"─".repeat(BOX_WIDTH - 2)}�
 // Real column alignment via padEnd, not hand-counted spaces — hand-spacing
 // broke the moment two labels in the same column had different lengths
 // (e.g. "start" vs "live/paper"), which is exactly what happened before.
-const HELP_CELL_WIDTH = 14;
+const HELP_CELL_WIDTH = 21;
 function helpCell(key, label) {
     if (!key) return "".padEnd(HELP_CELL_WIDTH);
     return (key.padEnd(4) + label).padEnd(HELP_CELL_WIDTH);
