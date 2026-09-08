@@ -13,7 +13,7 @@
 // via Edit Params/Risk Management, never a silent behavior change for
 // anything already deployed.
 // context.volumeSmaPeriod: default null, falls back to
-// engineConfig.VOLUME_SMA_LEN_DEFAULT (9) below — same
+// engineConfig.VOLUME_SMA_LEN_DEFAULT (20) below — same
 // STRATEGY_PARAMS-backtest-tuning-safe pattern as chopPeriod/chopMax in
 // chopGate.js.
 //

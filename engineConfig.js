@@ -119,7 +119,7 @@ module.exports = {
     USE_RSI_FILTER: false,
 
     // Choppiness Index — filters entries in ranging/choppy markets
-    CHOP_LEN:        14,
+    CHOP_LEN:        9,
     CHOP_MAX:        50,               // above this = choppy, block entry
     USE_CHOP_FILTER: false,
 
@@ -133,7 +133,7 @@ module.exports = {
     // Both backtest-tunable (backtestFlow.js's Step 6 always includes
     // these, since chopGate.js applies to every strategy now) via
     // STRATEGY_PARAMS-style engineConfig overrides — see backtestFlow.js.
-    CHOP_GATE_MAX_DEFAULT:   50,    // chopGate.js's max threshold when context.chopMax is unset
+    CHOP_GATE_MAX_DEFAULT:   58,    // chopGate.js's max threshold when context.chopMax is unset
     CHOP_GATE_ALWAYS_FORCE:  true,  // live default: every entry always checks chop, see chopGate.js's header comment. Backtests can set this false to compare with/without.
 
     // volumeGate.js's universal "volume above its own SMA" entry gate —
