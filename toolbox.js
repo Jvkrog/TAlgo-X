@@ -680,7 +680,7 @@ async function editInstrument(procs) {
             if (chopFilterInput) chopFilterEnabled = chopFilterInput !== "N";
 
             if (chopFilterEnabled) {
-                const periodDefault = chopPeriod !== null ? String(chopPeriod) : "14 (default)";
+                const periodDefault = chopPeriod !== null ? String(chopPeriod) : `${engineConfig.CHOP_LEN} (default)`;
                 const periodInput = (await ask(`  Choppiness Index period (current: ${periodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
                 if (periodInput) {
                     if (periodInput === "0" || periodInput.toLowerCase() === "clear") {
@@ -691,7 +691,7 @@ async function editInstrument(procs) {
                         else console.log(c.yellow(`  "${periodInput}" isn't a valid positive number — period left unchanged`));
                     }
                 }
-                const maxDefault = chopMax !== null ? String(chopMax) : "50 (default)";
+                const maxDefault = chopMax !== null ? String(chopMax) : `${engineConfig.CHOP_GATE_MAX_DEFAULT} (default)`;
                 const maxInput = (await ask(`  Choppiness Index max threshold (current: ${maxDefault}, "0"/"clear" for default, blank = keep): `)).trim();
                 if (maxInput) {
                     if (maxInput === "0" || maxInput.toLowerCase() === "clear") {
@@ -786,7 +786,7 @@ async function editInstrument(procs) {
             });
             const targetTag = targetPoints !== null ? c.yellow(` target:${targetPoints}pt`) : targetMode === "adaptive" ? c.yellow(" target:adaptive") : sessionTargetRupees !== null ? c.yellow(` target:session+₹${sessionTargetRupees}`) : c.dim(" target:none");
             const chopTag = p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW"
-                ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? 14}/${chopMax ?? 50}`) : c.yellow(" chop:off"))
+                ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? engineConfig.CHOP_LEN}/${chopMax ?? engineConfig.CHOP_GATE_MAX_DEFAULT}`) : c.yellow(" chop:off"))
                 : (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
             console.log(c.green(`  ${p.underlying} updated${targetTag}${chopTag} lots:${lots === "default" ? "1" : lots} (restarted)`));
         } catch (err) {
@@ -828,7 +828,7 @@ async function riskManagement(procs) {
             if (chopFilterInput) chopFilterEnabled = chopFilterInput !== "N";
 
             if (chopFilterEnabled) {
-                const periodDefault = chopPeriod !== null ? String(chopPeriod) : "14 (default)";
+                const periodDefault = chopPeriod !== null ? String(chopPeriod) : `${engineConfig.CHOP_LEN} (default)`;
                 const periodInput = (await ask(`  Choppiness Index period (current: ${periodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
                 if (periodInput) {
                     if (periodInput === "0" || periodInput.toLowerCase() === "clear") {
@@ -839,7 +839,7 @@ async function riskManagement(procs) {
                         else console.log(c.yellow(`  "${periodInput}" isn't a valid positive number — period left unchanged`));
                     }
                 }
-                const maxDefault = chopMax !== null ? String(chopMax) : "50 (default)";
+                const maxDefault = chopMax !== null ? String(chopMax) : `${engineConfig.CHOP_GATE_MAX_DEFAULT} (default)`;
                 const maxInput = (await ask(`  Choppiness Index max threshold (current: ${maxDefault}, "0"/"clear" for default, blank = keep): `)).trim();
                 if (maxInput) {
                     if (maxInput === "0" || maxInput.toLowerCase() === "clear") {
@@ -1016,7 +1016,7 @@ async function riskManagement(procs) {
                 env: buildProcessEnv(updatedP),
             });
             const chopTag = p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW"
-                ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? 14}/${chopMax ?? 50}`) : c.yellow(" chop:off"))
+                ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? engineConfig.CHOP_LEN}/${chopMax ?? engineConfig.CHOP_GATE_MAX_DEFAULT}`) : c.yellow(" chop:off"))
                 : (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
             const doubleTag = disableDoubleOrders ? c.yellow(" double:off") : c.dim(" double:on");
             const atrTag = atrSlMult !== null ? c.dim(` atr:${atrSlMult}x`) : "";
@@ -1266,8 +1266,12 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // one (chopGate.js's isChopBlocked, called from every other strategy's
     // own entry site) — configurable period + max threshold, not just a
     // toggle, unlike ALMA_PRO's fixed engineConfig threshold.
-    // Default ON, period 14 (engineConfig.CHOP_LEN), max 50 — same 50
-    // every other chop filter in this codebase uses.
+    // Default ON, period/max read live from engineConfig (CHOP_LEN /
+    // CHOP_GATE_MAX_DEFAULT) rather than hardcoded here — hardcoding these
+    // is exactly the stale-comment bug class already found once in
+    // volumeGate.js's header (said 9, actual default was 20); reading
+    // engineConfig directly means this prompt can never drift from the
+    // real default again.
     let chopFilterEnabled = true;
     let chopPeriod = null;
     let chopMax = null;
@@ -1275,17 +1279,17 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const chopFilterInput = (await ask(`  use Choppiness Index entry filter? [Y/n] (default: Y): `)).trim().toUpperCase();
         chopFilterEnabled = chopFilterInput !== "N";
         if (chopFilterEnabled) {
-            const periodInput = await ask(`  Choppiness Index period (blank = 14): `);
+            const periodInput = await ask(`  Choppiness Index period (blank = ${engineConfig.CHOP_LEN}): `);
             if (periodInput) {
                 const parsedPeriod = Number(periodInput);
                 chopPeriod = Number.isFinite(parsedPeriod) && parsedPeriod > 0 ? parsedPeriod : null;
-                if (chopPeriod === null) console.log(c.yellow(`  "${periodInput}" isn't a valid positive number — using default (14)`));
+                if (chopPeriod === null) console.log(c.yellow(`  "${periodInput}" isn't a valid positive number — using default (${engineConfig.CHOP_LEN})`));
             }
-            const maxInput = await ask(`  Choppiness Index max threshold, blocks entries above this (blank = 50): `);
+            const maxInput = await ask(`  Choppiness Index max threshold, blocks entries above this (blank = ${engineConfig.CHOP_GATE_MAX_DEFAULT}): `);
             if (maxInput) {
                 const parsedMax = Number(maxInput);
                 chopMax = Number.isFinite(parsedMax) && parsedMax > 0 ? parsedMax : null;
-                if (chopMax === null) console.log(c.yellow(`  "${maxInput}" isn't a valid positive number — using default (50)`));
+                if (chopMax === null) console.log(c.yellow(`  "${maxInput}" isn't a valid positive number — using default (${engineConfig.CHOP_GATE_MAX_DEFAULT})`));
             }
         }
     }
@@ -1531,7 +1535,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
             ? c.yellow(` alma:${almaFastLen ?? engineConfig.ALMA_PRO_FAST_LEN}/${almaBandLen ?? engineConfig.ALMA_PRO_BAND_LEN}`)
             : "";
         const almaChopTag = (strategy === "ALMA_PRO_FAST" || strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
-        const vdChopTag = strategy !== "ALMA_PRO_FAST" && strategy !== "ALMA_PRO_SLOW" ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? 14}/${chopMax ?? 50}`) : c.yellow(" chop:off")) : "";
+        const vdChopTag = strategy !== "ALMA_PRO_FAST" && strategy !== "ALMA_PRO_SLOW" ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? engineConfig.CHOP_LEN}/${chopMax ?? engineConfig.CHOP_GATE_MAX_DEFAULT}`) : c.yellow(" chop:off")) : "";
         const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
         const greyExitTag = strategy === "ALMA_TRI_BAND" ? c.yellow(` grey:${(greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT) ? "exit" : "hold"}`) : "";
         const maxLossTag = maxDailyLoss !== null ? c.yellow(` maxLoss:-₹${maxDailyLoss}`) : "";
