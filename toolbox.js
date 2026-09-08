@@ -322,23 +322,48 @@ async function renderMenu() {
         // Built via padEnd rather than hand-counted spaces, matching
         // helpCell's own reasoning above: hand-spacing breaks the moment
         // two labels in the column have different lengths.
-        const INST_COL_WIDTH = 18;
-        lines.push(boxLine(c.dim(`  # ${"INSTRUMENT".padEnd(INST_COL_WIDTH)} LOTS   MULT   MODE     STATUS`)));
+        //
+        // ROW_PREFIX_WIDTH is the width of a data row's own
+        // "[x] 12. " lead-in (bracket + box-char + bracket + space +
+        // 2-digit number + ". " = 8 chars, fixed regardless of digit
+        // count via num.padStart(2)) — the header's "  #" lead-in is
+        // padded to the SAME width so the INSTRUMENT column header
+        // actually sits above the instrument names below it, not offset
+        // from them (previously hardcoded literal spacing on the header
+        // only, which drifted from the row's own padEnd-built prefix).
+        const ROW_PREFIX_WIDTH = 8;
+        const INST_COL_WIDTH   = 30;
+        const LOTS_COL_WIDTH   = 9;
+        const MULT_COL_WIDTH   = 9;
+        const MODE_COL_WIDTH   = 11;
+        // Pads the PLAIN text to width before handing it to the color
+        // function — padding an already-ANSI-colored string would count
+        // the invisible escape codes as visible characters and throw the
+        // column off, same reasoning as the header/row prefix fix above.
+        const colorPad = (text, width, colorFn) => colorFn(text.padEnd(width));
+        lines.push(boxLine(c.dim(
+            `  #`.padEnd(ROW_PREFIX_WIDTH) +
+            "INSTRUMENT".padEnd(INST_COL_WIDTH) +
+            "LOTS".padEnd(LOTS_COL_WIDTH) +
+            "MULT".padEnd(MULT_COL_WIDTH) +
+            "MODE".padEnd(MODE_COL_WIDTH) +
+            "STATUS"
+        )));
         lines.push(boxDivider());
         procs.forEach((p, i) => {
             const box  = selected.has(p.name) ? "x" : " ";
             const num  = String(i + 1).padStart(2);
             const stratShort = (STRATEGY_INFO[p.strategy] || { short: p.strategy }).short;
             const inst = `${p.underlying}/${stratShort}`.padEnd(INST_COL_WIDTH);
-            const lots = String(p.lots).padEnd(6);
-            const mult = String(p.lotMult ?? "-").padEnd(6);
-            const mode = p.live ? c.red("LIVE ") : c.cyan("PAPER");
+            const lots = String(p.lots).padEnd(LOTS_COL_WIDTH);
+            const mult = String(p.lotMult ?? "-").padEnd(MULT_COL_WIDTH);
+            const mode = p.live ? colorPad("LIVE", MODE_COL_WIDTH, c.red) : colorPad("PAPER", MODE_COL_WIDTH, c.cyan);
 
             let statusStr;
             if (p.status === "online") statusStr = c.green(`● ${fmtUptime(p.uptime)}`);
             else                        statusStr = c.red(`● ${p.status.toUpperCase()}`);
 
-            lines.push(boxLine(`[${box}] ${num}. ${inst} ${lots} ${mult} ${mode}  ${statusStr}`));
+            lines.push(boxLine(`[${box}] ${num}. ${inst}${lots}${mult}${mode}${statusStr}`));
         });
     }
 
