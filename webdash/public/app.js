@@ -1052,8 +1052,8 @@ function openEditModal(inst) {
       <label class="tb-form-row-inline"><input type="checkbox" id="editGreyExit" ${inst.greyExitEnabled ? "checked" : ""}><span>exit on grey state instead of holding through it</span></label>
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editDisableDouble" ${inst.disableDoubleOrders ? "checked" : ""}><span>disable double orders (max 1 entry/session)</span></label>
-      <div class="tb-form-hint">when left unchecked, any 2nd+ entry this session forces a Choppiness Index check regardless of the chop filter setting</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="editDisableDouble" ${inst.disableDoubleOrders ? "checked" : ""}><span>disable double orders (blocks reversal re-entries only)</span></label>
+      <div class="tb-form-hint">reversal re-entries stay gated only by the Choppiness Index check every entry already gets, whether checked or not</div>
     </div>
     <div class="tb-form-row">
       <div class="tb-form-label">ATR stop-loss multiplier (blank = default)</div>
@@ -1409,8 +1409,8 @@ function renderAddConfigStep() {
       <label class="tb-form-row-inline"><input type="checkbox" id="addGreyExit"><span>exit on grey state instead of holding through it (ALMA_TRI_BAND only, default: hold)</span></label>
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addDisableDouble"><span>disable double orders (max 1 entry/session, default: allowed)</span></label>
-      <div class="tb-form-hint">when left unchecked, any 2nd+ entry that session forces a Choppiness Index check regardless of the chop filter setting</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="addDisableDouble"><span>disable double orders (blocks reversal re-entries only, default: allowed)</span></label>
+      <div class="tb-form-hint">reversal re-entries stay gated only by the Choppiness Index check every entry already gets, whether checked or not</div>
     </div>
     <div class="tb-form-row">
       <div class="tb-form-label">ATR stop-loss multiplier (blank = default)</div>
