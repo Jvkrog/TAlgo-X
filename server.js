@@ -37,6 +37,8 @@ const { createContractPinStore } = require("../contractPins");
 const { resolveCurrent } = require("../instrumentResolution");
 const { getDefinition, buildContext, defaultEodFor } = require("../context");
 const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = require("../strategies");
+const { INDICATOR_CATALOG } = require("../indicatorCatalog");
+const customStrategyDb = require("../customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("../historicalFetch");
 const { runBacktest } = require("../backtestRun");
 const { STRATEGY_PARAMS } = require("../backtestFlow");
@@ -316,6 +318,10 @@ async function getEngineProcesses() {
             targetPoints: p.pm2_env.env?.TARGET_POINTS_OVERRIDE !== undefined && p.pm2_env.env?.TARGET_POINTS_OVERRIDE !== ""
                 ? p.pm2_env.env.TARGET_POINTS_OVERRIDE
                 : null,
+            // "fixed" default matches context.js's targetMode default — only
+            // meaningful when targetPoints (above) is unset, same rule
+            // engine.js/toolbox.js apply (a fixed points value always wins).
+            targetMode: p.pm2_env.env?.TARGET_MODE_OVERRIDE === "adaptive" ? "adaptive" : "fixed",
             // null = use engineConfig.BAND_STEP_DEFAULT, same as
             // context.bandStep's own default-when-unset behavior
             bandStep: p.pm2_env.env?.BAND_STEP_OVERRIDE !== undefined && p.pm2_env.env?.BAND_STEP_OVERRIDE !== ""
@@ -333,6 +339,17 @@ async function getEngineProcesses() {
             almaBandEnabled: p.pm2_env.env?.ALMA_BAND_OVERRIDE !== "false",
             almaFastLen: p.pm2_env.env?.ALMA_FAST_LEN_OVERRIDE ? Number(p.pm2_env.env.ALMA_FAST_LEN_OVERRIDE) : null,
             almaBandLen: p.pm2_env.env?.ALMA_BAND_LEN_OVERRIDE ? Number(p.pm2_env.env.ALMA_BAND_LEN_OVERRIDE) : null,
+            almaChopFilterEnabled: p.pm2_env.env?.ALMA_CHOP_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.ALMA_CHOP_FILTER_OVERRIDE === "true" : true,
+            maxDailyLoss: p.pm2_env.env?.MAX_DAILY_LOSS_OVERRIDE ? Number(p.pm2_env.env.MAX_DAILY_LOSS_OVERRIDE) : null,
+            disableDoubleOrders: p.pm2_env.env?.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true",
+            atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
+            flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
+            volumeFilterEnabled: p.pm2_env.env?.VOLUME_FILTER_OVERRIDE === "true",
+            volumeSmaPeriod: p.pm2_env.env?.VOLUME_SMA_PERIOD_OVERRIDE ? Number(p.pm2_env.env.VOLUME_SMA_PERIOD_OVERRIDE) : null,
+            longCandleFilterEnabled: p.pm2_env.env?.LONG_CANDLE_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.LONG_CANDLE_FILTER_OVERRIDE === "true" : true,
+            longCandleAtrPeriod: p.pm2_env.env?.LONG_CANDLE_ATR_PERIOD_OVERRIDE ? Number(p.pm2_env.env.LONG_CANDLE_ATR_PERIOD_OVERRIDE) : null,
+            longCandleAtrMult: p.pm2_env.env?.LONG_CANDLE_ATR_MULT_OVERRIDE ? Number(p.pm2_env.env.LONG_CANDLE_ATR_MULT_OVERRIDE) : null,
+            longCandleCooldownCandles: p.pm2_env.env?.LONG_CANDLE_COOLDOWN_OVERRIDE !== undefined && p.pm2_env.env.LONG_CANDLE_COOLDOWN_OVERRIDE !== "" ? Number(p.pm2_env.env.LONG_CANDLE_COOLDOWN_OVERRIDE) : null,
             outLogPath: p.pm2_env.pm_out_log_path,
             errLogPath: p.pm2_env.pm_err_log_path,
         }));
@@ -341,6 +358,11 @@ async function getEngineProcesses() {
 // Same env-shape toolbox.js's toggleMode/restartSelected build before every
 // pm2Restart — kept in exact parity so a mode switch from the web produces
 // the identical process env an equivalent CLI action would.
+// See toolbox.js's buildProcessEnv for why every field here is always
+// written explicitly (a real value, or "" to clear) instead of
+// conditionally omitted: pm2.restart(...,updateEnv:true) merges into the
+// process's existing env rather than replacing it, so omitting a key never
+// actually clears a stale value from an earlier restart.
 function buildProcessEnv(p, overrides = {}) {
     const env = {
         UNDERLYING: p.underlying,
@@ -350,14 +372,31 @@ function buildProcessEnv(p, overrides = {}) {
         TIMEFRAME_OVERRIDE: p.timeframe || "15m",
         EXCHANGE_OVERRIDE: p.exchange || "MCX",
     };
-    if (p.lots !== "default") env.LOTS_OVERRIDE = String(p.lots);
-    if (p.lotMult) env.LOTMULT_OVERRIDE = String(p.lotMult);
-    if (p.targetPoints !== null && p.targetPoints !== undefined) env.TARGET_POINTS_OVERRIDE = String(p.targetPoints);
-    if (p.bandStep !== null && p.bandStep !== undefined) env.BAND_STEP_OVERRIDE = String(p.bandStep);
-    if (p.greyExitEnabled !== undefined) env.GREY_EXIT_OVERRIDE = String(!!p.greyExitEnabled);
-    if (p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false) env.ALMA_BAND_OVERRIDE = "false";
-    if (p.strategy === "ALMA_PRO_FAST" && p.almaFastLen) env.ALMA_FAST_LEN_OVERRIDE = String(p.almaFastLen);
-    if (p.strategy === "ALMA_PRO_FAST" && p.almaBandLen) env.ALMA_BAND_LEN_OVERRIDE = String(p.almaBandLen);
+    env.LOTS_OVERRIDE = p.lots !== "default" ? String(p.lots) : "";
+    env.LOTMULT_OVERRIDE = p.lotMult ? String(p.lotMult) : "";
+    env.TARGET_POINTS_OVERRIDE = (p.targetPoints !== null && p.targetPoints !== undefined) ? String(p.targetPoints) : "";
+    env.TARGET_MODE_OVERRIDE = p.targetMode === "adaptive" ? "adaptive" : "";
+    env.BAND_STEP_OVERRIDE = (p.bandStep !== null && p.bandStep !== undefined) ? String(p.bandStep) : "";
+    env.GREY_EXIT_OVERRIDE = p.greyExitEnabled !== undefined ? String(!!p.greyExitEnabled) : "";
+    env.ALMA_BAND_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false ? "false" : "";
+    env.ALMA_FAST_LEN_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaFastLen ? String(p.almaFastLen) : "";
+    env.ALMA_BAND_LEN_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaBandLen ? String(p.almaBandLen) : "";
+    env.ALMA_CHOP_FILTER_OVERRIDE = (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && p.almaChopFilterEnabled === false ? "false" : "";
+    env.MAX_DAILY_LOSS_OVERRIDE = p.maxDailyLoss ? String(p.maxDailyLoss) : "";
+    // Always written explicitly (both true AND false) — same
+    // write-asymmetry reasoning as ALMA_CHOP_FILTER_OVERRIDE above: an
+    // unset env var means OFF at runtime, which would silently contradict
+    // an explicit "disable" choice made in the edit form if only the
+    // true case were written.
+    env.DISABLE_DOUBLE_ORDERS_OVERRIDE = String(!!p.disableDoubleOrders);
+    env.ATR_SL_MULT_OVERRIDE = p.atrSlMult ? String(p.atrSlMult) : "";
+    env.FLIP_CONFIRM_CANDLES_OVERRIDE = p.flipConfirmCandles ? String(p.flipConfirmCandles) : "";
+    env.VOLUME_FILTER_OVERRIDE = String(!!p.volumeFilterEnabled);
+    env.VOLUME_SMA_PERIOD_OVERRIDE = p.volumeSmaPeriod ? String(p.volumeSmaPeriod) : "";
+    env.LONG_CANDLE_FILTER_OVERRIDE = p.longCandleFilterEnabled === false ? "false" : "true";
+    env.LONG_CANDLE_ATR_PERIOD_OVERRIDE = p.longCandleAtrPeriod ? String(p.longCandleAtrPeriod) : "";
+    env.LONG_CANDLE_ATR_MULT_OVERRIDE = p.longCandleAtrMult ? String(p.longCandleAtrMult) : "";
+    env.LONG_CANDLE_COOLDOWN_OVERRIDE = (p.longCandleCooldownCandles !== null && p.longCandleCooldownCandles !== undefined) ? String(p.longCandleCooldownCandles) : "";
     return { ...env, ...overrides };
 }
 
@@ -570,19 +609,220 @@ app.post("/api/toolbox/mode", async (req, res) => {
     }
 });
 
+// ─── EDIT INSTRUMENT PARAMS — web equivalent of toolbox.js's
+// editInstrument(). Same restart-in-place mechanism as /api/toolbox/mode
+// above: fetch the process's own current values as defaults via
+// getEngineProcesses(), merge only the fields the client actually sent,
+// rebuild the FULL env through buildProcessEnv (never a partial patch —
+// see buildProcessEnv's own comment), pm2Restart. Only lots and the
+// strategy-specific fields toolbox.js's editInstrument also exposes are
+// accepted here — same scope, just reachable from the browser too.
+// Switching live/paper stays on /api/toolbox/mode above (separate
+// confirmLive requirement for going live — deliberately not folded in
+// here, so this route never needs that extra safety prompt).
+app.post("/api/toolbox/edit", async (req, res) => {
+    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles } = req.body || {};
+    if (!name) return res.status(400).json({ error: "name is required" });
+
+    try {
+        const procs = await getEngineProcesses();
+        const p = procs.find(x => x.name === name);
+        if (!p) return res.status(404).json({ error: "process not found" });
+
+        const updated = { ...p };
+
+        if (lots !== undefined && lots !== null && lots !== "") {
+            const parsedLots = Number(lots);
+            if (!Number.isFinite(parsedLots) || parsedLots <= 0) return res.status(400).json({ error: "invalid lots value" });
+            updated.lots = parsedLots;
+        }
+
+        // "0"/"clear" (string) resets to unset, same convention
+        // toolbox.js's editInstrument prompts use for these fields.
+        if (targetPoints !== undefined) {
+            if (targetPoints === null || targetPoints === "" || targetPoints === "0" || targetPoints === "clear") {
+                updated.targetPoints = null;
+            } else {
+                const parsedTarget = Number(targetPoints);
+                if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) return res.status(400).json({ error: "invalid targetPoints value" });
+                updated.targetPoints = parsedTarget;
+            }
+        }
+        if (targetMode !== undefined) updated.targetMode = targetMode === "adaptive" ? "adaptive" : "fixed";
+        if (updated.targetPoints !== null) updated.targetMode = "fixed"; // fixed points always wins, same rule as toolbox.js
+
+        if (bandStep !== undefined) {
+            if (bandStep === null || bandStep === "" || bandStep === "0" || bandStep === "clear") {
+                updated.bandStep = null;
+            } else {
+                const parsedStep = Number(bandStep);
+                if (!Number.isFinite(parsedStep) || parsedStep <= 0) return res.status(400).json({ error: "invalid bandStep value" });
+                updated.bandStep = parsedStep;
+            }
+        }
+        if (greyExitEnabled !== undefined) updated.greyExitEnabled = !!greyExitEnabled;
+        if (almaBandEnabled !== undefined) updated.almaBandEnabled = !!almaBandEnabled;
+        if (almaChopFilterEnabled !== undefined) updated.almaChopFilterEnabled = !!almaChopFilterEnabled;
+        if (disableDoubleOrders !== undefined) updated.disableDoubleOrders = !!disableDoubleOrders;
+        if (atrSlMult !== undefined) {
+            if (atrSlMult === null || atrSlMult === "" || atrSlMult === "0" || atrSlMult === "clear") {
+                updated.atrSlMult = null;
+            } else {
+                const parsedAtrMult = Number(atrSlMult);
+                if (!Number.isFinite(parsedAtrMult) || parsedAtrMult <= 0) return res.status(400).json({ error: "invalid atrSlMult value" });
+                updated.atrSlMult = parsedAtrMult;
+            }
+        }
+        if (flipConfirmCandles !== undefined) {
+            if (flipConfirmCandles === null || flipConfirmCandles === "" || flipConfirmCandles === "0" || flipConfirmCandles === "clear") {
+                updated.flipConfirmCandles = null;
+            } else {
+                const parsedConfirm = Number(flipConfirmCandles);
+                if (!Number.isInteger(parsedConfirm) || parsedConfirm < 1) return res.status(400).json({ error: "invalid flipConfirmCandles value" });
+                updated.flipConfirmCandles = parsedConfirm;
+            }
+        }
+        if (volumeFilterEnabled !== undefined) updated.volumeFilterEnabled = !!volumeFilterEnabled;
+        if (volumeSmaPeriod !== undefined) {
+            if (volumeSmaPeriod === null || volumeSmaPeriod === "" || volumeSmaPeriod === "0" || volumeSmaPeriod === "clear") {
+                updated.volumeSmaPeriod = null;
+            } else {
+                const parsedVolPeriod = Number(volumeSmaPeriod);
+                if (!Number.isFinite(parsedVolPeriod) || parsedVolPeriod <= 0) return res.status(400).json({ error: "invalid volumeSmaPeriod value" });
+                updated.volumeSmaPeriod = parsedVolPeriod;
+            }
+        }
+        if (longCandleFilterEnabled !== undefined) updated.longCandleFilterEnabled = !!longCandleFilterEnabled;
+        if (longCandleAtrPeriod !== undefined) {
+            if (longCandleAtrPeriod === null || longCandleAtrPeriod === "" || longCandleAtrPeriod === "0" || longCandleAtrPeriod === "clear") {
+                updated.longCandleAtrPeriod = null;
+            } else {
+                const parsedLcPeriod = Number(longCandleAtrPeriod);
+                if (!Number.isFinite(parsedLcPeriod) || parsedLcPeriod <= 0) return res.status(400).json({ error: "invalid longCandleAtrPeriod value" });
+                updated.longCandleAtrPeriod = parsedLcPeriod;
+            }
+        }
+        if (longCandleAtrMult !== undefined) {
+            if (longCandleAtrMult === null || longCandleAtrMult === "" || longCandleAtrMult === "0" || longCandleAtrMult === "clear") {
+                updated.longCandleAtrMult = null;
+            } else {
+                const parsedLcMult = Number(longCandleAtrMult);
+                if (!Number.isFinite(parsedLcMult) || parsedLcMult <= 0) return res.status(400).json({ error: "invalid longCandleAtrMult value" });
+                updated.longCandleAtrMult = parsedLcMult;
+            }
+        }
+        if (longCandleCooldownCandles !== undefined) {
+            if (longCandleCooldownCandles === null || longCandleCooldownCandles === "" || longCandleCooldownCandles === "clear") {
+                updated.longCandleCooldownCandles = null;
+            } else {
+                const parsedLcCooldown = Number(longCandleCooldownCandles);
+                if (!Number.isInteger(parsedLcCooldown) || parsedLcCooldown < 0) return res.status(400).json({ error: "invalid longCandleCooldownCandles value" });
+                updated.longCandleCooldownCandles = parsedLcCooldown;
+            }
+        }
+
+        if (maxDailyLoss !== undefined) {
+            if (maxDailyLoss === null || maxDailyLoss === "" || maxDailyLoss === "0" || maxDailyLoss === "clear") {
+                updated.maxDailyLoss = null;
+            } else {
+                const parsedLoss = Number(maxDailyLoss);
+                if (!Number.isFinite(parsedLoss) || parsedLoss <= 0) return res.status(400).json({ error: "invalid maxDailyLoss value" });
+                updated.maxDailyLoss = parsedLoss;
+            }
+        }
+
+        if (almaFastLen !== undefined) {
+            if (almaFastLen === null || almaFastLen === "" || almaFastLen === "0" || almaFastLen === "clear") {
+                updated.almaFastLen = null;
+            } else {
+                const parsedFastLen = Number(almaFastLen);
+                if (!Number.isFinite(parsedFastLen) || parsedFastLen <= 0) return res.status(400).json({ error: "invalid almaFastLen value" });
+                updated.almaFastLen = parsedFastLen;
+            }
+        }
+        if (almaBandLen !== undefined) {
+            if (almaBandLen === null || almaBandLen === "" || almaBandLen === "0" || almaBandLen === "clear") {
+                updated.almaBandLen = null;
+            } else {
+                const parsedBandLen = Number(almaBandLen);
+                if (!Number.isFinite(parsedBandLen) || parsedBandLen <= 0) return res.status(400).json({ error: "invalid almaBandLen value" });
+                updated.almaBandLen = parsedBandLen;
+            }
+        }
+
+        await pm2RestartWithConfig({
+            script: "engine.js",
+            name: p.name,
+            cwd: ROOT,
+            updateEnv: true,
+            stop_exit_codes: [0],
+            env: buildProcessEnv(updated),
+        });
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ─── ADD INSTRUMENT — same discovery + resolve + start path as
 // toolbox.js's addInstrument/configureAndStartInstrument. ──────────────────
-app.get("/api/toolbox/strategies", (req, res) => {
+app.get("/api/toolbox/strategies", async (req, res) => {
+    // Merges hardcoded STRATEGIES with user-built strategies saved via the
+    // strategy builder (custom_strategies.db) — same either/or resolution
+    // signals.js's createSignals() does at deploy time. Only strategies
+    // with entry conditions saved (steps 5+ done) are listed — an
+    // in-progress custom strategy shouldn't show as deployable.
+    const customStrategies = (await customStrategyDb.listStrategies()).filter(s => s.entryLong || s.entryShort);
     res.json({
         default: DEFAULT_STRATEGY,
-        strategies: Object.keys(STRATEGIES).map(key => ({
-            key,
-            label: (STRATEGY_INFO[key] || {}).label || key,
-            description: (STRATEGY_INFO[key] || {}).description || "",
-            timeframe: STRATEGY_TIMEFRAME[key] || "15m",
-        })),
+        strategies: [
+            ...Object.keys(STRATEGIES).map(key => ({
+                key,
+                label: (STRATEGY_INFO[key] || {}).label || key,
+                description: (STRATEGY_INFO[key] || {}).description || "",
+                timeframe: STRATEGY_TIMEFRAME[key] || "15m",
+                custom: false,
+            })),
+            ...customStrategies.map(s => ({
+                key: s.name,
+                label: s.name,
+                description: `${s.candleType} \u00b7 ${s.timeframe} \u00b7 ${s.indicators.map(i => i.type).join("+")}`,
+                timeframe: s.timeframe,
+                custom: true,
+            })),
+        ],
         timeframes: Object.keys(TIMEFRAME_TO_INTERVAL),
     });
+});
+
+// ─── STRATEGY BUILDER — indicator catalog + CRUD for custom strategies,
+// consumed by the builder wizard modal in public/strategyBuilder.js. Same
+// custom_strategies.db the toolbox "U" wizard writes to — a strategy built
+// in either place is deployable from both, since /api/toolbox/strategies
+// above and toolbox.js's addInstrument() both read the same table. ────────
+app.get("/api/strategy-builder/indicators", (req, res) => {
+    res.json({ indicators: INDICATOR_CATALOG });
+});
+
+app.get("/api/strategy-builder/custom-strategies", async (req, res) => {
+    try {
+        res.json({ strategies: await customStrategyDb.listStrategies() });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post("/api/strategy-builder/custom-strategies", async (req, res) => {
+    const { name, candleType, timeframe, indicators, entryLong, entryShort, exitConfig } = req.body || {};
+    if (!name || !candleType || !timeframe || !Array.isArray(indicators) || indicators.length === 0) {
+        return res.status(400).json({ error: "name, candleType, timeframe, and at least one indicator are required" });
+    }
+    try {
+        const id = await customStrategyDb.saveStrategy({ name, candleType, timeframe, indicators, entryLong, entryShort, exitConfig });
+        res.json({ id, name });
+    } catch (err) {
+        res.status(400).json({ error: err.message.includes("UNIQUE") ? "a strategy named that already exists" : err.message });
+    }
 });
 
 app.get("/api/toolbox/instruments", async (req, res) => {
@@ -623,7 +863,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, almaBandEnabled, almaFastLen, almaBandLen, bandStep, greyExitEnabled,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -631,8 +871,27 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         return res.status(400).json({ error: 'switching to LIVE requires confirmLive: "LIVE" (typed, not assumed)' });
     }
 
-    const stratKey = strategy && STRATEGIES[strategy] ? strategy : DEFAULT_STRATEGY;
-    const tf = timeframe || STRATEGY_TIMEFRAME[stratKey] || "15m";
+    // CHANGED: strategy could now be a custom strategy name, not just a
+    // STRATEGIES key — silently falling back to DEFAULT_STRATEGY on an
+    // unrecognized-but-custom name would deploy the WRONG strategy without
+    // any error, so this now checks customStrategyDb before deciding it's
+    // actually unknown (as opposed to just "not hardcoded").
+    let stratKey = DEFAULT_STRATEGY;
+    let customStratTimeframe = null;
+    if (strategy) {
+        if (STRATEGIES[strategy]) {
+            stratKey = strategy;
+        } else {
+            const custom = await customStrategyDb.getStrategyByName(strategy);
+            if (custom && (custom.entryLong || custom.entryShort)) {
+                stratKey = strategy;
+                customStratTimeframe = custom.timeframe;
+            } else {
+                return res.status(400).json({ error: `unknown strategy "${strategy}"` });
+            }
+        }
+    }
+    const tf = timeframe || customStratTimeframe || STRATEGY_TIMEFRAME[stratKey] || "15m";
     const lotsVal = lots !== undefined && lots !== null && lots !== "" ? Number(lots) : 1;
     if (!Number.isFinite(lotsVal) || lotsVal <= 0) return res.status(400).json({ error: "invalid lots value" });
 
@@ -676,15 +935,60 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         if (targetPoints !== undefined && targetPoints !== null && targetPoints !== "") {
             const parsedTarget = Number(targetPoints);
             if (Number.isFinite(parsedTarget) && parsedTarget > 0) env.TARGET_POINTS_OVERRIDE = String(parsedTarget);
+        } else if (targetMode === "adaptive") {
+            env.TARGET_MODE_OVERRIDE = "adaptive";
         }
         if (stratKey === "ALMA_PRO_FAST" && almaBandEnabled === false) env.ALMA_BAND_OVERRIDE = "false";
-        if (stratKey === "ALMA_PRO_FAST" && almaFastLen) env.ALMA_FAST_LEN_OVERRIDE = String(almaFastLen);
-        if (stratKey === "ALMA_PRO_FAST" && almaBandLen) env.ALMA_BAND_LEN_OVERRIDE = String(almaBandLen);
+        if (stratKey === "ALMA_PRO_FAST" && almaFastLen !== undefined && almaFastLen !== null && almaFastLen !== "") {
+            const parsedFastLen = Number(almaFastLen);
+            if (Number.isFinite(parsedFastLen) && parsedFastLen > 0) env.ALMA_FAST_LEN_OVERRIDE = String(parsedFastLen);
+        }
+        if (stratKey === "ALMA_PRO_FAST" && almaBandLen !== undefined && almaBandLen !== null && almaBandLen !== "") {
+            const parsedBandLen = Number(almaBandLen);
+            if (Number.isFinite(parsedBandLen) && parsedBandLen > 0) env.ALMA_BAND_LEN_OVERRIDE = String(parsedBandLen);
+        }
+        if ((stratKey === "ALMA_PRO_FAST" || stratKey === "ALMA_PRO_SLOW") && almaChopFilterEnabled === false) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
+        if (maxDailyLoss !== undefined && maxDailyLoss !== null && maxDailyLoss !== "") {
+            const parsedLoss = Number(maxDailyLoss);
+            if (Number.isFinite(parsedLoss) && parsedLoss > 0) env.MAX_DAILY_LOSS_OVERRIDE = String(parsedLoss);
+        }
         if ((stratKey === "DYNAMIC_BAND" || stratKey === "DYNAMIC_MID_COLOR" || stratKey === "DYNAMIC_MID_COLOR_HL") && bandStep !== undefined && bandStep !== null && bandStep !== "") {
             const parsedStep = Number(bandStep);
             if (Number.isFinite(parsedStep) && parsedStep > 0) env.BAND_STEP_OVERRIDE = String(parsedStep);
         }
         if (stratKey === "ALMA_TRI_BAND" && greyExitEnabled !== undefined) env.GREY_EXIT_OVERRIDE = String(!!greyExitEnabled);
+        // Always written explicitly (both true AND false), same
+        // write-asymmetry reasoning as the other toggles above — unset
+        // means OFF/allowed at runtime, which is also the correct default
+        // here, but writing it explicitly avoids the same class of bug
+        // "only write when non-default" would risk elsewhere.
+        env.DISABLE_DOUBLE_ORDERS_OVERRIDE = String(!!disableDoubleOrders);
+        if (atrSlMult !== undefined && atrSlMult !== null && atrSlMult !== "") {
+            const parsedAtrMult = Number(atrSlMult);
+            if (Number.isFinite(parsedAtrMult) && parsedAtrMult > 0) env.ATR_SL_MULT_OVERRIDE = String(parsedAtrMult);
+        }
+        if (stratKey === "PURE_HA" && flipConfirmCandles !== undefined && flipConfirmCandles !== null && flipConfirmCandles !== "") {
+            const parsedConfirm = Number(flipConfirmCandles);
+            if (Number.isInteger(parsedConfirm) && parsedConfirm >= 1) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(parsedConfirm);
+        }
+        env.VOLUME_FILTER_OVERRIDE = String(!!volumeFilterEnabled);
+        if (volumeSmaPeriod !== undefined && volumeSmaPeriod !== null && volumeSmaPeriod !== "") {
+            const parsedVolPeriod = Number(volumeSmaPeriod);
+            if (Number.isFinite(parsedVolPeriod) && parsedVolPeriod > 0) env.VOLUME_SMA_PERIOD_OVERRIDE = String(parsedVolPeriod);
+        }
+        env.LONG_CANDLE_FILTER_OVERRIDE = longCandleFilterEnabled === false ? "false" : "true";
+        if (longCandleAtrPeriod !== undefined && longCandleAtrPeriod !== null && longCandleAtrPeriod !== "") {
+            const parsedLcPeriod = Number(longCandleAtrPeriod);
+            if (Number.isFinite(parsedLcPeriod) && parsedLcPeriod > 0) env.LONG_CANDLE_ATR_PERIOD_OVERRIDE = String(parsedLcPeriod);
+        }
+        if (longCandleAtrMult !== undefined && longCandleAtrMult !== null && longCandleAtrMult !== "") {
+            const parsedLcMult = Number(longCandleAtrMult);
+            if (Number.isFinite(parsedLcMult) && parsedLcMult > 0) env.LONG_CANDLE_ATR_MULT_OVERRIDE = String(parsedLcMult);
+        }
+        if (longCandleCooldownCandles !== undefined && longCandleCooldownCandles !== null && longCandleCooldownCandles !== "") {
+            const parsedLcCooldown = Number(longCandleCooldownCandles);
+            if (Number.isInteger(parsedLcCooldown) && parsedLcCooldown >= 0) env.LONG_CANDLE_COOLDOWN_OVERRIDE = String(parsedLcCooldown);
+        }
 
         await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name, cwd: ROOT, env });
         res.json({ ok: true, name, strategy: stratKey, timeframe: tf, live: !!live, carryOvernight: !!carryOvernight, lotMult });

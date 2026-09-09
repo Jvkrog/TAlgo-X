@@ -406,12 +406,21 @@ async function renderMenu() {
     return procs;
 }
 
-// pm2.restart(..., updateEnv:true, env:{...}) REPLACES the process's entire
-// env with whatever's passed — it does not merge. Passing a partial env
-// (e.g. only LIVE_ORDERS_OVERRIDE) silently wipes UNDERLYING and any other
-// override, which is exactly what caused a toggled instrument to vanish
-// from the menu and risked silently falling back to the default instrument.
-// Every restart call rebuilds the FULL env from here, never a partial one.
+// pm2.restart(..., updateEnv:true, env:{...}) was believed to REPLACE the
+// process's entire env with whatever's passed. In practice it merges into
+// the process's EXISTING env instead — a key left out of the object here
+// simply keeps whatever value that process already had from an earlier
+// restart, it does not revert to "unset". That's a real, reported bug: a
+// value cleared in Edit Params (target, max daily loss, ...) kept showing
+// its old value in the boot banner after restart, because omitting the
+// key here never actually removed it from the running process. So every
+// field below is now ALWAYS written explicitly — a real value, or "" to
+// clear — never conditionally omitted; every engine.js reader already
+// treats "" the same as unset. Passing a partial env (e.g. only
+// LIVE_ORDERS_OVERRIDE) is still exactly as unsafe as the original bug
+// this comment used to describe — it just silently keeps stale values
+// now instead of wiping good ones. Every restart call still rebuilds the
+// FULL env from here, never a partial one.
 function buildProcessEnv(p, overrides = {}) {
     const env = {
         UNDERLYING: p.underlying,
@@ -429,21 +438,33 @@ function buildProcessEnv(p, overrides = {}) {
         // touching this exact function.
         EXCHANGE_OVERRIDE: p.exchange || "MCX",
     };
-    if (p.lots !== "default") env.LOTS_OVERRIDE = String(p.lots);
-    if (p.lotMult) env.LOTMULT_OVERRIDE = String(p.lotMult);
-    if (p.targetPoints) env.TARGET_POINTS_OVERRIDE = String(p.targetPoints);
-    // Only meaningful when targetPoints is unset (adaptive picks its own
-    // points per-position — see adaptiveTarget.js); still written whenever
-    // set regardless, same as every other *_OVERRIDE here, so a restart
-    // through toggleMode()/editInstrument() never silently drops it back
-    // to engine.js's "fixed" default.
-    if (p.targetMode === "adaptive") env.TARGET_MODE_OVERRIDE = "adaptive";
-    if ((p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL") && p.bandStep) env.BAND_STEP_OVERRIDE = String(p.bandStep);
-    if (p.strategy === "ALMA_TRI_BAND" && p.greyExitEnabled !== null && p.greyExitEnabled !== undefined) env.GREY_EXIT_OVERRIDE = String(p.greyExitEnabled);
-    if (p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false) env.ALMA_BAND_OVERRIDE = "false";
-    if (p.strategy === "ALMA_PRO_FAST" && p.almaFastLen) env.ALMA_FAST_LEN_OVERRIDE = String(p.almaFastLen);
-    if (p.strategy === "ALMA_PRO_FAST" && p.almaBandLen) env.ALMA_BAND_LEN_OVERRIDE = String(p.almaBandLen);
-    if ((p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && p.almaChopFilterEnabled === false) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
+    // Every field below is now ALWAYS written explicitly (numeric string or
+    // "" to clear), never conditionally omitted — omitting a key here does
+    // NOT reliably clear it. pm2.restart(..., updateEnv:true, env:{...})
+    // was assumed (see this function's header comment) to fully replace the
+    // process's env, but empirically it merges into the existing pm2_env
+    // instead — a key left out of this object simply keeps whatever value
+    // the process already had from an earlier restart. That's exactly what
+    // was reported: target/max daily loss cleared in Edit Params, restarted,
+    // and the boot banner still showed the old values, because the old
+    // MAX_DAILY_LOSS_OVERRIDE/TARGET_MODE_OVERRIDE never actually left the
+    // process's env — this function just stopped re-asserting them. Every
+    // engine.js reader for these already treats "" the same as absent
+    // (see its own `!== undefined && !== ""` checks, or a bare truthy
+    // check for LOTS_OVERRIDE/LOTMULT_OVERRIDE — "" is falsy either way),
+    // so writing "" here is a real, effective clear, not a workaround.
+    env.LOTS_OVERRIDE = p.lots !== "default" ? String(p.lots) : "";
+    env.LOTMULT_OVERRIDE = p.lotMult ? String(p.lotMult) : "";
+    env.TARGET_POINTS_OVERRIDE = p.targetPoints ? String(p.targetPoints) : "";
+    // "adaptive" or "" (cleared/fixed) — same reasoning, was previously
+    // only ever written as "adaptive" and never explicitly cleared.
+    env.TARGET_MODE_OVERRIDE = p.targetMode === "adaptive" ? "adaptive" : "";
+    env.BAND_STEP_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL") && p.bandStep ? String(p.bandStep) : "";
+    env.GREY_EXIT_OVERRIDE = p.strategy === "ALMA_TRI_BAND" && p.greyExitEnabled !== null && p.greyExitEnabled !== undefined ? String(p.greyExitEnabled) : "";
+    env.ALMA_BAND_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false ? "false" : "";
+    env.ALMA_FAST_LEN_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaFastLen ? String(p.almaFastLen) : "";
+    env.ALMA_BAND_LEN_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaBandLen ? String(p.almaBandLen) : "";
+    env.ALMA_CHOP_FILTER_OVERRIDE = (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && p.almaChopFilterEnabled === false ? "false" : "";
     if (p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW") {
         // Always written explicitly (both true AND false), not just when
         // disabling — an unset env var means OFF at runtime (isChopBlocked
@@ -452,32 +473,32 @@ function buildProcessEnv(p, overrides = {}) {
         // this prompt's own "default: Y" if a blank/Y answer just left the
         // env var unset instead of writing "true".
         env.CHOP_FILTER_OVERRIDE = p.chopFilterEnabled === false ? "false" : "true";
-        if (p.chopPeriod) env.CHOP_PERIOD_OVERRIDE = String(p.chopPeriod);
-        if (p.chopMax) env.CHOP_MAX_OVERRIDE = String(p.chopMax);
+        env.CHOP_PERIOD_OVERRIDE = p.chopPeriod ? String(p.chopPeriod) : "";
+        env.CHOP_MAX_OVERRIDE = p.chopMax ? String(p.chopMax) : "";
     }
     // Double-order gate — always written explicitly (both true AND false),
     // same "unset is ambiguous" reasoning as CHOP_FILTER_OVERRIDE above.
     // Default false = allowed, matching context.js's own default.
     env.DISABLE_DOUBLE_ORDERS_OVERRIDE = p.disableDoubleOrders === true ? "true" : "false";
-    if (p.maxDailyLoss) env.MAX_DAILY_LOSS_OVERRIDE = String(p.maxDailyLoss);
-    if (p.sessionTargetRupees) env.SESSION_TARGET_OVERRIDE = String(p.sessionTargetRupees);
+    env.MAX_DAILY_LOSS_OVERRIDE = p.maxDailyLoss ? String(p.maxDailyLoss) : "";
+    env.SESSION_TARGET_OVERRIDE = p.sessionTargetRupees ? String(p.sessionTargetRupees) : "";
     // Universal (unread by strategies with no ATR trail at all).
-    if (p.atrSlMult) env.ATR_SL_MULT_OVERRIDE = String(p.atrSlMult);
-    // PURE_HA only, but harmless to always write when set regardless of
-    // p.strategy — every other strategy simply never reads it.
-    if (p.flipConfirmCandles) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(p.flipConfirmCandles);
+    env.ATR_SL_MULT_OVERRIDE = p.atrSlMult ? String(p.atrSlMult) : "";
+    // PURE_HA only, but harmless to always write regardless of p.strategy —
+    // every other strategy simply never reads it.
+    env.FLIP_CONFIRM_CANDLES_OVERRIDE = p.flipConfirmCandles ? String(p.flipConfirmCandles) : "";
     // Universal, always written explicitly (both true AND false), same
     // "unset is ambiguous" reasoning as CHOP_FILTER_OVERRIDE.
     env.VOLUME_FILTER_OVERRIDE = p.volumeFilterEnabled === true ? "true" : "false";
-    if (p.volumeSmaPeriod) env.VOLUME_SMA_PERIOD_OVERRIDE = String(p.volumeSmaPeriod);
+    env.VOLUME_SMA_PERIOD_OVERRIDE = p.volumeSmaPeriod ? String(p.volumeSmaPeriod) : "";
     // On by default (unlike every other gate above) — always written
     // explicitly, same write-asymmetry reasoning as CHOP_FILTER_OVERRIDE.
     env.LONG_CANDLE_FILTER_OVERRIDE = p.longCandleFilterEnabled === false ? "false" : "true";
-    if (p.longCandleAtrPeriod) env.LONG_CANDLE_ATR_PERIOD_OVERRIDE = String(p.longCandleAtrPeriod);
-    if (p.longCandleAtrMult) env.LONG_CANDLE_ATR_MULT_OVERRIDE = String(p.longCandleAtrMult);
-    if (p.longCandleCooldownCandles !== null && p.longCandleCooldownCandles !== undefined) env.LONG_CANDLE_COOLDOWN_OVERRIDE = String(p.longCandleCooldownCandles);
+    env.LONG_CANDLE_ATR_PERIOD_OVERRIDE = p.longCandleAtrPeriod ? String(p.longCandleAtrPeriod) : "";
+    env.LONG_CANDLE_ATR_MULT_OVERRIDE = p.longCandleAtrMult ? String(p.longCandleAtrMult) : "";
+    env.LONG_CANDLE_COOLDOWN_OVERRIDE = (p.longCandleCooldownCandles !== null && p.longCandleCooldownCandles !== undefined) ? String(p.longCandleCooldownCandles) : "";
     env.LONG_CANDLE_BODY_FILTER_OVERRIDE = p.longCandleUseBodyFilter === true ? "true" : "false";
-    if (p.longCandleBodyAtrMult) env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE = String(p.longCandleBodyAtrMult);
+    env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE = p.longCandleBodyAtrMult ? String(p.longCandleBodyAtrMult) : "";
     return { ...env, ...overrides };
 }
 
