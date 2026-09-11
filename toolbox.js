@@ -156,6 +156,10 @@ async function getEngineProcesses() {
             longCandleCooldownCandles: p.pm2_env.env?.LONG_CANDLE_COOLDOWN_OVERRIDE !== undefined && p.pm2_env.env.LONG_CANDLE_COOLDOWN_OVERRIDE !== "" ? Number(p.pm2_env.env.LONG_CANDLE_COOLDOWN_OVERRIDE) : null,
             longCandleUseBodyFilter: p.pm2_env.env?.LONG_CANDLE_BODY_FILTER_OVERRIDE === "true",
             longCandleBodyAtrMult: p.pm2_env.env?.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE ? Number(p.pm2_env.env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE) : null,
+            htfGateEnabled: p.pm2_env.env?.HTF_GATE_ENABLED_OVERRIDE !== undefined ? p.pm2_env.env.HTF_GATE_ENABLED_OVERRIDE === "true" : true,
+            htfTimeframe: p.pm2_env.env?.HTF_TIMEFRAME_OVERRIDE || null,
+            htfChopPeriod: p.pm2_env.env?.HTF_CHOP_PERIOD_OVERRIDE ? Number(p.pm2_env.env.HTF_CHOP_PERIOD_OVERRIDE) : null,
+            htfChopMax: p.pm2_env.env?.HTF_CHOP_MAX_OVERRIDE ? Number(p.pm2_env.env.HTF_CHOP_MAX_OVERRIDE) : null,
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -499,6 +503,12 @@ function buildProcessEnv(p, overrides = {}) {
     env.LONG_CANDLE_COOLDOWN_OVERRIDE = (p.longCandleCooldownCandles !== null && p.longCandleCooldownCandles !== undefined) ? String(p.longCandleCooldownCandles) : "";
     env.LONG_CANDLE_BODY_FILTER_OVERRIDE = p.longCandleUseBodyFilter === true ? "true" : "false";
     env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE = p.longCandleBodyAtrMult ? String(p.longCandleBodyAtrMult) : "";
+    // htfGate.js — on by default, always written explicitly (both true AND
+    // false), same write-asymmetry reasoning as LONG_CANDLE_FILTER_OVERRIDE.
+    env.HTF_GATE_ENABLED_OVERRIDE = p.htfGateEnabled === false ? "false" : "true";
+    env.HTF_TIMEFRAME_OVERRIDE = p.htfTimeframe || "";
+    env.HTF_CHOP_PERIOD_OVERRIDE = p.htfChopPeriod ? String(p.htfChopPeriod) : "";
+    env.HTF_CHOP_MAX_OVERRIDE = p.htfChopMax ? String(p.htfChopMax) : "";
     return { ...env, ...overrides };
 }
 
@@ -1041,6 +1051,47 @@ async function riskManagement(procs) {
             console.log(c.dim(`  long-candle filter off — entries will NOT be blocked after abnormally large candles`));
         }
 
+        // htfGate.js's universal higher-timeframe confirmation gate — ON
+        // by default (opt-out, same posture as the long-candle filter
+        // above — see htfGate.js's header for the exact condition).
+        const htfGateDefault = p.htfGateEnabled !== false;
+        const htfGateInput = (await ask(`  block entries when a higher timeframe is trending but hasn't broken its own ALMA band? [Y/n] (current: ${htfGateDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+        let htfGateEnabled = p.htfGateEnabled;
+        if (htfGateInput) htfGateEnabled = htfGateInput !== "N";
+        let htfTimeframe = p.htfTimeframe;
+        let htfChopPeriod = p.htfChopPeriod;
+        let htfChopMax = p.htfChopMax;
+        if (htfGateEnabled) {
+            const htfTfDefault = htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT;
+            const htfTfInput = (await ask(`  higher timeframe, 1h or 1d (current: ${htfTfDefault}, blank = keep): `)).trim().toLowerCase();
+            if (htfTfInput) {
+                if (htfTfInput === "1h" || htfTfInput === "1d") htfTimeframe = htfTfInput;
+                else console.log(c.yellow(`  "${htfTfInput}" isn't "1h" or "1d" — left unchanged (${htfTfDefault})`));
+            }
+            const htfPeriodDefault = htfChopPeriod !== null ? String(htfChopPeriod) : `${engineConfig.HTF_CHOP_LEN_DEFAULT} (default)`;
+            const htfPeriodInput = (await ask(`  higher-timeframe Choppiness Index period (current: ${htfPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+            if (htfPeriodInput) {
+                if (htfPeriodInput === "0" || htfPeriodInput.toLowerCase() === "clear") htfChopPeriod = null;
+                else {
+                    const parsed = Number(htfPeriodInput);
+                    if (Number.isFinite(parsed) && parsed > 0) htfChopPeriod = parsed;
+                    else console.log(c.yellow(`  "${htfPeriodInput}" isn't a valid positive number — period left unchanged (${htfPeriodDefault})`));
+                }
+            }
+            const htfMaxDefault = htfChopMax !== null ? String(htfChopMax) : `${engineConfig.HTF_CHOP_MAX_DEFAULT} (default)`;
+            const htfMaxInput = (await ask(`  higher-timeframe Choppiness Index max threshold, blocks below this (current: ${htfMaxDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+            if (htfMaxInput) {
+                if (htfMaxInput === "0" || htfMaxInput.toLowerCase() === "clear") htfChopMax = null;
+                else {
+                    const parsed = Number(htfMaxInput);
+                    if (Number.isFinite(parsed) && parsed > 0) htfChopMax = parsed;
+                    else console.log(c.yellow(`  "${htfMaxInput}" isn't a valid positive number — max threshold left unchanged (${htfMaxDefault})`));
+                }
+            }
+        } else {
+            console.log(c.dim(`  HTF gate off — entries will NOT be blocked by the higher-timeframe check`));
+        }
+
         // Max daily loss circuit breaker — universal, every strategy.
         const maxDailyLossDefault = p.maxDailyLoss !== null ? String(p.maxDailyLoss) : "none";
         const maxDailyLossInput = (await ask(`  max daily loss in rupees (current: ${maxDailyLossDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
@@ -1058,7 +1109,7 @@ async function riskManagement(procs) {
             }
         }
 
-        const updatedP = { ...p, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, longCandleUseBodyFilter, longCandleBodyAtrMult, maxDailyLoss };
+        const updatedP = { ...p, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, longCandleUseBodyFilter, longCandleBodyAtrMult, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, maxDailyLoss };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -1072,8 +1123,9 @@ async function riskManagement(procs) {
             const flipTag = p.strategy === "PURE_HA" ? c.dim(` flip:${flipConfirmCandles ?? 1}`) : "";
             const volTag = volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
             const lcTag = longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
+            const htfTag = htfGateEnabled ? c.dim(` htf:${htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}`) : c.yellow(" htf:off");
             const lossTag = maxDailyLoss !== null ? c.dim(` maxloss:-₹${maxDailyLoss}`) : "";
-            console.log(c.green(`  ${p.underlying} risk settings updated${chopTag}${doubleTag}${atrTag}${flipTag}${volTag}${lcTag}${lossTag} (restarted)`));
+            console.log(c.green(`  ${p.underlying} risk settings updated${chopTag}${doubleTag}${atrTag}${flipTag}${volTag}${lcTag}${htfTag}${lossTag} (restarted)`));
         } catch (err) {
             console.log(c.red(`  failed to update ${p.underlying}: ${err.message}`));
         }
@@ -1453,6 +1505,35 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         console.log(c.dim(`  long-candle filter off — entries will NOT be blocked after abnormally large candles`));
     }
 
+    // htfGate.js's universal higher-timeframe confirmation gate — ON by
+    // default (opt-out, same posture as the long-candle filter above).
+    const htfGateInput = (await ask(`  block entries when a higher timeframe is trending but hasn't broken its own ALMA band? [Y/n] (default: Y): `)).trim().toUpperCase();
+    const htfGateEnabled = htfGateInput !== "N";
+    let htfTimeframe = null;
+    let htfChopPeriod = null;
+    let htfChopMax = null;
+    if (htfGateEnabled) {
+        const htfTfInput = (await ask(`  higher timeframe, 1h or 1d (blank = default ${engineConfig.HTF_GATE_TIMEFRAME_DEFAULT}): `)).trim().toLowerCase();
+        if (htfTfInput) {
+            if (htfTfInput === "1h" || htfTfInput === "1d") htfTimeframe = htfTfInput;
+            else console.log(c.yellow(`  "${htfTfInput}" isn't "1h" or "1d" — using default (${engineConfig.HTF_GATE_TIMEFRAME_DEFAULT})`));
+        }
+        const htfPeriodInput = (await ask(`  higher-timeframe Choppiness Index period (blank = default ${engineConfig.HTF_CHOP_LEN_DEFAULT}): `)).trim();
+        if (htfPeriodInput) {
+            const parsed = Number(htfPeriodInput);
+            if (Number.isFinite(parsed) && parsed > 0) htfChopPeriod = parsed;
+            else console.log(c.yellow(`  "${htfPeriodInput}" isn't a valid positive number — using default (${engineConfig.HTF_CHOP_LEN_DEFAULT})`));
+        }
+        const htfMaxInput = (await ask(`  higher-timeframe Choppiness Index max threshold, blocks below this (blank = default ${engineConfig.HTF_CHOP_MAX_DEFAULT}): `)).trim();
+        if (htfMaxInput) {
+            const parsed = Number(htfMaxInput);
+            if (Number.isFinite(parsed) && parsed > 0) htfChopMax = parsed;
+            else console.log(c.yellow(`  "${htfMaxInput}" isn't a valid positive number — using default (${engineConfig.HTF_CHOP_MAX_DEFAULT})`));
+        }
+    } else {
+        console.log(c.dim(`  HTF gate off — entries will NOT be blocked by the higher-timeframe check`));
+    }
+
     // Max daily loss circuit breaker — universal, every strategy. Blank =
     // disabled, no floor (today's original behavior). Once today's
     // cumulative realized P&L drops to or below -this amount, candlePoll.js's
@@ -1571,6 +1652,10 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (longCandleCooldownCandles !== null) env.LONG_CANDLE_COOLDOWN_OVERRIDE = String(longCandleCooldownCandles);
     env.LONG_CANDLE_BODY_FILTER_OVERRIDE = longCandleUseBodyFilter ? "true" : "false";
     if (longCandleBodyAtrMult !== null) env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE = String(longCandleBodyAtrMult);
+    env.HTF_GATE_ENABLED_OVERRIDE = htfGateEnabled ? "true" : "false";
+    if (htfTimeframe !== null) env.HTF_TIMEFRAME_OVERRIDE = htfTimeframe;
+    if (htfChopPeriod !== null) env.HTF_CHOP_PERIOD_OVERRIDE = String(htfChopPeriod);
+    if (htfChopMax !== null) env.HTF_CHOP_MAX_OVERRIDE = String(htfChopMax);
     if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
     if (strategy === "ALMA_TRI_BAND" && greyExitEnabled !== null) env.GREY_EXIT_OVERRIDE = String(greyExitEnabled);
     if (maxDailyLoss !== null) env.MAX_DAILY_LOSS_OVERRIDE = String(maxDailyLoss);
@@ -1591,7 +1676,8 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const maxLossTag = maxDailyLoss !== null ? c.yellow(` maxLoss:-₹${maxDailyLoss}`) : "";
         const volTag = volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
         const lcTag = longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
-        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${almaLenTag}${almaChopTag}${vdChopTag}${bandStepTag}${greyExitTag}${volTag}${lcTag}${maxLossTag}`));
+        const htfTag = htfGateEnabled ? c.dim(` htf:${htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}`) : c.yellow(" htf:off");
+        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${almaLenTag}${almaChopTag}${vdChopTag}${bandStepTag}${greyExitTag}${volTag}${lcTag}${htfTag}${maxLossTag}`));
     } catch (err) {
         console.log(c.red(`  failed to start ${name}: ${err.message}`));
     }

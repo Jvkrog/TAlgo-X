@@ -108,9 +108,16 @@ async function runBacktest({ strategyKey, strategyLabel, context, timeframe, fro
 
     const slCheck = createBacktestSL({ context, engineConfig, state, slStore, orders: broker, positionsClose, db: ledger, tg });
 
+    // htfGate.js fetches LIVE data from Kite on a timer — meaningless
+    // replaying a backdated candle feed, and backtests have no live
+    // connection to fetch from anyway. Stub that never blocks, so this
+    // gate simply doesn't affect backtest results rather than crashing on
+    // a missing dependency or firing on stale/wrong data.
+    const htf = { isBlocked: async () => false };
+
     const strategy = factory({
         context, engineConfig, state, db: ledger, candles: feed, slStore, targetStore,
-        orders: broker, positionsClose, positionsUnrealised, lifecycle, tg, clock,
+        orders: broker, positionsClose, positionsUnrealised, lifecycle, tg, clock, htf,
     });
 
     await strategy.initSignals(); // ledger.loadPosition() always resolves null — always starts flat

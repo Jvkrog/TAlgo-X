@@ -21,6 +21,7 @@ const { KiteConnect, KiteTicker }     = require("kiteconnect");
 const { createTelegram }     = require("./telegram");
 const { createState }        = require("./state");
 const { createCandleBuffer } = require("./candleBuilder");
+const { createHtfGate }      = require("./htfGate");
 const { createCandleDeltaBuffer } = require("./candleDeltaBuffer");
 const { createMarketDataHealth } = require("./marketDataHealth");
 const { createSLStore }      = require("./sl");
@@ -362,6 +363,24 @@ async function main() {
     }
     console.log(c.dim(`[${context.tgPrefix}] long-candle filter: ${context.longCandleFilterEnabled ? c.yellow(`on — ATR(${context.longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}) x${context.longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}, cooldown ${context.longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT} candle(s)${context.longCandleUseBodyFilter ? `, body x${context.longCandleBodyAtrMult ?? engineConfig.LONG_CANDLE_BODY_ATR_MULT_DEFAULT}` : ""}`) : "off"}`));
 
+    // htfGate.js's universal higher-timeframe confirmation gate — on by
+    // default (see context.js's htfGateEnabled comment).
+    if (process.env.HTF_GATE_ENABLED_OVERRIDE !== undefined && process.env.HTF_GATE_ENABLED_OVERRIDE !== "") {
+        context.htfGateEnabled = process.env.HTF_GATE_ENABLED_OVERRIDE === "true";
+    }
+    if (process.env.HTF_TIMEFRAME_OVERRIDE !== undefined && process.env.HTF_TIMEFRAME_OVERRIDE !== "") {
+        context.htfTimeframe = process.env.HTF_TIMEFRAME_OVERRIDE;
+    }
+    if (process.env.HTF_CHOP_PERIOD_OVERRIDE !== undefined && process.env.HTF_CHOP_PERIOD_OVERRIDE !== "") {
+        const parsedHtfPeriod = Number(process.env.HTF_CHOP_PERIOD_OVERRIDE);
+        context.htfChopPeriod = Number.isFinite(parsedHtfPeriod) && parsedHtfPeriod > 0 ? parsedHtfPeriod : null;
+    }
+    if (process.env.HTF_CHOP_MAX_OVERRIDE !== undefined && process.env.HTF_CHOP_MAX_OVERRIDE !== "") {
+        const parsedHtfMax = Number(process.env.HTF_CHOP_MAX_OVERRIDE);
+        context.htfChopMax = Number.isFinite(parsedHtfMax) && parsedHtfMax > 0 ? parsedHtfMax : null;
+    }
+    console.log(c.dim(`[${context.tgPrefix}] HTF gate: ${context.htfGateEnabled ? c.yellow(`on — ${context.htfTimeframe} chop(${context.htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}) < ${context.htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT} + inside its own ALMA band blocks entries`) : "off"}`));
+
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
 
@@ -373,6 +392,7 @@ async function main() {
     const { tg }   = createTelegram(context, engineConfig);
     const state    = createState();
     const candles  = createCandleBuffer();
+    const htf      = createHtfGate({ context, engineConfig, tg });
     const deltaBuffer = createCandleDeltaBuffer();
     const marketDataHealth = createMarketDataHealth({ tg });
     const slStore  = createSLStore();
@@ -389,7 +409,7 @@ async function main() {
     const lifecycleInstance = createLifecycle({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, tg });
     const signalsInstance   = await createSignals({
         context, engineConfig, state, db, candles, slStore, targetStore, orders,
-        positionsClose, positionsUnrealised, lifecycle: lifecycleInstance, tg, deltaBuffer,
+        positionsClose, positionsUnrealised, lifecycle: lifecycleInstance, tg, deltaBuffer, htf,
     });
     const candlePollInstance = createCandlePoll({
         context, engineConfig, state, candles, slStore, targetStore, orders,
@@ -425,6 +445,7 @@ async function main() {
         });
 
         await preloadInstance.preload();
+        htf.prewarm();
 
         const bufLen = candles.getRawCandles().length;
         const info   = state.position ? `${state.position}@${state.entryPrice}` : "-";

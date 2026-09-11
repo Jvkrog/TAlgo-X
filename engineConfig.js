@@ -136,6 +136,21 @@ module.exports = {
     CHOP_GATE_MAX_DEFAULT:   58,    // chopGate.js's max threshold when context.chopMax is unset
     CHOP_GATE_ALWAYS_FORCE:  true,  // live default: every entry always checks chop, see chopGate.js's header comment. Backtests can set this false to compare with/without.
 
+    // htfGate.js's universal higher-timeframe confirmation gate — on by
+    // default (context.htfGateEnabled), opt-out via Edit Params/Risk
+    // Management, same as longCandleGate.js. HTF_CHOP_LEN/MAX_DEFAULT
+    // mirror CHOP_LEN/CHOP_GATE_MAX_DEFAULT above (same "trending vs
+    // choppy" reasoning, just computed on a coarser timeframe); ALMA_LEN/
+    // OFFSET/SIGMA_DEFAULT reuse ALMA_BAND's own ALMA_LEN/OFFSET/SIGMA
+    // values below unchanged, for the same high/low band construction on
+    // that coarser timeframe's own candles — see htfGate.js.
+    HTF_GATE_TIMEFRAME_DEFAULT: "1h",   // "1h" or "1d" — context.htfTimeframe overrides
+    HTF_CHOP_LEN_DEFAULT:       9,
+    HTF_CHOP_MAX_DEFAULT:       58,
+    HTF_ALMA_LEN_DEFAULT:       20,
+    HTF_ALMA_OFFSET_DEFAULT:    0.85,
+    HTF_ALMA_SIGMA_DEFAULT:     6,
+
     // volumeGate.js's universal "volume above its own SMA" entry gate —
     // off by default (context.volumeFilterEnabled), opt-in via Edit
     // Params/Risk Management. This is just the period default when

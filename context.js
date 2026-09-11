@@ -339,6 +339,18 @@ function buildContext(def, resolvedContract) {
         // regardless of chopFilterEnabled above; see chopGate.js's `force`
         // option.
         disableDoubleOrders: false,
+        // htfGate.js's universal higher-timeframe confirmation gate — ON
+        // by default (opt-out, not opt-in — see htfGate.js's header for
+        // why: this is a "the bigger picture hasn't confirmed yet" safety
+        // filter, same default posture as longCandleFilterEnabled above,
+        // not an opt-in like chopFilterEnabled/volumeFilterEnabled). null
+        // period/max = engineConfig.HTF_CHOP_LEN_DEFAULT/
+        // HTF_CHOP_MAX_DEFAULT, same "backtest-tunable without a strategy-
+        // specific default" reasoning as chopPeriod/chopMax above.
+        htfGateEnabled: true,
+        htfTimeframe: "1h",
+        htfChopPeriod: null,
+        htfChopMax: null,
     };
 }
 
