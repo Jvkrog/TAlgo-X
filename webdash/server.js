@@ -358,6 +358,11 @@ async function getEngineProcesses() {
 // Same env-shape toolbox.js's toggleMode/restartSelected build before every
 // pm2Restart — kept in exact parity so a mode switch from the web produces
 // the identical process env an equivalent CLI action would.
+// See toolbox.js's buildProcessEnv for why every field here is always
+// written explicitly (a real value, or "" to clear) instead of
+// conditionally omitted: pm2.restart(...,updateEnv:true) merges into the
+// process's existing env rather than replacing it, so omitting a key never
+// actually clears a stale value from an earlier restart.
 function buildProcessEnv(p, overrides = {}) {
     const env = {
         UNDERLYING: p.underlying,
@@ -367,31 +372,31 @@ function buildProcessEnv(p, overrides = {}) {
         TIMEFRAME_OVERRIDE: p.timeframe || "15m",
         EXCHANGE_OVERRIDE: p.exchange || "MCX",
     };
-    if (p.lots !== "default") env.LOTS_OVERRIDE = String(p.lots);
-    if (p.lotMult) env.LOTMULT_OVERRIDE = String(p.lotMult);
-    if (p.targetPoints !== null && p.targetPoints !== undefined) env.TARGET_POINTS_OVERRIDE = String(p.targetPoints);
-    if (p.targetMode === "adaptive") env.TARGET_MODE_OVERRIDE = "adaptive";
-    if (p.bandStep !== null && p.bandStep !== undefined) env.BAND_STEP_OVERRIDE = String(p.bandStep);
-    if (p.greyExitEnabled !== undefined) env.GREY_EXIT_OVERRIDE = String(!!p.greyExitEnabled);
-    if (p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false) env.ALMA_BAND_OVERRIDE = "false";
-    if (p.strategy === "ALMA_PRO_FAST" && p.almaFastLen) env.ALMA_FAST_LEN_OVERRIDE = String(p.almaFastLen);
-    if (p.strategy === "ALMA_PRO_FAST" && p.almaBandLen) env.ALMA_BAND_LEN_OVERRIDE = String(p.almaBandLen);
-    if ((p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && p.almaChopFilterEnabled === false) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
-    if (p.maxDailyLoss) env.MAX_DAILY_LOSS_OVERRIDE = String(p.maxDailyLoss);
+    env.LOTS_OVERRIDE = p.lots !== "default" ? String(p.lots) : "";
+    env.LOTMULT_OVERRIDE = p.lotMult ? String(p.lotMult) : "";
+    env.TARGET_POINTS_OVERRIDE = (p.targetPoints !== null && p.targetPoints !== undefined) ? String(p.targetPoints) : "";
+    env.TARGET_MODE_OVERRIDE = p.targetMode === "adaptive" ? "adaptive" : "";
+    env.BAND_STEP_OVERRIDE = (p.bandStep !== null && p.bandStep !== undefined) ? String(p.bandStep) : "";
+    env.GREY_EXIT_OVERRIDE = p.greyExitEnabled !== undefined ? String(!!p.greyExitEnabled) : "";
+    env.ALMA_BAND_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false ? "false" : "";
+    env.ALMA_FAST_LEN_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaFastLen ? String(p.almaFastLen) : "";
+    env.ALMA_BAND_LEN_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaBandLen ? String(p.almaBandLen) : "";
+    env.ALMA_CHOP_FILTER_OVERRIDE = (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && p.almaChopFilterEnabled === false ? "false" : "";
+    env.MAX_DAILY_LOSS_OVERRIDE = p.maxDailyLoss ? String(p.maxDailyLoss) : "";
     // Always written explicitly (both true AND false) — same
     // write-asymmetry reasoning as ALMA_CHOP_FILTER_OVERRIDE above: an
     // unset env var means OFF at runtime, which would silently contradict
     // an explicit "disable" choice made in the edit form if only the
     // true case were written.
     env.DISABLE_DOUBLE_ORDERS_OVERRIDE = String(!!p.disableDoubleOrders);
-    if (p.atrSlMult) env.ATR_SL_MULT_OVERRIDE = String(p.atrSlMult);
-    if (p.flipConfirmCandles) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(p.flipConfirmCandles);
+    env.ATR_SL_MULT_OVERRIDE = p.atrSlMult ? String(p.atrSlMult) : "";
+    env.FLIP_CONFIRM_CANDLES_OVERRIDE = p.flipConfirmCandles ? String(p.flipConfirmCandles) : "";
     env.VOLUME_FILTER_OVERRIDE = String(!!p.volumeFilterEnabled);
-    if (p.volumeSmaPeriod) env.VOLUME_SMA_PERIOD_OVERRIDE = String(p.volumeSmaPeriod);
+    env.VOLUME_SMA_PERIOD_OVERRIDE = p.volumeSmaPeriod ? String(p.volumeSmaPeriod) : "";
     env.LONG_CANDLE_FILTER_OVERRIDE = p.longCandleFilterEnabled === false ? "false" : "true";
-    if (p.longCandleAtrPeriod) env.LONG_CANDLE_ATR_PERIOD_OVERRIDE = String(p.longCandleAtrPeriod);
-    if (p.longCandleAtrMult) env.LONG_CANDLE_ATR_MULT_OVERRIDE = String(p.longCandleAtrMult);
-    if (p.longCandleCooldownCandles !== null && p.longCandleCooldownCandles !== undefined) env.LONG_CANDLE_COOLDOWN_OVERRIDE = String(p.longCandleCooldownCandles);
+    env.LONG_CANDLE_ATR_PERIOD_OVERRIDE = p.longCandleAtrPeriod ? String(p.longCandleAtrPeriod) : "";
+    env.LONG_CANDLE_ATR_MULT_OVERRIDE = p.longCandleAtrMult ? String(p.longCandleAtrMult) : "";
+    env.LONG_CANDLE_COOLDOWN_OVERRIDE = (p.longCandleCooldownCandles !== null && p.longCandleCooldownCandles !== undefined) ? String(p.longCandleCooldownCandles) : "";
     return { ...env, ...overrides };
 }
 
