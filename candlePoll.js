@@ -367,7 +367,7 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
         const ist   = new Date(istMs);
         const secInSlot = (ist.getUTCMinutes() % slotMinutes) * 60 + ist.getUTCSeconds();
         const msToNextClose = (slotMinutes * 60 - secInSlot) * 1000 - ist.getUTCMilliseconds();
-        return msToNextClose + 10 * 1000;
+        return msToNextClose + 05 * 1000;
     }
 
     async function onCandleClose() {
