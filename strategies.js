@@ -237,7 +237,10 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
 
                     persist(side, livePrice, "TREND");
                     pendingSide = null;
-                    console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  DPI:${dpiState}`));
+                    // Session PnL at time of entry, not direction — see the Sep 2026
+                    // "differentiate by profitability, not LONG/SHORT" request.
+                    const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                    console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  DPI:${dpiState}`));
                     emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                     tg(`${side} ENTRY @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}  DPI:${dpiState}`);
                 }
@@ -625,7 +628,10 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
 
                     persist(side, livePrice, "TREND");
                     pendingSide = null;
-                    console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  DPI:${dpiState}`));
+                    // Session PnL at time of entry, not direction — see the Sep 2026
+                    // "differentiate by profitability, not LONG/SHORT" request.
+                    const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                    console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  DPI:${dpiState}`));
                     emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                     tg(`${side} ENTRY @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}  DPI:${dpiState}`);
                 }
@@ -675,7 +681,10 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
                     if (trailValid) slStore.setTrail(slTrail, stDir);
 
                     persist(side, livePrice, "MEANREV");
-                    console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (MEANREV) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  RSI:${rsiVal.toFixed(1)}`));
+                    // Session PnL at time of entry, not direction — see the Sep 2026
+                    // "differentiate by profitability, not LONG/SHORT" request.
+                    const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                    console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (MEANREV) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  RSI:${rsiVal.toFixed(1)}`));
                     emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                     tg(`${side} ENTRY (MEANREV) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}  RSI:${rsiVal.toFixed(1)}`);
                 }
@@ -951,7 +960,10 @@ function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, 
                     if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
 
                     persist(side, livePrice, "DPI_SMA5_EXIT");
-                    console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (DPI_SMA5_EXIT) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  DPI:${dpiState}`));
+                    // Session PnL at time of entry, not direction — see the Sep 2026
+                    // "differentiate by profitability, not LONG/SHORT" request.
+                    const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                    console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (DPI_SMA5_EXIT) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  DPI:${dpiState}`));
                     emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                     tg(`${side} ENTRY (DPI_SMA5_EXIT) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}  DPI:${dpiState}`);
                 }
@@ -1179,7 +1191,10 @@ function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles,
                 if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
 
                 persist(side, livePrice, "ALMA_DUAL_BAND_SMA5");
-                console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (${entryReason}) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
+                // Session PnL at time of entry, not direction — see the Sep 2026
+                // "differentiate by profitability, not LONG/SHORT" request.
+                const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (${entryReason}) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
                 emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                 tg(`${side} ENTRY (${entryReason}) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
             }
@@ -1428,7 +1443,10 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
                     if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
 
                     persist(side, livePrice, "ALMA_BAND");
-                    console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (ALMA_BAND) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  High:${almaHigh.toFixed(2)}  Low:${almaLow.toFixed(2)}`));
+                    // Session PnL at time of entry, not direction — see the Sep 2026
+                    // "differentiate by profitability, not LONG/SHORT" request.
+                    const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                    console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (ALMA_BAND) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  High:${almaHigh.toFixed(2)}  Low:${almaLow.toFixed(2)}`));
                     emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                     tg(`${side} ENTRY (ALMA_BAND) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}\nBand: [${almaLow.toFixed(2)}, ${almaHigh.toFixed(2)}]`);
                 }
@@ -1661,7 +1679,10 @@ function createAlmaFastStrategy({ context, engineConfig, state, db, candles, slS
                 if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
 
                 persist(side, livePrice, "ALMA_FAST");
-                console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (ALMA_FAST) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
+                // Session PnL at time of entry, not direction — see the Sep 2026
+                // "differentiate by profitability, not LONG/SHORT" request.
+                const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (ALMA_FAST) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
                 emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                 tg(`${side} ENTRY (ALMA_FAST) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
             }
@@ -1981,7 +2002,10 @@ function createMaSlopeStrategy({ context, engineConfig, state, db, candles, slSt
                 // tick, same mechanism every other strategy now uses.
 
                 persist(side, livePrice, "MA_SLOPE");
-                console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (${entryReason}) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
+                // Session PnL at time of entry, not direction — see the Sep 2026
+                // "differentiate by profitability, not LONG/SHORT" request.
+                const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (${entryReason}) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
                 emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                 tg(`${side} ENTRY (${entryReason}) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
             }
@@ -2378,7 +2402,10 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
                 targetStore.setTarget(target, side === "LONG" ? 1 : -1);
 
                 persist(side, livePrice, "MA_SLOPE_SCALP");
-                console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (${entryReason}) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  Tgt:${target.toFixed(2)}`));
+                // Session PnL at time of entry, not direction — see the Sep 2026
+                // "differentiate by profitability, not LONG/SHORT" request.
+                const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (${entryReason}) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  Tgt:${target.toFixed(2)}`));
                 emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                 tg(`${side} ENTRY (${entryReason}) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}\nTarget: ₹${target.toFixed(2)}`);
             }
@@ -2720,7 +2747,10 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
                 if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
 
                 persist(side, livePrice, "MA_SLOPE_PURE");
-                console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (MA_SLOPE_PURE) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
+                // Session PnL at time of entry, not direction — see the Sep 2026
+                // "differentiate by profitability, not LONG/SHORT" request.
+                const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (MA_SLOPE_PURE) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
                 emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                 tg(`${side} ENTRY (MA_SLOPE_PURE) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
             }
@@ -2973,7 +3003,10 @@ function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, sl
                 if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
 
                 persist(side, livePrice, "MA_SLOPE_HM");
-                console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (MA_SLOPE_HM) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
+                // Session PnL at time of entry, not direction — see the Sep 2026
+                // "differentiate by profitability, not LONG/SHORT" request.
+                const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (MA_SLOPE_HM) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
                 emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                 tg(`${side} ENTRY (MA_SLOPE_HM) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
             }
@@ -3209,7 +3242,10 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
                     if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
 
                     persist(side, livePrice, "DUAL_ST_CHOP");
-                    console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (DUAL_ST_CHOP) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  CHOP:${chopVal.toFixed(1)}`));
+                    // Session PnL at time of entry, not direction — see the Sep 2026
+                    // "differentiate by profitability, not LONG/SHORT" request.
+                    const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                    console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (DUAL_ST_CHOP) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  CHOP:${chopVal.toFixed(1)}`));
                     emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                     tg(`${side} ENTRY (DUAL_ST_CHOP) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}\nST1/ST2 agree ${side}, CHOP ${chopVal.toFixed(1)} (<= ${engineConfig.DST_CHOP_MAX})`);
                 }
@@ -3423,7 +3459,10 @@ function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles
                 if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
 
                 persist(side, livePrice, "ADAPTIVE_TREND");
-                console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (ADAPTIVE_TREND) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
+                // Session PnL at time of entry, not direction — see the Sep 2026
+                // "differentiate by profitability, not LONG/SHORT" request.
+                const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (ADAPTIVE_TREND) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
                 emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                 tg(`${side} ENTRY (ADAPTIVE_TREND) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
             }
@@ -3637,10 +3676,11 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
             return false;
         }
         tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
-        await positionsClose(livePrice, reason);
+        const exitPnl = await positionsClose(livePrice, reason);
         targetStore.clearTarget();
         persist(null, 0);
-        console.log(c.red(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        const exitCol = exitPnl > 0 ? c.green : exitPnl < 0 ? c.red : c.white;
+        console.log(exitCol(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
         return true;
     }
 
@@ -3674,7 +3714,8 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
         );
 
         persist(side, livePrice, "DYNAMIC_BAND");
-        console.log(c.green(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}  Band:[${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+        console.log(entryCol(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}  Band:[${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
         emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: null });
         tg(`${side} ${reason} @ ₹${livePrice.toFixed(2)}\nBand: [${state.bandLow.toFixed(2)}, ${state.bandHigh.toFixed(2)}]`);
         return true;
@@ -3942,11 +3983,12 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
             return false;
         }
         tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
-        await positionsClose(livePrice, reason);
+        const exitPnl = await positionsClose(livePrice, reason);
         slStore.clearTrail();
         targetStore.clearTarget();
         persist(null, 0);
-        console.log(c.red(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        const exitCol = exitPnl > 0 ? c.green : exitPnl < 0 ? c.red : c.white;
+        console.log(exitCol(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
         return true;
     }
 
@@ -4320,11 +4362,12 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
             return false;
         }
         tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
-        await positionsClose(livePrice, reason);
+        const exitPnl = await positionsClose(livePrice, reason);
         slStore.clearTrail();
         targetStore.clearTarget();
         persist(null, 0);
-        console.log(c.red(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        const exitCol = exitPnl > 0 ? c.green : exitPnl < 0 ? c.red : c.white;
+        console.log(exitCol(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
         return true;
     }
 
@@ -4669,11 +4712,12 @@ function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, 
             return false;
         }
         tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
-        await positionsClose(livePrice, reason);
+        const exitPnl = await positionsClose(livePrice, reason);
         slStore.clearTrail();
         targetStore.clearTarget();
         persist(null, 0);
-        console.log(c.red(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        const exitCol = exitPnl > 0 ? c.green : exitPnl < 0 ? c.red : c.white;
+        console.log(exitCol(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
         return true;
     }
 
@@ -4719,7 +4763,8 @@ function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, 
         }
 
         persist(side, livePrice, "ALMA_TRI_BAND");
-        console.log(c[stateColor(side === "LONG" ? 1 : -1)](`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
+        const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+        console.log(entryCol(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
         emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
         tg(`${side} ${reason} @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
         return true;
@@ -4978,11 +5023,12 @@ function createAlmaProFastStrategy({ context, engineConfig, state, db, candles, 
             return false;
         }
         tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
-        await positionsClose(livePrice, reason);
+        const exitPnl = await positionsClose(livePrice, reason);
         slStore.clearTrail();
         targetStore.clearTarget();
         persist(null, 0);
-        console.log(c.red(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        const exitCol = exitPnl > 0 ? c.green : exitPnl < 0 ? c.red : c.white;
+        console.log(exitCol(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
         return true;
     }
 
@@ -5042,7 +5088,8 @@ function createAlmaProFastStrategy({ context, engineConfig, state, db, candles, 
         // size a target for this strategy at all.
 
         persist(side, livePrice, "ALMA_PRO_FAST");
-        console.log(c[stateColor(side === "LONG" ? 1 : -1)](`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
+        const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+        console.log(entryCol(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
         emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
         tg(`${side} ${reason} @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
         return true;
@@ -5334,7 +5381,10 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
                 // header comment.
 
                 persist(side, livePrice, "ALMA_PRO_SLOW");
-                console.log(c.green(`[${context.tgPrefix}] ${side} ENTRY (ALMA_PRO_SLOW) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
+                // Session PnL at time of entry, not direction — see the Sep 2026
+                // "differentiate by profitability, not LONG/SHORT" request.
+                const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (ALMA_PRO_SLOW) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
                 emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
                 tg(`${side} ENTRY (ALMA_PRO_SLOW) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
             }
@@ -5751,10 +5801,11 @@ function createPureHaStrategy({ context, engineConfig, state, db, candles, slSto
             return false;
         }
         tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
-        await positionsClose(livePrice, reason);
+        const exitPnl = await positionsClose(livePrice, reason);
         targetStore.clearTarget();
         persist(null, 0);
-        console.log(c.red(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        const exitCol = exitPnl > 0 ? c.green : exitPnl < 0 ? c.red : c.white;
+        console.log(exitCol(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
         return true;
     }
 
@@ -5797,7 +5848,8 @@ function createPureHaStrategy({ context, engineConfig, state, db, candles, slSto
 
         persist(side, livePrice, "PURE_HA");
         const tag = pure ? " [PURE TREND]" : "";
-        console.log(c.green(`[${context.tgPrefix}] ${side} ${reason}${tag}  @ ${livePrice.toFixed(2)}`));
+        const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+        console.log(entryCol(`[${context.tgPrefix}] ${side} ${reason}${tag}  @ ${livePrice.toFixed(2)}`));
         emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: null, pure });
         tg(`${side} ${reason}${tag} @ \u20b9${livePrice.toFixed(2)}`);
         return true;

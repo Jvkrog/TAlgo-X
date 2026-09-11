@@ -50,6 +50,7 @@ async function close(context, state, db, tg, price, reason) {
     console.log();
     tg(`${pos} ${action} (${reason})\n@ ₹${price.toFixed(2)}  entry ₹${entry.toFixed(2)}\nPnL: ${pnlStr(pnl)}  session: ${pnlStr(state.pnl)}`);
     emitEvent(context.tgPrefix, "EXIT", { side: pos, action, price, entry, reason, pnl, session: state.pnl });
+    return pnl;
 }
 
 module.exports = { close, unrealised, pnlStr };
