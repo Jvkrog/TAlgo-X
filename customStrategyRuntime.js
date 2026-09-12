@@ -16,9 +16,13 @@
 
 const { computeIndicators } = require("./indicatorEngine");
 const { evaluateTree } = require("./conditionEvaluator");
+const { isChopBlocked } = require("./chopGate");
+const { isDoubleOrderBlocked } = require("./doubleOrderGate");
+const { isVolumeBlocked } = require("./volumeGate");
+const { evaluateLongCandle } = require("./longCandleGate");
 
 function createCustomStrategy(spec) {
-    return function ({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+    return function ({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() }, htf }) {
         let edgeMemory = {};
 
         function buildContext(rawCandles) {
@@ -84,6 +88,30 @@ function createCustomStrategy(spec) {
                 const shortHit = spec.entryShort && evaluateTree(spec.entryShort, ctx);
                 const side = longHit ? "LONG" : shortHit ? "SHORT" : null;
                 if (!side) return;
+
+                // Universal entry gates — same 5 checks every hardcoded
+                // strategy in strategies.js runs before orders.enter()
+                // (chopGate/doubleOrderGate/volumeGate/longCandleGate/
+                // htfGate), previously NOT wired here (pre-existing gap —
+                // see talgo-x.md). isReversal is always false: this
+                // function returns right after an exit (above), so a
+                // custom strategy can never exit-then-reenter within the
+                // same processCandle call the way strategies.js's
+                // same-candle reversal strategies do — doubleOrderGate is
+                // wired for parity/future-proofing but has no current
+                // effect here.
+                const isReversal = false;
+                const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
+                const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
+                const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
+                const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
+                const htfBlocked = htf ? await htf.isBlocked() : false;
+                if (doubleBlocked) console.log(`[${context.tgPrefix}] custom:${spec.name} entry blocked — double orders disabled`);
+                else if (chopBlocked) console.log(`[${context.tgPrefix}] custom:${spec.name} entry blocked by Choppiness Index filter`);
+                else if (volumeBlocked) console.log(`[${context.tgPrefix}] custom:${spec.name} entry blocked — volume not above its SMA`);
+                else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} strategy=custom:${spec.name} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+                else if (htfBlocked) console.log(`[${context.tgPrefix}] custom:${spec.name} entry blocked — higher timeframe trending but still inside its own ALMA band`);
+                if (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked) return;
 
                 await orders.enter(side);
                 state.position       = side;
