@@ -68,6 +68,9 @@
 //   HEDGE_LOTMULT_OVERRIDE   same as above, for the hedge leg
 //   UNWIND_MODE_OVERRIDE     "HA_FLIP" (default) | "EOD_ONLY"
 //   HEDGE_PAIR_POLL_MS       default 60000
+//   LIVE_ORDERS_OVERRIDE     "true" | "false" — same per-process override
+//                            convention as engine.js; unset = engineConfig's
+//                            own default (paper/false)
 //
 // NOT YET WIRED: toolbox.js / webdash "Add Instrument" UI has no picker
 // for this engine — it's started directly (`CORE_UNDERLYING=NATURALGAS
@@ -83,11 +86,10 @@ const { KiteConnect } = require("kiteconnect");
 const engineConfig = require("./engineConfig");
 const c = require("./c");
 const { istParts } = require("./istTime");
-const { getDefinition, buildContext, defaultEodFor } = require("./context");
 const { createCsvRepository } = require("./csvRepository");
 const { createInstrumentSource } = require("./instrumentSource");
 const { createContractPinStore } = require("./contractPins");
-const { resolveCurrent } = require("./instrumentResolution");
+const { resolveHedgePairLeg } = require("./hedgePairContext");
 const { createTelegram } = require("./telegram");
 const { createState } = require("./state");
 const { createDb } = require("./db");
@@ -116,6 +118,16 @@ async function main() {
     const EXCHANGE_OVERRIDE = process.env.EXCHANGE_OVERRIDE || "MCX";
     const ACCESS_TOKEN = fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim();
 
+    // Live/paper mode — set per-process by the toolbox/webdash deploy flow,
+    // same pattern as engine.js's own LIVE_ORDERS_OVERRIDE handling. Safe to
+    // mutate here: each PM2 process is its own OS process with its own
+    // require() cache, so this never leaks across instruments/pairs.
+    if (process.env.LIVE_ORDERS_OVERRIDE !== undefined) {
+        engineConfig.LIVE_ORDERS = process.env.LIVE_ORDERS_OVERRIDE === "true";
+    }
+    console.log(c.bold(engineConfig.LIVE_ORDERS ? c.red("LIVE — real orders will be placed (both legs)")
+                                                  : c.cyan("PAPER — shadow mode, no real orders")));
+
     console.log(c.dim(`loading instrument dump (${EXCHANGE_OVERRIDE})...`));
     const kcForDump = new KiteConnect({ api_key: engineConfig.API_KEY });
     kcForDump.setAccessToken(ACCESS_TOKEN);
@@ -131,38 +143,18 @@ async function main() {
     // engine.js's own boot sequence + strategies.js's initSignals(),
     // scoped to ONE leg at a time (called twice, once per instrument).
     async function buildLeg(underlying, legLabel, { lots, lotMultOverride }) {
-        const def = getDefinition(underlying, EXCHANGE_OVERRIDE);
-        const { contract, source } = resolveCurrent(def.underlying, def, csvRepo, pinStore);
-        const context = buildContext(def, contract);
-        // Separate tgPrefix -> separate SQLite file (createDb keys off
-        // this) and separate Telegram identity per leg, even though both
-        // legs of a pair share one underlying's worth of price signal.
-        context.tgPrefix = `${context.tgPrefix}_${legLabel}`;
-        context.name     = `${context.name} (${legLabel})`;
-        context.lots     = lots;
-        if (lotMultOverride) context.lotMult = lotMultOverride;
-        // Both legs are force-closed by THIS file's own EOD block below,
-        // every day, unconditionally, regardless of product type — NRML
-        // here is about margin treatment (matching "1 full lot NRML" from
-        // the spec), not about whether our bot bothers to exit. MIS's
-        // broker-side auto-square-off would ALSO catch either leg as a
-        // backstop if our own EOD somehow failed to run — NRML is the
-        // deliberately stricter choice, it does NOT get a free pass from
-        // the broker the way MIS would.
-        context.carryOvernight = true;
-        const eod = defaultEodFor("1h", context.exchange);
-        context.eodHour   = eod.eodHour;
-        context.eodMinute = eod.eodMinute;
-
-        // Same refuse-to-boot guard as engine.js — no fallback to the
-        // broker's own lot_size field (a contract COUNT, not a price
-        // multiplier — see context.js's header comment for the incident
-        // this already caused once).
-        if (!context.lotMult) {
-            console.error(c.red(`[${context.tgPrefix}] lotMult is not set for ${underlying} — refusing to boot.`));
-            console.error(c.red(`  Fix: add a lotMult override for "${underlying}" in context.js's overrides,`));
-            console.error(c.red(`  or set ${legLabel === "CORE" ? "CORE_LOTMULT_OVERRIDE" : "HEDGE_LOTMULT_OVERRIDE"} when starting this process.`));
-            process.exit(1);
+        // Contract/context resolution is shared with backtestHedgePair.js
+        // via hedgePairContext.js — see that file's header for why. Throws
+        // on a missing lotMult instead of returning an error code; caught
+        // right below and turned into the same refuse-to-boot process.exit(1)
+        // this file always used.
+        let context, source;
+        try {
+            ({ context, source } = resolveHedgePairLeg({
+                underlying, legLabel, exchange: EXCHANGE_OVERRIDE, csvRepo, pinStore, lots, lotMultOverride,
+            }));
+        } catch (err) {
+            process.exit(1); // hedgePairContext.js already logged the specific fix
         }
 
         console.log(c.dim(`[${context.tgPrefix}] resolved contract (${source}): ${context.symbol} (token ${context.token}, lotMult ${context.lotMult}, lots ${context.lots})`));

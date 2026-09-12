@@ -293,7 +293,7 @@ const HELP_ROWS = [
     [["R", "Restart"], ["D", "Remove"], ["C", "Roll"], ["M", "Live/Paper"]],
     [["L", "Logs"], ["T", "Token"], ["B", "Backtest"], ["N", "Trending"]],
     [["Q", "Quit"], ["E", "Creds"], ["K", "Market"], ["P", "Edit Params"]],
-    [["U", "Custom Strategy"], ["V", "Risk Mgmt"]],
+    [["U", "Custom Strategy"], ["V", "Risk Mgmt"], ["H", "Hedge Pairs"]],
 ];
 function renderMenuHelpLines() {
     return HELP_ROWS.map(row => {
@@ -1983,11 +1983,190 @@ async function stopScanner() {
     await pauseForReview();
 }
 
+// ─── HEDGE PAIR — deploy screen for hedgePairEngine.js (see that file's own
+// header for the full strategy spec). Deliberately its own small screen,
+// not folded into the main instrument table/editInstrument()/riskManagement()
+// — those all assume ONE underlying per process (getEngineProcesses()
+// filters on a single UNDERLYING env var); a hedge pair process sets
+// CORE_UNDERLYING/HEDGE_UNDERLYING instead, so it never appears there in
+// the first place, and trying to reuse that table's columns for a
+// two-instrument process would misrepresent it more than a separate
+// (simpler, read: no live risk-parameter editing yet) screen would.
+async function getHedgePairProcesses() {
+    const list = await pm2List();
+    return list
+        .filter(p => p.pm2_env.env?.CORE_UNDERLYING)
+        .map(p => ({
+            name:            p.name,
+            coreUnderlying:  p.pm2_env.env.CORE_UNDERLYING,
+            hedgeUnderlying: p.pm2_env.env.HEDGE_UNDERLYING,
+            status:          p.pm2_env.status,
+            uptime:          p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
+            coreLots:        p.pm2_env.env?.CORE_LOTS_OVERRIDE || "1",
+            hedgeLots:       p.pm2_env.env?.HEDGE_LOTS_OVERRIDE || "5",
+            unwindMode:      p.pm2_env.env?.UNWIND_MODE_OVERRIDE || "HA_FLIP",
+            live:            p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
+            exchange:        p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
+            outLogPath:      p.pm2_env.pm_out_log_path,
+            errLogPath:      p.pm2_env.pm_err_log_path,
+        }));
+}
+
+async function pickUnderlying(list, label) {
+    const query = await ask(`  search ${label} underlying (blank = show all): `);
+    const matches = query ? list.filter(u => u.toLowerCase().includes(query.toLowerCase())) : list;
+    if (matches.length === 0) { console.log(c.yellow("  no matches")); return null; }
+    if (matches.length > 30 && query === "") {
+        console.log(c.yellow(`  ${list.length} underlyings total — type part of a name to narrow it down`));
+        return null;
+    }
+    console.log();
+    matches.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u}`));
+    console.log();
+    const pick = await ask("  select number (blank to cancel): ");
+    if (!pick) return null;
+    const picked = matches[Number(pick) - 1];
+    if (!picked) { console.log(c.yellow("  invalid selection")); return null; }
+    return picked;
+}
+
+async function addHedgePair() {
+    console.log(c.dim("  core: full-size contract, daily-HA bias, NRML, EOD-only exit"));
+    console.log(c.dim("  hedge: mini contract, opens on adverse 1h HA against the core"));
+    console.log();
+
+    // MCX-only today — the two supported pairs (NATURALGAS/NATGASMINI,
+    // ZINC/ZINCMINI) are both MCX, and hedgePairContext.js/hedgePairEngine.js
+    // have no NSE-specific handling to speak of. Not hardcoded to just
+    // those two names below, though — anything resolvable in the MCX dump
+    // works, same "pick from the real broker list" principle as addInstrument.
+    const repo = await ensureCsvLoaded();
+    const all  = repo.listUnderlyings();
+
+    const coreUnderlying = await pickUnderlying(all, "CORE (full-size)");
+    if (!coreUnderlying) { await pauseForReview(); return; }
+    const hedgeUnderlying = await pickUnderlying(all, "HEDGE (mini)");
+    if (!hedgeUnderlying) { await pauseForReview(); return; }
+
+    // Same lotMult reality-check as configureAndStartInstrument — neither
+    // leg has a safe fallback (broker lot_size is a contract COUNT, not a
+    // price multiplier). NATGASMINI already has a context.js override;
+    // NATURALGAS/ZINC/ZINCMINI don't yet, so this will ask for those.
+    async function askLotMult(underlying, legLabel) {
+        const def = getDefinition(underlying, "MCX");
+        if (def.lotMult !== null) return null; // already covered by context.js's own override
+        console.log(c.yellow(`  ⚠ lot multiplier required for ${underlying} (${legLabel}) — broker lot_size can't be trusted, see context.js's header.`));
+        let val = null;
+        do {
+            const input = await ask(`  ${legLabel} lot multiplier — price move x this = PnL per lot (required): `);
+            if (!input) { console.log(c.yellow("  required — no safe default")); continue; }
+            const parsed = Number(input);
+            if (!Number.isFinite(parsed) || parsed <= 0) { console.log(c.yellow(`  "${input}" isn't a valid positive number`)); continue; }
+            val = parsed;
+        } while (val === null);
+        return val;
+    }
+    const coreLotMultOverride  = await askLotMult(coreUnderlying, "CORE");
+    const hedgeLotMultOverride = await askLotMult(hedgeUnderlying, "HEDGE");
+
+    const coreLotsInput  = await ask("  core lots (default 1): ");
+    const hedgeLotsInput = await ask("  hedge lots (default 5, the real 5:1 contract ratio for both supported pairs): ");
+    const coreLots  = coreLotsInput  ? Number(coreLotsInput)  : 1;
+    const hedgeLots = hedgeLotsInput ? Number(hedgeLotsInput) : 5;
+    if (!Number.isFinite(coreLots) || coreLots <= 0 || !Number.isFinite(hedgeLots) || hedgeLots <= 0) {
+        console.log(c.yellow("  invalid lots value")); await pauseForReview(); return;
+    }
+
+    console.log(c.dim("  unwind mode — HA_FLIP: hedge closes when 1h HA flips back in the core's favor (default)"));
+    console.log(c.dim("               EOD_ONLY: hedge stays on till EOD regardless of 1h HA"));
+    const unwindInput = (await ask("  [1] HA_FLIP  [2] EOD_ONLY (default 1): ")).trim();
+    const unwindMode = unwindInput === "2" ? "EOD_ONLY" : "HA_FLIP";
+
+    const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
+    let isLive = modeInput === "L";
+    if (isLive) {
+        const confirmLive = (await ask(c.red('  this will place REAL orders on BOTH legs. type "LIVE" to confirm: '))).trim();
+        if (confirmLive !== "LIVE") {
+            console.log(c.dim("  not confirmed — starting in paper mode instead"));
+            isLive = false;
+        }
+    }
+
+    const name = `${getShortName(coreUnderlying)}${getShortName(hedgeUnderlying)}HedgePair`;
+    const env = {
+        CORE_UNDERLYING: coreUnderlying, HEDGE_UNDERLYING: hedgeUnderlying, EXCHANGE_OVERRIDE: "MCX",
+        CORE_LOTS_OVERRIDE: String(coreLots), HEDGE_LOTS_OVERRIDE: String(hedgeLots),
+        UNWIND_MODE_OVERRIDE: unwindMode, LIVE_ORDERS_OVERRIDE: String(isLive),
+    };
+    if (coreLotMultOverride)  env.CORE_LOTMULT_OVERRIDE  = String(coreLotMultOverride);
+    if (hedgeLotMultOverride) env.HEDGE_LOTMULT_OVERRIDE = String(hedgeLotMultOverride);
+
+    try {
+        await pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name, cwd: __dirname, env });
+        console.log(c.green(`  started ${name} (core:${coreUnderlying} hedge:${hedgeUnderlying}, unwind:${unwindMode}, ${isLive ? "LIVE" : "PAPER"})`));
+    } catch (err) {
+        console.log(c.red(`  failed to start: ${err.message}`));
+    }
+    await pauseForReview();
+}
+
+async function hedgePairActionByNumber(pairs, verb, fn) {
+    const input = await ask(`  ${verb} which number: `);
+    const pair = pairs[Number(input) - 1];
+    if (!pair) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    try {
+        await fn(pair.name);
+        console.log(c.green(`  ${verb}ed ${pair.name}`));
+    } catch (err) {
+        console.log(c.red(`  failed to ${verb}: ${err.message}`));
+    }
+    await pauseForReview();
+}
+
+async function hedgePairScreen() {
+    let running = true;
+    while (running) {
+        const pairs = await getHedgePairProcesses();
+
+        console.log();
+        console.log(c.bold("  \u2500\u2500 Hedge Pairs \u2500\u2500"));
+        if (pairs.length === 0) {
+            console.log(c.dim("  none running — press A to add one"));
+        } else {
+            pairs.forEach((p, i) => {
+                const modeTag = p.live ? c.red("LIVE") : c.cyan("PAPER");
+                console.log(`  ${String(i + 1).padStart(2)}. ${p.name.padEnd(24)} core:${p.coreUnderlying.padEnd(14)} hedge:${p.hedgeUnderlying.padEnd(14)} ${p.coreLots}/${p.hedgeLots} lots  unwind:${p.unwindMode.padEnd(9)} ${modeTag}  [${p.status}]`);
+            });
+        }
+        console.log();
+        console.log(c.dim("  [A] add   [X] stop   [S] start   [D] remove   [L] logs   [B] back"));
+        const input = (await ask("  > ")).trim().toUpperCase();
+
+        if (input === "A")      await addHedgePair();
+        else if (input === "X") await hedgePairActionByNumber(pairs, "stop", n => pm2Stop(n));
+        else if (input === "S") await hedgePairActionByNumber(pairs, "start", n => pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name: n, cwd: __dirname }));
+        else if (input === "D") await hedgePairActionByNumber(pairs, "remove", n => pm2Delete(n));
+        else if (input === "L") {
+            const idx = await ask("  view logs for which number: ");
+            const pair = pairs[Number(idx) - 1];
+            if (!pair) { console.log(c.yellow("  invalid selection")); await pauseForReview(); }
+            else {
+                console.log(c.dim(`  out: ${pair.outLogPath}`));
+                console.log(c.dim(`  err: ${pair.errLogPath}`));
+                await pauseForReview();
+            }
+        }
+        else if (input === "B" || input === "") running = false;
+        else { console.log(c.yellow("  unrecognized option")); }
+    }
+}
+
 async function trendingInstruments() {
     const { exchange, repo, list: all } = await pickExchangeAndRepo();
 
     const query   = await ask("  search underlying to scan (blank = scan all): ");
     const matches = query
+
         ? all.filter(u => u.toLowerCase().includes(query.toLowerCase()))
         : all;
 
@@ -2734,6 +2913,7 @@ async function main() {
         else if (input === "K")           await marketStatusScreen();
         else if (input === "U")           await createCustomStrategy();
         else if (input === "V")           await riskManagement(procs);
+        else if (input === "H")           await hedgePairScreen();
         else if (input === "Q")           { running = false; redraw = false; }
         else                               { console.log(c.yellow("  unrecognized option")); redraw = false; }
 
