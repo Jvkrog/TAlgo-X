@@ -832,6 +832,7 @@ function renderRiskList() {
       `<span class="mode-pill ${inst.disableDoubleOrders ? "" : "live"}">double ${inst.disableDoubleOrders ? "off" : "on"}</span>`,
       `<span class="mode-pill ${inst.volumeFilterEnabled ? "live" : ""}">vol ${inst.volumeFilterEnabled ? `sma${inst.volumeSmaPeriod ?? 20}` : "off"}</span>`,
       `<span class="mode-pill ${inst.longCandleFilterEnabled !== false ? "live" : ""}">long-candle ${inst.longCandleFilterEnabled !== false ? "on" : "off"}</span>`,
+      `<span class="mode-pill ${inst.htfGateEnabled !== false ? "live" : ""}">htf ${inst.htfGateEnabled !== false ? (inst.htfTimeframe || "1h") : "off"}</span>`,
     ];
     if (inst.strategy === "PURE_HA") badges.push(`<span class="mode-pill">flip ${inst.flipConfirmCandles ?? 1}</span>`);
     if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
@@ -1080,6 +1081,16 @@ function openEditModal(inst) {
       <div class="tb-form-label">max daily loss in rupees (blank = no floor)</div>
       <input type="number" id="editMaxDailyLoss" min="0" step="any" value="${inst.maxDailyLoss ?? ""}">
     </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editHtfGate" ${inst.htfGateEnabled !== false ? "checked" : ""}><span>block entries when a higher timeframe is trending but price hasn't broken its band yet</span></label>
+      <div class="tb-form-hint">on by default. Checks the higher timeframe below; period/max tune that timeframe's own Choppiness Index reading.</div>
+      <select id="editHtfTimeframe">
+        <option value="1h" ${(inst.htfTimeframe || "1h") === "1h" ? "selected" : ""}>1h</option>
+        <option value="1d" ${inst.htfTimeframe === "1d" ? "selected" : ""}>1d</option>
+      </select>
+      <input type="number" id="editHtfChopPeriod" min="1" step="1" value="${inst.htfChopPeriod ?? ""}" placeholder="chop period, blank = default (9)">
+      <input type="number" id="editHtfChopMax" min="0" step="any" value="${inst.htfChopMax ?? ""}" placeholder="chop max, blank = default (58)">
+    </div>
     <div id="editErrBox"></div>
     <button class="tb-submit-btn" id="editSubmit">save changes (restarts the process)</button>
   `;
@@ -1131,6 +1142,10 @@ function openEditModal(inst) {
     body.longCandleAtrPeriod = tbEditBody.querySelector("#editLongCandleAtrPeriod").value || null;
     body.longCandleAtrMult = tbEditBody.querySelector("#editLongCandleAtrMult").value || null;
     body.longCandleCooldownCandles = tbEditBody.querySelector("#editLongCandleCooldown").value || null;
+    body.htfGateEnabled = tbEditBody.querySelector("#editHtfGate").checked;
+    body.htfTimeframe = tbEditBody.querySelector("#editHtfTimeframe").value;
+    body.htfChopPeriod = tbEditBody.querySelector("#editHtfChopPeriod").value || null;
+    body.htfChopMax = tbEditBody.querySelector("#editHtfChopMax").value || null;
 
     try {
       const res = await fetch("/api/toolbox/edit", {
@@ -1436,6 +1451,16 @@ function renderAddConfigStep() {
       <div class="tb-form-label">max daily loss in rupees, quits for the day if breached (blank = no floor)</div>
       <input type="number" id="addMaxDailyLoss" min="0" step="any">
     </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="addHtfGate" checked><span>block entries when a higher timeframe is trending but price hasn't broken its band yet (default: ON)</span></label>
+      <div class="tb-form-hint">checks the higher timeframe below; period/max tune that timeframe's own Choppiness Index reading.</div>
+      <select id="addHtfTimeframe">
+        <option value="1h" selected>1h</option>
+        <option value="1d">1d</option>
+      </select>
+      <input type="number" id="addHtfChopPeriod" min="1" step="1" placeholder="chop period, blank = default (9)">
+      <input type="number" id="addHtfChopMax" min="0" step="any" placeholder="chop max, blank = default (58)">
+    </div>
     <div id="addErrBox"></div>
     <button class="tb-submit-btn" id="addSubmit">start instrument</button>
   `;
@@ -1550,6 +1575,10 @@ function renderAddConfigStep() {
         longCandleAtrPeriod: tbAddBody.querySelector("#addLongCandleAtrPeriod").value || undefined,
         longCandleAtrMult: tbAddBody.querySelector("#addLongCandleAtrMult").value || undefined,
         longCandleCooldownCandles: tbAddBody.querySelector("#addLongCandleCooldown").value || undefined,
+        htfGateEnabled: tbAddBody.querySelector("#addHtfGate").checked,
+        htfTimeframe: tbAddBody.querySelector("#addHtfTimeframe").value,
+        htfChopPeriod: tbAddBody.querySelector("#addHtfChopPeriod").value || undefined,
+        htfChopMax: tbAddBody.querySelector("#addHtfChopMax").value || undefined,
       };
       const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
