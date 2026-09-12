@@ -1053,11 +1053,19 @@ app.post("/api/toolbox/instrument", async (req, res) => {
 
 // ─── BACKTEST — same runBacktest() call backtestFlow.js's wizard makes,
 // driven by a JSON body instead of a step-by-step prompt loop. ────────────
-app.get("/api/toolbox/backtest/params/:strategy", (req, res) => {
+app.get("/api/toolbox/backtest/params/:strategy", async (req, res) => {
     const key = req.params.strategy;
-    if (!STRATEGIES[key]) return res.status(404).json({ error: "unknown strategy" });
-    const paramDefs = STRATEGY_PARAMS[key] || [];
-    res.json(paramDefs.map(p => ({ key: p.key, label: p.label, default: engineConfig[p.key] })));
+    if (STRATEGIES[key]) {
+        const paramDefs = STRATEGY_PARAMS[key] || [];
+        return res.json(paramDefs.map(p => ({ key: p.key, label: p.label, default: engineConfig[p.key] })));
+    }
+    // Falls back to a custom strategy the same way runBacktest.js does —
+    // no engine-config-tunable knobs for these (their logic lives in the
+    // saved indicators/conditions), so an empty params list is correct,
+    // not a 404, as long as the name actually exists and is backtestable.
+    const custom = await customStrategyDb.getStrategyByName(key);
+    if (!custom || (!custom.entryLong && !custom.entryShort)) return res.status(404).json({ error: "unknown strategy" });
+    res.json([]);
 });
 
 app.post("/api/toolbox/backtest", async (req, res) => {
@@ -1067,8 +1075,21 @@ app.post("/api/toolbox/backtest", async (req, res) => {
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
-    if (!strategy || !STRATEGIES[strategy]) return res.status(400).json({ error: "a valid strategy is required" });
-    const strategyLabel = (STRATEGY_INFO[strategy] || {}).label || strategy;
+    // Same fallback as Add Instrument (line ~890) and runBacktest.js — a
+    // strategy name not in the hardcoded STRATEGIES registry might be a
+    // user-built one saved via customStrategyDb; only reject if it's in
+    // neither, closing the "custom strategies not wired to backtesting" gap.
+    let strategyLabel = strategy;
+    if (!strategy) return res.status(400).json({ error: "a valid strategy is required" });
+    if (STRATEGIES[strategy]) {
+        strategyLabel = (STRATEGY_INFO[strategy] || {}).label || strategy;
+    } else {
+        const custom = await customStrategyDb.getStrategyByName(strategy);
+        if (!custom || (!custom.entryLong && !custom.entryShort)) {
+            return res.status(400).json({ error: `unknown strategy "${strategy}" — not in STRATEGIES, and no backtestable custom_strategies row by that name` });
+        }
+        strategyLabel = `${custom.name} (custom)`;
+    }
 
     const to = toStr ? new Date(toStr) : new Date();
     let from;
@@ -1335,6 +1356,141 @@ app.get("/api/toolbox/scanner/status", async (req, res) => {
         const list = await pm2List();
         const proc = list.find(p => p.name === SCANNER_PROCESS_NAME);
         res.json({ running: !!proc && proc.pm2_env.status === "online" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── HEDGE PAIR — deploy/manage hedgePairEngine.js processes. Its own
+// small route group, not folded into /api/toolbox/instrument(s) —
+// getEngineProcesses() there filters on a single UNDERLYING env var,
+// which a hedge-pair process never sets (it sets CORE_UNDERLYING/
+// HEDGE_UNDERLYING instead), so it never appears in that list or those
+// routes' shape in the first place. Mirrors toolbox.js's own hedgePairScreen()/
+// addHedgePair() — see that file's comments for the full reasoning.
+async function getHedgePairProcesses() {
+    const list = await pm2List();
+    return list
+        .filter(p => p.pm2_env.env?.CORE_UNDERLYING)
+        .map(p => ({
+            name:            p.name,
+            coreUnderlying:  p.pm2_env.env.CORE_UNDERLYING,
+            hedgeUnderlying: p.pm2_env.env.HEDGE_UNDERLYING,
+            status:          p.pm2_env.status,
+            uptime:          p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
+            coreLots:        p.pm2_env.env?.CORE_LOTS_OVERRIDE || "1",
+            hedgeLots:       p.pm2_env.env?.HEDGE_LOTS_OVERRIDE || "5",
+            unwindMode:      p.pm2_env.env?.UNWIND_MODE_OVERRIDE || "HA_FLIP",
+            live:            p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
+            exchange:        p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
+            outLogPath:      p.pm2_env.pm_out_log_path,
+            errLogPath:      p.pm2_env.pm_err_log_path,
+        }));
+}
+
+app.get("/api/toolbox/hedgepairs", async (req, res) => {
+    try {
+        res.json({ pairs: await getHedgePairProcesses() });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Same lotMult-required check configureAndStartInstrument()/toolbox.js's
+// askLotMult() do — surfaced here so the UI can prompt for it before
+// ever calling POST /api/toolbox/hedgepairs with a name that would just
+// fail hedgePairContext.js's own refuse-to-boot guard.
+app.get("/api/toolbox/hedgepairs/lotmult/:underlying", (req, res) => {
+    try {
+        const def = getDefinition(req.params.underlying, "MCX");
+        res.json({ lotMultRequired: def.lotMult === null });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+app.post("/api/toolbox/hedgepairs", async (req, res) => {
+    const {
+        coreUnderlying, hedgeUnderlying, coreLots, hedgeLots,
+        coreLotMultOverride, hedgeLotMultOverride, unwindMode,
+        live, confirmLive,
+    } = req.body || {};
+
+    if (!coreUnderlying || !hedgeUnderlying) {
+        return res.status(400).json({ error: "coreUnderlying and hedgeUnderlying are both required" });
+    }
+    const resolvedUnwindMode = unwindMode === "EOD_ONLY" ? "EOD_ONLY" : "HA_FLIP";
+    // Same rule toolbox.js/instrument mode enforce: going live requires the
+    // literal word "LIVE" server-side too, not just a client-side checkbox.
+    if (live && confirmLive !== "LIVE") {
+        return res.status(400).json({ error: 'going live requires confirmLive: "LIVE"' });
+    }
+
+    const coreDef  = getDefinition(coreUnderlying, "MCX");
+    const hedgeDef = getDefinition(hedgeUnderlying, "MCX");
+    if (coreDef.lotMult === null && !coreLotMultOverride) {
+        return res.status(400).json({ error: `coreLotMultOverride is required for ${coreUnderlying} (no context.js override on file)` });
+    }
+    if (hedgeDef.lotMult === null && !hedgeLotMultOverride) {
+        return res.status(400).json({ error: `hedgeLotMultOverride is required for ${hedgeUnderlying} (no context.js override on file)` });
+    }
+
+    const name = `${getShortName(coreUnderlying)}${getShortName(hedgeUnderlying)}HedgePair`;
+    const env = {
+        CORE_UNDERLYING: coreUnderlying, HEDGE_UNDERLYING: hedgeUnderlying, EXCHANGE_OVERRIDE: "MCX",
+        CORE_LOTS_OVERRIDE: String(coreLots || 1), HEDGE_LOTS_OVERRIDE: String(hedgeLots || 5),
+        UNWIND_MODE_OVERRIDE: resolvedUnwindMode, LIVE_ORDERS_OVERRIDE: String(!!live),
+    };
+    if (coreLotMultOverride)  env.CORE_LOTMULT_OVERRIDE  = String(coreLotMultOverride);
+    if (hedgeLotMultOverride) env.HEDGE_LOTMULT_OVERRIDE = String(hedgeLotMultOverride);
+
+    try {
+        await pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name, cwd: ROOT, env });
+        res.json({ ok: true, name });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post("/api/toolbox/hedgepairs/start", async (req, res) => {
+    const { name } = req.body || {};
+    if (!name) return res.status(400).json({ error: "name is required" });
+    try {
+        await pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name, cwd: ROOT });
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post("/api/toolbox/hedgepairs/stop", async (req, res) => {
+    const { name } = req.body || {};
+    if (!name) return res.status(400).json({ error: "name is required" });
+    try {
+        await pm2Stop(name);
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete("/api/toolbox/hedgepairs/:name", async (req, res) => {
+    try {
+        await pm2Delete(req.params.name);
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get("/api/toolbox/hedgepairs/logs/:name", async (req, res) => {
+    try {
+        const pairs = await getHedgePairProcesses();
+        const p = pairs.find(x => x.name === req.params.name);
+        if (!p) return res.status(404).json({ error: "process not found" });
+        const out = tailFile(p.outLogPath, N_LOG_LINES);
+        const err = tailFile(p.errLogPath, N_LOG_LINES);
+        res.json({ outLogPath: p.outLogPath || null, errLogPath: p.errLogPath || null, out, err });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
