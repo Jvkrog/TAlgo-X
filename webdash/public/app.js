@@ -2329,4 +2329,219 @@ function renderRollConfirmStep(preview) {
   });
 }
 
+// ── hedge pairs modal ─────────────────────────────────────────────────────
+const tbHedgePairsModal = document.getElementById("tbHedgePairsModal");
+const tbHedgePairsBody  = document.getElementById("tbHedgePairsBody");
+const tbHedgePairsClose = document.getElementById("tbHedgePairsClose");
+document.getElementById("tbOpenHedgePairs").addEventListener("click", openHedgePairsModal);
+tbHedgePairsClose.addEventListener("click", () => tbHedgePairsModal.classList.remove("open"));
+tbHedgePairsModal.addEventListener("click", e => { if (e.target === tbHedgePairsModal) tbHedgePairsModal.classList.remove("open"); });
+
+let hpAddState = null; // null = showing the list; {} once "add" is opened, accumulates core/hedge picks
+
+async function openHedgePairsModal() {
+  hpAddState = null;
+  tbHedgePairsBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  tbHedgePairsModal.classList.add("open");
+  await loadHedgePairsList();
+}
+
+async function loadHedgePairsList() {
+  try {
+    const { pairs } = await (await fetch("/api/toolbox/hedgepairs")).json();
+
+    let html = `<button class="tb-cli-action" id="hpAddBtn" style="margin-bottom:10px">+ add hedge pair</button>`;
+
+    if (pairs.length === 0) {
+      html += `<div class="tb-form-hint">none running yet</div>`;
+    } else {
+      pairs.forEach(p => {
+        const modeTag = p.live ? `<span style="color:var(--red,#f0616d)">LIVE</span>` : `<span style="color:var(--dim)">PAPER</span>`;
+        html += `
+          <div class="tb-watch-row">
+            <div class="tb-watch-main">
+              <div class="tb-watch-inst">${p.name}</div>
+              <div class="tb-watch-meta">core ${p.coreUnderlying} (${p.coreLots} lot) \u00b7 hedge ${p.hedgeUnderlying} (${p.hedgeLots} lots) \u00b7 unwind:${p.unwindMode} \u00b7 ${modeTag} \u00b7 [${p.status}]</div>
+            </div>
+            <button class="tb-cli-action" data-hp-logs="${p.name}" style="padding:4px 8px;font-size:11px">logs</button>
+            <button class="tb-cli-action" data-hp-toggle="${p.name}" data-hp-status="${p.status}" style="padding:4px 8px;font-size:11px">${p.status === "online" ? "stop" : "start"}</button>
+            <button class="tb-watch-remove" data-hp-remove="${p.name}" title="remove">\u2715</button>
+          </div>`;
+      });
+    }
+
+    tbHedgePairsBody.innerHTML = html;
+    tbHedgePairsBody.querySelector("#hpAddBtn").addEventListener("click", () => { hpAddState = {}; renderHedgePairAddCorePicker(); });
+
+    tbHedgePairsBody.querySelectorAll("[data-hp-toggle]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const name = btn.dataset.hpToggle;
+        const startingNow = btn.dataset.hpStatus !== "online";
+        btn.disabled = true;
+        try {
+          await fetch(`/api/toolbox/hedgepairs/${startingNow ? "start" : "stop"}`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+          });
+          loadHedgePairsList();
+        } catch (err) { btn.disabled = false; }
+      });
+    });
+    tbHedgePairsBody.querySelectorAll("[data-hp-remove]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        if (!confirm(`Remove ${btn.dataset.hpRemove}? This stops and deletes the PM2 process.`)) return;
+        await fetch(`/api/toolbox/hedgepairs/${encodeURIComponent(btn.dataset.hpRemove)}`, { method: "DELETE" });
+        loadHedgePairsList();
+      });
+    });
+    tbHedgePairsBody.querySelectorAll("[data-hp-logs]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const data = await (await fetch(`/api/toolbox/hedgepairs/logs/${encodeURIComponent(btn.dataset.hpLogs)}`)).json();
+        tbLogsTitle.textContent = btn.dataset.hpLogs;
+        tbLogsBody.innerHTML = `<div class="tb-log-pane"><div class="tb-log-label">stdout</div><pre>${(data.out || []).join("\n") || "(empty)"}</pre></div><div class="tb-log-pane"><div class="tb-log-label">stderr</div><pre>${(data.err || []).join("\n") || "(empty)"}</pre></div>`;
+        tbLogsModal.classList.add("open");
+      });
+    });
+  } catch (err) {
+    tbHedgePairsBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+  }
+}
+
+// Reuses the SAME search endpoint Add Instrument/Market Status use
+// (/api/toolbox/instruments?exchange=MCX&q=) — no new search endpoint,
+// core and hedge are both just MCX underlyings picked from the real dump.
+function renderHedgePairSearchStep(label, onPick) {
+  tbHedgePairsBody.innerHTML = `
+    <button class="tb-back-link" id="hpBack">\u2039 back</button>
+    <div class="tb-form-hint" style="margin:8px 0">${label}</div>
+    <div class="tb-search-row">
+      <input type="text" id="hpSearchInput" placeholder="search underlying...">
+      <button id="hpSearchBtn">search</button>
+    </div>
+    <div id="hpSearchHint" class="tb-form-hint"></div>
+    <div id="hpSearchPickList" class="tb-pick-list"></div>
+  `;
+  tbHedgePairsBody.querySelector("#hpBack").addEventListener("click", () => {
+    if (hpAddState.core) { hpAddState = {}; renderHedgePairAddCorePicker(); }
+    else { hpAddState = null; loadHedgePairsList(); }
+  });
+  const input = tbHedgePairsBody.querySelector("#hpSearchInput");
+  const hint  = tbHedgePairsBody.querySelector("#hpSearchHint");
+  const list  = tbHedgePairsBody.querySelector("#hpSearchPickList");
+  async function runSearch() {
+    const q = input.value.trim();
+    hint.textContent = "searching...";
+    list.innerHTML = "";
+    try {
+      const data = await (await fetch(`/api/toolbox/instruments?exchange=MCX&q=${encodeURIComponent(q)}`)).json();
+      const matches = data.matches || [];
+      if (matches.length === 0) { hint.textContent = "no matches"; return; }
+      hint.textContent = `${matches.length} match(es)`;
+      matches.slice(0, 30).forEach(u => {
+        const btn = document.createElement("button");
+        btn.className = "tb-pick-item";
+        btn.textContent = u;
+        btn.addEventListener("click", () => onPick(u));
+        list.appendChild(btn);
+      });
+    } catch (err) {
+      hint.textContent = `search failed: ${err.message}`;
+    }
+  }
+  tbHedgePairsBody.querySelector("#hpSearchBtn").addEventListener("click", runSearch);
+  input.addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
+}
+
+function renderHedgePairAddCorePicker() {
+  renderHedgePairSearchStep("core underlying (full-size contract, e.g. NATURALGAS, ZINC)", u => {
+    hpAddState.core = u;
+    renderHedgePairAddHedgePicker();
+  });
+}
+function renderHedgePairAddHedgePicker() {
+  renderHedgePairSearchStep("hedge underlying (mini contract, e.g. NATGASMINI, ZINCMINI)", u => {
+    hpAddState.hedge = u;
+    renderHedgePairAddForm();
+  });
+}
+
+async function renderHedgePairAddForm() {
+  const [coreLm, hedgeLm] = await Promise.all([
+    (await fetch(`/api/toolbox/hedgepairs/lotmult/${encodeURIComponent(hpAddState.core)}`)).json().catch(() => ({})),
+    (await fetch(`/api/toolbox/hedgepairs/lotmult/${encodeURIComponent(hpAddState.hedge)}`)).json().catch(() => ({})),
+  ]);
+
+  tbHedgePairsBody.innerHTML = `
+    <button class="tb-back-link" id="hpBack">\u2039 back</button>
+    <div class="tb-form-hint" style="margin:8px 0">core: <b>${hpAddState.core}</b> (1 lot NRML, daily-HA bias, EOD-only exit)<br>hedge: <b>${hpAddState.hedge}</b> (opens on adverse 1h HA against the core)</div>
+
+    <div class="tb-form-row">
+      <div class="tb-form-label">core lots (default 1)</div>
+      <input type="number" id="hpCoreLots" min="1" step="1" value="1">
+    </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">hedge lots (default 5 \u2014 the real 5:1 contract ratio for both supported pairs)</div>
+      <input type="number" id="hpHedgeLots" min="1" step="1" value="5">
+    </div>
+    <div class="tb-form-row" style="display:${coreLm.lotMultRequired ? "" : "none"}">
+      <div class="tb-form-label">core lot multiplier \u2014 REQUIRED, no context.js override on file for ${hpAddState.core}. Real contract multiplier, not broker lot_size.</div>
+      <input type="number" id="hpCoreLotMult" min="1" step="any">
+    </div>
+    <div class="tb-form-row" style="display:${hedgeLm.lotMultRequired ? "" : "none"}">
+      <div class="tb-form-label">hedge lot multiplier \u2014 REQUIRED, no context.js override on file for ${hpAddState.hedge}. Real contract multiplier, not broker lot_size.</div>
+      <input type="number" id="hpHedgeLotMult" min="1" step="any">
+    </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">unwind mode</div>
+      <select id="hpUnwindMode">
+        <option value="HA_FLIP" selected>HA_FLIP \u2014 hedge closes when 1h HA flips back in the core's favor</option>
+        <option value="EOD_ONLY">EOD_ONLY \u2014 hedge stays on till EOD regardless of 1h HA</option>
+      </select>
+    </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="hpLive"><span>go LIVE (real orders on both legs) \u2014 unchecked = paper</span></label>
+    </div>
+    <div id="hpAddErrBox"></div>
+    <button class="tb-submit-btn" id="hpAddSubmit">start hedge pair</button>
+  `;
+
+  tbHedgePairsBody.querySelector("#hpBack").addEventListener("click", renderHedgePairAddHedgePicker);
+
+  tbHedgePairsBody.querySelector("#hpAddSubmit").addEventListener("click", async () => {
+    const errBox = tbHedgePairsBody.querySelector("#hpAddErrBox");
+    const live = tbHedgePairsBody.querySelector("#hpLive").checked;
+    let confirmLive;
+    if (live) {
+      confirmLive = prompt('This starts REAL orders on BOTH legs. Type "LIVE" to confirm:');
+      if (confirmLive !== "LIVE") { errBox.innerHTML = `<div class="tb-err-box">not confirmed \u2014 not started</div>`; return; }
+    }
+    const body = {
+      coreUnderlying: hpAddState.core, hedgeUnderlying: hpAddState.hedge,
+      coreLots: tbHedgePairsBody.querySelector("#hpCoreLots").value || 1,
+      hedgeLots: tbHedgePairsBody.querySelector("#hpHedgeLots").value || 5,
+      coreLotMultOverride: tbHedgePairsBody.querySelector("#hpCoreLotMult")?.value || undefined,
+      hedgeLotMultOverride: tbHedgePairsBody.querySelector("#hpHedgeLotMult")?.value || undefined,
+      unwindMode: tbHedgePairsBody.querySelector("#hpUnwindMode").value,
+      live, confirmLive,
+    };
+    const btn = tbHedgePairsBody.querySelector("#hpAddSubmit");
+    btn.disabled = true; btn.textContent = "starting...";
+    try {
+      const res = await fetch("/api/toolbox/hedgepairs", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed to start"}</div>`;
+        btn.disabled = false; btn.textContent = "start hedge pair";
+        return;
+      }
+      hpAddState = null;
+      loadHedgePairsList();
+    } catch (err) {
+      errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+      btn.disabled = false; btn.textContent = "start hedge pair";
+    }
+  });
+}
+
 initAuth();
