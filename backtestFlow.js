@@ -18,6 +18,7 @@
 const fs = require("fs");
 const { KiteConnect } = require("kiteconnect");
 const { STRATEGIES, STRATEGY_INFO, DEFAULT_STRATEGY } = require("./strategies");
+const customStrategyDb           = require("./customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL } = require("./historicalFetch");
 const { runBacktest } = require("./backtestRun");
 
@@ -139,6 +140,10 @@ function fmtMoney(n) { return (n < 0 ? "-₹" : "₹") + Math.abs(n).toFixed(2);
 async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, resolveCurrent, getDefinition, buildContext, defaultEodFor, c, engineConfig }) {
     // ── Step 1: Strategy ──────────────────────────────────────────────────
     const strategyKeys = Object.keys(STRATEGIES);
+    const customSpecs = await customStrategyDb.listStrategies();
+    // Only custom strategies with saved entry conditions are backtestable —
+    // same "finished in the builder" requirement runBacktest.js enforces.
+    const customUsable = customSpecs.filter(s => s.entryLong || s.entryShort);
     console.log();
     console.log(c.bold("  Step 1/7 — Strategy"));
     strategyKeys.forEach((key, i) => {
@@ -146,10 +151,20 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         console.log(`  ${String(i + 1).padStart(2)}. ${info.label}`);
         if (info.description) console.log(c.dim(`      ${info.description}`));
     });
+    if (customUsable.length) {
+        console.log(c.dim("  ── your custom strategies ──"));
+        customUsable.forEach((s, i) => {
+            console.log(`  ${String(strategyKeys.length + i + 1).padStart(2)}. ${s.name} (custom)`);
+        });
+    }
     const stratInput = await ask("  select number: ");
-    const strategyKey = strategyKeys[Number(stratInput) - 1];
-    if (!strategyKey) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
-    const strategyLabel = (STRATEGY_INFO[strategyKey] || { label: strategyKey }).label;
+    const pickIdx = Number(stratInput) - 1;
+    const strategyKey = pickIdx < strategyKeys.length ? strategyKeys[pickIdx] : undefined;
+    const customPick = pickIdx >= strategyKeys.length ? customUsable[pickIdx - strategyKeys.length] : undefined;
+    if (!strategyKey && !customPick) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    const isCustom = !!customPick;
+    const effectiveStrategyKey = isCustom ? customPick.name : strategyKey;
+    const strategyLabel = isCustom ? `${customPick.name} (custom)` : (STRATEGY_INFO[strategyKey] || { label: strategyKey }).label;
 
     // ── Step 2: Instrument — same discovery Add Instrument uses ───────────
     console.log();
@@ -226,6 +241,9 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     console.log();
     console.log(c.bold("  Step 4/7 — Candle close type"));
     console.log(c.dim(`  ${strategyLabel} has its own fixed candle-type behavior (not user-selectable):`));
+    if (isCustom) {
+        console.log(c.dim(`    indicators computed on ${customPick.candleType === "ha" ? "Heikin-Ashi" : "raw"} candles, per this strategy's own builder setting`));
+    } else {
     const candleTypeNotes = {
         ALMA_BAND: "    bands and entry/exit signal both computed on Heikin-Ashi candles",
         ALMA_FAST: "    single ALMA computed entirely on Heikin-Ashi close, entry on its slope flipping",
@@ -236,6 +254,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         ALMA_PRO_SLOW: "    slow ALMA computed entirely on Heikin-Ashi close, LEVEL-based entry off its own current slope direction \u2014 no band, no HA/raw mixing",
     };
     console.log(c.dim(candleTypeNotes[strategyKey] || "    all indicators (ST1/RSI/SMA9/DPI) run on Heikin-Ashi candles"));
+    }
 
     // ── Step 5: Historical range ──────────────────────────────────────────
     console.log();
@@ -259,7 +278,8 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     // ── Step 6: Strategy parameters ───────────────────────────────────────
     console.log();
     console.log(c.bold("  Step 6/7 — Strategy parameters (blank = default)"));
-    const paramDefs = STRATEGY_PARAMS[strategyKey] || [];
+    const paramDefs = isCustom ? [] : (STRATEGY_PARAMS[strategyKey] || []);
+    if (isCustom) console.log(c.dim(`  ${strategyLabel} has no separate tunable engine parameters — its logic lives entirely in the indicators/conditions saved in the builder.`));
     const params = {};
     for (const p of paramDefs) {
         const defaultVal = engineConfig[p.key];
@@ -424,7 +444,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     let result;
     try {
         result = await runBacktest({
-            strategyKey, strategyLabel, context, timeframe, from, to, params, kc,
+            strategyKey: effectiveStrategyKey, strategyLabel, context, timeframe, from, to, params, kc,
             progress: (done, total) => process.stdout.write(`\r  ${done}/${total} candles...`),
         });
     } catch (err) {

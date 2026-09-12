@@ -6,6 +6,8 @@
 "use strict";
 
 const { STRATEGIES }              = require("./strategies");
+const customStrategyDb            = require("./customStrategyDb");
+const { createCustomStrategy }    = require("./customStrategyRuntime");
 const { createBacktestLedger }    = require("./backtestLedger");
 const { createBacktestBroker }    = require("./backtestBroker");
 const { createBacktestCandleFeed } = require("./backtestCandleFeed");
@@ -21,7 +23,7 @@ const { fetchHistoricalCandles }  = require("./historicalFetch");
 const c = require("./c");
 
 // runBacktest({
-//   strategyKey,      // e.g. "ALMA_BAND" — must exist in strategies.js's STRATEGIES
+//   strategyKey,      // e.g. "ALMA_BAND", or a name saved in custom_strategies.db
 //   strategyLabel,    // display label for the report (STRATEGY_INFO's .label)
 //   context,          // resolved instrument context — needs at minimum
 //                     // { name/tgPrefix, token, symbol, exchange, lots, lotMult }
@@ -33,9 +35,22 @@ const c = require("./c");
 //   progress,         // optional (processed, total) => void, called every 100 candles
 // })
 async function runBacktest({ strategyKey, strategyLabel, context, timeframe, from, to, params = {}, kc, progress }) {
-    const factory = STRATEGIES[strategyKey];
+    // Same fallback signals.js's createSignals() uses live: a key not in
+    // the hardcoded STRATEGIES registry might be a user-built strategy
+    // saved via the toolbox/webdash wizard (customStrategyDb) — only an
+    // error if it's missing from BOTH. This is what closes the
+    // "custom strategies aren't wired to backtesting" gap (talgo-x.md).
+    let factory = STRATEGIES[strategyKey];
+    let customSpec = null;
     if (!factory) {
-        throw new Error(`runBacktest: unknown strategy "${strategyKey}" (known: ${Object.keys(STRATEGIES).join(", ")})`);
+        customSpec = await customStrategyDb.getStrategyByName(strategyKey);
+        if (!customSpec) {
+            throw new Error(`runBacktest: unknown strategy "${strategyKey}" (not in STRATEGIES [${Object.keys(STRATEGIES).join(", ")}], and no custom_strategies row by that name)`);
+        }
+        if (!customSpec.entryLong && !customSpec.entryShort) {
+            throw new Error(`runBacktest: custom strategy "${strategyKey}" has no entry conditions saved yet — finish it in the builder before backtesting`);
+        }
+        factory = createCustomStrategy(customSpec);
     }
 
     // A backtest never places real orders and never uses the trend-following
