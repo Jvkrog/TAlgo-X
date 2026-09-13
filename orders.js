@@ -33,10 +33,16 @@ const fs           = require("fs");
 const engineConfig = require("./engineConfig");
 const c            = require("./c");
 const { normalizePrice } = require("./price");
+const { createDailyHaGate } = require("./dailyHaGate");
 
 function createOrders(context, tg) {
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
     kc.setAccessToken(fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim());
+
+    // Universal daily-HA directional gate — see dailyHaGate.js's own header
+    // for why this lives here instead of alongside chopGate.js et al.'s
+    // per-strategy wiring. Reuses this same kc client, no separate one.
+    const dailyHaGate = createDailyHaGate({ context, kc });
 
     // ─── C. DUPLICATE ORDER PROTECTION ───────────────────────────────────────
     // true while an order HTTP call is in progress for this instrument.
@@ -216,6 +222,14 @@ function createOrders(context, tg) {
     // Each returns the broker order id on success, or null on failure/skip —
     // callers MUST check this before mutating internal position state.
     async function enter(side, opts) {
+        // Universal — applies to every strategy without needing to be
+        // wired into strategies.js/customStrategyRuntime.js individually.
+        // Same "return null on block" contract every caller already
+        // checks for (they gate their own state transition on this).
+        if (await dailyHaGate.isBlocked(side)) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} entry blocked — daily HA gate (previous day's completed candle disagrees)`));
+            return null;
+        }
         const transaction_type = side === "LONG" ? "BUY" : "SELL";
         return await _place(transaction_type, context.lots, "TALGO_EN", opts);
     }

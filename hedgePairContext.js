@@ -29,6 +29,16 @@ function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore
     context.name     = `${context.name} (${legLabel})`;
     context.lots      = lots;
     if (lotMultOverride) context.lotMult = lotMultOverride;
+    // dailyHaGate.js (orders.js's universal gate, wired Sep 2026) blocks
+    // any entry whose side disagrees with the previous daily HA candle.
+    // The HEDGE leg's entire purpose is to open COUNTER to that same
+    // daily-implied direction the moment the hourly read disagrees with
+    // the core — leaving this gate on for the hedge leg would silently
+    // block it from ever doing its job. The CORE leg deliberately keeps
+    // it on (default, untouched here) — its own entry logic already IS
+    // the daily HA decision, so the gate can never actually disagree
+    // with it there; only the hedge leg needs the exemption.
+    if (legLabel === "HEDGE") context.dailyHaGateEnabled = false;
     // See hedgePairEngine.js's header: both legs are force-closed by that
     // file's own EOD block every day, unconditionally — NRML here is
     // about margin treatment (matching the "1 full lot NRML" spec), not

@@ -11,10 +11,14 @@
 //      threshold (high chop = ranging/choppy = don't trade it). Here, a
 //      LOW chop value means the higher timeframe itself is trending, not
 //      ranging.
-//   2. AND the close still sits inside that higher timeframe's own ALMA
+//   2. AND (if context.htfBandBlockEnabled !== false, the default) the
+//      close still sits inside that higher timeframe's own ALMA
 //      high/low band (almaLow < close < almaHigh, same construction as
 //      ALMA_BAND's — see strategies.js) — i.e. that higher-timeframe trend
-//      has not actually broken out of its own band yet.
+//      has not actually broken out of its own band yet. Set
+//      htfBandBlockEnabled: false to drop this clause entirely — the gate
+//      then blocks purely on condition 1 (chop) for as long as it holds,
+//      not just until the band breaks. Configurable since Sep 2026.
 // Both conditions together read as: "the bigger picture is trending, but
 // hasn't confirmed a breakout" — entering the (finer) strategy timeframe
 // right now would be trading ahead of / against an unconfirmed
@@ -110,6 +114,15 @@ function createHtfGate({ context, engineConfig, tg }) {
 
         const chopMax = context.htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT;
         if (!(chopVal < chopMax)) return false; // HTF itself is choppy/ranging — this gate doesn't apply
+
+        // ALMA-band check — now independently configurable (was previously
+        // fused into the AND below with no way to run the chop condition
+        // on its own). Default true = unchanged prior behavior. When
+        // false, the gate's block decision drops the band clause entirely
+        // and blocks purely on the chop condition above — i.e. it blocks
+        // for as long as the higher timeframe stays in a low-chop/
+        // trending state, not just until price breaks its own band.
+        if (context.htfBandBlockEnabled === false) return true;
 
         const highs = bars.map(b => b.high);
         const lows  = bars.map(b => b.low);
