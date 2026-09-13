@@ -895,6 +895,7 @@ function renderRiskList() {
       `<span class="mode-pill ${inst.volumeFilterEnabled ? "live" : ""}">vol ${inst.volumeFilterEnabled ? `sma${inst.volumeSmaPeriod ?? 20}` : "off"}</span>`,
       `<span class="mode-pill ${inst.longCandleFilterEnabled !== false ? "live" : ""}">long-candle ${inst.longCandleFilterEnabled !== false ? "on" : "off"}</span>`,
       `<span class="mode-pill ${inst.htfGateEnabled !== false ? "live" : ""}">htf ${inst.htfGateEnabled !== false ? (inst.htfTimeframe || "1h") : "off"}</span>`,
+      `<span class="mode-pill ${inst.dailyHaGateEnabled !== false ? "live" : ""}">dailyha ${inst.dailyHaGateEnabled !== false ? "on" : "off"}</span>`,
     ];
     if (inst.strategy === "PURE_HA") badges.push(`<span class="mode-pill">flip ${inst.flipConfirmCandles ?? 1}</span>`);
     if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
@@ -1152,6 +1153,11 @@ function openEditModal(inst) {
       </select>
       <input type="number" id="editHtfChopPeriod" min="1" step="1" value="${inst.htfChopPeriod ?? ""}" placeholder="chop period, blank = default (9)">
       <input type="number" id="editHtfChopMax" min="0" step="any" value="${inst.htfChopMax ?? ""}" placeholder="chop max, blank = default (58)">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editHtfBandBlock" ${inst.htfBandBlockEnabled !== false ? "checked" : ""}><span>also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
+    </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editDailyHaGate" ${inst.dailyHaGateEnabled !== false ? "checked" : ""}><span>only allow entries matching the previous daily HA candle's color (green=long only, red=short only)</span></label>
+      <div class="tb-form-hint">on by default, applies universally regardless of strategy.</div>
     </div>
     <div id="editErrBox"></div>
     <button class="tb-submit-btn" id="editSubmit">save changes (restarts the process)</button>
@@ -1208,6 +1214,8 @@ function openEditModal(inst) {
     body.htfTimeframe = tbEditBody.querySelector("#editHtfTimeframe").value;
     body.htfChopPeriod = tbEditBody.querySelector("#editHtfChopPeriod").value || null;
     body.htfChopMax = tbEditBody.querySelector("#editHtfChopMax").value || null;
+    body.htfBandBlockEnabled = tbEditBody.querySelector("#editHtfBandBlock").checked;
+    body.dailyHaGateEnabled = tbEditBody.querySelector("#editDailyHaGate").checked;
 
     try {
       const res = await fetch("/api/toolbox/edit", {
@@ -1522,6 +1530,11 @@ function renderAddConfigStep() {
       </select>
       <input type="number" id="addHtfChopPeriod" min="1" step="1" placeholder="chop period, blank = default (9)">
       <input type="number" id="addHtfChopMax" min="0" step="any" placeholder="chop max, blank = default (58)">
+      <label class="tb-form-row-inline"><input type="checkbox" id="addHtfBandBlock" checked><span>also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
+    </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="addDailyHaGate" checked><span>only allow entries matching the previous daily HA candle's color (green=long only, red=short only)</span></label>
+      <div class="tb-form-hint">on by default, applies universally regardless of strategy.</div>
     </div>
     <div id="addErrBox"></div>
     <button class="tb-submit-btn" id="addSubmit">start instrument</button>
@@ -1641,6 +1654,8 @@ function renderAddConfigStep() {
         htfTimeframe: tbAddBody.querySelector("#addHtfTimeframe").value,
         htfChopPeriod: tbAddBody.querySelector("#addHtfChopPeriod").value || undefined,
         htfChopMax: tbAddBody.querySelector("#addHtfChopMax").value || undefined,
+        htfBandBlockEnabled: tbAddBody.querySelector("#addHtfBandBlock").checked,
+        dailyHaGateEnabled: tbAddBody.querySelector("#addDailyHaGate").checked,
       };
       const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
