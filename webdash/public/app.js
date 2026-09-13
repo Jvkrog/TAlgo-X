@@ -8,6 +8,8 @@
 // off tgPrefix too). Not a regression introduced here.
 
 const grid       = document.getElementById("instrumentGrid");
+const hedgePairsPanel = document.getElementById("hedgePairsPanel");
+const hedgePairsGrid  = document.getElementById("hedgePairsGrid");
 const logStream  = document.getElementById("logStream");
 const connStatus = document.getElementById("connStatus");
 const totalPnlEl = document.getElementById("totalSessionPnl");
@@ -133,6 +135,64 @@ function renderInstruments() {
   });
 }
 
+// ── hedge pair cards — main dashboard visibility (previously ONLY visible
+// inside the Toolbox "⇄ hedge pairs" modal, which meant a hedge pair
+// process running live gave no signal at all on the primary operator
+// view — reported directly). No live WS price/uPnl here — hedgePairEngine.js
+// itself runs no ticker (see its own header), so there's nothing to
+// stream; this polls the same /api/toolbox/hedgepairs list the toolbox
+// modal uses, on the same 30s cadence as loadInstruments(), and reuses
+// the generic /api/control endpoint for start/stop/restart (name-based,
+// no dependency on the single-instrument getEngineProcesses() shape).
+let hedgePairs = [];
+
+function buildHedgePairCard(p) {
+  const el = document.createElement("div");
+  el.className = "card";
+  el.id = `hp-${p.name}`;
+  el.innerHTML = `
+    <div class="card-top">
+      <div class="card-id">
+        <span class="card-underlying">${p.coreUnderlying}/${p.hedgeUnderlying}</span>
+        <span class="card-strategy">hedge pair \u00b7 unwind:${p.unwindMode}</span>
+      </div>
+      <div>
+        <span class="status-pill ${p.status === "online" ? "online" : "offline"}">${p.status}</span>
+        <span class="mode-pill ${p.live ? "live" : ""}">${p.live ? "live" : "paper"}</span>
+      </div>
+    </div>
+    <div class="card-price-row">
+      <span class="card-price">core ${p.coreLots} lot NRML \u00b7 hedge ${p.hedgeLots} lots</span>
+    </div>
+    <div class="card-controls">
+      <button class="btn btn-start" data-action="start">start</button>
+      <button class="btn btn-stop" data-action="stop">stop</button>
+      <button class="btn btn-restart" data-action="restart">restart</button>
+    </div>
+  `;
+  el.querySelectorAll("[data-action]").forEach(btn => {
+    btn.addEventListener("click", () => control(p.name, btn.dataset.action, el));
+  });
+  return el;
+}
+
+async function loadHedgePairs() {
+  try {
+    const data = await (await fetch("/api/toolbox/hedgepairs")).json();
+    hedgePairs = data.pairs || [];
+    if (hedgePairs.length === 0) {
+      hedgePairsPanel.style.display = "none";
+      return;
+    }
+    hedgePairsPanel.style.display = "";
+    hedgePairsGrid.innerHTML = "";
+    hedgePairs.forEach(p => hedgePairsGrid.appendChild(buildHedgePairCard(p)));
+  } catch (err) {
+    // Best-effort, same as loadEngineState — a failed poll just leaves the
+    // panel as it was rather than erroring the whole dashboard load.
+  }
+}
+
 async function loadEngineState(inst) {
   try {
     const res = await fetch(`/api/state/${encodeURIComponent(inst.underlying)}/${encodeURIComponent(inst.strategy)}`);
@@ -212,7 +272,7 @@ async function loadInstruments() {
   }
 }
 
-refreshBtn.addEventListener("click", loadInstruments);
+refreshBtn.addEventListener("click", () => { loadInstruments(); loadHedgePairs(); });
 
 // ── kite access token ───────────────────────────────────────────────────
 // Primary path: the token button's href is set to Kite's real login URL, so
@@ -505,11 +565,13 @@ function startApp() {
   appStarted = true;
   appendLog({ type: "SYS", text: `[dashboard] booting...` });
   loadInstruments();
+  loadHedgePairs();
   connect();
   refreshTokenStatus();
   loadLoginUrl();
   handleTokenRedirectParams();
   setInterval(loadInstruments, 30000); // periodic resync in case PM2 state changed outside the dashboard
+  setInterval(loadHedgePairs, 30000);
 }
 
 function revealApp(instant) {
