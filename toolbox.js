@@ -161,6 +161,8 @@ async function getEngineProcesses() {
             htfTimeframe: p.pm2_env.env?.HTF_TIMEFRAME_OVERRIDE || null,
             htfChopPeriod: p.pm2_env.env?.HTF_CHOP_PERIOD_OVERRIDE ? Number(p.pm2_env.env.HTF_CHOP_PERIOD_OVERRIDE) : null,
             htfChopMax: p.pm2_env.env?.HTF_CHOP_MAX_OVERRIDE ? Number(p.pm2_env.env.HTF_CHOP_MAX_OVERRIDE) : null,
+            htfBandBlockEnabled: p.pm2_env.env?.HTF_BAND_BLOCK_ENABLED_OVERRIDE !== undefined ? p.pm2_env.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE === "true" : true,
+            dailyHaGateEnabled: p.pm2_env.env?.DAILY_HA_GATE_ENABLED_OVERRIDE !== undefined ? p.pm2_env.env.DAILY_HA_GATE_ENABLED_OVERRIDE === "true" : true,
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -516,6 +518,12 @@ function buildProcessEnv(p, overrides = {}) {
     env.HTF_TIMEFRAME_OVERRIDE = p.htfTimeframe || "";
     env.HTF_CHOP_PERIOD_OVERRIDE = p.htfChopPeriod ? String(p.htfChopPeriod) : "";
     env.HTF_CHOP_MAX_OVERRIDE = p.htfChopMax ? String(p.htfChopMax) : "";
+    // htfGate.js's ALMA-band clause — independently configurable since
+    // Sep 2026, same write-asymmetry reasoning as the gate flags above.
+    env.HTF_BAND_BLOCK_ENABLED_OVERRIDE = p.htfBandBlockEnabled === false ? "false" : "true";
+    // dailyHaGate.js's universal directional gate (orders.js) — on by
+    // default, same write-asymmetry reasoning as the gate flags above.
+    env.DAILY_HA_GATE_ENABLED_OVERRIDE = p.dailyHaGateEnabled === false ? "false" : "true";
     return { ...env, ...overrides };
 }
 
@@ -1099,6 +1107,31 @@ async function riskManagement(procs) {
             console.log(c.dim(`  HTF gate off — entries will NOT be blocked by the higher-timeframe check`));
         }
 
+        // htfGate.js's ALMA-band clause — independently configurable since
+        // Sep 2026 (previously fused unconditionally into the gate above).
+        // Only meaningful while the HTF gate itself is on.
+        let htfBandBlockEnabled = p.htfBandBlockEnabled;
+        if (htfGateEnabled) {
+            const htfBandDefault = p.htfBandBlockEnabled !== false;
+            const htfBandInput = (await ask(`  HTF gate: also require price still inside its own ALMA band (not just low chop)? [Y/n] (current: ${htfBandDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            if (htfBandInput) htfBandBlockEnabled = htfBandInput !== "N";
+            if (htfBandBlockEnabled === false) {
+                console.log(c.dim(`  HTF gate will block purely on low chop alone, for as long as it holds — not just until price breaks the band`));
+            }
+        }
+
+        // dailyHaGate.js's universal directional gate (orders.js) — on by
+        // default, opt-out. Applies to every strategy automatically (see
+        // dailyHaGate.js's header for why this one isn't wired per-strategy
+        // like the gates above).
+        const dailyHaDefault = p.dailyHaGateEnabled !== false;
+        const dailyHaInput = (await ask(`  only allow entries matching the previous daily HA candle's color (green=long only, red=short only)? [Y/n] (current: ${dailyHaDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+        let dailyHaGateEnabled = p.dailyHaGateEnabled;
+        if (dailyHaInput) dailyHaGateEnabled = dailyHaInput !== "N";
+        if (dailyHaGateEnabled === false) {
+            console.log(c.dim(`  daily HA gate off — entries in either direction stay allowed regardless of yesterday's daily candle`));
+        }
+
         // Max daily loss circuit breaker — universal, every strategy.
         const maxDailyLossDefault = p.maxDailyLoss !== null ? String(p.maxDailyLoss) : "none";
         const maxDailyLossInput = (await ask(`  max daily loss in rupees (current: ${maxDailyLossDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
@@ -1116,7 +1149,7 @@ async function riskManagement(procs) {
             }
         }
 
-        const updatedP = { ...p, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, longCandleUseBodyFilter, longCandleBodyAtrMult, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, maxDailyLoss };
+        const updatedP = { ...p, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, longCandleUseBodyFilter, longCandleBodyAtrMult, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, maxDailyLoss };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -1130,9 +1163,10 @@ async function riskManagement(procs) {
             const flipTag = p.strategy === "PURE_HA" ? c.dim(` flip:${flipConfirmCandles ?? 1}`) : "";
             const volTag = volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
             const lcTag = longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
-            const htfTag = htfGateEnabled ? c.dim(` htf:${htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}`) : c.yellow(" htf:off");
+            const htfTag = htfGateEnabled ? c.dim(` htf:${htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${htfBandBlockEnabled === false ? "(no-band)" : ""}`) : c.yellow(" htf:off");
+            const dailyHaTag = dailyHaGateEnabled === false ? c.yellow(" dailyha:off") : c.dim(" dailyha:on");
             const lossTag = maxDailyLoss !== null ? c.dim(` maxloss:-₹${maxDailyLoss}`) : "";
-            console.log(c.green(`  ${p.underlying} risk settings updated${chopTag}${doubleTag}${atrTag}${flipTag}${volTag}${lcTag}${htfTag}${lossTag} (restarted)`));
+            console.log(c.green(`  ${p.underlying} risk settings updated${chopTag}${doubleTag}${atrTag}${flipTag}${volTag}${lcTag}${htfTag}${dailyHaTag}${lossTag} (restarted)`));
         } catch (err) {
             console.log(c.red(`  failed to update ${p.underlying}: ${err.message}`));
         }

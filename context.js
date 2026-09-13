@@ -351,6 +351,13 @@ function buildContext(def, resolvedContract) {
         htfTimeframe: "1h",
         htfChopPeriod: null,
         htfChopMax: null,
+        // dailyHaGate.js's universal directional gate (orders.js) — ON by
+        // default, same opt-out posture as htfGateEnabled above. Not
+        // actually read from here at runtime (dailyHaGate.js's own
+        // `!== false` check already defaults an unset context field to
+        // "enabled") — present for the same documentation/toolbox-
+        // visibility reasons as every other default in this object.
+        dailyHaGateEnabled: true,
     };
 }
 

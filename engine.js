@@ -379,7 +379,23 @@ async function main() {
         const parsedHtfMax = Number(process.env.HTF_CHOP_MAX_OVERRIDE);
         context.htfChopMax = Number.isFinite(parsedHtfMax) && parsedHtfMax > 0 ? parsedHtfMax : null;
     }
-    console.log(c.dim(`[${context.tgPrefix}] HTF gate: ${context.htfGateEnabled ? c.yellow(`on — ${context.htfTimeframe} chop(${context.htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}) < ${context.htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT} + inside its own ALMA band blocks entries`) : "off"}`));
+    // htfGate.js's ALMA-band clause — independently configurable since
+    // Sep 2026, see htfGate.js's header. On by default (unchanged prior
+    // behavior).
+    if (process.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE !== undefined && process.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE !== "") {
+        context.htfBandBlockEnabled = process.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE === "true";
+    }
+    console.log(c.dim(`[${context.tgPrefix}] HTF gate: ${context.htfGateEnabled ? c.yellow(`on — ${context.htfTimeframe} chop(${context.htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}) < ${context.htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${context.htfBandBlockEnabled === false ? "" : " + inside its own ALMA band"} blocks entries`) : "off"}`));
+
+    // dailyHaGate.js's universal daily-HA directional gate (orders.js) —
+    // on by default, same opt-out posture as htfGateEnabled. See
+    // dailyHaGate.js's own header for why this one isn't wired here
+    // per-strategy the way the gates above are — it lives in orders.js
+    // instead, applying to every strategy without a per-file wire-up.
+    if (process.env.DAILY_HA_GATE_ENABLED_OVERRIDE !== undefined && process.env.DAILY_HA_GATE_ENABLED_OVERRIDE !== "") {
+        context.dailyHaGateEnabled = process.env.DAILY_HA_GATE_ENABLED_OVERRIDE === "true";
+    }
+    console.log(c.dim(`[${context.tgPrefix}] Daily HA gate: ${context.dailyHaGateEnabled === false ? "off" : c.yellow("on — blocks entries against the previous completed daily candle's color")}`));
 
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
