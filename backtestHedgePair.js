@@ -170,12 +170,13 @@ async function runHedgePairBacktest({
 
     function legLabel(legCtx) { return legCtx.tgPrefix.endsWith("_CORE") ? "CORE" : "HEDGE"; }
 
-    async function enterLeg(legCtx, legState, legLedger, side, price) {
+    async function enterLeg(legCtx, legState, legLedger, side, price, reason) {
         legState.position    = side;
         legState.entryPrice  = price;
         legState.openTradeId = await legLedger.insertOpenTrade(legCtx.tgPrefix, legCtx.symbol, side, legCtx.lots, price);
         legLedger.savePosition(legCtx.tgPrefix, legCtx.token, legCtx.symbol, side, price);
         console.log(`**${legLabel(legCtx)} ENTRY**`);
+        console.log(`[${legCtx.tgPrefix}] ${side} @ price ${price.toFixed(2)}  |  ${reason}`);
     }
     async function exitLeg(legCtx, legState, legLedger, price, reason) {
         if (!legState.position) return;
@@ -212,7 +213,7 @@ async function runHedgePairBacktest({
                 coreDecidedForDate = dayKey;
                 if (!coreState.position) {
                     const side = priorColor === "green" ? "LONG" : "SHORT";
-                    await enterLeg(core.context, coreState, coreLedger, side, rawBar.open);
+                    await enterLeg(core.context, coreState, coreLedger, side, rawBar.open, `daily HA ${priorColor}`);
                 }
             }
         }
@@ -228,7 +229,7 @@ async function runHedgePairBacktest({
 
                 if (!hedgeState.position && adverse && hedgePx !== null) {
                     const hedgeSide = coreSide === "LONG" ? "SHORT" : "LONG";
-                    await enterLeg(hedge.context, hedgeState, hedgeLedger, hedgeSide, hedgePx);
+                    await enterLeg(hedge.context, hedgeState, hedgeLedger, hedgeSide, hedgePx, `1h HA ${barColor} against ${coreSide} core`);
                 } else if (hedgeState.position && unwindMode === "HA_FLIP" && favorable && hedgePx !== null) {
                     await exitLeg(hedge.context, hedgeState, hedgeLedger, hedgePx, "HTF_FLIP_UNWIND");
                 }
@@ -258,6 +259,19 @@ async function runHedgePairBacktest({
             const hedgePx = hedgeCloseAt(bar.date);
             if (hedgeState.position && hedgePx !== null) await exitLeg(hedge.context, hedgeState, hedgeLedger, hedgePx, "EOD_FORCE");
             if (coreState.position) await exitLeg(core.context, coreState, coreLedger, rawBar.close, "EOD_FORCE");
+        }
+        // Reset each leg's "session" total once today is confirmed fully
+        // closed out — same fix as hedgePairEngine.js live (Sep 2026):
+        // createState() is created ONCE for the whole backtest range, not
+        // per day, so without this reset every trade's "session:" line
+        // would accumulate pnl across the ENTIRE backtest instead of just
+        // that day, making daily performance in the log unreadable. The
+        // report's own per-leg/combined metrics were never affected —
+        // those come from computeMetrics() over each ledger's own trades,
+        // not from this counter.
+        if (!coreState.position && !hedgeState.position) {
+            coreState.pnl  = 0; coreState.trades  = 0;
+            hedgeState.pnl = 0; hedgeState.trades = 0;
         }
 
         // ─── HOURLY PnL log — one line per bar (this loop already IS

@@ -242,7 +242,7 @@ async function main() {
         // with both legs' enter/exit lines interleaved in one log stream,
         // scanning which leg a given line belongs to was too easy to miss.
         console.log(c.bold(`**${leg.label} ENTRY**`));
-        console.log(c.green(`[${leg.context.tgPrefix}] ${side} ENTER (${reason}) @ ${price.toFixed(2)}`));
+        console.log(c.green(`[${leg.context.tgPrefix}] ${side} @ price ${price.toFixed(2)}  |  ${reason}`));
         leg.tg(`${side} ENTER (${reason}) @ \u20b9${price.toFixed(2)}`);
         // Same event every other strategy's doEnter() emits (see
         // strategies.js) — without this, entries were invisible on
@@ -365,6 +365,21 @@ async function main() {
             console.error(c.red(`EOD did not fully flatten — core:${core.state.position || "flat"} hedge:${hedge.state.position || "flat"} — will retry next tick`));
             return;
         }
+
+        // Reset each leg's running "session" total (state.pnl, printed by
+        // positions.close() on every subsequent trade) now that today is
+        // fully closed out — reported directly: this hedge-pair process
+        // runs long-lived (unlike every other strategy, which gets a
+        // FRESH state object each morning when PM2 restarts it after its
+        // own daily self-exit — see lifecycle.js), so without this reset
+        // "session" in each trade's log line would silently keep
+        // accumulating pnl from every previous day the process has been
+        // running, making daily performance unreadable. Real per-day
+        // totals for reporting/backtest metrics still come from
+        // db.getRealizedPnlToday() below, which was never affected by
+        // this bug (SQL query scoped to today's date, not this counter).
+        core.state.pnl  = 0; core.state.trades  = 0;
+        hedge.state.pnl = 0; hedge.state.trades = 0;
 
         const today = todayIST();
         if (eodReportedForDate === today) return; // already sent today's report, don't resend on a later tick
