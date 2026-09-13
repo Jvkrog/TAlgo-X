@@ -15,7 +15,7 @@
 "use strict";
 
 const c = require("./c");
-const { getDefinition, buildContext, defaultEodFor } = require("./context");
+const { getDefinition, buildContext } = require("./context");
 
 // legLabel: "CORE" | "HEDGE" — only used for tgPrefix/name suffixing and
 // error messages, not for any logic branch.
@@ -44,9 +44,13 @@ function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore
     // about margin treatment (matching the "1 full lot NRML" spec), not
     // about whether the bot bothers to exit.
     context.carryOvernight = true;
-    const eod = defaultEodFor("1h", context.exchange);
-    context.eodHour   = eod.eodHour;
-    context.eodMinute = eod.eodMinute;
+    // Fixed at 23:15 IST specifically for this strategy — explicitly
+    // requested (15 min later than defaultEodFor("1h","MCX")'s general
+    // 23:00 default used by every other strategy). Hardcoded here rather
+    // than routed through defaultEodFor() so this doesn't change the EOD
+    // time for anything else.
+    context.eodHour   = 23;
+    context.eodMinute = 15;
 
     // Same refuse-to-boot guard as engine.js/hedgePairEngine.js — no
     // fallback to the broker's own lot_size field (a contract COUNT, not
