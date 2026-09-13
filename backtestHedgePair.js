@@ -192,16 +192,15 @@ async function runHedgePairBacktest({
         const dayKey = dayKeyIST(bar.date);
         const { hours, minutes } = istParts(bar.date);
 
-        // ─── CORE ENTRY — same gate live's checkCoreEntry() uses: only at
-        // or after TRADE_START_HOUR:TRADE_START_MINUTE (9:15 IST) each day,
-        // decided once. For a normal MCX 1h series this is just the first
-        // bar of the day anyway (session starts ~9:00), but tying it to
-        // the same named constant as live — rather than "whichever bar
-        // happens to be first in the data" — means a feed with an earlier
-        // stray pre-market bar can't pull the decision earlier than it
-        // would happen live.
-        const pastOpen = hours > engineConfig.TRADE_START_HOUR ||
-            (hours === engineConfig.TRADE_START_HOUR && minutes >= engineConfig.TRADE_START_MINUTE);
+        // ─── CORE ENTRY — fixed at 10:00 IST specifically for this
+        // strategy (explicitly requested — NOT engineConfig.TRADE_START_HOUR/
+        // MINUTE's 9:15, which is the general market-open constant every
+        // other strategy uses; hardcoded here so changing it doesn't
+        // touch anything else). 10:00 also lines up cleanly with real
+        // hourly bar boundaries (9:00-10:00's close), unlike 9:15 which
+        // falls mid-candle on an hourly series.
+        const ENTRY_HOUR = 10, ENTRY_MINUTE = 0;
+        const pastOpen = hours > ENTRY_HOUR || (hours === ENTRY_HOUR && minutes >= ENTRY_MINUTE);
         if (pastOpen && coreDecidedForDate !== dayKey) {
             const priorColor = priorDailyColor(dayKey);
             if (priorColor) { // fails safe — no prior daily read yet (start of range): retry next bar, same day
@@ -231,16 +230,25 @@ async function runHedgePairBacktest({
             }
         }
 
-        // ─── EOD — force-close both legs, unconditionally, every day past
-        // the threshold. Mirrors hedgePairEngine.js's live fix (Sep 2026):
-        // the report/day-marker is gated on ACTUALLY being flat, not on
-        // having merely attempted the exit — in backtest this matters
-        // specifically when hedgeCloseAt() returns null for a bar (a data
-        // gap in the mini contract's thinner series), which would
-        // otherwise silently skip the hedge's EOD exit for good and let
-        // it carry into the next simulated day.
+        // ─── EOD — force-close both legs. Two conditions, either one
+        // fires it: past the configured eodHour:eodMinute threshold, OR
+        // this is simply the LAST bar of the trading day (next bar
+        // belongs to a different day, or there is no next bar at all).
+        // The second condition is the one that actually matters in
+        // practice and was the real bug here: real MCX hourly candles
+        // land on the clock hour (23:00), never on a specific minute like
+        // 23:15 — so a bar-quantized check for "hours===23 && minutes>=15"
+        // can never be satisfied if no bar ever starts at or after 23:15,
+        // and EOD silently never fired, letting the core ride the same
+        // entry for the entire backtest (confirmed directly: a real run
+        // showed the core entering once and reporting "0 trades" because
+        // its only entry/exit pair spanned the ENTIRE range, closing only
+        // at BACKTEST_END). Live doesn't have this problem — it polls
+        // real wall-clock time every 60s, not bar-quantized — so this
+        // fix is backtest-only.
         const pastEod = hours > core.context.eodHour || (hours === core.context.eodHour && minutes >= core.context.eodMinute);
-        if (pastEod && (coreState.position || hedgeState.position)) {
+        const isLastBarOfDay = (i === coreHourlyHA.length - 1) || dayKeyIST(coreHourlyHA[i + 1].date) !== dayKey;
+        if ((pastEod || isLastBarOfDay) && (coreState.position || hedgeState.position)) {
             const hedgePx = hedgeCloseAt(bar.date);
             if (hedgeState.position && hedgePx !== null) await exitLeg(hedge.context, hedgeState, hedgeLedger, hedgePx, "EOD_FORCE");
             if (coreState.position) await exitLeg(core.context, coreState, coreLedger, rawBar.close, "EOD_FORCE");

@@ -4,7 +4,8 @@
 //
 // SPEC (as agreed):
 //   - CORE leg (full-size contract): once per trading day, at/after
-//     TRADE_START_HOUR:TRADE_START_MINUTE, read the latest COMPLETED
+//     10:00 IST (fixed for this strategy specifically — see
+//     checkCoreEntry()), read the latest COMPLETED
 //     DAILY Heikin-Ashi candle for that instrument. Green -> LONG 1 lot,
 //     red -> SHORT 1 lot, product NRML. Decided ONCE per day and then
 //     fixed — never reverses intraday off a later daily or hourly read
@@ -268,10 +269,16 @@ async function main() {
     }
 
     // ─── CORE: decide once per trading day, off the daily HA reader.
+    // Entry time fixed at 10:00 IST specifically for this strategy
+    // (explicitly requested — NOT engineConfig.TRADE_START_HOUR/MINUTE's
+    // 9:15, the general market-open constant every other strategy uses;
+    // hardcoded here so changing it doesn't touch anything else). Also
+    // matches backtestHedgePair.js's same hardcoded 10:00, for parity.
+    const CORE_ENTRY_HOUR = 10, CORE_ENTRY_MINUTE = 0;
     async function checkCoreEntry() {
         const { hours, minutes } = istParts();
-        const pastOpen = hours > engineConfig.TRADE_START_HOUR ||
-            (hours === engineConfig.TRADE_START_HOUR && minutes >= engineConfig.TRADE_START_MINUTE);
+        const pastOpen = hours > CORE_ENTRY_HOUR ||
+            (hours === CORE_ENTRY_HOUR && minutes >= CORE_ENTRY_MINUTE);
         if (!pastOpen) return;
 
         const today = todayIST();
