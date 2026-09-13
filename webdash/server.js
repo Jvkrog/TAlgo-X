@@ -357,6 +357,9 @@ async function getEngineProcesses() {
             htfTimeframe: p.pm2_env.env?.HTF_TIMEFRAME_OVERRIDE || null,
             htfChopPeriod: p.pm2_env.env?.HTF_CHOP_PERIOD_OVERRIDE ? Number(p.pm2_env.env.HTF_CHOP_PERIOD_OVERRIDE) : null,
             htfChopMax: p.pm2_env.env?.HTF_CHOP_MAX_OVERRIDE ? Number(p.pm2_env.env.HTF_CHOP_MAX_OVERRIDE) : null,
+            // Same opt-out posture/read convention as htfGateEnabled above.
+            htfBandBlockEnabled: p.pm2_env.env?.HTF_BAND_BLOCK_ENABLED_OVERRIDE !== undefined ? p.pm2_env.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE !== "false" : true,
+            dailyHaGateEnabled: p.pm2_env.env?.DAILY_HA_GATE_ENABLED_OVERRIDE !== undefined ? p.pm2_env.env.DAILY_HA_GATE_ENABLED_OVERRIDE !== "false" : true,
             outLogPath: p.pm2_env.pm_out_log_path,
             errLogPath: p.pm2_env.pm_err_log_path,
         }));
@@ -410,6 +413,9 @@ function buildProcessEnv(p, overrides = {}) {
     env.HTF_TIMEFRAME_OVERRIDE = p.htfTimeframe ? String(p.htfTimeframe) : "";
     env.HTF_CHOP_PERIOD_OVERRIDE = p.htfChopPeriod ? String(p.htfChopPeriod) : "";
     env.HTF_CHOP_MAX_OVERRIDE = p.htfChopMax ? String(p.htfChopMax) : "";
+    // Same write-asymmetry reasoning as HTF_GATE_ENABLED_OVERRIDE above.
+    env.HTF_BAND_BLOCK_ENABLED_OVERRIDE = p.htfBandBlockEnabled === false ? "false" : "true";
+    env.DAILY_HA_GATE_ENABLED_OVERRIDE = p.dailyHaGateEnabled === false ? "false" : "true";
     return { ...env, ...overrides };
 }
 
@@ -634,7 +640,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -772,6 +778,8 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.htfChopMax = parsedHtfMax;
             }
         }
+        if (htfBandBlockEnabled !== undefined) updated.htfBandBlockEnabled = !!htfBandBlockEnabled;
+        if (dailyHaGateEnabled !== undefined) updated.dailyHaGateEnabled = !!dailyHaGateEnabled;
 
         if (almaFastLen !== undefined) {
             if (almaFastLen === null || almaFastLen === "" || almaFastLen === "0" || almaFastLen === "clear") {
@@ -905,7 +913,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -1043,6 +1051,10 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             const parsedHtfMax = Number(htfChopMax);
             if (Number.isFinite(parsedHtfMax) && parsedHtfMax > 0) env.HTF_CHOP_MAX_OVERRIDE = String(parsedHtfMax);
         }
+        // Always written explicitly (both true AND false), same
+        // write-asymmetry reasoning as HTF_GATE_ENABLED_OVERRIDE above.
+        env.HTF_BAND_BLOCK_ENABLED_OVERRIDE = htfBandBlockEnabled === false ? "false" : "true";
+        env.DAILY_HA_GATE_ENABLED_OVERRIDE = dailyHaGateEnabled === false ? "false" : "true";
 
         await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name, cwd: ROOT, env });
         res.json({ ok: true, name, strategy: stratKey, timeframe: tf, live: !!live, carryOvernight: !!carryOvernight, lotMult });
