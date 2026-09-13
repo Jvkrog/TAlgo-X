@@ -168,19 +168,24 @@ async function runHedgePairBacktest({
     const hedgeState  = createState();
     const tg = () => {};
 
+    function legLabel(legCtx) { return legCtx.tgPrefix.endsWith("_CORE") ? "CORE" : "HEDGE"; }
+
     async function enterLeg(legCtx, legState, legLedger, side, price) {
         legState.position    = side;
         legState.entryPrice  = price;
         legState.openTradeId = await legLedger.insertOpenTrade(legCtx.tgPrefix, legCtx.symbol, side, legCtx.lots, price);
         legLedger.savePosition(legCtx.tgPrefix, legCtx.token, legCtx.symbol, side, price);
+        console.log(`**${legLabel(legCtx)} ENTRY**`);
     }
     async function exitLeg(legCtx, legState, legLedger, price, reason) {
         if (!legState.position) return;
+        console.log(`**${legLabel(legCtx)} EXIT**`);
         await positions.close(legCtx, legState, legLedger, tg, price, reason);
         legLedger.savePosition(legCtx.tgPrefix, legCtx.token, legCtx.symbol, null, 0);
     }
 
     let coreDecidedForDate = null;
+    let lastLoggedDayKey   = null;
     let lastCoreClose      = coreHourlyHA[coreHourlyHA.length - 1].close;
     let lastHedgeClose     = hedgeHourlyRaw[hedgeHourlyRaw.length - 1].close;
 
@@ -249,6 +254,7 @@ async function runHedgePairBacktest({
         const pastEod = hours > core.context.eodHour || (hours === core.context.eodHour && minutes >= core.context.eodMinute);
         const isLastBarOfDay = (i === coreHourlyHA.length - 1) || dayKeyIST(coreHourlyHA[i + 1].date) !== dayKey;
         if ((pastEod || isLastBarOfDay) && (coreState.position || hedgeState.position)) {
+            console.log("**EOD**");
             const hedgePx = hedgeCloseAt(bar.date);
             if (hedgeState.position && hedgePx !== null) await exitLeg(hedge.context, hedgeState, hedgeLedger, hedgePx, "EOD_FORCE");
             if (coreState.position) await exitLeg(core.context, coreState, coreLedger, rawBar.close, "EOD_FORCE");
@@ -262,6 +268,14 @@ async function runHedgePairBacktest({
         // that period exists only to seed the daily/hourly HA reads, not
         // to be reported on.
         if (bar.date >= from) {
+            // **STARTING** banner — one per new calendar day, same
+            // reasoning as hedgePairEngine.js live: makes the log stream
+            // easy to scan for where each session begins.
+            if (lastLoggedDayKey !== dayKey) {
+                lastLoggedDayKey = dayKey;
+                console.log();
+                console.log(`**STARTING** ${dayKey}`);
+            }
             let line = `[HOURLY ${istTimeStr(bar.date)} IST] core ${core.context.symbol}: `;
             line += coreState.position
                 ? `${coreState.position} uPnL ${positions.pnlStr(positions.unrealised(core.context, coreState, rawBar.close))}`

@@ -238,6 +238,10 @@ async function main() {
         leg.state.entryPrice  = price;
         leg.state.openTradeId = await leg.db.insertOpenTrade(leg.context.tgPrefix, leg.context.symbol, side, leg.context.lots, price);
         leg.db.savePosition(leg.context.tgPrefix, leg.context.token, leg.context.symbol, side, price, `HEDGE_PAIR_${leg.label}`);
+        // Explicit **CORE ENTRY**/**HEDGE ENTRY** tag — requested directly:
+        // with both legs' enter/exit lines interleaved in one log stream,
+        // scanning which leg a given line belongs to was too easy to miss.
+        console.log(c.bold(`**${leg.label} ENTRY**`));
         console.log(c.green(`[${leg.context.tgPrefix}] ${side} ENTER (${reason}) @ ${price.toFixed(2)}`));
         leg.tg(`${side} ENTER (${reason}) @ \u20b9${price.toFixed(2)}`);
         // Same event every other strategy's doEnter() emits (see
@@ -263,6 +267,8 @@ async function main() {
             return false;
         }
         const price = (await getLtp(leg.ltpKey).catch(() => null)) ?? leg.state.entryPrice;
+        // Same reasoning as the entry tag above.
+        console.log(c.bold(`**${leg.label} EXIT**`));
         await positions.close(leg.context, leg.state, leg.db, leg.tg, price, reason);
         leg.db.savePosition(leg.context.tgPrefix, leg.context.token, leg.context.symbol, null, 0);
         return true;
@@ -347,6 +353,7 @@ async function main() {
         if (!core.state.position && !hedge.state.position) return; // already flat — nothing to do, don't spam logs
 
         console.log();
+        console.log(c.bold("**EOD**"));
         console.log(c.dim(`EOD  hedge pair  ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false })}`));
         if (hedge.state.position) await exitLeg(hedge, "EOD_FORCE");
         if (core.state.position)  await exitLeg(core,  "EOD_FORCE");
@@ -382,12 +389,23 @@ async function main() {
     // hedge is appended only while it actually has a position open — no
     // "hedge: flat" noise every hour it isn't in play.
     let lastHourlyLoggedTs = null;
+    let lastLoggedDayKey = null;
     async function logHourlyPnl() {
         const hourly = await hourlyReader.getLatest();
         if (!hourly) return;
         const key = hourly.date.getTime();
         if (lastHourlyLoggedTs === key) return;
         lastHourlyLoggedTs = key;
+
+        // **STARTING** banner — one per new calendar day, printed the
+        // first time a bar from that day is logged, so the log stream is
+        // easy to scan for where each session begins.
+        const dayKey = new Date(hourly.date.getTime() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
+        if (lastLoggedDayKey !== dayKey) {
+            lastLoggedDayKey = dayKey;
+            console.log();
+            console.log(c.bold(`**STARTING** ${dayKey}`));
+        }
 
         let line = `[HOURLY ${hourly.date.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false })} IST] core ${core.context.symbol}: `;
         if (core.state.position) {
