@@ -226,6 +226,25 @@ async function runHedgePairBacktest({
             if (coreState.position) await exitLeg(core.context, coreState, coreLedger, rawBar.close, "EOD_FORCE");
         }
 
+        // ─── HOURLY PnL log — one line per bar (this loop already IS
+        // hourly), same shape/rule as hedgePairEngine.js live: core always
+        // logged, hedge appended only while it actually has a position
+        // open, using post-EOD state so a just-flattened day shows flat.
+        // Skipped during the LOOKBACK_DAYS warmup window before `from` —
+        // that period exists only to seed the daily/hourly HA reads, not
+        // to be reported on.
+        if (bar.date >= from) {
+            let line = `[HOURLY ${bar.date.toISOString()}] core ${core.context.symbol}: `;
+            line += coreState.position
+                ? `${coreState.position} uPnL ${positions.pnlStr(positions.unrealised(core.context, coreState, rawBar.close))}`
+                : "flat";
+            if (hedgeState.position) {
+                const hedgePx = hedgeCloseAt(bar.date);
+                line += `  |  hedge ${hedge.context.symbol}: ${hedgeState.position} uPnL ${hedgePx !== null ? positions.pnlStr(positions.unrealised(hedge.context, hedgeState, hedgePx)) : "-"}`;
+            }
+            console.log(line);
+        }
+
         if (progress && i % 100 === 0) progress(i, total);
     }
     if (progress) progress(total, total);

@@ -345,11 +345,44 @@ async function main() {
         // longer matches todayIST().
     }
 
+    // ─── Hourly PnL log — one line per newly-completed 1h bar (not per
+    // 60s poll — hourlyReader's own bar date is the de-dupe key, so this
+    // fires once per hour regardless of POLL_MS). Core is always logged;
+    // hedge is appended only while it actually has a position open — no
+    // "hedge: flat" noise every hour it isn't in play.
+    let lastHourlyLoggedTs = null;
+    async function logHourlyPnl() {
+        const hourly = await hourlyReader.getLatest();
+        if (!hourly) return;
+        const key = hourly.date.getTime();
+        if (lastHourlyLoggedTs === key) return;
+        lastHourlyLoggedTs = key;
+
+        let line = `[HOURLY ${hourly.date.toLocaleString("en-IN", { hour12: false })}] core ${core.context.symbol}: `;
+        if (core.state.position) {
+            const corePrice = await getLtp(core.ltpKey).catch(() => null);
+            const coreUpnl  = corePrice !== null ? positions.unrealised(core.context, core.state, corePrice) : null;
+            line += `${core.state.position} uPnL ${coreUpnl !== null ? positions.pnlStr(coreUpnl) : "-"}`;
+        } else {
+            line += "flat";
+        }
+
+        if (hedge.state.position) {
+            const hedgePrice = await getLtp(hedge.ltpKey).catch(() => null);
+            const hedgeUpnl  = hedgePrice !== null ? positions.unrealised(hedge.context, hedge.state, hedgePrice) : null;
+            line += `  |  hedge ${hedge.context.symbol}: ${hedge.state.position} uPnL ${hedgeUpnl !== null ? positions.pnlStr(hedgeUpnl) : "-"}`;
+        }
+        // hedge flat -> no hedge segment at all, per spec.
+
+        console.log(c.dim(line));
+    }
+
     async function tick() {
         try {
             await checkEod();
             await checkCoreEntry();
             await checkHedge();
+            await logHourlyPnl();
         } catch (err) {
             console.error(c.red(`HEDGE PAIR loop error: ${err.message}`));
         }
