@@ -181,7 +181,6 @@ async function runHedgePairBacktest({
     }
 
     let coreDecidedForDate = null;
-    let eodDoneForDate     = null;
     let lastCoreClose      = coreHourlyHA[coreHourlyHA.length - 1].close;
     let lastHedgeClose     = hedgeHourlyRaw[hedgeHourlyRaw.length - 1].close;
 
@@ -232,10 +231,16 @@ async function runHedgePairBacktest({
             }
         }
 
-        // ─── EOD — force-close both legs, unconditionally, once per day.
+        // ─── EOD — force-close both legs, unconditionally, every day past
+        // the threshold. Mirrors hedgePairEngine.js's live fix (Sep 2026):
+        // the report/day-marker is gated on ACTUALLY being flat, not on
+        // having merely attempted the exit — in backtest this matters
+        // specifically when hedgeCloseAt() returns null for a bar (a data
+        // gap in the mini contract's thinner series), which would
+        // otherwise silently skip the hedge's EOD exit for good and let
+        // it carry into the next simulated day.
         const pastEod = hours > core.context.eodHour || (hours === core.context.eodHour && minutes >= core.context.eodMinute);
-        if (pastEod && eodDoneForDate !== dayKey) {
-            eodDoneForDate = dayKey;
+        if (pastEod && (coreState.position || hedgeState.position)) {
             const hedgePx = hedgeCloseAt(bar.date);
             if (hedgeState.position && hedgePx !== null) await exitLeg(hedge.context, hedgeState, hedgeLedger, hedgePx, "EOD_FORCE");
             if (coreState.position) await exitLeg(core.context, coreState, coreLedger, rawBar.close, "EOD_FORCE");

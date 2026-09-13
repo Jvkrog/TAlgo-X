@@ -317,20 +317,44 @@ async function main() {
     // the hedge is force-closed alongside it as a safety backstop
     // regardless of UNWIND_MODE — never leave a naked, unhedged mini
     // position open overnight.
-    let eodDoneForDate = null;
+    //
+    // Retries every tick for as long as EITHER leg is still open past the
+    // EOD threshold — NOT a once-per-day flag on the action itself. A
+    // real incident (Sep 2026): exitLeg() threw on the core leg mid-EOD
+    // (a transient broker/LTP error), and because the old code set a
+    // "done for today" flag BEFORE attempting the exits, that one failure
+    // silently disabled EOD for the rest of that day AND every day after
+    // — the core position then sat open across a 3-day span (Fri->Mon),
+    // uPnL and log timestamps all still printing against the same stale
+    // entry, and checkCoreEntry() refusing to re-decide since it saw
+    // `core.state.position` still truthy. Only the ONE-TIME session
+    // report is now gated on a daily flag — and even that only fires
+    // once both legs are actually confirmed flat, never on the attempt
+    // alone.
+    let eodReportedForDate = null;
     async function checkEod() {
         const { hours, minutes } = istParts();
         const pastEod = hours > core.context.eodHour ||
             (hours === core.context.eodHour && minutes >= core.context.eodMinute);
         if (!pastEod) return;
-        const today = todayIST();
-        if (eodDoneForDate === today) return;
-        eodDoneForDate = today;
+        if (!core.state.position && !hedge.state.position) return; // already flat — nothing to do, don't spam logs
 
         console.log();
         console.log(c.dim(`EOD  hedge pair  ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false })}`));
         if (hedge.state.position) await exitLeg(hedge, "EOD_FORCE");
         if (core.state.position)  await exitLeg(core,  "EOD_FORCE");
+
+        if (core.state.position || hedge.state.position) {
+            // Didn't fully flatten (a leg's exit failed) — say so loudly
+            // and let the NEXT tick (60s) retry, rather than silently
+            // giving up for the day like the old code did.
+            console.error(c.red(`EOD did not fully flatten — core:${core.state.position || "flat"} hedge:${hedge.state.position || "flat"} — will retry next tick`));
+            return;
+        }
+
+        const today = todayIST();
+        if (eodReportedForDate === today) return; // already sent today's report, don't resend on a later tick
+        eodReportedForDate = today;
 
         const coreRealized  = await core.db.getRealizedPnlToday(core.context.tgPrefix);
         const hedgeRealized = await hedge.db.getRealizedPnlToday(hedge.context.tgPrefix);

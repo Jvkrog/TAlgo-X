@@ -19,7 +19,8 @@ const positions                    = require("./positions");
 const engineConfigDefaults        = require("./engineConfig");
 const { computeMetrics }          = require("./backtestMetrics");
 const { buildReport, saveReport } = require("./backtestReport");
-const { fetchHistoricalCandles }  = require("./historicalFetch");
+const { fetchHistoricalCandles, fetchDailyCandles } = require("./historicalFetch");
+const { toHA }                     = require("./indicators");
 const c = require("./c");
 
 // runBacktest({
@@ -130,9 +131,44 @@ async function runBacktest({ strategyKey, strategyLabel, context, timeframe, fro
     // a missing dependency or firing on stale/wrong data.
     const htf = { isBlocked: async () => false };
 
+    // dailyHaGate.js — UNLIKE htfGate.js above, this one CAN be given real
+    // backtest parity: "previous completed daily HA candle" is a plain
+    // historical-data question, not a live-only concept, so the whole
+    // daily series over the backtest range is fetched once upfront and
+    // looked up against the replay's own clock (same "day key" lookup
+    // backtestHedgePair.js already does) — no live Kite connection needed
+    // beyond the same historical fetch this file already makes.
+    const dailyRaw = await fetchDailyCandles({ kc, token: context.token, from: fetchFrom, to });
+    // Drop the still-forming last bar — same no-lookahead convention every
+    // other candle consumer here follows. Harmless if `to` is in the past
+    // and every fetched day is already closed.
+    const dailyHaSorted = toHA(dailyRaw.slice(0, -1)).map(bar => {
+        const istMs = bar.date.getTime() + (5.5 * 60 * 60 * 1000);
+        return {
+            dayKey: new Date(istMs).toISOString().split("T")[0],
+            color: bar.close > bar.open ? "green" : bar.close < bar.open ? "red" : null,
+        };
+    });
+    let dailyPtr = 0;
+    function priorDailyColor(dayKey) {
+        while (dailyPtr + 1 < dailyHaSorted.length && dailyHaSorted[dailyPtr + 1].dayKey < dayKey) dailyPtr++;
+        const candidate = dailyHaSorted[dailyPtr];
+        return (candidate && candidate.dayKey < dayKey) ? candidate.color : null;
+    }
+    const dailyHa = {
+        isBlocked: async (side) => {
+            if (context.dailyHaGateEnabled === false) return false;
+            const now = clock.now();
+            const dayKey = new Date(now.getTime() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
+            const color = priorDailyColor(dayKey);
+            if (!color) return false; // no prior daily read yet, or a doji — fails safe
+            return (color === "green" && side === "SHORT") || (color === "red" && side === "LONG");
+        },
+    };
+
     const strategy = factory({
         context, engineConfig, state, db: ledger, candles: feed, slStore, targetStore,
-        orders: broker, positionsClose, positionsUnrealised, lifecycle, tg, clock, htf,
+        orders: broker, positionsClose, positionsUnrealised, lifecycle, tg, clock, htf, dailyHa,
     });
 
     await strategy.initSignals(); // ledger.loadPosition() always resolves null — always starts flat

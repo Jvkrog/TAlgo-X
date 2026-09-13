@@ -426,6 +426,14 @@ async function main() {
     const signalsInstance   = await createSignals({
         context, engineConfig, state, db, candles, slStore, targetStore, orders,
         positionsClose, positionsUnrealised, lifecycle: lifecycleInstance, tg, deltaBuffer, htf,
+        // Reuses orders.js's OWN internal dailyHaGate instance (exposed via
+        // orders.dailyHaGate) rather than constructing a second one here —
+        // no duplicate KiteConnect client/cache, and the inline check every
+        // strategy now runs agrees with what orders.enter() itself already
+        // enforces (this makes it double-checked for live, harmlessly —
+        // the SAME wiring is what gives backtestRun.js's replay real
+        // enforcement, since its stub broker never calls orders.js at all).
+        dailyHa: orders.dailyHaGate,
     });
     const candlePollInstance = createCandlePoll({
         context, engineConfig, state, candles, slStore, targetStore, orders,

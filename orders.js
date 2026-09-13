@@ -246,7 +246,7 @@ function createOrders(context, tg) {
         return await _place(_exitSide(side), context.lots, "TALGO_TP", opts);
     }
 
-    return { enter, exit, slExit, targetExit, reconcile };
+    return { enter, exit, slExit, targetExit, reconcile, dailyHaGate };
 }
 
 module.exports = { createOrders };
