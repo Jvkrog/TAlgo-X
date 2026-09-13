@@ -32,6 +32,7 @@ const customStrategyDb = require("./customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("./historicalFetch");
 const { adx } = require("./indicators");
 const { backtestFlow } = require("./backtestFlow");
+const { runHedgePairBacktest } = require("./backtestHedgePair");
 const { playBootAnimation, renderStaticBanner, animateBoxUpward } = require("./bootAnimation");
 
 const { getShortName } = require("./shortNames");
@@ -311,6 +312,7 @@ const PLAIN_MODE = process.env.TALGOX_PLAIN === "1";
 
 async function renderMenu() {
     const procs = await getEngineProcesses();
+    const hedgePairs = await getHedgePairProcesses();
 
     const lines = [];
     lines.push(boxTop());
@@ -372,6 +374,11 @@ async function renderMenu() {
     }
 
     lines.push(boxDivider("═"));
+    if (hedgePairs.length > 0) {
+        const online = hedgePairs.filter(p => p.status === "online").length;
+        lines.push(boxLine(c.dim(`  Hedge Pairs: ${online}/${hedgePairs.length} running — press H for details`)));
+        lines.push(boxDivider("═"));
+    }
     lines.push(...renderMenuHelpLines());
     lines.push(boxBottom());
 
@@ -2123,6 +2130,83 @@ async function hedgePairActionByNumber(pairs, verb, fn) {
     await pauseForReview();
 }
 
+async function backtestHedgePairFlow() {
+    console.log();
+    console.log(c.bold("  Backtest — Hedge Pair"));
+    console.log(c.dim("  core: full-size contract, daily-HA bias, 1 lot NRML, EOD-only exit"));
+    console.log(c.dim("  hedge: mini contract, opens on adverse 1h HA, unwinds per the mode below"));
+    console.log();
+
+    const repo = await ensureCsvLoaded();
+    const all  = repo.listUnderlyings();
+
+    const coreUnderlying = await pickUnderlying(all, "CORE (full-size)");
+    if (!coreUnderlying) { await pauseForReview(); return; }
+    const hedgeUnderlying = await pickUnderlying(all, "HEDGE (mini)");
+    if (!hedgeUnderlying) { await pauseForReview(); return; }
+
+    async function askLotMult(underlying, legLabel) {
+        const def = getDefinition(underlying, "MCX");
+        if (def.lotMult !== null) return null; // already covered by a context.js override
+        console.log(c.yellow(`  ⚠ lot multiplier required for ${underlying} (${legLabel}) — broker lot_size can't be trusted, see context.js's header.`));
+        let val = null;
+        do {
+            const input = await ask(`  ${legLabel} lot multiplier (required): `);
+            if (!input) { console.log(c.yellow("  required — no safe default")); continue; }
+            const parsed = Number(input);
+            if (!Number.isFinite(parsed) || parsed <= 0) { console.log(c.yellow(`  "${input}" isn't a valid positive number`)); continue; }
+            val = parsed;
+        } while (val === null);
+        return val;
+    }
+    const coreLotMultOverride  = await askLotMult(coreUnderlying, "CORE");
+    const hedgeLotMultOverride = await askLotMult(hedgeUnderlying, "HEDGE");
+
+    const coreLotsInput  = await ask("  core lots (default 1): ");
+    const hedgeLotsInput = await ask("  hedge lots (default 5, the real 5:1 contract ratio for both supported pairs): ");
+    const coreLots  = coreLotsInput  ? Number(coreLotsInput)  : 1;
+    const hedgeLots = hedgeLotsInput ? Number(hedgeLotsInput) : 5;
+
+    console.log(c.dim("  unwind mode — HA_FLIP: hedge closes when 1h HA flips back in the core's favor (default)"));
+    console.log(c.dim("               EOD_ONLY: hedge stays on till EOD regardless of 1h HA"));
+    const unwindInput = (await ask("  [1] HA_FLIP  [2] EOD_ONLY (default 1): ")).trim();
+    const unwindMode = unwindInput === "2" ? "EOD_ONLY" : "HA_FLIP";
+
+    const fromIn = await ask("  from (YYYY-MM-DD): ");
+    const toIn   = await ask("  to   (YYYY-MM-DD): ");
+    const from = new Date(fromIn);
+    const to   = new Date(toIn);
+    if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+        console.log(c.yellow("  invalid date — use YYYY-MM-DD")); await pauseForReview(); return;
+    }
+
+    const ACCESS_TOKEN = fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim();
+    const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
+    kc.setAccessToken(ACCESS_TOKEN);
+
+    console.log();
+    console.log(c.dim("  fetching historical data + running replay..."));
+    try {
+        const { report, paths } = await runHedgePairBacktest({
+            coreUnderlying, hedgeUnderlying, exchange: "MCX",
+            coreLots, hedgeLots, coreLotMultOverride, hedgeLotMultOverride,
+            unwindMode, from, to, kc,
+            progress: (done, total) => process.stdout.write(`\r  ${done}/${total} core 1h bars...`),
+        });
+        console.log();
+        console.log();
+        console.log(c.bold(`  Combined: ${report.metrics.combined.trades} trades, ${(report.metrics.combined.winRate * 100).toFixed(1)}% win rate, net ${report.metrics.combined.netPnL.toFixed(2)}`));
+        console.log(c.dim(`    core  (${report.core.symbol}):  ${report.metrics.core.trades} trades, net ${report.metrics.core.netPnL.toFixed(2)}`));
+        console.log(c.dim(`    hedge (${report.hedge.symbol}): ${report.metrics.hedge.trades} trades, net ${report.metrics.hedge.netPnL.toFixed(2)}`));
+        console.log();
+        console.log(c.dim(`  report: ${paths.htmlPath}`));
+        console.log(c.dim(`  json:   ${paths.jsonPath}`));
+    } catch (err) {
+        console.log(c.red(`  backtest failed: ${err.message}`));
+    }
+    await pauseForReview();
+}
+
 async function hedgePairScreen() {
     let running = true;
     while (running) {
@@ -2135,17 +2219,21 @@ async function hedgePairScreen() {
         } else {
             pairs.forEach((p, i) => {
                 const modeTag = p.live ? c.red("LIVE") : c.cyan("PAPER");
-                console.log(`  ${String(i + 1).padStart(2)}. ${p.name.padEnd(24)} core:${p.coreUnderlying.padEnd(14)} hedge:${p.hedgeUnderlying.padEnd(14)} ${p.coreLots}/${p.hedgeLots} lots  unwind:${p.unwindMode.padEnd(9)} ${modeTag}  [${p.status}]`);
+                let statusStr;
+                if (p.status === "online") statusStr = c.green(`● ${fmtUptime(p.uptime)}`);
+                else                        statusStr = c.red(`● ${p.status.toUpperCase()}`);
+                console.log(`  ${String(i + 1).padStart(2)}. ${p.name.padEnd(24)} core:${p.coreUnderlying.padEnd(14)} hedge:${p.hedgeUnderlying.padEnd(14)} ${p.coreLots}/${p.hedgeLots} lots  unwind:${p.unwindMode.padEnd(9)} ${modeTag}  ${statusStr}`);
             });
         }
         console.log();
-        console.log(c.dim("  [A] add   [X] stop   [S] start   [D] remove   [L] logs   [B] back"));
+        console.log(c.dim("  [A] add   [X] stop   [S] start   [D] remove   [L] logs   [T] backtest   [B] back"));
         const input = (await ask("  > ")).trim().toUpperCase();
 
         if (input === "A")      await addHedgePair();
         else if (input === "X") await hedgePairActionByNumber(pairs, "stop", n => pm2Stop(n));
         else if (input === "S") await hedgePairActionByNumber(pairs, "start", n => pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name: n, cwd: __dirname }));
         else if (input === "D") await hedgePairActionByNumber(pairs, "remove", n => pm2Delete(n));
+        else if (input === "T") await backtestHedgePairFlow();
         else if (input === "L") {
             const idx = await ask("  view logs for which number: ");
             const pair = pairs[Number(idx) - 1];
