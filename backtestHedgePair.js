@@ -69,6 +69,12 @@ function dayKeyIST(date) {
     const istMs = date.getTime() + (5.5 * 60 * 60 * 1000);
     return new Date(istMs).toISOString().split("T")[0];
 }
+// Display-only IST formatting for the hourly log — istParts()/dayKeyIST()
+// above do the actual date-math the simulation logic depends on; this is
+// just how a timestamp is printed to console.
+function istTimeStr(date) {
+    return date.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false });
+}
 
 // runHedgePairBacktest({
 //   coreUnderlying, hedgeUnderlying,   // e.g. "NATURALGAS" / "NATGASMINI"
@@ -187,8 +193,17 @@ async function runHedgePairBacktest({
         const dayKey = dayKeyIST(bar.date);
         const { hours, minutes } = istParts(bar.date);
 
-        // ─── CORE ENTRY — first bar of a new day only, once.
-        if (coreDecidedForDate !== dayKey) {
+        // ─── CORE ENTRY — same gate live's checkCoreEntry() uses: only at
+        // or after TRADE_START_HOUR:TRADE_START_MINUTE (9:15 IST) each day,
+        // decided once. For a normal MCX 1h series this is just the first
+        // bar of the day anyway (session starts ~9:00), but tying it to
+        // the same named constant as live — rather than "whichever bar
+        // happens to be first in the data" — means a feed with an earlier
+        // stray pre-market bar can't pull the decision earlier than it
+        // would happen live.
+        const pastOpen = hours > engineConfig.TRADE_START_HOUR ||
+            (hours === engineConfig.TRADE_START_HOUR && minutes >= engineConfig.TRADE_START_MINUTE);
+        if (pastOpen && coreDecidedForDate !== dayKey) {
             const priorColor = priorDailyColor(dayKey);
             if (priorColor) { // fails safe — no prior daily read yet (start of range): retry next bar, same day
                 coreDecidedForDate = dayKey;
@@ -234,7 +249,7 @@ async function runHedgePairBacktest({
         // that period exists only to seed the daily/hourly HA reads, not
         // to be reported on.
         if (bar.date >= from) {
-            let line = `[HOURLY ${bar.date.toISOString()}] core ${core.context.symbol}: `;
+            let line = `[HOURLY ${istTimeStr(bar.date)} IST] core ${core.context.symbol}: `;
             line += coreState.position
                 ? `${coreState.position} uPnL ${positions.pnlStr(positions.unrealised(core.context, coreState, rawBar.close))}`
                 : "flat";

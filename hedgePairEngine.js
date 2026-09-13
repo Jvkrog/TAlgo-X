@@ -328,7 +328,7 @@ async function main() {
         eodDoneForDate = today;
 
         console.log();
-        console.log(c.dim(`EOD  hedge pair  ${new Date().toLocaleString("en-IN", { hour12: false })}`));
+        console.log(c.dim(`EOD  hedge pair  ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false })}`));
         if (hedge.state.position) await exitLeg(hedge, "EOD_FORCE");
         if (core.state.position)  await exitLeg(core,  "EOD_FORCE");
 
@@ -358,7 +358,7 @@ async function main() {
         if (lastHourlyLoggedTs === key) return;
         lastHourlyLoggedTs = key;
 
-        let line = `[HOURLY ${hourly.date.toLocaleString("en-IN", { hour12: false })}] core ${core.context.symbol}: `;
+        let line = `[HOURLY ${hourly.date.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false })} IST] core ${core.context.symbol}: `;
         if (core.state.position) {
             const corePrice = await getLtp(core.ltpKey).catch(() => null);
             const coreUpnl  = corePrice !== null ? positions.unrealised(core.context, core.state, corePrice) : null;
