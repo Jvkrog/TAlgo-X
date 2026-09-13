@@ -95,6 +95,7 @@ const { createState } = require("./state");
 const { createDb } = require("./db");
 const { createOrders } = require("./orders");
 const positions = require("./positions");
+const { emitEvent } = require("./eventBridge"); // web dashboard live log/tick stream only, see eventBridge.js header
 const { createHaCandleReader } = require("./haCandleReader");
 
 const POLL_MS = Number(process.env.HEDGE_PAIR_POLL_MS) || 60 * 1000;
@@ -238,6 +239,13 @@ async function main() {
         leg.db.savePosition(leg.context.tgPrefix, leg.context.token, leg.context.symbol, side, price, `HEDGE_PAIR_${leg.label}`);
         console.log(c.green(`[${leg.context.tgPrefix}] ${side} ENTER (${reason}) @ ${price.toFixed(2)}`));
         leg.tg(`${side} ENTER (${reason}) @ \u20b9${price.toFixed(2)}`);
+        // Same event every other strategy's doEnter() emits (see
+        // strategies.js) — without this, entries were invisible on
+        // webdash's live log/WS stream even though they logged fine to
+        // console and Telegram (reported directly; exitLeg() below didn't
+        // have this gap, since positions.close() already emits its own
+        // "EXIT" event internally).
+        emitEvent(leg.context.tgPrefix, "ENTRY", { side, price, trail: null });
         return true;
     }
 
