@@ -1832,6 +1832,10 @@ async function renderBacktestParamsStep() {
       <div class="tb-form-label">session target in rupees, quits for the day once reached (blank = no ceiling)</div>
       <input type="number" id="btSessionTarget" min="0" step="any">
     </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="btDailyHaGate" checked><span>only allow entries matching the previous daily HA candle's color (green=long only, red=short only) (default Y)</span></label>
+      <div class="tb-form-hint">htf gate isn't offered here — its backtest replay is a live-only stub that always passes through, so a toggle for it would do nothing.</div>
+    </div>
     <div id="btErrBox"></div>
     <div id="btResultBox"></div>
     <button class="tb-submit-btn" id="btSubmit">run backtest</button>
@@ -1894,6 +1898,7 @@ async function renderBacktestParamsStep() {
       carryOvernight: tbBacktestBody.querySelector("#btCarry").checked,
       maxDailyLoss: tbBacktestBody.querySelector("#btMaxLoss").value || undefined,
       sessionTargetRupees: tbBacktestBody.querySelector("#btSessionTarget").value || undefined,
+      dailyHaGateEnabled: tbBacktestBody.querySelector("#btDailyHaGate").checked,
     };
     try {
       const res = await fetch("/api/toolbox/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
