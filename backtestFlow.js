@@ -40,7 +40,11 @@ const STRATEGY_PARAMS = {
         { key: "ALMA_LEN",    label: "ALMA length" },
         { key: "ALMA_OFFSET", label: "ALMA offset" },
         { key: "ALMA_SIGMA",  label: "ALMA sigma" },
-        { key: "ATR_SL_MULT", label: "ATR stop-loss multiplier" },
+        // ATR_SL_MULT deliberately NOT listed here since Sep 2026 — this
+        // strategy's stop is the opposite band line now, not an ATR
+        // offset (see createAlmaBandStrategy's computeBandSL) — same
+        // "no ATR trail at all" reasoning DYNAMIC_BAND/PURE_HA already
+        // have below.
     ],
     ALMA_FAST: [
         { key: "ALMA_FAST_LEN",             label: "ALMA length" },
@@ -363,12 +367,18 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     if (doubleInput) context.disableDoubleOrders = doubleInput === "Y";
 
     // Per-instrument ATR stop-loss multiplier — unread by strategies with
-    // no ATR trail at all (PURE_HA/DYNAMIC_BAND/DYNAMIC_MID_COLOR(_HL)).
-    const atrMultInput = await ask(`  ATR stop-loss multiplier (blank = default ${engineConfig.ATR_SL_MULT}): `);
-    if (atrMultInput) {
-        const parsed = Number(atrMultInput);
-        if (Number.isFinite(parsed) && parsed > 0) context.atrSlMult = parsed;
-        else console.log(c.yellow(`  invalid value for ATR stop-loss multiplier, using default`));
+    // no ATR trail at all (PURE_HA/DYNAMIC_BAND/DYNAMIC_MID_COLOR(_HL)/
+    // ALMA_BAND as of Sep 2026 — see that strategy's own STRATEGY_PARAMS
+    // comment above). Skipped outright for ALMA_BAND rather than asked-
+    // but-unread, since it was a genuinely confusing double-prompt there
+    // (STRATEGY_PARAMS used to list its own ATR_SL_MULT entry too).
+    if (strategyKey !== "ALMA_BAND") {
+        const atrMultInput = await ask(`  ATR stop-loss multiplier (blank = default ${engineConfig.ATR_SL_MULT}): `);
+        if (atrMultInput) {
+            const parsed = Number(atrMultInput);
+            if (Number.isFinite(parsed) && parsed > 0) context.atrSlMult = parsed;
+            else console.log(c.yellow(`  invalid value for ATR stop-loss multiplier, using default`));
+        }
     }
 
     // Volume SMA entry gate — universal, off by default.
@@ -430,7 +440,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     console.log(`  Timeframe:  ${timeframe}`);
     console.log(`  Range:      ${from.toISOString().split("T")[0]} -> ${to.toISOString().split("T")[0]}`);
     console.log(`  Params:     ${Object.keys(params).length ? JSON.stringify(params) : "(all defaults)"}`);
-    console.log(`  Risk:       chop:${params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on"} lc:${context.longCandleFilterEnabled === false ? "off" : "on"} double:${context.disableDoubleOrders ? "off" : "on"} vol:${context.volumeFilterEnabled ? "on" : "off"} atr:${context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"} maxloss:${context.maxDailyLoss ?? "none"} sessionTarget:${context.sessionTargetRupees ?? "none"}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);
+    console.log(`  Risk:       chop:${params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on"} lc:${context.longCandleFilterEnabled === false ? "off" : "on"} double:${context.disableDoubleOrders ? "off" : "on"} vol:${context.volumeFilterEnabled ? "on" : "off"} atr:${strategyKey === "ALMA_BAND" ? "n/a (band SL)" : context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"} maxloss:${context.maxDailyLoss ?? "none"} sessionTarget:${context.sessionTargetRupees ?? "none"}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);
     const confirm = (await ask("  Proceed? (Y/N): ")).trim().toUpperCase();
     if (confirm !== "Y") { console.log(c.dim("  cancelled")); await pauseForReview(); return; }
 
