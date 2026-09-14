@@ -23,6 +23,7 @@ const { isChopBlocked } = require("./chopGate");
 const { isDoubleOrderBlocked } = require("./doubleOrderGate");
 const { isVolumeBlocked } = require("./volumeGate");
 const { evaluateLongCandle } = require("./longCandleGate");
+const { createHaCandleReader } = require("./haCandleReader");
 
 // ════════════════════════════════════════════════════════════════════════
 // DPI_TREND_MEANREV (key name kept as-is for DB-filename/continuity reasons
@@ -6180,6 +6181,165 @@ function createPureHaStrategy({ context, engineConfig, state, db, candles, slSto
     return { processCandle, initSignals };
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// DAILY_HA_BIAS — added Sep 2026, per explicit request: dead-simple
+// "one decision a day" strategy, no indicator warmup, no continuous
+// per-candle logic at all.
+//
+// Entry: once per trading day, at/after 9:15 IST (ENTRY_HOUR/MINUTE
+//   below — hardcoded for this strategy specifically, same reasoning as
+//   hedgePairEngine.js's CORE_ENTRY_HOUR: immune to
+//   engineConfig.TRADE_START_HOUR/MINUTE ever changing for other
+//   strategies). Reads the previous COMPLETED daily Heikin-Ashi candle
+//   via its own independent haCandleReader.js instance — same module and
+//   same reasoning as hedgePairEngine.js's core leg: this instrument's
+//   own live trading candles are 5m (see STRATEGY_TIMEFRAME below, picked
+//   only to get a processCandle() tick soon after 9:15 — the decision
+//   itself has nothing to do with that timeframe), so there's no daily
+//   buffer sitting around to read this off of. Green -> LONG, red ->
+//   SHORT, doji -> no trade today.
+// Stop-loss: a FIXED price level, not a trailing indicator — that SAME
+//   previous daily HA candle's high (SHORT) or low (LONG). Armed once,
+//   at entry, via slStore.setTrail() — candlePoll.js's existing generic
+//   tick-driven checkSL() does the rest; nothing strategy-specific is
+//   needed here beyond arming it.
+// Exit: SL above, or EOD (lifecycle.js, this instrument's own
+//   context.eodHour/eodMinute — 23:15 IST by default on MCX for any
+//   timeframe narrower than 30m/1h, which "5m" below is; see
+//   context.js's defaultEodFor()). Neither needs any code here — both
+//   are the same generic, existing machinery every other strategy uses.
+// Deliberately no target, no reversal, no re-entry after a stop-out, and
+//   NONE of the chop/volume/long-candle/htf gates every other strategy
+//   wires in — the whole point is AT MOST one entry + one exit per day
+//   (2 trade legs total, per the request), and none of those gates make
+//   sense for a strategy that looks at exactly one thing (yesterday's
+//   already-closed daily candle) and acts on it exactly once.
+//   dailyHaGate.js (wired universally inside orders.js, not here) can
+//   never actually disagree with this strategy's own side — its side
+//   computation is the same daily-HA read this strategy already used to
+//   decide — so it's harmlessly redundant, same as hedgePairEngine.js's
+//   CORE leg.
+// ════════════════════════════════════════════════════════════════════════
+function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() }, htf, dailyHa }) {
+    function persist(position, entryPrice, positionSource) {
+        db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
+    }
+
+    const ENTRY_HOUR = 9, ENTRY_MINUTE = 15;
+
+    const dailyReader = createHaCandleReader({ token: context.token, timeframe: "1d", engineConfig, label: context.tgPrefix });
+
+    async function doEnter(side, livePrice, slLevel, daily) {
+        const ordered = await orders.enter(side);
+        if (engineConfig.LIVE_ORDERS && ordered === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (DAILY_HA_BIAS) — no trade today (decide-once, no retry)`));
+            return false;
+        }
+
+        state.position       = side;
+        state.tradesToday    = (state.tradesToday || 0) + 1;
+        state.entryPrice     = livePrice;
+        state.positionSource = "DAILY_HA_BIAS";
+        state.openTradeId    = await db.insertOpenTrade(context.tgPrefix, context.symbol, side, context.lots, livePrice);
+
+        // The whole point of this strategy — see header. side === "LONG"
+        // -> dir 1, "SHORT" -> dir -1, same convention targetStore.setTarget()
+        // uses elsewhere in this file.
+        slStore.setTrail(slLevel, side === "LONG" ? 1 : -1);
+
+        persist(side, livePrice, "DAILY_HA_BIAS");
+        console.log(c.white(`[${context.tgPrefix}] ${side} DAILY HA BIAS ENTRY  @ ${livePrice.toFixed(2)}  SL ${slLevel.toFixed(2)} (prev daily HA ${side === "LONG" ? "low" : "high"}, ${daily.color} candle)`));
+        emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slLevel, pure: null });
+        tg(`${side} DAILY HA BIAS ENTRY @ \u20b9${livePrice.toFixed(2)}\nSL \u20b9${slLevel.toFixed(2)} (prev daily HA ${side === "LONG" ? "low" : "high"})`);
+        return true;
+    }
+
+    async function runSignals(rawCandle) {
+        const livePrice = candles.getLivePrice() ?? rawCandle.close;
+        const uPnL = positionsUnrealised(livePrice);
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+        const session   = (state.pnl || 0) + uPnL;
+        const lineColor = !state.position ? c.white : uPnL > 0 ? c.green : uPnL < 0 ? c.red : c.white;
+        console.log(lineColor(`[${context.tgPrefix}] ${ts} DHAB  ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}${state.position ? "" : "  flat, waiting for 9:15 decision"}`));
+        emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, pure: null });
+
+        if (!engineConfig.ENGINE_ENABLED) return;
+
+        const today = clock.now().toISOString().split("T")[0];
+        // Already in today's trade, or already decided today (a stop-out
+        // or a no-signal/doji day both count as "decided") — no re-entry,
+        // ever, same calendar day. This IS the "only 2 trades" guarantee.
+        if (state.position || state.dailyBiasDecidedForDate === today) return;
+
+        const { hours, minutes } = istParts(clock.now());
+        const pastEntryTime = hours > ENTRY_HOUR || (hours === ENTRY_HOUR && minutes >= ENTRY_MINUTE);
+        if (!pastEntryTime) return;
+
+        const daily = await dailyReader.getLatest();
+        if (!daily || !daily.color) return; // fails safe — no read yet: try again next candle, still within today's window; a genuine doji day IS decided (falls through below), this is only "no data at all yet"
+
+        const side    = daily.color === "green" ? "LONG" : "SHORT";
+        const slLevel = side === "LONG" ? daily.low : daily.high;
+        await doEnter(side, livePrice, slLevel, daily);
+        // Decided for today regardless of whether the order actually
+        // filled — see header: a failed entry means no trade today, not
+        // a retry loop.
+        state.dailyBiasDecidedForDate = today;
+    }
+
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown()) return;
+        await runSignals(rawCandle);
+    }
+
+    async function initSignals() {
+        try {
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+            const today = clock.now().toISOString().split("T")[0];
+
+            state.resumedFromDb = false;
+            if (engineConfig.RESUME_INTRADAY_ONLY && saved?.position) {
+                const sameDay      = (saved.entry_date ?? null) === today;
+                const shouldResume = sameDay || context.carryOvernight;
+                if (shouldResume) {
+                    state.position       = saved.position;
+                    state.entryPrice     = saved.entry_price;
+                    state.positionSource = saved.position_source || "DAILY_HA_BIAS";
+                    const openTrade      = await db.getOpenTrade(context.tgPrefix);
+                    state.openTradeId    = openTrade ? openTrade.id : null;
+                    state.resumedFromDb  = true;
+                    // Resumed same-day position — already decided today,
+                    // don't re-run the 9:15 check. NOTE: the SL trail
+                    // itself is NOT restored (slStore is in-memory only —
+                    // same known gap lifecycle.js's own header flags for
+                    // every strategy) — a resumed position runs without
+                    // its stop re-armed until EOD unless set again by hand.
+                    if (sameDay) state.dailyBiasDecidedForDate = today;
+                } else {
+                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                }
+            }
+
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+            state.tradesToday = await db.getTradeCountToday(context.tgPrefix);
+
+            dailyReader.prewarm();
+
+            const info = state.position ? `${state.position}@${state.entryPrice}` : "flat (waiting for 9:15 IST decision)";
+            console.log();
+            console.log(c.green(`[${context.tgPrefix}] ${info}`));
+            console.log();
+
+            await orders.reconcile(state);
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
 const STRATEGIES = {
     DPI_TREND_MEANREV: createDpiTrendMeanrevStrategy,
     ALMA_BAND:          createAlmaBandStrategy,
@@ -6201,6 +6361,7 @@ const STRATEGIES = {
     ALMA_PRO_SLOW:        createAlmaProSlowStrategy,
     VOLUME_DELTA_CVD:     createVolumeDeltaCvdStrategy,
     PURE_HA:              createPureHaStrategy,
+    DAILY_HA_BIAS:        createDailyHaBiasStrategy,
 };
 
 // Toolbox-facing labels only — not a full param schema yet (that's a later
@@ -6228,6 +6389,7 @@ const STRATEGY_INFO = {
     ALMA_PRO_SLOW:        { label: "ALMA Pro \u2014 Slow Engine", description: "the SLOW half of strategy #17: single slow ALMA(100) on HA close, entry LEVEL-based on the line's own current slope direction (deadband-filtered, same whipsaw control ALMA_FAST uses) \u2014 no band/breakout confirmation, that's the fast engine's job; Choppiness Index entry filter toggleable per instrument (default ON, not in the original); run alongside ALMA_PRO_FAST on a DIFFERENT underlying (e.g. the full-lot contract) \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APS" },
     VOLUME_DELTA_CVD:     { label: "Volume Delta / CVD", description: "estimated tick-rule buy/sell volume delta (price-direction based \u2014 Kite doesn't expose true exchange aggressor side) + CVD, layered under EMA20/50 trend, VWAP, relative volume, delta Z-score, absorption, and CVD/price divergence into a 0-100 score; two-candle setup\u2192confirm entry debounce, ATR stop-loss; delta-based signals need warmup time after boot (can't backfill genuine tick delta from historical candles)", short: "VDCVD" },
     PURE_HA:              { label: "Pure Heikin-Ashi Color", description: "no indicator at all \u2014 pure HA candle color decides everything: green candle -> LONG, red -> SHORT, always-in-market, a color flip exits and reverses same candle; separately tags each candle as a \"pure trend\" candle (no wick on the side opposite the body \u2014 no lower wick on green, no upper wick on red) for logging/dashboard purposes, without gating entry on it; Choppiness Index filter available same as every other strategy (currently always-on per the codebase-wide forced check, see this strategy's header comment)", short: "PHA" },
+    DAILY_HA_BIAS:        { label: "Daily HA Bias (2-Trade)", description: "one decision a day \u2014 at/after 9:15 IST, take the previous COMPLETED daily HA candle's color as the day's bias (green -> LONG, red -> SHORT, doji -> no trade), fixed SL at that same candle's high (SHORT) or low (LONG), no target/reversal/re-entry; only exit besides SL is EOD (23:15 IST default) \u2014 at most one entry + one exit per day, no chop/volume/long-candle/htf gates wired in", short: "DHAB" },
 };
 
 // Each strategy's live/paper candle interval — this is a property of the
@@ -6294,8 +6456,15 @@ const STRATEGY_TIMEFRAME = {
     // otherwise — 15m matches the platform default, adjustable per
     // instrument via TIMEFRAME_OVERRIDE same as everything else here.
     PURE_HA:              "15m",
+    // 5m purely to get a processCandle() tick soon after the 9:15 entry
+    // check opens (see this strategy's own header) — the actual signal
+    // (previous day's completed daily HA candle) has nothing to do with
+    // this timeframe at all; also what makes context.js's defaultEodFor()
+    // resolve this instrument's EOD to 23:15 IST, matching the spec's
+    // "close at 11:15" exactly with zero extra config.
+    DAILY_HA_BIAS:        "5m",
 };
 
 const DEFAULT_STRATEGY = "DPI_TREND_MEANREV";
 
-module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy, createVolumeDeltaCvdStrategy, createPureHaStrategy };
+module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy, createVolumeDeltaCvdStrategy, createPureHaStrategy, createDailyHaBiasStrategy };

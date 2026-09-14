@@ -42,9 +42,22 @@ function createHaCandleReader({ token, timeframe, engineConfig, label }) {
     let lastFetchedAt = 0;
     let lastErrorLoggedAt = 0;
 
+    // BUG FIX Sep 2026: this used to be `if (kc) return kc;` — read the
+    // access-token file ONCE, ever, and cache the client forever. That's
+    // invisible for every other reader (htfGate.js, per-instrument
+    // engine.js) because PM2 restarts those processes fresh every morning,
+    // so a new process = a new token read. hedgePairEngine.js's readers are
+    // the one place that ISN'T true — this process is deliberately
+    // long-lived (see hedgePairEngine.js's own header) — so once Kite's
+    // access token rotated for a new day, every refresh() here silently
+    // kept failing ("Incorrect api_key or access_token") and getLatest()
+    // just kept serving its last-successful read from days earlier,
+    // forever, with no visible symptom besides a stale `date` on the
+    // returned bar. Re-reading the token file on every refresh (a disk
+    // read gated behind REFRESH_MS, never hot-path) costs nothing and
+    // means a rotated token is picked up the very next refresh cycle.
     function getClient() {
-        if (kc) return kc;
-        kc = new KiteConnect({ api_key: engineConfig.API_KEY });
+        if (!kc) kc = new KiteConnect({ api_key: engineConfig.API_KEY });
         kc.setAccessToken(fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim());
         return kc;
     }
@@ -65,9 +78,12 @@ function createHaCandleReader({ token, timeframe, engineConfig, label }) {
         lastFetchedAt = Date.now();
     }
 
-    // Returns { color: "green"|"red"|null, date, close } for the latest
-    // COMPLETED HA candle, or null if no data is available yet (fails
-    // safe — caller treats null the same as "no read," never as a signal).
+    // Returns { color: "green"|"red"|null, date, close, high, low } for
+    // the latest COMPLETED HA candle, or null if no data is available yet
+    // (fails safe — caller treats null the same as "no read," never as a
+    // signal). high/low added Sep 2026 for DAILY_HA_BIAS's SL level (the
+    // previous daily HA candle's own high/low) — additive, every existing
+    // caller that only reads .color/.date/.close is unaffected.
     async function getLatest() {
         if (Date.now() - lastFetchedAt > REFRESH_MS[timeframe]) {
             try {
@@ -85,7 +101,7 @@ function createHaCandleReader({ token, timeframe, engineConfig, label }) {
         if (!haBars.length) return null;
         const last = haBars[haBars.length - 1];
         const color = last.close > last.open ? "green" : last.close < last.open ? "red" : null;
-        return { color, date: last.date, close: last.close };
+        return { color, date: last.date, close: last.close, high: last.high, low: last.low };
     }
 
     return { getLatest, prewarm: () => getLatest().catch(() => {}) };

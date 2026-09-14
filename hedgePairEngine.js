@@ -14,15 +14,20 @@
 //     no target, no stop).
 //   - HEDGE leg (mini contract, same underlying): while the core leg is
 //     open and the hedge is flat, if the SAME core instrument's latest
-//     completed 1-HOUR HA candle turns AGAINST the core's direction,
-//     open 5 lots on the mini contract, opposite side of the core (i.e.
-//     same side as the adverse hourly read). 5:1 is the real contract
-//     ratio for both supported pairs, not an arbitrary size (NATGASMINI
-//     250 MMBtu vs NATURALGAS 1250; ZINCMINI 1000kg vs ZINC 5000kg).
+//     completed 1-HOUR HA candle turns AGAINST the core's direction AND
+//     the Dynamic Band color (see dynamicBandReader.js — same step-band
+//     breakout state machine as createDynamicMidColorStrategy, added Sep
+//     2026 as a false-hedge filter) also agrees, open 5 lots on the mini
+//     contract, opposite side of the core (i.e. same side as the adverse
+//     hourly read). Requiring both readers to agree stops a single
+//     counter-colored HA candle that never actually broke the band from
+//     firing a hedge on its own. 5:1 is the real contract ratio for both
+//     supported pairs, not an arbitrary size (NATGASMINI 250 MMBtu vs
+//     NATURALGAS 1250; ZINCMINI 1000kg vs ZINC 5000kg).
 //   - UNWIND (config-switchable via UNWIND_MODE_OVERRIDE, default
 //     HA_FLIP — the user wants to A/B both live):
-//       HA_FLIP  — hourly HA flips back in the core's favor -> hedge
-//                  closes, only the core remains.
+//       HA_FLIP  — hourly HA + Dynamic Band both flip back in the core's
+//                  favor -> hedge closes, only the core remains.
 //       EOD_ONLY — hedge stays on regardless of hourly reads; closes
 //                  only at EOD (below), same as the core.
 //     Either way, EOD force-closes the hedge leg too, unconditionally —
@@ -98,6 +103,7 @@ const { createOrders } = require("./orders");
 const positions = require("./positions");
 const { emitEvent } = require("./eventBridge"); // web dashboard live log/tick stream only, see eventBridge.js header
 const { createHaCandleReader } = require("./haCandleReader");
+const { createDynamicBandReader } = require("./dynamicBandReader");
 
 const POLL_MS = Number(process.env.HEDGE_PAIR_POLL_MS) || 60 * 1000;
 const UNWIND_MODE = (process.env.UNWIND_MODE_OVERRIDE || "HA_FLIP").toUpperCase();
@@ -163,6 +169,7 @@ async function main() {
 
         const { tg } = createTelegram(context, engineConfig);
         const db     = createDb(context);
+        db.initDB(); // BUG FIX Sep 2026: was missing here (engine.js calls this right after createDb() too — see its line ~419) — without it, createDb() opens/creates the .db FILE but never runs CREATE TABLE, so every query against a fresh hedge-pair DB failed with "SQLITE_ERROR: no such table: trades" the first time any leg tried to log a trade.
         const state  = createState();
         const orders = createOrders(context, tg);
 
@@ -209,6 +216,9 @@ async function main() {
     // hedge leg has no signal of its own (see file header).
     const dailyReader  = createHaCandleReader({ token: core.context.token, timeframe: "1d", engineConfig, label: core.context.tgPrefix });
     const hourlyReader = createHaCandleReader({ token: core.context.token, timeframe: "1h", engineConfig, label: core.context.tgPrefix });
+    // Confirmation filter for checkHedge() — see dynamicBandReader.js's own
+    // header for why raw 1h HA color alone is too noisy on its own.
+    const bandReader   = createDynamicBandReader({ token: core.context.token, timeframe: "1h", bandStep: core.context.bandStep, engineConfig, label: core.context.tgPrefix });
 
     // Read-only client for LTP lookups at our own entry/exit bookkeeping
     // moments — see file header ("NO LIVE WEBSOCKET TICKER").
@@ -304,21 +314,36 @@ async function main() {
     }
 
     // ─── HEDGE: triggered by the CORE instrument's 1h HA turning against
-    // the core's direction; unwound per UNWIND_MODE.
+    // the core's direction, CONFIRMED by the Dynamic Band color also
+    // agreeing (see dynamicBandReader.js's header) — this is what stops a
+    // single noisy HA candle from firing a false hedge when price hasn't
+    // actually broken the band. Unwound per UNWIND_MODE, same double-
+    // confirmation applied both directions for consistency (a lone
+    // favorable HA candle shouldn't drop real hedge protection early
+    // either).
     async function checkHedge() {
         if (!core.state.position) return; // nothing to hedge
         const hourly = await hourlyReader.getLatest();
         if (!hourly || !hourly.color) return;
+        const band = await bandReader.getLatest();
+        // Fails safe: no band read yet (cold start / fetch error) falls
+        // back to HA-only, matching the pre-existing behavior, rather
+        // than blocking the hedge from ever firing.
+        const bandColor = band && band.color ? band.color : hourly.color;
 
-        const coreSide  = core.state.position;
-        const adverse   = (coreSide === "LONG"  && hourly.color === "red")   || (coreSide === "SHORT" && hourly.color === "green");
-        const favorable = (coreSide === "LONG"  && hourly.color === "green") || (coreSide === "SHORT" && hourly.color === "red");
+        const coreSide = core.state.position;
+        const haAdverse    = (coreSide === "LONG" && hourly.color === "red")   || (coreSide === "SHORT" && hourly.color === "green");
+        const haFavorable   = (coreSide === "LONG" && hourly.color === "green") || (coreSide === "SHORT" && hourly.color === "red");
+        const bandAdverse   = (coreSide === "LONG" && bandColor === "red")     || (coreSide === "SHORT" && bandColor === "green");
+        const bandFavorable = (coreSide === "LONG" && bandColor === "green")   || (coreSide === "SHORT" && bandColor === "red");
+        const adverse   = haAdverse && bandAdverse;
+        const favorable = haFavorable && bandFavorable;
 
         if (!hedge.state.position && adverse) {
             const hedgeSide = coreSide === "LONG" ? "SHORT" : "LONG"; // opposite the core = same side as the adverse read
-            await enterLeg(hedge, hedgeSide, `1h HA ${hourly.color} against ${coreSide} core`);
+            await enterLeg(hedge, hedgeSide, `1h HA ${hourly.color} + band ${bandColor} against ${coreSide} core`);
         } else if (hedge.state.position && UNWIND_MODE === "HA_FLIP" && favorable) {
-            await exitLeg(hedge, `1h HA ${hourly.color} back in the core's favor`);
+            await exitLeg(hedge, `1h HA ${hourly.color} + band ${bandColor} back in the core's favor`);
         }
         // UNWIND_MODE === "EOD_ONLY": hedge, once open, is deliberately
         // left alone here regardless of `favorable` — only checkEod()
@@ -454,6 +479,7 @@ async function main() {
 
     dailyReader.prewarm();
     hourlyReader.prewarm();
+    bandReader.prewarm();
     await tick();
     setInterval(tick, POLL_MS);
 }

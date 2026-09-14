@@ -86,9 +86,12 @@ function createDynamicBandReader({ token, timeframe, bandStep, engineConfig, lab
     let lastFetchedAt = 0;
     let lastErrorLoggedAt = 0;
 
+    // Same fix as haCandleReader.js's getClient() (see its comment) — this
+    // reader lives in the same long-lived hedgePairEngine.js process, so it
+    // has the identical stale-token exposure. Re-read the token file on
+    // every refresh instead of caching it from the first read.
     function getClient() {
-        if (kc) return kc;
-        kc = new KiteConnect({ api_key: engineConfig.API_KEY });
+        if (!kc) kc = new KiteConnect({ api_key: engineConfig.API_KEY });
         kc.setAccessToken(fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim());
         return kc;
     }

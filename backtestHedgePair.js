@@ -27,7 +27,11 @@
 //   - Every bar after that, while the core is open: the CORE instrument's
 //     OWN just-closed 1h HA candle is the hedge trigger/unwind signal —
 //     exactly like live's hourlyReader.getLatest() reading the latest
-//     completed bar the instant it closes. Hedge fills happen at the
+//     completed bar the instant it closes — CONFIRMED by the Dynamic Band
+//     color (bandColorAt precompute below, same state machine as
+//     createDynamicMidColorStrategy/dynamicBandReader.js) also agreeing,
+//     so a single counter-colored HA candle that never actually broke the
+//     band doesn't fire a false hedge/unwind on its own. Hedge fills happen at the
 //     HEDGE instrument's own close price at that SAME timestamp (falls
 //     back to the most recent earlier hedge close if a bar is missing
 //     from the hedge series — thinner mini-contract volume can produce
@@ -142,6 +146,44 @@ async function runHedgePairBacktest({
 
     const coreHourlyHA = toHA(coreHourlyRaw); // no bar dropped — every bar here already fully closed (it's the replay's own clock, not a live "still forming" read)
 
+    // ─── DYNAMIC BAND COLOR — same step-band breakout state machine as
+    // createDynamicMidColorStrategy in strategies.js (and dynamicBandReader.js's
+    // live copy of it), replayed here bar-by-bar off the core's OWN raw
+    // closes at the same index as coreHourlyHA/coreHourlyRaw. Used purely
+    // as a hedge confirmation filter below — a lone counter-colored 1h HA
+    // candle no longer triggers a false hedge/unwind unless price also
+    // actually broke the band. bandColorAt[i] is the band's replayed color
+    // as of bar i's own close (i.e. what a live read would show right
+    // after bar i closes), computed once up front so the main loop below
+    // can just look it up.
+    const bandStep = core.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
+    const bandColorAt = new Array(coreHourlyRaw.length);
+    {
+        let mid = coreHourlyRaw[0].close;
+        let high = mid + bandStep;
+        let low = mid - bandStep;
+        let position = null;
+        bandColorAt[0] = "green"; // no breakout evaluated on the seed bar — "no white" default, same as replayHistory()
+        for (let i = 1; i < coreHourlyRaw.length; i++) {
+            const close = coreHourlyRaw[i].close;
+            const breakHigh = close > high;
+            const breakLow = close < low;
+            if (position === "LONG") {
+                if (breakHigh) { mid += bandStep; }
+                else if (breakLow) { position = "SHORT"; mid -= bandStep; }
+            } else if (position === "SHORT") {
+                if (breakLow) { mid -= bandStep; }
+                else if (breakHigh) { position = "LONG"; mid += bandStep; }
+            } else {
+                if (breakHigh) { position = "LONG"; mid += bandStep; }
+                else if (breakLow) { position = "SHORT"; mid -= bandStep; }
+            }
+            high = mid + bandStep;
+            low = mid - bandStep;
+            bandColorAt[i] = position === "SHORT" ? "red" : "green";
+        }
+    }
+
     // hedge close lookup, keyed by epoch ms — two-pointer advance below
     // assumes hedgeHourlyRaw is chronological (fetchHistoricalCandles
     // already sorts + de-dupes).
@@ -218,18 +260,27 @@ async function runHedgePairBacktest({
             }
         }
 
-        // ─── HEDGE — triggered by the core's OWN just-closed 1h HA bar.
+        // ─── HEDGE — triggered by the core's OWN just-closed 1h HA bar,
+        // CONFIRMED by the Dynamic Band color at this same bar also
+        // agreeing (see the bandColorAt precompute above / dynamicBandReader.js's
+        // header) — filters out a lone counter-colored HA candle that
+        // never actually broke the band.
         if (coreState.position) {
             const barColor = bar.close > bar.open ? "green" : bar.close < bar.open ? "red" : null;
             if (barColor) {
-                const coreSide  = coreState.position;
-                const adverse   = (coreSide === "LONG" && barColor === "red")   || (coreSide === "SHORT" && barColor === "green");
-                const favorable = (coreSide === "LONG" && barColor === "green") || (coreSide === "SHORT" && barColor === "red");
+                const coreSide   = coreState.position;
+                const bandColor  = bandColorAt[i];
+                const haAdverse    = (coreSide === "LONG" && barColor === "red")   || (coreSide === "SHORT" && barColor === "green");
+                const haFavorable  = (coreSide === "LONG" && barColor === "green") || (coreSide === "SHORT" && barColor === "red");
+                const bandAdverse  = (coreSide === "LONG" && bandColor === "red")   || (coreSide === "SHORT" && bandColor === "green");
+                const bandFavorable = (coreSide === "LONG" && bandColor === "green") || (coreSide === "SHORT" && bandColor === "red");
+                const adverse   = haAdverse && bandAdverse;
+                const favorable = haFavorable && bandFavorable;
                 const hedgePx   = hedgeCloseAt(bar.date);
 
                 if (!hedgeState.position && adverse && hedgePx !== null) {
                     const hedgeSide = coreSide === "LONG" ? "SHORT" : "LONG";
-                    await enterLeg(hedge.context, hedgeState, hedgeLedger, hedgeSide, hedgePx, `1h HA ${barColor} against ${coreSide} core`);
+                    await enterLeg(hedge.context, hedgeState, hedgeLedger, hedgeSide, hedgePx, `1h HA ${barColor} + band ${bandColor} against ${coreSide} core`);
                 } else if (hedgeState.position && unwindMode === "HA_FLIP" && favorable && hedgePx !== null) {
                     await exitLeg(hedge.context, hedgeState, hedgeLedger, hedgePx, "HTF_FLIP_UNWIND");
                 }
