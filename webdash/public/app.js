@@ -1796,11 +1796,54 @@ async function renderBacktestParamsStep() {
       <input type="number" id="btLotMult" min="0" step="any">
     </div>
     <div id="btParamsBox"></div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">risk (same as toolbox's backtest wizard)</div>
+    </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="btChopEnabled" checked><span>Choppiness Index filter on every entry (default Y)</span></label>
+      <input type="number" id="btChopPeriod" placeholder="period, default 9" min="1" step="1">
+      <input type="number" id="btChopMax" placeholder="max threshold, default 58" min="0" step="any">
+    </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="btLcEnabled" checked><span>block entries after an abnormally large candle (default Y)</span></label>
+      <input type="number" id="btLcPeriod" placeholder="ATR period, default 14" min="1" step="1">
+      <input type="number" id="btLcMult" placeholder="ATR multiplier, default 1.5" min="0" step="any">
+      <input type="number" id="btLcCooldown" placeholder="cooldown candles, default 2" min="0" step="1">
+    </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="btDoubleDisabled"><span>disable double orders, blocks reversal re-entries only (default N)</span></label>
+    </div>
+    <div class="tb-form-row" id="btAtrRow">
+      <div class="tb-form-label">ATR stop-loss multiplier (blank = default)</div>
+      <input type="number" id="btAtrMult" min="0" step="any">
+    </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="btVolEnabled"><span>only enter when volume is above its SMA (default N)</span></label>
+      <input type="number" id="btVolPeriod" placeholder="SMA period, default 20" min="1" step="1">
+    </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="btCarry"><span>carry positions overnight past EOD, NRML-style (default N)</span></label>
+    </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">max daily loss in rupees, quits for the day if breached (blank = no floor)</div>
+      <input type="number" id="btMaxLoss" min="0" step="any">
+    </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">session target in rupees, quits for the day once reached (blank = no ceiling)</div>
+      <input type="number" id="btSessionTarget" min="0" step="any">
+    </div>
     <div id="btErrBox"></div>
     <div id="btResultBox"></div>
     <button class="tb-submit-btn" id="btSubmit">run backtest</button>
   `;
   tbBacktestBody.querySelector("#btBack2").addEventListener("click", renderBacktestInstrumentStep);
+
+  // ALMA_BAND's stop is the opposite band line, not ATR-based (Sep 2026) —
+  // hide the ATR field entirely rather than show a control that does
+  // nothing, same reasoning as the CLI skipping this prompt for it.
+  if (btState.strategy === "ALMA_BAND") {
+    tbBacktestBody.querySelector("#btAtrRow").style.display = "none";
+  }
 
   const tfSelect = tbBacktestBody.querySelector("#btTimeframe");
   (btState.timeframes || ["5m", "15m", "30m", "1h"]).forEach(tf => {
@@ -1837,6 +1880,20 @@ async function renderBacktestParamsStep() {
       days: tbBacktestBody.querySelector("#btDays").value || undefined,
       params,
       lotMultOverride: tbBacktestBody.querySelector("#btLotMult").value || undefined,
+      chopFilterEnabled: tbBacktestBody.querySelector("#btChopEnabled").checked,
+      chopPeriod: tbBacktestBody.querySelector("#btChopPeriod").value || undefined,
+      chopMax: tbBacktestBody.querySelector("#btChopMax").value || undefined,
+      longCandleFilterEnabled: tbBacktestBody.querySelector("#btLcEnabled").checked,
+      longCandleAtrPeriod: tbBacktestBody.querySelector("#btLcPeriod").value || undefined,
+      longCandleAtrMult: tbBacktestBody.querySelector("#btLcMult").value || undefined,
+      longCandleCooldownCandles: tbBacktestBody.querySelector("#btLcCooldown").value || undefined,
+      disableDoubleOrders: tbBacktestBody.querySelector("#btDoubleDisabled").checked,
+      atrSlMult: btState.strategy === "ALMA_BAND" ? undefined : (tbBacktestBody.querySelector("#btAtrMult").value || undefined),
+      volumeFilterEnabled: tbBacktestBody.querySelector("#btVolEnabled").checked,
+      volumeSmaPeriod: tbBacktestBody.querySelector("#btVolPeriod").value || undefined,
+      carryOvernight: tbBacktestBody.querySelector("#btCarry").checked,
+      maxDailyLoss: tbBacktestBody.querySelector("#btMaxLoss").value || undefined,
+      sessionTargetRupees: tbBacktestBody.querySelector("#btSessionTarget").value || undefined,
     };
     try {
       const res = await fetch("/api/toolbox/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
