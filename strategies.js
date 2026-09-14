@@ -1395,13 +1395,16 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
         db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
     }
 
-    function computeTrail(livePrice, atrVal, side) {
-        if (atrVal === null) return null;
-        const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
-        return side === "LONG" ? livePrice - offset : livePrice + offset;
+    function computeBandSL(side, almaHigh, almaLow) {
+        // Sep 2026 change: the opposite band line IS the stop, not an ATR
+        // offset — LONG's stop sits at the low line, SHORT's at the high
+        // line. Refreshed every candle the same way the ATR trail used to
+        // be (bands move each candle same as ATR did), just a different
+        // source for the level.
+        return side === "LONG" ? almaLow : almaHigh;
     }
 
-    async function runSignals(price, almaHigh, almaLow, atrVal, closeVal) {
+    async function runSignals(price, almaHigh, almaLow, closeVal) {
         const livePrice = candles.getLivePrice() ?? price;
         // See doubleOrderGate.js: disableDoubleOrders now only ever
         // blocks a same-candle reversal (was open, flips to the opposite
@@ -1421,17 +1424,20 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
         console.log(lineColor(`[${context.tgPrefix}] ${ts} ALMA ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}`));
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null });
 
-        // Exit: price re-enters the band.
+        // Exit: close breaks past the OPPOSITE band line — Sep 2026 change,
+        // was "closes back inside the band at all" (closeVal < almaHigh for
+        // LONG) before this; now holds through a re-entry into the band and
+        // only exits once price closes past the far side entirely.
         if (engineConfig.ENGINE_ENABLED && state.position && state.positionSource === "ALMA_BAND") {
             const reentered =
-                (state.position === "LONG"  && closeVal < almaHigh) ||
-                (state.position === "SHORT" && closeVal > almaLow);
+                (state.position === "LONG"  && closeVal < almaLow) ||
+                (state.position === "SHORT" && closeVal > almaHigh);
             if (reentered) {
                 const closed = await orders.exit(state.position);
                 if (engineConfig.LIVE_ORDERS && closed === null) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${state.position} exit failed (ALMA_REENTRY) — will retry next candle`));
                 } else {
-                    tg(`${state.position} EXIT (ALMA_REENTRY) @ ₹${livePrice.toFixed(2)}\nHA close ${closeVal.toFixed(2)} re-entered band [${almaLow.toFixed(2)}, ${almaHigh.toFixed(2)}]`);
+                    tg(`${state.position} EXIT (ALMA_REENTRY) @ ₹${livePrice.toFixed(2)}\nHA close ${closeVal.toFixed(2)} closed past the opposite band line [${almaLow.toFixed(2)}, ${almaHigh.toFixed(2)}]`);
                     await positionsClose(livePrice, "ALMA_REENTRY");
                     slStore.clearTrail();
                     targetStore.clearTarget();
@@ -1468,7 +1474,7 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
                 if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
                 } else {
-                    const slTrail = computeTrail(livePrice, atrVal, side);
+                    const slTrail = computeBandSL(side, almaHigh, almaLow);
 
                     state.position    = side;
                     state.tradesToday = (state.tradesToday || 0) + 1;
@@ -1495,13 +1501,20 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
             }
         }
 
-        // Refresh SL every candle — trail tightens as price moves in favour
-        if (engineConfig.ENGINE_ENABLED && state.position && atrVal !== null) {
-            const slTrail      = computeTrail(livePrice, atrVal, state.position);
+        // Refresh SL every candle — band-based now, so it moves with the
+        // band rather than only ever tightening the way the ATR trail did.
+        if (engineConfig.ENGINE_ENABLED && state.position) {
+            const slTrail      = computeBandSL(state.position, almaHigh, almaLow);
             const refreshValid =
                 (state.position === "LONG"  && slTrail < livePrice) ||
                 (state.position === "SHORT" && slTrail > livePrice);
             if (refreshValid) slStore.setTrail(slTrail, state.position === "LONG" ? 1 : -1);
+
+            // **HOLD** — logged every candle a position stays open with no
+            // entry/exit this candle, so the log stream always shows
+            // where the (band-based) stop currently sits, not just at
+            // entry — requested directly alongside the band-SL change.
+            console.log(c.dim(`[${context.tgPrefix}] **HOLD** ${state.position} @ ${livePrice.toFixed(2)}  SL:${slTrail?.toFixed(2) ?? "-"}  High:${almaHigh.toFixed(2)}  Low:${almaLow.toFixed(2)}`));
         }
     }
 
@@ -1523,11 +1536,6 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
         const almaLow  = alma(lows,  engineConfig.ALMA_LEN, engineConfig.ALMA_OFFSET, engineConfig.ALMA_SIGMA);
         if (almaHigh === null || almaLow === null) return;
 
-        // ATR for the SL trail — atr() only needs high/low/close, works the
-        // same on raw candles as on HA ones. Same ST_ATR_LEN window as the
-        // other strategy so ATR_SL_MULT means the same thing in both.
-        const atrVal = atr(rawCandles, engineConfig.ST_ATR_LEN);
-
         // Bands AND the buy/sell comparison now both run on HA — smooths
         // out the whole signal the same way HA smooths ST1/RSI/SMA9 in the
         // other strategy. rawCandle.close (actual LTP) is still what's
@@ -1535,7 +1543,7 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
         // calculation and the signal comparison use HA.
         const haCloseVal = haCandles[haCandles.length - 1].close;
 
-        await runSignals(rawCandle.close, almaHigh, almaLow, atrVal, haCloseVal);
+        await runSignals(rawCandle.close, almaHigh, almaLow, haCloseVal);
     }
 
     async function initSignals() {
