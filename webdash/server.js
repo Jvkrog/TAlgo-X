@@ -1095,7 +1095,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
         disableDoubleOrders, atrSlMult,
         volumeFilterEnabled, volumeSmaPeriod,
-        carryOvernight, maxDailyLoss, sessionTargetRupees,
+        carryOvernight, maxDailyLoss, sessionTargetRupees, dailyHaGateEnabled,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -1217,6 +1217,11 @@ app.post("/api/toolbox/backtest", async (req, res) => {
             const n = Number(sessionTargetRupees);
             if (Number.isFinite(n) && n > 0) context.sessionTargetRupees = n;
         }
+        // dailyHaGate.js — genuinely enforced in backtestRun.js's replay
+        // (unlike htfGateEnabled, which stays out of this form entirely:
+        // its backtest stub always returns false, so exposing a toggle
+        // for it here would be a no-op control).
+        if (dailyHaGateEnabled !== undefined) context.dailyHaGateEnabled = !!dailyHaGateEnabled;
 
         const kc = ensureToolboxKite();
         // Suppress the in-process event bridge for the duration of the
