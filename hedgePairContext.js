@@ -27,6 +27,16 @@ function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore
 
     context.tgPrefix = `${context.tgPrefix}_${legLabel}`;
     context.name     = `${context.name} (${legLabel})`;
+    // Telegram display label ONLY — see telegram.js's tgPrefixFor() header
+    // comment for why this doesn't touch context.strategy itself. Written
+    // to actually match what each leg's own trigger is (not "DPI Trend",
+    // which this engine has never run): CORE decides off the daily HA
+    // candle alone (no Dynamic Band involved in that decision at all);
+    // HEDGE fires off the hourly HA candle CONFIRMED by the Dynamic Band
+    // (see dynamicBandReader.js / hedgePairEngine.js's checkHedge()).
+    context.tgLabel = legLabel === "CORE"
+        ? "Hedge Pair Core (Daily HA)"
+        : "Hedge Pair Hedge (Hourly HA + Dynamic Band)";
     context.lots      = lots;
     if (lotMultOverride) context.lotMult = lotMultOverride;
     // dailyHaGate.js (orders.js's universal gate, wired Sep 2026) blocks

@@ -25,7 +25,23 @@ const { STRATEGY_INFO } = require("./strategies");
 
 const RETRY_DELAYS = [3000, 8000]; // 2 retries: after 3s, then 8s
 
+// CHANGED: tgPrefixFor() can now be overridden per-context via
+// context.tgLabel — added Sep 2026 for hedgePairEngine.js's legs, which
+// never had a real context.strategy of their own (that engine isn't a
+// strategies.js entry — see hedgePairEngine.js's own header) and so
+// silently inherited context.js's getDefinition() global default,
+// "DPI_TREND_MEANREV" (label "DPI Trend (pure)"). Every hedge-pair
+// Telegram message was tagged "· DPI Trend (pure)" as a result — pure
+// accident, the hedge-pair engine has never run any DPI logic at all.
+// Deliberately did NOT change context.strategy itself to fix this:
+// db.js's createDb() derives its SQLite filename from context.strategy,
+// and a running hedge pair's existing .db file (open positions, trade
+// history) is keyed to whatever context.strategy has been since it first
+// booted — changing it would silently orphan that history on the next
+// restart (see db.js's own header comment on exactly this class of bug).
+// context.tgLabel is display-only, read nowhere else.
 function tgPrefixFor(context) {
+    if (context.tgLabel) return `${context.tgPrefix} · ${context.tgLabel}`;
     if (!context.strategy) return context.tgPrefix;
     const label = (STRATEGY_INFO[context.strategy] || {}).label || context.strategy;
     return `${context.tgPrefix} · ${label}`;
