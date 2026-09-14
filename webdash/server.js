@@ -1084,6 +1084,18 @@ app.post("/api/toolbox/backtest", async (req, res) => {
     const {
         underlying, exchange = "MCX", strategy, timeframe,
         days, from: fromStr, to: toStr, params = {}, lotMultOverride,
+        // Universal risk toggles — same fields backtestFlow.js's CLI Step 6
+        // asks for and merges onto context/params, previously only
+        // reachable from the CLI (reported directly: "add these present
+        // in toolbox"). chopFilterEnabled/chopPeriod/chopMax route through
+        // params (merged onto a per-run engineConfig by backtestRun.js,
+        // same as the CLI's params.CHOP_GATE_ALWAYS_FORCE etc.) — everything
+        // else mutates context directly, exactly like backtestFlow.js does.
+        chopFilterEnabled, chopPeriod, chopMax,
+        longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
+        disableDoubleOrders, atrSlMult,
+        volumeFilterEnabled, volumeSmaPeriod,
+        carryOvernight, maxDailyLoss, sessionTargetRupees,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -1148,6 +1160,62 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         for (const [k, v] of Object.entries(params || {})) {
             const n = Number(v);
             if (Number.isFinite(n)) parsedParams[k] = n;
+        }
+        // Chop gate — booleans must NOT go through the Number()-coercion
+        // loop above: engineConfig.CHOP_GATE_ALWAYS_FORCE is read via
+        // `!== false`, and Number(false) is 0, which is `!== false` too
+        // (different types, strict comparison) — silently inverting an
+        // explicit "off" back to "on". Set as real booleans/numbers here
+        // instead, same fields backtestFlow.js's CLI passes through `params`.
+        if (chopFilterEnabled !== undefined) parsedParams.CHOP_GATE_ALWAYS_FORCE = !!chopFilterEnabled;
+        if (chopPeriod !== undefined && chopPeriod !== null && chopPeriod !== "") {
+            const n = Number(chopPeriod);
+            if (Number.isFinite(n) && n > 0) parsedParams.CHOP_LEN = n;
+        }
+        if (chopMax !== undefined && chopMax !== null && chopMax !== "") {
+            const n = Number(chopMax);
+            if (Number.isFinite(n) && n > 0) parsedParams.CHOP_GATE_MAX_DEFAULT = n;
+        }
+
+        // Everything else mutates context directly, exactly like
+        // backtestFlow.js's CLI Step 6 does — runBacktest reads these
+        // straight off the context object it's passed.
+        if (longCandleFilterEnabled !== undefined) context.longCandleFilterEnabled = !!longCandleFilterEnabled;
+        if (longCandleAtrPeriod !== undefined && longCandleAtrPeriod !== null && longCandleAtrPeriod !== "") {
+            const n = Number(longCandleAtrPeriod);
+            if (Number.isFinite(n) && n > 0) context.longCandleAtrPeriod = n;
+        }
+        if (longCandleAtrMult !== undefined && longCandleAtrMult !== null && longCandleAtrMult !== "") {
+            const n = Number(longCandleAtrMult);
+            if (Number.isFinite(n) && n > 0) context.longCandleAtrMult = n;
+        }
+        if (longCandleCooldownCandles !== undefined && longCandleCooldownCandles !== null && longCandleCooldownCandles !== "") {
+            const n = Number(longCandleCooldownCandles);
+            if (Number.isInteger(n) && n >= 0) context.longCandleCooldownCandles = n;
+        }
+        if (disableDoubleOrders !== undefined) context.disableDoubleOrders = !!disableDoubleOrders;
+        // ATR stop-loss multiplier — same "unread by strategies with no ATR
+        // trail" note as the CLI; harmless to still send for ALMA_BAND
+        // (Sep 2026: that strategy's stop is the opposite band line, not
+        // ATR-based, and simply never reads context.atrSlMult anymore) but
+        // the frontend hides this field for ALMA_BAND so it's never sent.
+        if (atrSlMult !== undefined && atrSlMult !== null && atrSlMult !== "") {
+            const n = Number(atrSlMult);
+            if (Number.isFinite(n) && n > 0) context.atrSlMult = n;
+        }
+        if (volumeFilterEnabled !== undefined) context.volumeFilterEnabled = !!volumeFilterEnabled;
+        if (volumeSmaPeriod !== undefined && volumeSmaPeriod !== null && volumeSmaPeriod !== "") {
+            const n = Number(volumeSmaPeriod);
+            if (Number.isFinite(n) && n > 0) context.volumeSmaPeriod = n;
+        }
+        if (carryOvernight !== undefined) context.carryOvernight = !!carryOvernight;
+        if (maxDailyLoss !== undefined && maxDailyLoss !== null && maxDailyLoss !== "") {
+            const n = Number(maxDailyLoss);
+            if (Number.isFinite(n) && n > 0) context.maxDailyLoss = n;
+        }
+        if (sessionTargetRupees !== undefined && sessionTargetRupees !== null && sessionTargetRupees !== "") {
+            const n = Number(sessionTargetRupees);
+            if (Number.isFinite(n) && n > 0) context.sessionTargetRupees = n;
         }
 
         const kc = ensureToolboxKite();
