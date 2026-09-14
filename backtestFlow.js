@@ -432,6 +432,17 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         else console.log(c.yellow(`  invalid value for session target, no ceiling applied`));
     }
 
+    // dailyHaGate.js's universal directional gate (orders.js, wired into
+    // backtestRun.js's replay too — see backtestRun.js's own dailyHa
+    // construction) — on by default, opt-out. Blocks any entry whose side
+    // disagrees with the previous COMPLETED daily HA candle. Unlike
+    // htfGate.js (still live-only — its stub in backtestRun.js always
+    // returns false, so a toggle for it here would be a no-op), this one
+    // genuinely does something in a backtest.
+    const dailyHaDefault = context.dailyHaGateEnabled !== false;
+    const dailyHaInput = (await ask(`  Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)? [Y/n] (default ${dailyHaDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+    if (dailyHaInput) context.dailyHaGateEnabled = dailyHaInput !== "N";
+
     // ── Step 7: Confirmation ───────────────────────────────────────────────
     console.log();
     console.log(c.bold("  Step 7/7 — Confirm"));
@@ -440,7 +451,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     console.log(`  Timeframe:  ${timeframe}`);
     console.log(`  Range:      ${from.toISOString().split("T")[0]} -> ${to.toISOString().split("T")[0]}`);
     console.log(`  Params:     ${Object.keys(params).length ? JSON.stringify(params) : "(all defaults)"}`);
-    console.log(`  Risk:       chop:${params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on"} lc:${context.longCandleFilterEnabled === false ? "off" : "on"} double:${context.disableDoubleOrders ? "off" : "on"} vol:${context.volumeFilterEnabled ? "on" : "off"} atr:${strategyKey === "ALMA_BAND" ? "n/a (band SL)" : context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"} maxloss:${context.maxDailyLoss ?? "none"} sessionTarget:${context.sessionTargetRupees ?? "none"}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);
+    console.log(`  Risk:       chop:${params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on"} lc:${context.longCandleFilterEnabled === false ? "off" : "on"} double:${context.disableDoubleOrders ? "off" : "on"} vol:${context.volumeFilterEnabled ? "on" : "off"} atr:${strategyKey === "ALMA_BAND" ? "n/a (band SL)" : context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"} maxloss:${context.maxDailyLoss ?? "none"} sessionTarget:${context.sessionTargetRupees ?? "none"} dailyha:${context.dailyHaGateEnabled === false ? "off" : "on"}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);
     const confirm = (await ask("  Proceed? (Y/N): ")).trim().toUpperCase();
     if (confirm !== "Y") { console.log(c.dim("  cancelled")); await pauseForReview(); return; }
 
