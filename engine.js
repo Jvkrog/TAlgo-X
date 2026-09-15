@@ -508,7 +508,26 @@ async function main() {
         // (won't spam Telegram every 10s during a prolonged outage, just
         // once per throttleMs while the condition persists). 10s poll is
         // cheap and independent of candle/tick cadence.
-        setInterval(() => marketDataHealth.checkStale(), 10 * 1000);
+        //
+        // FIX Sep 2026: only actually check while the exchange session for
+        // THIS instrument is open (engineConfig.TRADE_START_HOUR/MINUTE
+        // through context.eodHour/eodMinute — the same "entryOpen" bounds
+        // used above, not the broker's raw session end, since ticks are
+        // expected to stop the moment this instrument force-closes for the
+        // day anyway). The WS subscribes and ticker connects well before
+        // this (see the 8:45 wait above), so pre-market/post-session there
+        // legitimately are no ticks — that's not a fault, and warning
+        // about it was just noise ("why is it checking for ticks when the
+        // market isn't open").
+        setInterval(() => {
+            const { hours, minutes } = istParts(new Date());
+            const pastOpen  = hours > engineConfig.TRADE_START_HOUR ||
+                (hours === engineConfig.TRADE_START_HOUR && minutes >= engineConfig.TRADE_START_MINUTE);
+            const pastClose = hours > context.eodHour ||
+                (hours === context.eodHour && minutes >= context.eodMinute);
+            if (!pastOpen || pastClose) return;
+            marketDataHealth.checkStale();
+        }, 10 * 1000);
     });
 
     ticker.on("ticks", async (ticks) => {
