@@ -884,6 +884,22 @@ async function riskManagement(procs) {
         console.log();
         console.log(c.dim(`  risk settings for ${p.underlying} (${(STRATEGY_INFO[p.strategy] || { label: p.strategy }).label}) — blank keeps current value`));
 
+        // DAILY_HA_BIAS deliberately wires in NONE of the gates below (see
+        // its header comment in strategies.js) — fixed SL = the previous
+        // day's HA high/low, no target, one decision at 9:15, done. Every
+        // prompt from here through the HTF gate was being asked anyway and
+        // silently doing nothing when answered for this strategy — added
+        // Sep 2026 to stop implying settings apply that don't. Only the
+        // daily-HA gate (orders.js, genuinely universal, harmlessly
+        // redundant here since this strategy's own side computation IS
+        // that same daily HA read) and max daily loss (candlePoll.js,
+        // engine-level, independent of any strategy's own SL) still do
+        // anything for this strategy, so those two stay below unchanged.
+        const isDailyHaBias = p.strategy === "DAILY_HA_BIAS";
+        if (isDailyHaBias) {
+            console.log(c.dim(`  DAILY_HA_BIAS ignores chop/double-order/ATR/volume/long-candle/HTF gates entirely (fixed SL from the previous day's HA candle, no target, one decision at 9:15) — skipping those prompts; only the daily-HA gate and max daily loss below actually apply`));
+        }
+
         // Choppiness Index entry filter toggle — ALMA_PRO_FAST/ALMA_PRO_SLOW only.
         let almaChopFilterEnabled = p.almaChopFilterEnabled;
         if (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") {
@@ -896,7 +912,7 @@ async function riskManagement(procs) {
         let chopFilterEnabled = p.chopFilterEnabled;
         let chopPeriod = p.chopPeriod;
         let chopMax = p.chopMax;
-        if (p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW") {
+        if (p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW" && !isDailyHaBias) {
             const chopFilterDefault = p.chopFilterEnabled !== false;
             const chopFilterInput = (await ask(`  use Choppiness Index entry filter? [Y/n] (current: ${chopFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (chopFilterInput) chopFilterEnabled = chopFilterInput !== "N";
@@ -928,29 +944,34 @@ async function riskManagement(procs) {
         }
 
         // Double-order gate — universal, opt-in, default OFF (allowed).
-        const doubleOrderDefault = p.disableDoubleOrders === true;
-        const doubleOrderInput = (await ask(`  disable double orders (blocks reversal re-entries only)? [y/N] (current: ${doubleOrderDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
         let disableDoubleOrders = p.disableDoubleOrders;
-        if (doubleOrderInput) disableDoubleOrders = doubleOrderInput === "Y";
-        if (!disableDoubleOrders) {
-            console.log(c.dim(`  double orders stay allowed — reversal re-entries stay gated only by the Choppiness Index check every entry already gets`));
+        if (!isDailyHaBias) {
+            const doubleOrderDefault = p.disableDoubleOrders === true;
+            const doubleOrderInput = (await ask(`  disable double orders (blocks reversal re-entries only)? [y/N] (current: ${doubleOrderDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            if (doubleOrderInput) disableDoubleOrders = doubleOrderInput === "Y";
+            if (!disableDoubleOrders) {
+                console.log(c.dim(`  double orders stay allowed — reversal re-entries stay gated only by the Choppiness Index check every entry already gets`));
+            }
         }
 
         // ATR stop-loss multiplier — universal, but only read by
         // strategies that call computeTrail() (not PURE_HA/DYNAMIC_BAND/
-        // DYNAMIC_MID_COLOR(_HL)).
-        const atrSlMultDefault = p.atrSlMult !== null ? String(p.atrSlMult) : `default (${engineConfig.ATR_SL_MULT})`;
-        const atrSlMultInput = (await ask(`  ATR stop-loss multiplier (current: ${atrSlMultDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+        // DYNAMIC_MID_COLOR(_HL)/DAILY_HA_BIAS — the last one's SL is a
+        // fixed price level, not ATR-derived, see its header comment).
         let atrSlMult = p.atrSlMult;
-        if (atrSlMultInput) {
-            if (atrSlMultInput === "0" || atrSlMultInput.toLowerCase() === "clear") {
-                atrSlMult = null;
-            } else {
-                const parsedAtrMult = Number(atrSlMultInput);
-                if (!Number.isFinite(parsedAtrMult) || parsedAtrMult <= 0) {
-                    console.log(c.yellow(`  "${atrSlMultInput}" isn't a valid positive number — ATR multiplier left unchanged (${atrSlMultDefault})`));
+        if (!isDailyHaBias) {
+            const atrSlMultDefault = p.atrSlMult !== null ? String(p.atrSlMult) : `default (${engineConfig.ATR_SL_MULT})`;
+            const atrSlMultInput = (await ask(`  ATR stop-loss multiplier (current: ${atrSlMultDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+            if (atrSlMultInput) {
+                if (atrSlMultInput === "0" || atrSlMultInput.toLowerCase() === "clear") {
+                    atrSlMult = null;
                 } else {
-                    atrSlMult = parsedAtrMult;
+                    const parsedAtrMult = Number(atrSlMultInput);
+                    if (!Number.isFinite(parsedAtrMult) || parsedAtrMult <= 0) {
+                        console.log(c.yellow(`  "${atrSlMultInput}" isn't a valid positive number — ATR multiplier left unchanged (${atrSlMultDefault})`));
+                    } else {
+                        atrSlMult = parsedAtrMult;
+                    }
                 }
             }
         }
@@ -975,23 +996,25 @@ async function riskManagement(procs) {
         }
 
         // Volume SMA entry gate — universal, opt-in, default OFF.
-        const volumeFilterDefault = p.volumeFilterEnabled === true;
-        const volumeFilterInput = (await ask(`  only enter when volume is above its SMA? [y/N] (current: ${volumeFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
         let volumeFilterEnabled = p.volumeFilterEnabled;
-        if (volumeFilterInput) volumeFilterEnabled = volumeFilterInput === "Y";
         let volumeSmaPeriod = p.volumeSmaPeriod;
-        if (volumeFilterEnabled) {
-            const volPeriodDefault = p.volumeSmaPeriod !== null ? String(p.volumeSmaPeriod) : `${engineConfig.VOLUME_SMA_LEN_DEFAULT} (default)`;
-            const volPeriodInput = (await ask(`  volume SMA period (current: ${volPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
-            if (volPeriodInput) {
-                if (volPeriodInput === "0" || volPeriodInput.toLowerCase() === "clear") {
-                    volumeSmaPeriod = null;
-                } else {
-                    const parsedVolPeriod = Number(volPeriodInput);
-                    if (!Number.isFinite(parsedVolPeriod) || parsedVolPeriod <= 0) {
-                        console.log(c.yellow(`  "${volPeriodInput}" isn't a valid positive number — period left unchanged (${volPeriodDefault})`));
+        if (!isDailyHaBias) {
+            const volumeFilterDefault = p.volumeFilterEnabled === true;
+            const volumeFilterInput = (await ask(`  only enter when volume is above its SMA? [y/N] (current: ${volumeFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            if (volumeFilterInput) volumeFilterEnabled = volumeFilterInput === "Y";
+            if (volumeFilterEnabled) {
+                const volPeriodDefault = p.volumeSmaPeriod !== null ? String(p.volumeSmaPeriod) : `${engineConfig.VOLUME_SMA_LEN_DEFAULT} (default)`;
+                const volPeriodInput = (await ask(`  volume SMA period (current: ${volPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                if (volPeriodInput) {
+                    if (volPeriodInput === "0" || volPeriodInput.toLowerCase() === "clear") {
+                        volumeSmaPeriod = null;
                     } else {
-                        volumeSmaPeriod = parsedVolPeriod;
+                        const parsedVolPeriod = Number(volPeriodInput);
+                        if (!Number.isFinite(parsedVolPeriod) || parsedVolPeriod <= 0) {
+                            console.log(c.yellow(`  "${volPeriodInput}" isn't a valid positive number — period left unchanged (${volPeriodDefault})`));
+                        } else {
+                            volumeSmaPeriod = parsedVolPeriod;
+                        }
                     }
                 }
             }
@@ -1007,111 +1030,115 @@ async function riskManagement(procs) {
         // closing it "solely to reverse" while blocked — see
         // longCandleGate.js's header comment. Never touches SL/target/
         // emergency exit on an already-open position, any strategy.
-        const lcFilterDefault = p.longCandleFilterEnabled !== false;
-        const lcFilterInput = (await ask(`  block new entries after an abnormally large candle? [Y/n] (current: ${lcFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
         let longCandleFilterEnabled = p.longCandleFilterEnabled;
-        if (lcFilterInput) longCandleFilterEnabled = lcFilterInput !== "N";
         let longCandleAtrPeriod = p.longCandleAtrPeriod;
         let longCandleAtrMult = p.longCandleAtrMult;
         let longCandleCooldownCandles = p.longCandleCooldownCandles;
         let longCandleUseBodyFilter = p.longCandleUseBodyFilter;
         let longCandleBodyAtrMult = p.longCandleBodyAtrMult;
-        if (longCandleFilterEnabled) {
-            const lcPeriodDefault = longCandleAtrPeriod !== null ? String(longCandleAtrPeriod) : `${engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT} (default)`;
-            const lcPeriodInput = (await ask(`  long-candle ATR period (current: ${lcPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
-            if (lcPeriodInput) {
-                if (lcPeriodInput === "0" || lcPeriodInput.toLowerCase() === "clear") longCandleAtrPeriod = null;
-                else {
-                    const parsed = Number(lcPeriodInput);
-                    if (Number.isFinite(parsed) && parsed > 0) longCandleAtrPeriod = parsed;
-                    else console.log(c.yellow(`  "${lcPeriodInput}" isn't a valid positive number — period left unchanged (${lcPeriodDefault})`));
-                }
-            }
-            const lcMultDefault = longCandleAtrMult !== null ? String(longCandleAtrMult) : `${engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT} (default)`;
-            const lcMultInput = (await ask(`  long-candle ATR multiplier (current: ${lcMultDefault}, "0"/"clear" for default, blank = keep): `)).trim();
-            if (lcMultInput) {
-                if (lcMultInput === "0" || lcMultInput.toLowerCase() === "clear") longCandleAtrMult = null;
-                else {
-                    const parsed = Number(lcMultInput);
-                    if (Number.isFinite(parsed) && parsed > 0) longCandleAtrMult = parsed;
-                    else console.log(c.yellow(`  "${lcMultInput}" isn't a valid positive number — multiplier left unchanged (${lcMultDefault})`));
-                }
-            }
-            const lcCooldownDefault = longCandleCooldownCandles !== null ? String(longCandleCooldownCandles) : `${engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT} (default)`;
-            const lcCooldownInput = (await ask(`  long-candle cooldown, candles blocked after (current: ${lcCooldownDefault}, "clear" for default, blank = keep): `)).trim();
-            if (lcCooldownInput) {
-                if (lcCooldownInput.toLowerCase() === "clear") longCandleCooldownCandles = null;
-                else {
-                    const parsed = Number(lcCooldownInput);
-                    if (Number.isInteger(parsed) && parsed >= 0) longCandleCooldownCandles = parsed;
-                    else console.log(c.yellow(`  "${lcCooldownInput}" isn't a valid whole number >= 0 — cooldown left unchanged (${lcCooldownDefault})`));
-                }
-            }
-            const lcBodyDefault = longCandleUseBodyFilter === true;
-            const lcBodyInput = (await ask(`  also require body confirmation (|close-open| >= ATR x mult)? [y/N] (current: ${lcBodyDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
-            if (lcBodyInput) longCandleUseBodyFilter = lcBodyInput === "Y";
-            if (longCandleUseBodyFilter) {
-                const lcBodyMultDefault = longCandleBodyAtrMult !== null ? String(longCandleBodyAtrMult) : `${engineConfig.LONG_CANDLE_BODY_ATR_MULT_DEFAULT} (default)`;
-                const lcBodyMultInput = (await ask(`  body confirmation ATR multiplier (current: ${lcBodyMultDefault}, "0"/"clear" for default, blank = keep): `)).trim();
-                if (lcBodyMultInput) {
-                    if (lcBodyMultInput === "0" || lcBodyMultInput.toLowerCase() === "clear") longCandleBodyAtrMult = null;
+        if (!isDailyHaBias) {
+            const lcFilterDefault = p.longCandleFilterEnabled !== false;
+            const lcFilterInput = (await ask(`  block new entries after an abnormally large candle? [Y/n] (current: ${lcFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            if (lcFilterInput) longCandleFilterEnabled = lcFilterInput !== "N";
+            if (longCandleFilterEnabled) {
+                const lcPeriodDefault = longCandleAtrPeriod !== null ? String(longCandleAtrPeriod) : `${engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT} (default)`;
+                const lcPeriodInput = (await ask(`  long-candle ATR period (current: ${lcPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                if (lcPeriodInput) {
+                    if (lcPeriodInput === "0" || lcPeriodInput.toLowerCase() === "clear") longCandleAtrPeriod = null;
                     else {
-                        const parsed = Number(lcBodyMultInput);
-                        if (Number.isFinite(parsed) && parsed > 0) longCandleBodyAtrMult = parsed;
-                        else console.log(c.yellow(`  "${lcBodyMultInput}" isn't a valid positive number — body multiplier left unchanged (${lcBodyMultDefault})`));
+                        const parsed = Number(lcPeriodInput);
+                        if (Number.isFinite(parsed) && parsed > 0) longCandleAtrPeriod = parsed;
+                        else console.log(c.yellow(`  "${lcPeriodInput}" isn't a valid positive number — period left unchanged (${lcPeriodDefault})`));
                     }
                 }
+                const lcMultDefault = longCandleAtrMult !== null ? String(longCandleAtrMult) : `${engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT} (default)`;
+                const lcMultInput = (await ask(`  long-candle ATR multiplier (current: ${lcMultDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                if (lcMultInput) {
+                    if (lcMultInput === "0" || lcMultInput.toLowerCase() === "clear") longCandleAtrMult = null;
+                    else {
+                        const parsed = Number(lcMultInput);
+                        if (Number.isFinite(parsed) && parsed > 0) longCandleAtrMult = parsed;
+                        else console.log(c.yellow(`  "${lcMultInput}" isn't a valid positive number — multiplier left unchanged (${lcMultDefault})`));
+                    }
+                }
+                const lcCooldownDefault = longCandleCooldownCandles !== null ? String(longCandleCooldownCandles) : `${engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT} (default)`;
+                const lcCooldownInput = (await ask(`  long-candle cooldown, candles blocked after (current: ${lcCooldownDefault}, "clear" for default, blank = keep): `)).trim();
+                if (lcCooldownInput) {
+                    if (lcCooldownInput.toLowerCase() === "clear") longCandleCooldownCandles = null;
+                    else {
+                        const parsed = Number(lcCooldownInput);
+                        if (Number.isInteger(parsed) && parsed >= 0) longCandleCooldownCandles = parsed;
+                        else console.log(c.yellow(`  "${lcCooldownInput}" isn't a valid whole number >= 0 — cooldown left unchanged (${lcCooldownDefault})`));
+                    }
+                }
+                const lcBodyDefault = longCandleUseBodyFilter === true;
+                const lcBodyInput = (await ask(`  also require body confirmation (|close-open| >= ATR x mult)? [y/N] (current: ${lcBodyDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+                if (lcBodyInput) longCandleUseBodyFilter = lcBodyInput === "Y";
+                if (longCandleUseBodyFilter) {
+                    const lcBodyMultDefault = longCandleBodyAtrMult !== null ? String(longCandleBodyAtrMult) : `${engineConfig.LONG_CANDLE_BODY_ATR_MULT_DEFAULT} (default)`;
+                    const lcBodyMultInput = (await ask(`  body confirmation ATR multiplier (current: ${lcBodyMultDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                    if (lcBodyMultInput) {
+                        if (lcBodyMultInput === "0" || lcBodyMultInput.toLowerCase() === "clear") longCandleBodyAtrMult = null;
+                        else {
+                            const parsed = Number(lcBodyMultInput);
+                            if (Number.isFinite(parsed) && parsed > 0) longCandleBodyAtrMult = parsed;
+                            else console.log(c.yellow(`  "${lcBodyMultInput}" isn't a valid positive number — body multiplier left unchanged (${lcBodyMultDefault})`));
+                        }
+                    }
+                }
+            } else {
+                console.log(c.dim(`  long-candle filter off — entries will NOT be blocked after abnormally large candles`));
             }
-        } else {
-            console.log(c.dim(`  long-candle filter off — entries will NOT be blocked after abnormally large candles`));
         }
 
         // htfGate.js's universal higher-timeframe confirmation gate — ON
         // by default (opt-out, same posture as the long-candle filter
         // above — see htfGate.js's header for the exact condition).
-        const htfGateDefault = p.htfGateEnabled !== false;
-        const htfGateInput = (await ask(`  block entries when a higher timeframe is trending but hasn't broken its own ALMA band? [Y/n] (current: ${htfGateDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
         let htfGateEnabled = p.htfGateEnabled;
-        if (htfGateInput) htfGateEnabled = htfGateInput !== "N";
         let htfTimeframe = p.htfTimeframe;
         let htfChopPeriod = p.htfChopPeriod;
         let htfChopMax = p.htfChopMax;
-        if (htfGateEnabled) {
-            const htfTfDefault = htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT;
-            const htfTfInput = (await ask(`  higher timeframe, 1h or 1d (current: ${htfTfDefault}, blank = keep): `)).trim().toLowerCase();
-            if (htfTfInput) {
-                if (htfTfInput === "1h" || htfTfInput === "1d") htfTimeframe = htfTfInput;
-                else console.log(c.yellow(`  "${htfTfInput}" isn't "1h" or "1d" — left unchanged (${htfTfDefault})`));
-            }
-            const htfPeriodDefault = htfChopPeriod !== null ? String(htfChopPeriod) : `${engineConfig.HTF_CHOP_LEN_DEFAULT} (default)`;
-            const htfPeriodInput = (await ask(`  higher-timeframe Choppiness Index period (current: ${htfPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
-            if (htfPeriodInput) {
-                if (htfPeriodInput === "0" || htfPeriodInput.toLowerCase() === "clear") htfChopPeriod = null;
-                else {
-                    const parsed = Number(htfPeriodInput);
-                    if (Number.isFinite(parsed) && parsed > 0) htfChopPeriod = parsed;
-                    else console.log(c.yellow(`  "${htfPeriodInput}" isn't a valid positive number — period left unchanged (${htfPeriodDefault})`));
+        if (!isDailyHaBias) {
+            const htfGateDefault = p.htfGateEnabled !== false;
+            const htfGateInput = (await ask(`  block entries when a higher timeframe is trending but hasn't broken its own ALMA band? [Y/n] (current: ${htfGateDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            if (htfGateInput) htfGateEnabled = htfGateInput !== "N";
+            if (htfGateEnabled) {
+                const htfTfDefault = htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT;
+                const htfTfInput = (await ask(`  higher timeframe, 1h or 1d (current: ${htfTfDefault}, blank = keep): `)).trim().toLowerCase();
+                if (htfTfInput) {
+                    if (htfTfInput === "1h" || htfTfInput === "1d") htfTimeframe = htfTfInput;
+                    else console.log(c.yellow(`  "${htfTfInput}" isn't "1h" or "1d" — left unchanged (${htfTfDefault})`));
                 }
-            }
-            const htfMaxDefault = htfChopMax !== null ? String(htfChopMax) : `${engineConfig.HTF_CHOP_MAX_DEFAULT} (default)`;
-            const htfMaxInput = (await ask(`  higher-timeframe Choppiness Index max threshold, blocks below this (current: ${htfMaxDefault}, "0"/"clear" for default, blank = keep): `)).trim();
-            if (htfMaxInput) {
-                if (htfMaxInput === "0" || htfMaxInput.toLowerCase() === "clear") htfChopMax = null;
-                else {
-                    const parsed = Number(htfMaxInput);
-                    if (Number.isFinite(parsed) && parsed > 0) htfChopMax = parsed;
-                    else console.log(c.yellow(`  "${htfMaxInput}" isn't a valid positive number — max threshold left unchanged (${htfMaxDefault})`));
+                const htfPeriodDefault = htfChopPeriod !== null ? String(htfChopPeriod) : `${engineConfig.HTF_CHOP_LEN_DEFAULT} (default)`;
+                const htfPeriodInput = (await ask(`  higher-timeframe Choppiness Index period (current: ${htfPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                if (htfPeriodInput) {
+                    if (htfPeriodInput === "0" || htfPeriodInput.toLowerCase() === "clear") htfChopPeriod = null;
+                    else {
+                        const parsed = Number(htfPeriodInput);
+                        if (Number.isFinite(parsed) && parsed > 0) htfChopPeriod = parsed;
+                        else console.log(c.yellow(`  "${htfPeriodInput}" isn't a valid positive number — period left unchanged (${htfPeriodDefault})`));
+                    }
                 }
+                const htfMaxDefault = htfChopMax !== null ? String(htfChopMax) : `${engineConfig.HTF_CHOP_MAX_DEFAULT} (default)`;
+                const htfMaxInput = (await ask(`  higher-timeframe Choppiness Index max threshold, blocks below this (current: ${htfMaxDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                if (htfMaxInput) {
+                    if (htfMaxInput === "0" || htfMaxInput.toLowerCase() === "clear") htfChopMax = null;
+                    else {
+                        const parsed = Number(htfMaxInput);
+                        if (Number.isFinite(parsed) && parsed > 0) htfChopMax = parsed;
+                        else console.log(c.yellow(`  "${htfMaxInput}" isn't a valid positive number — max threshold left unchanged (${htfMaxDefault})`));
+                    }
+                }
+            } else {
+                console.log(c.dim(`  HTF gate off — entries will NOT be blocked by the higher-timeframe check`));
             }
-        } else {
-            console.log(c.dim(`  HTF gate off — entries will NOT be blocked by the higher-timeframe check`));
         }
 
         // htfGate.js's ALMA-band clause — independently configurable since
         // Sep 2026 (previously fused unconditionally into the gate above).
         // Only meaningful while the HTF gate itself is on.
         let htfBandBlockEnabled = p.htfBandBlockEnabled;
-        if (htfGateEnabled) {
+        if (htfGateEnabled && !isDailyHaBias) {
             const htfBandDefault = p.htfBandBlockEnabled !== false;
             const htfBandInput = (await ask(`  HTF gate: also require price still inside its own ALMA band (not just low chop)? [Y/n] (current: ${htfBandDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (htfBandInput) htfBandBlockEnabled = htfBandInput !== "N";
@@ -1155,15 +1182,19 @@ async function riskManagement(procs) {
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
                 env: buildProcessEnv(updatedP),
             });
-            const chopTag = p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW"
+            // These 6 tags don't apply to DAILY_HA_BIAS at all (see the
+            // skip note printed above) — showing them would misrepresent
+            // settings that were never asked about as if they'd been
+            // confirmed "on"/"off" for this restart.
+            const chopTag = isDailyHaBias ? "" : p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW"
                 ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? engineConfig.CHOP_LEN}/${chopMax ?? engineConfig.CHOP_GATE_MAX_DEFAULT}`) : c.yellow(" chop:off"))
                 : (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
-            const doubleTag = disableDoubleOrders ? c.yellow(" double:off") : c.dim(" double:on");
-            const atrTag = atrSlMult !== null ? c.dim(` atr:${atrSlMult}x`) : "";
+            const doubleTag = isDailyHaBias ? "" : disableDoubleOrders ? c.yellow(" double:off") : c.dim(" double:on");
+            const atrTag = isDailyHaBias ? "" : atrSlMult !== null ? c.dim(` atr:${atrSlMult}x`) : "";
             const flipTag = p.strategy === "PURE_HA" ? c.dim(` flip:${flipConfirmCandles ?? 1}`) : "";
-            const volTag = volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
-            const lcTag = longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
-            const htfTag = htfGateEnabled ? c.dim(` htf:${htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${htfBandBlockEnabled === false ? "(no-band)" : ""}`) : c.yellow(" htf:off");
+            const volTag = isDailyHaBias ? "" : volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
+            const lcTag = isDailyHaBias ? "" : longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
+            const htfTag = isDailyHaBias ? "" : htfGateEnabled ? c.dim(` htf:${htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${htfBandBlockEnabled === false ? "(no-band)" : ""}`) : c.yellow(" htf:off");
             const dailyHaTag = dailyHaGateEnabled === false ? c.yellow(" dailyha:off") : c.dim(" dailyha:on");
             const lossTag = maxDailyLoss !== null ? c.dim(` maxloss:-₹${maxDailyLoss}`) : "";
             console.log(c.green(`  ${p.underlying} risk settings updated${chopTag}${doubleTag}${atrTag}${flipTag}${volTag}${lcTag}${htfTag}${dailyHaTag}${lossTag} (restarted)`));
