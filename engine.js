@@ -323,7 +323,19 @@ async function main() {
         const parsedAtrMult = Number(process.env.ATR_SL_MULT_OVERRIDE);
         context.atrSlMult = Number.isFinite(parsedAtrMult) && parsedAtrMult > 0 ? parsedAtrMult : null;
     }
-    console.log(c.dim(`[${context.tgPrefix}] ATR SL multiplier: ${context.atrSlMult ?? `${engineConfig.ATR_SL_MULT} (default)`}${context.strategy === "PURE_HA" ? `  |  flip confirm: ${context.flipConfirmCandles ?? 1} candle(s)` : ""}`));
+    // ATR SL / volume / long-candle / HTF banner lines below don't apply
+    // to DAILY_HA_BIAS at all — its SL is the previous daily HA candle's
+    // high/low (fixed price level, see strategies.js's createDailyHaBiasStrategy),
+    // and it wires in none of the other three gates either (see its own
+    // header). Printing them anyway implied settings that do nothing for
+    // this strategy — same bug class as toolbox.js's riskManagement()
+    // menu, fixed there Sep 2026; this is the boot-banner counterpart.
+    const bannerSkip = context.strategy === "DAILY_HA_BIAS";
+    if (bannerSkip) {
+        console.log(c.dim(`[${context.tgPrefix}] SL: previous daily HA candle's high (SHORT) / low (LONG) — not ATR-based; ATR/volume/long-candle/HTF settings below don't apply to this strategy`));
+    }
+
+    if (!bannerSkip) console.log(c.dim(`[${context.tgPrefix}] ATR SL multiplier: ${context.atrSlMult ?? `${engineConfig.ATR_SL_MULT} (default)`}${context.strategy === "PURE_HA" ? `  |  flip confirm: ${context.flipConfirmCandles ?? 1} candle(s)` : ""}`));
 
     // volumeGate.js's universal "volume above its own SMA" entry gate —
     // off by default. See context.volumeFilterEnabled/volumeSmaPeriod.
@@ -334,7 +346,7 @@ async function main() {
         const parsedVolPeriod = Number(process.env.VOLUME_SMA_PERIOD_OVERRIDE);
         context.volumeSmaPeriod = Number.isFinite(parsedVolPeriod) && parsedVolPeriod > 0 ? parsedVolPeriod : null;
     }
-    console.log(c.dim(`[${context.tgPrefix}] volume filter: ${context.volumeFilterEnabled ? c.yellow(`on — entries only above SMA(${context.volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT})`) : "off (default)"}`));
+    if (!bannerSkip) console.log(c.dim(`[${context.tgPrefix}] volume filter: ${context.volumeFilterEnabled ? c.yellow(`on — entries only above SMA(${context.volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT})`) : "off (default)"}`));
 
     // longCandleGate.js's "Long-Candle / Volatility-Shock Entry Filter" —
     // built for the Sep 2 2026 NATGASMINI/DYNAMIC_BAND incident. On by
@@ -361,7 +373,7 @@ async function main() {
         const parsedBodyMult = Number(process.env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE);
         context.longCandleBodyAtrMult = Number.isFinite(parsedBodyMult) && parsedBodyMult > 0 ? parsedBodyMult : null;
     }
-    console.log(c.dim(`[${context.tgPrefix}] long-candle filter: ${context.longCandleFilterEnabled ? c.yellow(`on — ATR(${context.longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}) x${context.longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}, cooldown ${context.longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT} candle(s)${context.longCandleUseBodyFilter ? `, body x${context.longCandleBodyAtrMult ?? engineConfig.LONG_CANDLE_BODY_ATR_MULT_DEFAULT}` : ""}`) : "off"}`));
+    if (!bannerSkip) console.log(c.dim(`[${context.tgPrefix}] long-candle filter: ${context.longCandleFilterEnabled ? c.yellow(`on — ATR(${context.longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}) x${context.longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}, cooldown ${context.longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT} candle(s)${context.longCandleUseBodyFilter ? `, body x${context.longCandleBodyAtrMult ?? engineConfig.LONG_CANDLE_BODY_ATR_MULT_DEFAULT}` : ""}`) : "off"}`));
 
     // htfGate.js's universal higher-timeframe confirmation gate — on by
     // default (see context.js's htfGateEnabled comment).
@@ -385,7 +397,7 @@ async function main() {
     if (process.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE !== undefined && process.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE !== "") {
         context.htfBandBlockEnabled = process.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE === "true";
     }
-    console.log(c.dim(`[${context.tgPrefix}] HTF gate: ${context.htfGateEnabled ? c.yellow(`on — ${context.htfTimeframe} chop(${context.htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}) < ${context.htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${context.htfBandBlockEnabled === false ? "" : " + inside its own ALMA band"} blocks entries`) : "off"}`));
+    if (!bannerSkip) console.log(c.dim(`[${context.tgPrefix}] HTF gate: ${context.htfGateEnabled ? c.yellow(`on — ${context.htfTimeframe} chop(${context.htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}) < ${context.htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${context.htfBandBlockEnabled === false ? "" : " + inside its own ALMA band"} blocks entries`) : "off"}`));
 
     // dailyHaGate.js's universal daily-HA directional gate (orders.js) —
     // on by default, same opt-out posture as htfGateEnabled. See
