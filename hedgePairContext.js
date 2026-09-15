@@ -54,13 +54,21 @@ function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore
     // about margin treatment (matching the "1 full lot NRML" spec), not
     // about whether the bot bothers to exit.
     context.carryOvernight = true;
-    // Fixed at 23:15 IST specifically for this strategy — explicitly
-    // requested (15 min later than defaultEodFor("1h","MCX")'s general
-    // 23:00 default used by every other strategy). Hardcoded here rather
-    // than routed through defaultEodFor() so this doesn't change the EOD
-    // time for anything else.
+    // CHANGED Sep 2026 (was 23:15, see below) — 23:15 left a dead 15-minute
+    // gap after the last real 1h candle close: this engine's whole clock is
+    // driven by 1h HA/Dynamic Band bars, which close on the hour, so there
+    // was never a fresh signal available between 23:00 and the old 23:15
+    // EOD threshold anyway — checkEod() was just sitting there polling
+    // against a stale hour for 15 minutes, which is what looked like "the
+    // process didn't quit at EOD." Now strictly 23:00 IST, matching
+    // context.js's own defaultEodFor("1h", "MCX") reasoning (no candle
+    // resolution left after the hour closes on a 1h timeframe) — this
+    // engine was the one place NOT following that rule, since it never
+    // gets a real timeframe from context.js in the first place (see
+    // tgLabel's comment above: context.strategy/timeframe here are
+    // borrowed defaults, not this engine's actual cadence).
     context.eodHour   = 23;
-    context.eodMinute = 15;
+    context.eodMinute = 0;
 
     // Same refuse-to-boot guard as engine.js/hedgePairEngine.js — no
     // fallback to the broker's own lot_size field (a contract COUNT, not
