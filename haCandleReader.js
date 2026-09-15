@@ -70,10 +70,40 @@ function createHaCandleReader({ token, timeframe, engineConfig, label }) {
             ? await fetchDailyCandles({ kc: kcInst, token, from, to })
             : await fetchHistoricalCandles({ kc: kcInst, token, timeframe, from, to });
         if (!raw || raw.length === 0) throw new Error("API returned 0 bars");
-        // Drop the still-forming current bar — same no-lookahead convention
-        // every other candle consumer in this codebase follows (htfGate.js,
-        // preload.js, longCandleGate.js).
-        const completed = raw.slice(0, -1);
+
+        let completed;
+        if (timeframe === "1d") {
+            // BUG FIX Sep 2026: this used to be an unconditional
+            // slice(0,-1), same as the intraday branch below — assuming
+            // the LAST bar in the response is always today's still-
+            // forming one. That's a safe assumption for 1h (Kite always
+            // has a partial current-hour bar going during market hours),
+            // but not for "day": Kite only starts returning a partial bar
+            // for today once today's session has actually begun
+            // accumulating ticks. Called early enough — or on a day
+            // MCX's own session-day boundary for this contract doesn't
+            // line up with the IST calendar date the way it does for
+            // equities — the last bar in the response can already BE
+            // yesterday's true, complete candle. Blindly dropping it then
+            // silently used the day BEFORE that as "yesterday" — one full
+            // day stale, no error, no visible symptom besides the wrong
+            // side getting traded (see this reader's DAILY_HA_BIAS caller
+            // for the incident this was diagnosed from). Compare the last
+            // bar's own IST calendar date against today's instead — only
+            // drop it when they actually match.
+            const istDateStr = d => {
+                const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+                return `${ist.getUTCFullYear()}-${String(ist.getUTCMonth() + 1).padStart(2, "0")}-${String(ist.getUTCDate()).padStart(2, "0")}`;
+            };
+            const lastBar = raw[raw.length - 1];
+            completed = istDateStr(lastBar.date) === istDateStr(to) ? raw.slice(0, -1) : raw;
+        } else {
+            // Drop the still-forming current bar — same no-lookahead
+            // convention every other candle consumer in this codebase
+            // follows (htfGate.js, preload.js, longCandleGate.js).
+            completed = raw.slice(0, -1);
+        }
+
         haBars = toHA(completed);
         lastFetchedAt = Date.now();
     }
