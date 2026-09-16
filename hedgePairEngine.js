@@ -391,23 +391,8 @@ async function main() {
             return;
         }
 
-        // Reset each leg's running "session" total (state.pnl, printed by
-        // positions.close() on every subsequent trade) now that today is
-        // fully closed out — reported directly: this hedge-pair process
-        // runs long-lived (unlike every other strategy, which gets a
-        // FRESH state object each morning when PM2 restarts it after its
-        // own daily self-exit — see lifecycle.js), so without this reset
-        // "session" in each trade's log line would silently keep
-        // accumulating pnl from every previous day the process has been
-        // running, making daily performance unreadable. Real per-day
-        // totals for reporting/backtest metrics still come from
-        // db.getRealizedPnlToday() below, which was never affected by
-        // this bug (SQL query scoped to today's date, not this counter).
-        core.state.pnl  = 0; core.state.trades  = 0;
-        hedge.state.pnl = 0; hedge.state.trades = 0;
-
         const today = todayIST();
-        if (eodReportedForDate === today) return; // already sent today's report, don't resend on a later tick
+        if (eodReportedForDate === today) return; // already reported/shut down today, don't repeat on a later tick
         eodReportedForDate = today;
 
         const coreRealized  = await core.db.getRealizedPnlToday(core.context.tgPrefix);
@@ -416,11 +401,27 @@ async function main() {
         const report = `Hedge Pair EOD — ${today}\ncore   ${core.context.symbol}: ${positions.pnlStr(coreRealized)}\nhedge  ${hedge.context.symbol}: ${positions.pnlStr(hedgeRealized)}\ntotal: ${positions.pnlStr(total)}`;
         console.log(c.bold(report.replace(/\n/g, "   ")));
         console.log();
-        await core.tg(report);
+        await core.tg(report);   // ensure the message is sent before the process exits
 
-        // Next trading day starts fresh — checkCoreEntry() re-decides off
-        // that day's own new daily HA candle once coreDecidedForDate no
-        // longer matches todayIST().
+        // CHANGED Sep 2026 — this engine used to stay running past EOD
+        // (long-lived, session pnl/trades manually zeroed here each night)
+        // while every other strategy self-exits via lifecycle.js and gets
+        // a FRESH state object when PM2 restarts it next morning. That
+        // split was confusing operationally — `pm2 l` showing this one
+        // process still "online" for 16h+ read as "didn't quit at EOD",
+        // even on a day EOD fired correctly. Now matches lifecycle.js:
+        // clean shutdown, PM2 leaves it stopped (PM2_BASE_OPTS'
+        // stop_exit_codes:[0] in toolbox.js already covers hedgePairEngine.js
+        // starts — see addHedgePair()), and it needs the same deliberate
+        // morning restart as every other engine (e.g. after refreshing the
+        // day's Kite access token) rather than running unattended across
+        // days. Next boot's createState() gives both legs pnl/trades = 0
+        // for free, so the manual reset this replaced is no longer needed.
+        console.log(c.bold("*** SHUTDOWN ***"));
+        emitEvent(core.context.tgPrefix, "SHUTDOWN", {
+            pnl: total, trades: core.state.trades + hedge.state.trades, positionLeftOpen: false,
+        });
+        setTimeout(() => process.exit(0), 2000);
     }
 
     // ─── Hourly PnL log — one line per newly-completed 1h bar (not per
