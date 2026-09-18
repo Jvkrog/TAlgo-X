@@ -138,13 +138,33 @@ function renderInstruments() {
 // ── hedge pair cards — main dashboard visibility (previously ONLY visible
 // inside the Toolbox "⇄ hedge pairs" modal, which meant a hedge pair
 // process running live gave no signal at all on the primary operator
-// view — reported directly). No live WS price/uPnl here — hedgePairEngine.js
-// itself runs no ticker (see its own header), so there's nothing to
-// stream; this polls the same /api/toolbox/hedgepairs list the toolbox
-// modal uses, on the same 30s cadence as loadInstruments(), and reuses
-// the generic /api/control endpoint for start/stop/restart (name-based,
-// no dependency on the single-instrument getEngineProcesses() shape).
+// view — reported directly). Card shell (status/lots/controls) polls the
+// same /api/toolbox/hedgepairs list the toolbox modal uses, on the same
+// 30s cadence as loadInstruments(), and reuses the generic /api/control
+// endpoint for start/stop/restart (name-based, no dependency on the
+// single-instrument getEngineProcesses() shape). The 4 PnL panes and the
+// main Live Log panel are different: CHANGED Sep 2026 — hedgePairEngine.js
+// still runs no live WS ticker (see its own header, still accurate), but
+// now emits a per-leg TICK over the SAME eventBridge/WS every poll cycle
+// (60s default) via REST LTP polling, same event type strategies.js's
+// per-candle TICK already uses — reported directly, this was both "no
+// visible logs at all from a running hedge pair" and "no live PnL on its
+// card" at once, same root cause.
 let hedgePairs = [];
+
+// leg tgPrefix -> {pairName, leg:"core"|"hedge"} — rebuilt every
+// loadHedgePairs() poll. Assumes tgPrefix === underlying + "_" + CORE/HEDGE
+// (true for every pair running today, ZINC/ZINCMINI and NATURALGAS/
+// NATGASMINI included — none of them override context.tgPrefix away from
+// the raw underlying string in context.js). If a future pair's underlying
+// DOES carry a tgPrefix override, its leg ticks just won't match a card
+// here — same silent-no-op the TICK handler already falls back to for any
+// unrecognized `msg.engine`, not a new failure mode.
+let hedgePairLegIndex = new Map();
+// tgPrefix -> last {uPnl, session} this session — survives individual TICK
+// events arriving for only one leg at a time, so the aggregate panes always
+// reflect both legs' latest known numbers, not just whichever leg just ticked.
+const hedgePairLegPnl = new Map();
 
 function buildHedgePairCard(p) {
   const el = document.createElement("div");
@@ -157,12 +177,30 @@ function buildHedgePairCard(p) {
         <span class="card-strategy">hedge pair \u00b7 unwind:${p.unwindMode}</span>
       </div>
       <div>
-        <span class="status-pill ${p.status === "online" ? "online" : "offline"}">${p.status}</span>
+        <span class="status-pill ${p.status === "online" ? "online" : "offline"}" data-role="status">${p.status}</span>
         <span class="mode-pill ${p.live ? "live" : ""}">${p.live ? "live" : "paper"}</span>
       </div>
     </div>
     <div class="card-price-row">
       <span class="card-price">core ${p.coreLots} lot NRML \u00b7 hedge ${p.hedgeLots} lots</span>
+    </div>
+    <div class="pnl-row">
+      <div class="pnl-box">
+        <span class="pnl-label">${p.coreUnderlying} (full lot)</span>
+        <span class="pnl-value flat" data-role="core-pnl">+0</span>
+      </div>
+      <div class="pnl-box">
+        <span class="pnl-label">${p.hedgeUnderlying} (mini lot)</span>
+        <span class="pnl-value flat" data-role="hedge-pnl">+0</span>
+      </div>
+      <div class="pnl-box">
+        <span class="pnl-label">unrealized</span>
+        <span class="pnl-value flat" data-role="unrealized">+0</span>
+      </div>
+      <div class="pnl-box">
+        <span class="pnl-label">realized</span>
+        <span class="pnl-value flat" data-role="realized">+0</span>
+      </div>
     </div>
     <div class="card-controls">
       <button class="btn btn-start" data-action="start">start</button>
@@ -176,6 +214,35 @@ function buildHedgePairCard(p) {
   return el;
 }
 
+// Called from handleEvent() for any TICK/ENTRY/EXIT whose msg.engine
+// matches a known hedge-pair leg tgPrefix. uPnl/session default to the
+// leg's last-known values (from hedgePairLegPnl) when an ENTRY/EXIT event
+// doesn't carry them, so an entry on one leg doesn't blank the other leg's
+// still-valid numbers.
+function updateHedgePairLeg(engine, uPnl, session) {
+  const hit = hedgePairLegIndex.get(engine);
+  if (!hit) return;
+  if (uPnl !== undefined) hedgePairLegPnl.set(engine, { uPnl: uPnl || 0, session: session || 0 });
+
+  const el = document.getElementById(`hp-${hit.pairName}`);
+  if (!el) return;
+
+  const own = hedgePairLegPnl.get(engine) || { uPnl: 0, session: 0 };
+  const ownEl = el.querySelector(`[data-role="${hit.leg}-pnl"]`);
+  if (ownEl) { ownEl.textContent = fmtSigned(own.session); ownEl.className = `pnl-value ${cls(own.session)}`; }
+
+  const coreKey  = `${hit.core}_CORE`, hedgeKey = `${hit.hedge}_HEDGE`;
+  const c1 = hedgePairLegPnl.get(coreKey)  || { uPnl: 0, session: 0 };
+  const c2 = hedgePairLegPnl.get(hedgeKey) || { uPnl: 0, session: 0 };
+  const totalUnrealized = c1.uPnl + c2.uPnl;
+  const totalRealized   = (c1.session - c1.uPnl) + (c2.session - c2.uPnl);
+
+  const uEl = el.querySelector('[data-role="unrealized"]');
+  if (uEl) { uEl.textContent = fmtSigned(totalUnrealized); uEl.className = `pnl-value ${cls(totalUnrealized)}`; }
+  const rEl = el.querySelector('[data-role="realized"]');
+  if (rEl) { rEl.textContent = fmtSigned(totalRealized); rEl.className = `pnl-value ${cls(totalRealized)}`; }
+}
+
 async function loadHedgePairs() {
   try {
     const data = await (await fetch("/api/toolbox/hedgepairs")).json();
@@ -186,7 +253,13 @@ async function loadHedgePairs() {
     }
     hedgePairsPanel.style.display = "";
     hedgePairsGrid.innerHTML = "";
-    hedgePairs.forEach(p => hedgePairsGrid.appendChild(buildHedgePairCard(p)));
+    hedgePairLegIndex = new Map();
+    hedgePairs.forEach(p => {
+      hedgePairsGrid.appendChild(buildHedgePairCard(p));
+      const legMeta = { pairName: p.name, core: p.coreUnderlying, hedge: p.hedgeUnderlying };
+      hedgePairLegIndex.set(`${p.coreUnderlying}_CORE`,   { ...legMeta, leg: "core" });
+      hedgePairLegIndex.set(`${p.hedgeUnderlying}_HEDGE`, { ...legMeta, leg: "hedge" });
+    });
   } catch (err) {
     // Best-effort, same as loadEngineState — a failed poll just leaves the
     // panel as it was rather than erroring the whole dashboard load.
@@ -451,6 +524,7 @@ function handleEvent(msg) {
       mEl.className = `state-marker ${markerCls}`;
     });
     updateCardPnl(msg.engine, msg.uPnl, msg.session);
+    updateHedgePairLeg(msg.engine, msg.uPnl, msg.session);
     sessionPnlByUnderlying.set(msg.engine, msg.session);
     updateTotalPnl();
 
@@ -475,6 +549,7 @@ function handleEvent(msg) {
 
   if (msg.type === "ENTRY") {
     if (!isReplay) flashCards(msg.engine, 1);
+    updateHedgePairLeg(msg.engine, undefined, undefined);
     // msg.arrow (▲/▼) is currently only sent by DYNAMIC_MID_COLOR — every
     // other strategy's ENTRY payload has no `arrow` field, so this is a
     // no-op for them (undefined -> empty prefix, unchanged tag).
@@ -494,6 +569,7 @@ function handleEvent(msg) {
 
   if (msg.type === "EXIT") {
     if (!isReplay) flashCards(msg.engine, msg.pnl >= 0 ? 1 : -1);
+    updateHedgePairLeg(msg.engine, 0, msg.session);
     sessionPnlByUnderlying.set(msg.engine, msg.session);
     updateTotalPnl();
     appendLog({
