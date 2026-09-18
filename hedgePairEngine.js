@@ -467,12 +467,42 @@ async function main() {
         console.log(c.dim(line));
     }
 
+    // Web dashboard live log/PnL panes — emits one TICK per leg every
+    // POLL_MS (default 60s), same event type/shape strategies.js's
+    // per-candle TICK already uses (webdash's WS handler needed no changes
+    // to pick these up). Deliberately still REST-polled via the existing
+    // getLtp(), not a new WS ticker — see file header "NO LIVE WEBSOCKET
+    // TICKER", which is about not needing per-tick SL/target logic, not
+    // about the dashboard; 2 extra LTP calls per POLL_MS tick doesn't
+    // change that. Emits even while flat (uPnl 0) — the point isn't just
+    // the number, it's a regular heartbeat proving this process is still
+    // alive and reporting, same as it read as "silent"/spammy-looking
+    // before (see checkEod()'s SHUTDOWN comment and marketDataHealth.js —
+    // same class of "is this actually still running" confusion, different
+    // engine).
+    async function emitLivePnl() {
+        for (const leg of [core, hedge]) {
+            // Fetched every cycle regardless of position — msg.price feeds
+            // the log line's price column (undefined there reads as "NaN",
+            // worse than one extra LTP call), and a flat leg still showing
+            // a live price is itself part of the "still alive" heartbeat.
+            const price = await getLtp(leg.ltpKey).catch(() => null);
+            if (price === null) continue; // couldn't price it this cycle — skip rather than emit a false 0
+            const uPnl = leg.state.position ? positions.unrealised(leg.context, leg.state, price) : 0;
+            const session = (leg.state.pnl || 0) + uPnl;
+            emitEvent(leg.context.tgPrefix, "TICK", {
+                price, uPnl, session, position: leg.state.position, entryPrice: leg.state.entryPrice || null,
+            });
+        }
+    }
+
     async function tick() {
         try {
             await checkEod();
             await checkCoreEntry();
             await checkHedge();
             await logHourlyPnl();
+            await emitLivePnl();
         } catch (err) {
             console.error(c.red(`HEDGE PAIR loop error: ${err.message}`));
         }
