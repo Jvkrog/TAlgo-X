@@ -137,6 +137,19 @@ const STRATEGY_PARAMS = {
         { key: "ST_ATR_LEN",                    label: "ATR length (SL trail)" },
         { key: "ATR_SL_MULT",                   label: "ATR stop-loss multiplier (this port's own addition \u2014 source script has no SL, and no signal at all)" },
     ],
+    // CHANGED Sep 2026 (reported directly) — was entirely untunable in
+    // backtest before this; strategies.js's createDualStChopStrategy reads
+    // these DST_* engineConfig keys directly, so listing them here is all
+    // that's needed (same merge-onto-engineConfig mechanism as every other
+    // entry above — see runBacktest in backtestRun.js).
+    DUAL_ST_CHOP: [
+        { key: "DST_ST1_ATR_LEN", label: "ST1 (fast) ATR length" },
+        { key: "DST_ST1_FACTOR",  label: "ST1 (fast) factor" },
+        { key: "DST_ST2_ATR_LEN", label: "ST2 (slow) ATR length" },
+        { key: "DST_ST2_FACTOR",  label: "ST2 (slow) factor" },
+        { key: "DST_CHOP_LEN",    label: "Choppiness Index period" },
+        { key: "DST_CHOP_MAX",    label: "Choppiness Index max (0-100) \u2014 above this blocks new entries even if ST1/ST2 agree" },
+    ],
 };
 
 function fmtMoney(n) { return (n < 0 ? "-₹" : "₹") + Math.abs(n).toFixed(2); }

@@ -318,6 +318,21 @@ function buildContext(def, resolvedContract) {
         // already deployed.
         chopFilterEnabled: null,
         chopPeriod: null,
+        // Dual SuperTrend + Chop (DUAL_ST_CHOP) — CHANGED Sep 2026
+        // (reported directly): all 6 used to be hardcoded to engineConfig.
+        // DST_* for every instrument. null (not a literal default) — same
+        // STRATEGY_PARAMS-backtest-tuning-safe reason atrSlMult/almaFastLen
+        // above are null — createDualStChopStrategy falls back to
+        // engineConfig.DST_ST1_ATR_LEN/DST_ST1_FACTOR/DST_ST2_ATR_LEN/
+        // DST_ST2_FACTOR/DST_CHOP_LEN/DST_CHOP_MAX itself when unset.
+        // Overridden per-process by engine.js from DST_ST1_ATR_LEN_OVERRIDE
+        // etc. (toolbox prompt, asked only when DUAL_ST_CHOP is picked).
+        dstSt1AtrLen: null,
+        dstSt1Factor: null,
+        dstSt2AtrLen: null,
+        dstSt2Factor: null,
+        dstChopLen: null,
+        dstChopMax: null,
         chopMax: null,
         // Double-order gate — blocks a REVERSAL re-entry (exit an open
         // position, immediately enter the opposite side, same candle) when

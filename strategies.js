@@ -3255,7 +3255,7 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
         return side === "LONG" ? livePrice - offset : livePrice + offset;
     }
 
-    async function runSignals(price, st1Dir, st2Dir, atrVal, chopVal) {
+    async function runSignals(price, st1Dir, st2Dir, atrVal, chopVal, chopMax) {
         const livePrice = candles.getLivePrice() ?? price;
         // See doubleOrderGate.js: disableDoubleOrders now only ever
         // blocks a same-candle reversal (was open, flips to the opposite
@@ -3294,7 +3294,7 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
 
         // Entry: both SuperTrends agree AND the market isn't choppy.
         if (engineConfig.ENGINE_ENABLED && !state.position && canEnter() && agree) {
-            const chopOk = chopVal !== null && chopVal <= engineConfig.DST_CHOP_MAX;
+            const chopOk = chopVal !== null && chopVal <= chopMax;
             if (chopOk) {
                 const side = st1Dir === 1 ? "LONG" : "SHORT";
                 // Reversal-only, not count-based — see doubleOrderGate.js.
@@ -3340,7 +3340,7 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
                     const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
                     console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (DUAL_ST_CHOP) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  CHOP:${chopVal.toFixed(1)}`));
                     emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
-                    tg(`${side} ENTRY (DUAL_ST_CHOP) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}\nST1/ST2 agree ${side}, CHOP ${chopVal.toFixed(1)} (<= ${engineConfig.DST_CHOP_MAX})`);
+                    tg(`${side} ENTRY (DUAL_ST_CHOP) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}\nST1/ST2 agree ${side}, CHOP ${chopVal.toFixed(1)} (<= ${chopMax})`);
                 }
             }
         }
@@ -3359,7 +3359,22 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
         if (lifecycle.isShutdown()) return;
         const rawCandles = candles.getRawCandles();
 
-        const warmupNeeded = Math.max(engineConfig.DST_ST1_ATR_LEN, engineConfig.DST_ST2_ATR_LEN, engineConfig.DST_CHOP_LEN) + 5;
+        // Per-instrument overrides — CHANGED Sep 2026 (reported directly):
+        // these 6 used to be hardcoded to the global engineConfig.DST_*
+        // values for every instrument running this strategy. Resolved
+        // once per candle, same `context.x ?? engineConfig.Y` fallback
+        // pattern atrSlMult/almaFastLen/etc. already use elsewhere in this
+        // file — null (unset) on context means "use the engineConfig
+        // default," so nothing changes for an instrument that never sets
+        // an override.
+        const st1AtrLen = context.dstSt1AtrLen ?? engineConfig.DST_ST1_ATR_LEN;
+        const st1Factor  = context.dstSt1Factor  ?? engineConfig.DST_ST1_FACTOR;
+        const st2AtrLen = context.dstSt2AtrLen ?? engineConfig.DST_ST2_ATR_LEN;
+        const st2Factor  = context.dstSt2Factor  ?? engineConfig.DST_ST2_FACTOR;
+        const chopLen    = context.dstChopLen    ?? engineConfig.DST_CHOP_LEN;
+        const chopMax     = context.dstChopMax     ?? engineConfig.DST_CHOP_MAX;
+
+        const warmupNeeded = Math.max(st1AtrLen, st2AtrLen, chopLen) + 5;
         if (rawCandles.length < warmupNeeded) {
             console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${rawCandles.length}/${warmupNeeded}`));
             return;
@@ -3367,8 +3382,8 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
 
         const haCandles = toHA(rawCandles);
 
-        const st1Arr = supertrend(haCandles, engineConfig.DST_ST1_ATR_LEN, engineConfig.DST_ST1_FACTOR);
-        const st2Arr = supertrend(haCandles, engineConfig.DST_ST2_ATR_LEN, engineConfig.DST_ST2_FACTOR);
+        const st1Arr = supertrend(haCandles, st1AtrLen, st1Factor);
+        const st2Arr = supertrend(haCandles, st2AtrLen, st2Factor);
         if (st1Arr === null || st2Arr === null) return;
         const st1Last = st1Arr[st1Arr.length - 1];
         const st2Last = st2Arr[st2Arr.length - 1];
@@ -3378,12 +3393,12 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
         // strategies (ATR_SL_MULT x a fixed lookback), just DST_ST1_ATR_LEN
         // instead of the shared ST_ATR_LEN, since this strategy has its own
         // separate namespace.
-        const atrVal = atr(rawCandles, engineConfig.DST_ST1_ATR_LEN);
+        const atrVal = atr(rawCandles, st1AtrLen);
 
-        const chopArr = choppinessIndex(rawCandles, engineConfig.DST_CHOP_LEN);
+        const chopArr = choppinessIndex(rawCandles, chopLen);
         const chopVal = chopArr[chopArr.length - 1];
 
-        await runSignals(rawCandle.close, st1Last.dir, st2Last.dir, atrVal, chopVal);
+        await runSignals(rawCandle.close, st1Last.dir, st2Last.dir, atrVal, chopVal, chopMax);
     }
 
     async function initSignals() {

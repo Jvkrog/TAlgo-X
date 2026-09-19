@@ -264,6 +264,38 @@ async function main() {
         console.log(c.dim(`[${context.tgPrefix}] chop filter: ${chopResolved ? "ON" : c.yellow("off — no chop gate on entries")}`));
     }
 
+    // Dual SuperTrend + Chop overrides — only meaningful for DUAL_ST_CHOP,
+    // read unconditionally same as everything else here. null (unset) when
+    // no override is given — createDualStChopStrategy falls back to its
+    // own engineConfig.DST_* defaults itself.
+    if (process.env.DST_ST1_ATR_LEN_OVERRIDE !== undefined && process.env.DST_ST1_ATR_LEN_OVERRIDE !== "") {
+        const parsed = Number(process.env.DST_ST1_ATR_LEN_OVERRIDE);
+        context.dstSt1AtrLen = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (process.env.DST_ST1_FACTOR_OVERRIDE !== undefined && process.env.DST_ST1_FACTOR_OVERRIDE !== "") {
+        const parsed = Number(process.env.DST_ST1_FACTOR_OVERRIDE);
+        context.dstSt1Factor = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (process.env.DST_ST2_ATR_LEN_OVERRIDE !== undefined && process.env.DST_ST2_ATR_LEN_OVERRIDE !== "") {
+        const parsed = Number(process.env.DST_ST2_ATR_LEN_OVERRIDE);
+        context.dstSt2AtrLen = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (process.env.DST_ST2_FACTOR_OVERRIDE !== undefined && process.env.DST_ST2_FACTOR_OVERRIDE !== "") {
+        const parsed = Number(process.env.DST_ST2_FACTOR_OVERRIDE);
+        context.dstSt2Factor = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (process.env.DST_CHOP_LEN_OVERRIDE !== undefined && process.env.DST_CHOP_LEN_OVERRIDE !== "") {
+        const parsed = Number(process.env.DST_CHOP_LEN_OVERRIDE);
+        context.dstChopLen = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (process.env.DST_CHOP_MAX_OVERRIDE !== undefined && process.env.DST_CHOP_MAX_OVERRIDE !== "") {
+        const parsed = Number(process.env.DST_CHOP_MAX_OVERRIDE);
+        context.dstChopMax = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (context.strategy === "DUAL_ST_CHOP") {
+        console.log(c.dim(`[${context.tgPrefix}] Dual SuperTrend: ST1(${context.dstSt1AtrLen ?? engineConfig.DST_ST1_ATR_LEN},${context.dstSt1Factor ?? engineConfig.DST_ST1_FACTOR})  ST2(${context.dstSt2AtrLen ?? engineConfig.DST_ST2_ATR_LEN},${context.dstSt2Factor ?? engineConfig.DST_ST2_FACTOR})  CHOP(${context.dstChopLen ?? engineConfig.DST_CHOP_LEN}, max ${context.dstChopMax ?? engineConfig.DST_CHOP_MAX})`));
+    }
+
     // Max daily loss circuit breaker — every strategy, not strategy-gated
     // like the ALMA-specific overrides above. null/unset = disabled, no
     // floor (today's original behavior).

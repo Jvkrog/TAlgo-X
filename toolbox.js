@@ -163,6 +163,12 @@ async function getEngineProcesses() {
             htfChopMax: p.pm2_env.env?.HTF_CHOP_MAX_OVERRIDE ? Number(p.pm2_env.env.HTF_CHOP_MAX_OVERRIDE) : null,
             htfBandBlockEnabled: p.pm2_env.env?.HTF_BAND_BLOCK_ENABLED_OVERRIDE !== undefined ? p.pm2_env.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE === "true" : true,
             dailyHaGateEnabled: p.pm2_env.env?.DAILY_HA_GATE_ENABLED_OVERRIDE !== undefined ? p.pm2_env.env.DAILY_HA_GATE_ENABLED_OVERRIDE === "true" : true,
+            dstSt1AtrLen: p.pm2_env.env?.DST_ST1_ATR_LEN_OVERRIDE ? Number(p.pm2_env.env.DST_ST1_ATR_LEN_OVERRIDE) : null,
+            dstSt1Factor: p.pm2_env.env?.DST_ST1_FACTOR_OVERRIDE ? Number(p.pm2_env.env.DST_ST1_FACTOR_OVERRIDE) : null,
+            dstSt2AtrLen: p.pm2_env.env?.DST_ST2_ATR_LEN_OVERRIDE ? Number(p.pm2_env.env.DST_ST2_ATR_LEN_OVERRIDE) : null,
+            dstSt2Factor: p.pm2_env.env?.DST_ST2_FACTOR_OVERRIDE ? Number(p.pm2_env.env.DST_ST2_FACTOR_OVERRIDE) : null,
+            dstChopLen: p.pm2_env.env?.DST_CHOP_LEN_OVERRIDE ? Number(p.pm2_env.env.DST_CHOP_LEN_OVERRIDE) : null,
+            dstChopMax: p.pm2_env.env?.DST_CHOP_MAX_OVERRIDE ? Number(p.pm2_env.env.DST_CHOP_MAX_OVERRIDE) : null,
             strategy:  p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY,
             timeframe: p.pm2_env.env?.TIMEFRAME_OVERRIDE || STRATEGY_TIMEFRAME[p.pm2_env.env?.STRATEGY_OVERRIDE || DEFAULT_STRATEGY] || "15m",
             exchange:  p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -478,6 +484,15 @@ function buildProcessEnv(p, overrides = {}) {
     env.ALMA_FAST_LEN_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaFastLen ? String(p.almaFastLen) : "";
     env.ALMA_BAND_LEN_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaBandLen ? String(p.almaBandLen) : "";
     env.ALMA_CHOP_FILTER_OVERRIDE = (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && p.almaChopFilterEnabled === false ? "false" : "";
+    // Dual SuperTrend + Chop — only meaningful for DUAL_ST_CHOP, same
+    // "strategy-specific, blank clears to the engineConfig default"
+    // pattern as ALMA_FAST_LEN_OVERRIDE etc. above.
+    env.DST_ST1_ATR_LEN_OVERRIDE = p.strategy === "DUAL_ST_CHOP" && p.dstSt1AtrLen ? String(p.dstSt1AtrLen) : "";
+    env.DST_ST1_FACTOR_OVERRIDE  = p.strategy === "DUAL_ST_CHOP" && p.dstSt1Factor  ? String(p.dstSt1Factor)  : "";
+    env.DST_ST2_ATR_LEN_OVERRIDE = p.strategy === "DUAL_ST_CHOP" && p.dstSt2AtrLen ? String(p.dstSt2AtrLen) : "";
+    env.DST_ST2_FACTOR_OVERRIDE  = p.strategy === "DUAL_ST_CHOP" && p.dstSt2Factor  ? String(p.dstSt2Factor)  : "";
+    env.DST_CHOP_LEN_OVERRIDE    = p.strategy === "DUAL_ST_CHOP" && p.dstChopLen    ? String(p.dstChopLen)    : "";
+    env.DST_CHOP_MAX_OVERRIDE    = p.strategy === "DUAL_ST_CHOP" && p.dstChopMax    ? String(p.dstChopMax)    : "";
     if (p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW") {
         // Always written explicitly (both true AND false), not just when
         // disabling — an unset env var means OFF at runtime (isChopBlocked
@@ -1423,6 +1438,29 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     }
 
+    // Dual SuperTrend + Chop config — DUAL_ST_CHOP only. Blank = use
+    // engineConfig.DST_* defaults (ST1 10/1.0, ST2 10/3.0, chop period 14,
+    // chop max 50).
+    let dstSt1AtrLen = null, dstSt1Factor = null, dstSt2AtrLen = null, dstSt2Factor = null, dstChopLen = null, dstChopMax = null;
+    if (strategy === "DUAL_ST_CHOP") {
+        const askNum = async (label, defaultVal) => {
+            const input = (await ask(`  ${label} (default: ${defaultVal}): `)).trim();
+            if (!input) return null;
+            const parsed = Number(input);
+            if (!Number.isFinite(parsed) || parsed <= 0) {
+                console.log(c.yellow(`  "${input}" isn't a valid positive number — using default ${defaultVal}`));
+                return null;
+            }
+            return parsed;
+        };
+        dstSt1AtrLen = await askNum("ST1 (fast) ATR length", engineConfig.DST_ST1_ATR_LEN);
+        dstSt1Factor = await askNum("ST1 (fast) factor", engineConfig.DST_ST1_FACTOR);
+        dstSt2AtrLen = await askNum("ST2 (slow) ATR length", engineConfig.DST_ST2_ATR_LEN);
+        dstSt2Factor = await askNum("ST2 (slow) factor", engineConfig.DST_ST2_FACTOR);
+        dstChopLen   = await askNum("Choppiness Index period", engineConfig.DST_CHOP_LEN);
+        dstChopMax   = await askNum("Choppiness Index max, blocks entries above this", engineConfig.DST_CHOP_MAX);
+    }
+
     // Choppiness Index entry filter toggle — ALMA_PRO_FAST/ALMA_PRO_SLOW
     // only. Default ON (matches both strategies' engineConfig default).
     // OFF removes the chop gate entirely — every other entry condition
@@ -1699,6 +1737,14 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (strategy === "ALMA_PRO_FAST" && almaFastLen !== null) env.ALMA_FAST_LEN_OVERRIDE = String(almaFastLen);
     if (strategy === "ALMA_PRO_FAST" && almaBandLen !== null) env.ALMA_BAND_LEN_OVERRIDE = String(almaBandLen);
     if ((strategy === "ALMA_PRO_FAST" || strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled) env.ALMA_CHOP_FILTER_OVERRIDE = "false";
+    if (strategy === "DUAL_ST_CHOP") {
+        if (dstSt1AtrLen !== null) env.DST_ST1_ATR_LEN_OVERRIDE = String(dstSt1AtrLen);
+        if (dstSt1Factor !== null) env.DST_ST1_FACTOR_OVERRIDE  = String(dstSt1Factor);
+        if (dstSt2AtrLen !== null) env.DST_ST2_ATR_LEN_OVERRIDE = String(dstSt2AtrLen);
+        if (dstSt2Factor !== null) env.DST_ST2_FACTOR_OVERRIDE  = String(dstSt2Factor);
+        if (dstChopLen   !== null) env.DST_CHOP_LEN_OVERRIDE    = String(dstChopLen);
+        if (dstChopMax   !== null) env.DST_CHOP_MAX_OVERRIDE    = String(dstChopMax);
+    }
     if (strategy !== "ALMA_PRO_FAST" && strategy !== "ALMA_PRO_SLOW") {
         // Always written explicitly — see the matching comment in
         // buildProcessEnv (editInstrument's restart-env builder) for why
