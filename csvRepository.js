@@ -16,6 +16,8 @@ function createCsvRepository({ fetchRows }) {
     let bySymbol           = new Map();
     let byUnderlyingExpiry = new Map();   // underlying -> [contract, ...] sorted by expiry asc
     let byEquitySymbol     = new Map();   // tradingsymbol -> contract (no expiry, no roll)
+    // underlying -> expiry (ISO date string, no time) -> { ce: Map<strike, contract>, pe: Map<strike, contract> }
+    let optionsByUE        = new Map();
     let loadedAt           = null;
 
     function indexRows(rows) {
@@ -23,6 +25,7 @@ function createCsvRepository({ fetchRows }) {
         const nextBySymbol = new Map();
         const nextByUE     = new Map();
         const nextByEquity = new Map();
+        const nextOptions  = new Map();
 
         for (const r of rows) {
             // Futures — unchanged from before.
@@ -44,6 +47,44 @@ function createCsvRepository({ fetchRows }) {
 
                 if (!nextByUE.has(contract.underlying)) nextByUE.set(contract.underlying, []);
                 nextByUE.get(contract.underlying).push(contract);
+                continue;
+            }
+
+            // Options — CE/PE, added Sep 2026 for the toolbox's manual
+            // Options screen (reported directly). Both NFO (index options —
+            // "name" is the index, e.g. "NIFTY"/"BANKNIFTY") and MCX
+            // (commodity options — "name" matches the same underlying string
+            // as that commodity's futures contract, e.g. "CRUDEOIL") carry
+            // instrument_type CE/PE, so no exchange-specific branching is
+            // needed here — the exchange itself just comes along on the row
+            // (r.exchange), same as futures above. Keyed by expiry as an ISO
+            // date string (not the raw Date object) so lookups don't need a
+            // separate "same calendar day" comparison — dates as Map keys
+            // compare by reference, not value.
+            if (r.instrument_type === "CE" || r.instrument_type === "PE") {
+                if (!r.instrument_token || !r.tradingsymbol || !r.expiry || !r.strike) continue;
+
+                const contract = {
+                    token:      Number(r.instrument_token),
+                    symbol:     r.tradingsymbol,
+                    underlying: r.name,
+                    exchange:   r.exchange,
+                    expiry:     new Date(r.expiry),
+                    strike:     Number(r.strike),
+                    type:       r.instrument_type,          // "CE" | "PE"
+                    lotSize:    Number(r.lot_size),
+                    tickSize:   Number(r.tick_size),
+                };
+
+                const expiryKey = contract.expiry.toISOString().slice(0, 10);
+                if (!nextOptions.has(contract.underlying)) nextOptions.set(contract.underlying, new Map());
+                const byExpiry = nextOptions.get(contract.underlying);
+                if (!byExpiry.has(expiryKey)) byExpiry.set(expiryKey, { ce: new Map(), pe: new Map() });
+                const bucket = byExpiry.get(expiryKey);
+                (contract.type === "CE" ? bucket.ce : bucket.pe).set(contract.strike, contract);
+
+                nextByToken.set(contract.token, contract);
+                nextBySymbol.set(contract.symbol, contract);
                 continue;
             }
 
@@ -92,6 +133,7 @@ function createCsvRepository({ fetchRows }) {
         bySymbol           = nextBySymbol;
         byUnderlyingExpiry = nextByUE;
         byEquitySymbol     = nextByEquity;
+        optionsByUE        = nextOptions;
         loadedAt           = new Date();
     }
 
@@ -113,7 +155,33 @@ function createCsvRepository({ fetchRows }) {
     function listEquitySymbols()        { return Array.from(byEquitySymbol.keys()).sort(); }
     function getLoadedAt()              { return loadedAt; }
 
-    return { load, refresh, findByToken, findBySymbol, findFuturesFor, listUnderlyings, findEquity, listEquitySymbols, getLoadedAt };
+    // ── Options accessors — see indexRows() above for the shape being read.
+    function listOptionUnderlyings() { return Array.from(optionsByUE.keys()).sort(); }
+    function listOptionExpiries(underlying) {
+        const byExpiry = optionsByUE.get(underlying);
+        if (!byExpiry) return [];
+        return Array.from(byExpiry.keys()).sort(); // ISO strings sort chronologically as-is
+    }
+    // expiryKey: ISO date string (YYYY-MM-DD), as returned by listOptionExpiries.
+    // Returns null if the underlying/expiry combination has no chain (e.g. a
+    // stale expiry after a repo refresh) rather than throwing — callers
+    // already have to handle "nothing here" for a blank chain either way.
+    function getOptionChain(underlying, expiryKey) {
+        const bucket = optionsByUE.get(underlying)?.get(expiryKey);
+        if (!bucket) return null;
+        const strikes = Array.from(new Set([...bucket.ce.keys(), ...bucket.pe.keys()])).sort((a, b) => a - b);
+        return { strikes, ce: bucket.ce, pe: bucket.pe };
+    }
+    function getOption(underlying, expiryKey, strike, type) {
+        const bucket = optionsByUE.get(underlying)?.get(expiryKey);
+        if (!bucket) return null;
+        return (type === "CE" ? bucket.ce : bucket.pe).get(strike) || null;
+    }
+
+    return {
+        load, refresh, findByToken, findBySymbol, findFuturesFor, listUnderlyings, findEquity, listEquitySymbols, getLoadedAt,
+        listOptionUnderlyings, listOptionExpiries, getOptionChain, getOption,
+    };
 }
 
 module.exports = { createCsvRepository };

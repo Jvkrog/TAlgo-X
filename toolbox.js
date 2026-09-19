@@ -28,6 +28,8 @@ const { resolveCurrent }         = require("./instrumentResolution");
 const { getDefinition, buildContext, defaultEodFor } = require("./context");
 const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = require("./strategies");
 const { INDICATOR_CATALOG } = require("./indicatorCatalog");
+const { normalizePrice }    = require("./price");
+const { createTelegram }    = require("./telegram");
 const customStrategyDb = require("./customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("./historicalFetch");
 const { adx } = require("./indicators");
@@ -52,6 +54,7 @@ const PM2_BASE_OPTS = { stop_exit_codes: [0] };
 const selected = new Set();     // underlying names currently checked, from the PM2-derived list
 let csvRepo    = null;          // lazy-loaded on first "Add instrument"
 let equityCsvRepo = null;       // lazy-loaded on first NSE "Add instrument" / "Trending"
+let nfoCsvRepo = null;          // lazy-loaded on first Options screen open
 
 // ─── MARKET STATE ENGINE — client is cheap (only opens the DB file on
 // first real query, see marketStateClient.js), watchlist is a flat JSON
@@ -228,6 +231,32 @@ async function ensureEquityCsvLoaded() {
     return equityCsvRepo;
 }
 
+// NFO — index options (NIFTY/BANKNIFTY). Separate cache from the MCX repo
+// above for the same reason equities get their own: no local CSV file
+// configured for it (engineConfig has no NFO_INSTRUMENT_CSV_PATH), so this
+// always falls through createInstrumentSource straight to the live Kite API
+// fetch — fine, it's small and only loaded lazily when Options is opened,
+// not on every toolbox boot. MCX's own options rows (CRUDEOIL, GOLD, etc.)
+// don't need a separate repo at all — they ride along in ensureCsvLoaded()'s
+// existing MCX dump (kc.getInstruments("MCX") already returns every
+// instrument_type on that exchange, options included; csvRepository.js's
+// indexRows() just didn't index CE/PE rows before this — see its own
+// header). A local MCX CSV file that was curated to futures-only before
+// options existed would silently have no strikes to index, same "falls
+// back to the live API" behavior loadInstrumentCsvFile already has for an
+// empty/broken file — nothing new to handle here.
+async function ensureNfoCsvLoaded() {
+    if (nfoCsvRepo) return nfoCsvRepo;
+    console.log(c.dim("  loading NFO instrument dump..."));
+    const kc = ensureKite();
+    nfoCsvRepo = createCsvRepository({
+        fetchRows: createInstrumentSource({ filePath: null, kc, exchange: "NFO" }).fetchRows,
+    });
+    await nfoCsvRepo.load();
+    console.log(c.dim(`  loaded ${nfoCsvRepo.listOptionUnderlyings().length} NFO option underlyings`));
+    return nfoCsvRepo;
+}
+
 // ─── EXCHANGE PICKER — shared by Add Instrument and Trending Instruments so
 // both offer the same choice the same way. `list` is either futures
 // underlyings (MCX) or equity tradingsymbols (NSE); which repo/list method
@@ -302,7 +331,7 @@ const HELP_ROWS = [
     [["R", "Restart"], ["D", "Remove"], ["C", "Roll"], ["M", "Live/Paper"]],
     [["L", "Logs"], ["T", "Token"], ["B", "Backtest"], ["N", "Trending"]],
     [["Q", "Quit"], ["E", "Creds"], ["K", "Market"], ["P", "Edit Params"]],
-    [["U", "Custom Strategy"], ["V", "Risk Mgmt"], ["H", "Hedge Pairs"]],
+    [["U", "Custom Strategy"], ["V", "Risk Mgmt"], ["H", "Hedge Pairs"], ["O", "Options"]],
 ];
 function renderMenuHelpLines() {
     return HELP_ROWS.map(row => {
@@ -2360,6 +2389,283 @@ async function hedgePairScreen() {
     }
 }
 
+// ─── OPTIONS — manual chain browsing + order placement only (Sep 2026,
+// reported directly). Deliberately NOT a PM2-managed engine like every
+// other instrument/hedge-pair here — no strategy, no auto entry/exit, no
+// running process at all. Positions are read straight from Kite's own
+// /positions (kc.getPositions()) rather than a local DB, since there's no
+// engine.js instance keeping its own state for these — Kite's own numbers
+// ARE the source of truth here, same as what the Kite app itself shows.
+//
+// Index spot has no tradable instrument of its own in the CSV dump (an
+// index row's segment is "INDICES", filtered out entirely by both the MCX
+// and equity repos — see csvRepository.js). Kite's LTP endpoint accepts
+// these index quote strings directly though, no instrument_token lookup
+// needed — hardcoded here since there's no dump row to derive them from.
+// Add an underlying here if you start trading its options and it's missing.
+const INDEX_SPOT_SYMBOL = {
+    NIFTY:      "NSE:NIFTY 50",
+    BANKNIFTY:  "NSE:NIFTY BANK",
+    FINNIFTY:   "NSE:NIFTY FIN SERVICE",
+    MIDCPNIFTY: "NSE:NIFTY MID SELECT",
+    SENSEX:     "BSE:SENSEX",
+};
+
+// Spot/underlying price for ATM calc. NFO index options -> INDEX_SPOT_SYMBOL
+// above. MCX commodity options -> no separate "spot" instrument exists on
+// MCX (it's a futures market), so this uses that underlying's own nearest-
+// expiry FUTURES contract as the spot proxy — same instrument the rest of
+// this platform already treats as "the price" for that commodity
+// everywhere else (context.js/orders.js do the same). Returns null (never
+// throws) when nothing resolves — every caller already has a "ask the
+// operator to type it in" fallback for exactly this case.
+async function getOptionSpot(kc, exchange, underlying, mcxRepo) {
+    try {
+        if (exchange === "NFO") {
+            const quoteKey = INDEX_SPOT_SYMBOL[underlying];
+            if (!quoteKey) return null;
+            const data = await kc.getLTP([quoteKey]);
+            return data[quoteKey]?.last_price ?? null;
+        }
+        // MCX
+        const futures = mcxRepo.findFuturesFor(underlying);
+        if (!futures.length) return null;
+        const nearest = futures[0]; // pre-sorted by expiry asc — see csvRepository.js
+        const quoteKey = `${nearest.exchange}:${nearest.symbol}`;
+        const data = await kc.getLTP([quoteKey]);
+        return data[quoteKey]?.last_price ?? null;
+    } catch {
+        return null;
+    }
+}
+
+// Strike step from the chain itself (min gap between consecutive strikes)
+// rather than a hardcoded per-underlying table — works for any underlying
+// without needing to know its convention ahead of time (NIFTY 50, BANKNIFTY
+// 100, a commodity's own step, etc.), and stays correct if the exchange
+// changes a step down the line.
+function inferStrikeStep(strikes) {
+    if (strikes.length < 2) return null;
+    let step = Infinity;
+    for (let i = 1; i < strikes.length; i++) step = Math.min(step, strikes[i] - strikes[i - 1]);
+    return Number.isFinite(step) && step > 0 ? step : null;
+}
+
+// Open option positions straight from the broker — see this section's own
+// header for why there's no local DB read here. Kite's tradingsymbol always
+// ends CE/PE for options (e.g. "NIFTY2591824000CE") — cheaper and more
+// robust than cross-referencing instrument_token against two separate repos
+// that may not even be loaded yet when this is called.
+async function fetchOptionPositions(kc) {
+    const { net } = await kc.getPositions();
+    return net.filter(p => p.quantity !== 0 && (p.exchange === "NFO" || p.exchange === "MCX") && /(CE|PE)$/.test(p.tradingsymbol));
+}
+
+async function showOptionPositions(kc) {
+    console.log();
+    console.log(c.bold("  \u2500\u2500 Open Option Positions \u2500\u2500"));
+    let positions;
+    try {
+        positions = await fetchOptionPositions(kc);
+    } catch (err) {
+        console.log(c.red(`  failed to fetch positions: ${err.message}`));
+        await pauseForReview();
+        return;
+    }
+    if (positions.length === 0) {
+        console.log(c.dim("  none open"));
+    } else {
+        positions.forEach((p, i) => {
+            const pnlStr = (p.pnl >= 0 ? c.green : c.red)(`${p.pnl >= 0 ? "+" : ""}${p.pnl.toFixed(2)}`);
+            console.log(`  ${String(i + 1).padStart(2)}. ${p.tradingsymbol.padEnd(24)} ${p.exchange.padEnd(4)} qty:${String(p.quantity).padStart(6)}  avg:${p.average_price.toFixed(2)}  ltp:${p.last_price.toFixed(2)}  pnl:${pnlStr}`);
+        });
+    }
+    console.log();
+    await pauseForReview();
+    return positions;
+}
+
+async function squareOffOptionPosition(kc) {
+    const positions = await showOptionPositions(kc);
+    if (!positions || positions.length === 0) return;
+    const idx = await ask("  square off which number (blank = cancel): ");
+    if (!idx.trim()) return;
+    const pos = positions[Number(idx) - 1];
+    if (!pos) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+
+    const transaction_type = pos.quantity > 0 ? "SELL" : "BUY"; // opposite side flattens it
+    const quantity = Math.abs(pos.quantity);
+    const confirm = (await ask(`  ${transaction_type} ${quantity} ${pos.tradingsymbol} @ MARKET to square off — confirm? [Y/N]: `)).trim().toUpperCase();
+    if (confirm !== "Y") { console.log(c.dim("  cancelled")); return; }
+
+    try {
+        const order = await kc.placeOrder("regular", {
+            tradingsymbol: pos.tradingsymbol,
+            exchange: pos.exchange,
+            transaction_type,
+            order_type: "MARKET",
+            product: pos.product,
+            quantity,
+            validity: "DAY",
+            tag: "MANUAL_OPT_SQOFF",
+        });
+        console.log(c.green(`  order placed — id:${order.order_id}`));
+    } catch (err) {
+        console.log(c.red(`  order failed: ${err.message}`));
+    }
+    await pauseForReview();
+}
+
+async function placeOptionOrder(kc) {
+    console.log();
+    console.log(c.bold("  \u2500\u2500 Place Option Order \u2500\u2500"));
+    const exchangeInput = (await ask("  exchange — [1] NFO (index)  [2] MCX (commodity): ")).trim();
+    const exchange = exchangeInput === "2" ? "MCX" : exchangeInput === "1" ? "NFO" : null;
+    if (!exchange) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+
+    const repo = exchange === "NFO" ? await ensureNfoCsvLoaded() : await ensureCsvLoaded();
+    const underlyings = repo.listOptionUnderlyings();
+    if (underlyings.length === 0) {
+        console.log(c.yellow(`  no ${exchange} option underlyings found in the instrument dump`));
+        await pauseForReview();
+        return;
+    }
+    const query = await ask("  search underlying (blank = show all): ");
+    const matches = query ? underlyings.filter(u => u.toLowerCase().includes(query.toLowerCase())) : underlyings;
+    if (matches.length === 0) { console.log(c.yellow("  no matches")); await pauseForReview(); return; }
+    matches.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u}`));
+    const underlying = matches[Number(await ask("  select number: ")) - 1];
+    if (!underlying) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+
+    const expiries = repo.listOptionExpiries(underlying);
+    if (expiries.length === 0) { console.log(c.yellow("  no expiries found")); await pauseForReview(); return; }
+    expiries.slice(0, 12).forEach((e, i) => console.log(`  ${String(i + 1).padStart(2)}. ${e}`));
+    const expiry = expiries[Number(await ask("  select expiry number: ")) - 1];
+    if (!expiry) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+
+    const chain = repo.getOptionChain(underlying, expiry);
+    if (!chain || chain.strikes.length === 0) { console.log(c.yellow("  empty chain for that expiry")); await pauseForReview(); return; }
+
+    // getOptionSpot only touches this when exchange === "MCX" (in which
+    // case `repo` already IS the MCX repo) — never lazily loads the MCX
+    // dump on an NFO order just to pass something in.
+    let spot = await getOptionSpot(kc, exchange, underlying, repo);
+    if (!spot) {
+        console.log(c.yellow(`  couldn't auto-fetch spot/underlying price for ${underlying}`));
+        const manual = Number((await ask("  enter it manually: ")).trim());
+        if (!Number.isFinite(manual) || manual <= 0) { console.log(c.yellow("  invalid price")); await pauseForReview(); return; }
+        spot = manual;
+    }
+
+    const step = inferStrikeStep(chain.strikes) || 1;
+    const atm  = chain.strikes.reduce((closest, s) => Math.abs(s - spot) < Math.abs(closest - spot) ? s : closest, chain.strikes[0]);
+
+    const offsetInput = (await ask("  strikes each side of ATM to show (default 3): ")).trim();
+    const n = offsetInput ? Number(offsetInput) : 3;
+    const nOffset = Number.isFinite(n) && n >= 0 ? n : 3;
+    const shown = chain.strikes.filter(s => Math.abs(Math.round((s - atm) / step)) <= nOffset);
+
+    // Batched LTP fetch — one round trip for the whole displayed range
+    // rather than one call per strike, same reasoning as the hedge pair
+    // engine's own single-call-per-cycle LTP polling.
+    const ceKeys = shown.map(s => chain.ce.get(s)).filter(Boolean).map(ct => `${ct.exchange}:${ct.symbol}`);
+    const peKeys = shown.map(s => chain.pe.get(s)).filter(Boolean).map(ct => `${ct.exchange}:${ct.symbol}`);
+    let ltps = {};
+    try { ltps = await kc.getLTP([...ceKeys, ...peKeys]); } catch { /* fall through with blank LTPs below */ }
+
+    console.log();
+    console.log(c.dim(`  spot: ${spot.toFixed(2)}   ATM: ${atm}   step: ${step}   expiry: ${expiry}`));
+    console.log(c.dim(`  strike      CE ltp      PE ltp`));
+    shown.forEach(s => {
+        const ceCt = chain.ce.get(s), peCt = chain.pe.get(s);
+        const ceLtp = ceCt ? ltps[`${ceCt.exchange}:${ceCt.symbol}`]?.last_price : undefined;
+        const peLtp = peCt ? ltps[`${peCt.exchange}:${peCt.symbol}`]?.last_price : undefined;
+        const marker = s === atm ? c.bold(" <ATM") : "";
+        console.log(`  ${String(s).padStart(8)}   ${(ceLtp !== undefined ? ceLtp.toFixed(2) : "-").padStart(8)}   ${(peLtp !== undefined ? peLtp.toFixed(2) : "-").padStart(8)}${marker}`);
+    });
+
+    const strikeInput = Number((await ask("  strike: ")).trim());
+    if (!chain.strikes.includes(strikeInput)) { console.log(c.yellow("  strike not in this chain")); await pauseForReview(); return; }
+    const typeInput = (await ask("  [C]E or [P]E: ")).trim().toUpperCase();
+    const type = typeInput === "P" ? "PE" : typeInput === "C" ? "CE" : null;
+    if (!type) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    const contract = (type === "CE" ? chain.ce : chain.pe).get(strikeInput);
+    if (!contract) { console.log(c.yellow(`  no ${type} contract at strike ${strikeInput}`)); await pauseForReview(); return; }
+
+    const sideInput = (await ask("  [B]UY or [S]ELL: ")).trim().toUpperCase();
+    const transaction_type = sideInput === "S" ? "SELL" : sideInput === "B" ? "BUY" : null;
+    if (!transaction_type) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+
+    const productInput = (await ask("  product — [1] MIS (intraday)  [2] NRML (carry): ")).trim();
+    const product = productInput === "2" ? "NRML" : "MIS";
+
+    const lotsInput = Number((await ask(`  lots (lot size ${contract.lotSize}): `)).trim());
+    if (!Number.isFinite(lotsInput) || lotsInput <= 0) { console.log(c.yellow("  invalid lots")); await pauseForReview(); return; }
+    const quantity = Math.round(lotsInput) * contract.lotSize;
+
+    console.log();
+    console.log(c.bold(`  ${transaction_type} ${quantity} ${contract.symbol} (${product})`));
+    const confirm = (await ask("  confirm? [Y/N]: ")).trim().toUpperCase();
+    if (confirm !== "Y") { console.log(c.dim("  cancelled")); return; }
+
+    try {
+        let orderParams = {
+            tradingsymbol: contract.symbol,
+            exchange: contract.exchange,
+            transaction_type,
+            product,
+            quantity,
+            validity: "DAY",
+            tag: "MANUAL_OPT",
+        };
+        // MCX rejects a bare MARKET order via the API ("Market orders
+        // without market protection are not allowed") — same restriction
+        // orders.js already works around for futures, replicated here
+        // (protected LIMIT banded around LTP). NFO has no such restriction,
+        // plain MARKET is simplest for a manual tool.
+        if (contract.exchange === "MCX") {
+            const ltpKey = `${contract.exchange}:${contract.symbol}`;
+            const ltpData = await kc.getLTP([ltpKey]);
+            const ltp = ltpData[ltpKey]?.last_price;
+            if (!ltp) throw new Error(`LTP fetch failed for ${ltpKey}`);
+            const protectionPct = engineConfig.MARKET_PROTECTION_PCT ?? 0.5;
+            const band = ltp * (protectionPct / 100);
+            const rawPrice = transaction_type === "BUY" ? ltp + band : ltp - band;
+            orderParams.order_type = "LIMIT";
+            orderParams.price = normalizePrice(rawPrice, contract.tickSize);
+        } else {
+            orderParams.order_type = "MARKET";
+        }
+
+        const order = await kc.placeOrder("regular", orderParams);
+        console.log(c.green(`  order placed — id:${order.order_id}`));
+        const { tg } = createTelegram({ tgPrefix: "OPTIONS" }, engineConfig);
+        await tg(`\u2705 Manual order placed [OPTIONS]\n${transaction_type} ${quantity} ${contract.symbol} (${product})\nid:${order.order_id}`);
+    } catch (err) {
+        console.log(c.red(`  order failed: ${err.message}`));
+    }
+    await pauseForReview();
+}
+
+async function optionsScreen() {
+    const kc = ensureKite();
+    let running = true;
+    while (running) {
+        console.log();
+        console.log(c.bold("  \u2500\u2500 Options (manual) \u2500\u2500"));
+        console.log(c.dim("  no auto-strategy here \u2014 chain browsing + manual order placement only"));
+        console.log();
+        console.log(c.dim("  [P] place order   [V] view positions   [X] square off   [B] back"));
+        const input = (await ask("  > ")).trim().toUpperCase();
+
+        if (input === "P")      await placeOptionOrder(kc);
+        else if (input === "V") await showOptionPositions(kc);
+        else if (input === "X") await squareOffOptionPosition(kc);
+        else if (input === "B" || input === "") running = false;
+        else { console.log(c.yellow("  unrecognized option")); }
+    }
+}
+
 async function trendingInstruments() {
     const { exchange, repo, list: all } = await pickExchangeAndRepo();
 
@@ -3113,6 +3419,7 @@ async function main() {
         else if (input === "U")           await createCustomStrategy();
         else if (input === "V")           await riskManagement(procs);
         else if (input === "H")           await hedgePairScreen();
+        else if (input === "O")           await optionsScreen();
         else if (input === "Q")           { running = false; redraw = false; }
         else                               { console.log(c.yellow("  unrecognized option")); redraw = false; }
 
