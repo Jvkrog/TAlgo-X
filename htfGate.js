@@ -46,7 +46,6 @@
 // is still visible.
 "use strict";
 
-const fs = require("fs");
 const { KiteConnect } = require("kiteconnect");
 const { fetchHistoricalCandles, fetchDailyCandles } = require("./historicalFetch");
 const { choppinessIndex, alma } = require("./indicators");
@@ -62,7 +61,7 @@ function createHtfGate({ context, engineConfig, tg }) {
     function getClient() {
         if (kc) return kc;
         kc = new KiteConnect({ api_key: engineConfig.API_KEY });
-        kc.setAccessToken(fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim());
+        kc.setAccessToken(engineConfig.getAccessToken());
         return kc;
     }
 

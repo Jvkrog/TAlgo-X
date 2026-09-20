@@ -16,7 +16,6 @@
 // decides" boundary from the design doc.
 "use strict";
 
-const fs = require("fs");
 const { KiteConnect } = require("kiteconnect");
 const c = require("./c");
 
@@ -116,7 +115,7 @@ async function resolveWatchlist(watchlistEntries) {
     async function getCsvRepoFor(exchange) {
         if (csvReposByExchange.has(exchange)) return csvReposByExchange.get(exchange);
 
-        const ACCESS_TOKEN = fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim();
+        const ACCESS_TOKEN = engineConfig.getAccessToken();
         const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
         kc.setAccessToken(ACCESS_TOKEN);
 
@@ -177,7 +176,7 @@ async function main() {
     // marketFeed.js's own single kc for all resolved instruments — Kite's
     // historical-data endpoint doesn't require a per-exchange client.
     console.log(c.dim("SCANNER  backfilling historical candles..."));
-    const ACCESS_TOKEN = fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim();
+    const ACCESS_TOKEN = engineConfig.getAccessToken();
     const backfillKc = new KiteConnect({ api_key: engineConfig.API_KEY });
     backfillKc.setAccessToken(ACCESS_TOKEN);
     await backfillCandles(backfillKc, resolved, rawCandleBuffers);

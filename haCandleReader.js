@@ -17,7 +17,6 @@
 // (doji) -> null, meaning "no read this bar, treat as unchanged."
 "use strict";
 
-const fs = require("fs");
 const { KiteConnect } = require("kiteconnect");
 const { fetchHistoricalCandles, fetchDailyCandles } = require("./historicalFetch");
 const { toHA } = require("./indicators");
@@ -58,7 +57,7 @@ function createHaCandleReader({ token, timeframe, engineConfig, label }) {
     // means a rotated token is picked up the very next refresh cycle.
     function getClient() {
         if (!kc) kc = new KiteConnect({ api_key: engineConfig.API_KEY });
-        kc.setAccessToken(fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim());
+        kc.setAccessToken(engineConfig.getAccessToken());
         return kc;
     }
 

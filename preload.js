@@ -8,11 +8,10 @@
 "use strict";
 
 const { KiteConnect } = require("kiteconnect");
-const fs = require("fs");
 
 function createPreload({ context, engineConfig, candles, tg }) {
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
-    kc.setAccessToken(fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim());
+    kc.setAccessToken(engineConfig.getAccessToken());
 
     async function preload() {
         try {

@@ -21,7 +21,6 @@
 "use strict";
 
 const { KiteConnect } = require("kiteconnect");
-const fs = require("fs");
 const c  = require("./c");
 const { TIMEFRAME_TO_INTERVAL, TIMEFRAME_MINUTES } = require("./historicalFetch");
 const { toHA, atrSeries, dpi, choppinessIndex } = require("./indicators");
@@ -31,7 +30,7 @@ const { emitEvent } = require("./eventBridge"); // web dashboard only, see event
 
 function createCandlePoll({ context, engineConfig, state, candles, slStore, targetStore, orders, positionsClose, processCandle, db, tg, deltaBuffer = null }) {
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
-    kc.setAccessToken(fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim());
+    kc.setAccessToken(engineConfig.getAccessToken());
 
     // Resolved from context.timeframe (set by context.js from the running
     // strategy's STRATEGY_TIMEFRAME — see strategies.js) so ALMA_BAND polls

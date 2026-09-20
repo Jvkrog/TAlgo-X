@@ -15,7 +15,6 @@
 // line instead of a prompt.
 "use strict";
 
-const fs = require("fs");
 const { KiteConnect } = require("kiteconnect");
 const { STRATEGIES, STRATEGY_INFO, DEFAULT_STRATEGY } = require("./strategies");
 const customStrategyDb           = require("./customStrategyDb");
@@ -469,7 +468,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     if (confirm !== "Y") { console.log(c.dim("  cancelled")); await pauseForReview(); return; }
 
     // ── Run ────────────────────────────────────────────────────────────────
-    const ACCESS_TOKEN = fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim();
+    const ACCESS_TOKEN = engineConfig.getAccessToken();
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
     kc.setAccessToken(ACCESS_TOKEN);
 

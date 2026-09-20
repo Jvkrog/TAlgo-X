@@ -21,7 +21,6 @@
 "use strict";
 
 const { KiteConnect, KiteTicker } = require("kiteconnect");
-const fs = require("fs");
 const c  = require("./c");
 const { istParts } = require("./istTime");
 
@@ -41,7 +40,7 @@ const { istParts } = require("./istTime");
 //
 //   timeframeMinutes — the Scanner's own fixed cadence (default 15).
 function createMarketFeed({ engineConfig, resolvedInstruments, onCandle, timeframeMinutes = 15 }) {
-    const ACCESS_TOKEN = fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim();
+    const ACCESS_TOKEN = engineConfig.getAccessToken();
 
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
     kc.setAccessToken(ACCESS_TOKEN);

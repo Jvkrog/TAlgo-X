@@ -2,9 +2,11 @@
 // file in place, without disturbing anything else already in it. Added
 // Sep 2026 (reported directly) for two things that both needed the same
 // primitive: webdash prompting for and saving a WEBDASH_PIN on first run,
-// and pushing a refreshed Kite ACCESS_TOKEN into .env directly instead of
-// only the separate access_code.txt file (see engineConfig.js's own header
-// on ACCESS_TOKEN_FILE for why that file still exists too).
+// and pushing a refreshed Kite ACCESS_TOKEN into .env — .env is now the
+// ONLY place ACCESS_TOKEN lives; the old separate access_code.txt mirror
+// file (and engineConfig.js's old ACCESS_TOKEN_FILE export) are gone, every
+// reader across the codebase now calls engineConfig.getAccessToken()
+// instead, which uses readEnvVarFresh() below.
 //
 // Anchored to __dirname (this file's own location, repo root) rather than
 // cwd or a path passed in — same reasoning as engineConfig.js's own .env

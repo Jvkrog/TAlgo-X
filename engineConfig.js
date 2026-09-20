@@ -6,7 +6,6 @@
 "use strict";
 
 const path = require("path");
-const fs   = require("fs");
 
 // Anchored to __dirname, not left to dotenv's own default (process.cwd()).
 // Before talgox was wired up as a global command (npm link), engineConfig.js
@@ -23,33 +22,30 @@ require("dotenv").config({ path: path.join(__dirname, ".env"), quiet: true });
 // paths in their .env — only fixes the relative-path case.
 const resolveLocal = p => (p ? path.resolve(__dirname, p) : p);
 
-const ACCESS_TOKEN_FILE = resolveLocal(process.env.ACCESS_FILE || "access_code.txt");
-
-// CHANGED Sep 2026 (reported directly) — the token-refresh flows (webdash's
-// /api/token route, toolbox.js's own refresh prompt) now push a new Kite
-// access token into .env's ACCESS_TOKEN key directly, not just this file.
-// ACCESS_TOKEN_FILE itself isn't going away — ~18 places across this
-// codebase read it with a plain fs.readFileSync(...).trim() (engine.js,
-// hedgePairEngine.js, orders.js, every gate/reader module that builds its
-// own KiteConnect client, etc.), and rewriting all of them to read
-// process.env instead was a lot more blast radius on a live trading system
-// than this warrants. Instead, this file is now just a generated mirror of
-// .env's ACCESS_TOKEN, refreshed here on every boot (covers the case of
-// someone editing .env's ACCESS_TOKEN by hand too, not just the two UI
-// flows that already write both). Nobody should need to look at or edit
-// access_code.txt directly anymore — .env is the one place that matters.
-if (process.env.ACCESS_TOKEN) {
-    try {
-        fs.writeFileSync(ACCESS_TOKEN_FILE, process.env.ACCESS_TOKEN);
-    } catch (err) {
-        console.warn(`engineConfig: couldn't sync ACCESS_TOKEN to ${ACCESS_TOKEN_FILE}: ${err.message}`);
-    }
+// CHANGED Sep 2026 (reported directly, full rip-and-replace this time) —
+// ACCESS_TOKEN now lives in .env ONLY. The old access_code.txt mirror file
+// (and the sync-on-boot that kept it current) is gone; every one of the
+// ~18 places that used to do fs.readFileSync(ACCESS_TOKEN_FILE).trim() now
+// calls getAccessToken() below instead. That file on disk (if it still
+// exists from before this change) is dead — nothing reads or writes it
+// anymore, safe to delete.
+//
+// getAccessToken() re-reads .env fresh on every call (readEnvVarFresh,
+// bypassing process.env's cache) rather than returning a value captured
+// once at require() time — several callers (webdash/server.js in
+// particular) depended on always seeing a same-day token refresh without
+// needing their own process restarted, which is exactly what the old file
+// being re-read on every use gave them for free. A plain
+// `process.env.ACCESS_TOKEN` here would have silently dropped that.
+const { readEnvVarFresh } = require("./envFile");
+function getAccessToken() {
+    return (readEnvVarFresh("ACCESS_TOKEN") || "").trim();
 }
 
 module.exports = {
     API_KEY:           process.env.API_KEY,
     API_SECRET:        process.env.API_SECRET,       // needed by toolbox.js to exchange request_token -> access_token
-    ACCESS_TOKEN_FILE,
+    getAccessToken,
 
     // Instrument source — checked in this order (see instrumentSource.js):
     //   1. local CSV file at this path, if it exists and parses successfully

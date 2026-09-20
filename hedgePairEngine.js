@@ -87,7 +87,6 @@
 // follow-up, same as the toolbox UI.
 "use strict";
 
-const fs = require("fs");
 const { KiteConnect } = require("kiteconnect");
 const engineConfig = require("./engineConfig");
 const c = require("./c");
@@ -124,7 +123,7 @@ async function main() {
         process.exit(1);
     }
     const EXCHANGE_OVERRIDE = process.env.EXCHANGE_OVERRIDE || "MCX";
-    const ACCESS_TOKEN = fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim();
+    const ACCESS_TOKEN = engineConfig.getAccessToken();
 
     // Live/paper mode — set per-process by the toolbox/webdash deploy flow,
     // same pattern as engine.js's own LIVE_ORDERS_OVERRIDE handling. Safe to

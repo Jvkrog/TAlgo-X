@@ -29,7 +29,6 @@
 "use strict";
 
 const { KiteConnect } = require("kiteconnect");
-const fs           = require("fs");
 const engineConfig = require("./engineConfig");
 const c            = require("./c");
 const { normalizePrice } = require("./price");
@@ -37,7 +36,7 @@ const { createDailyHaGate } = require("./dailyHaGate");
 
 function createOrders(context, tg) {
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
-    kc.setAccessToken(fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim());
+    kc.setAccessToken(engineConfig.getAccessToken());
 
     // Universal daily-HA directional gate — see dailyHaGate.js's own header
     // for why this lives here instead of alongside chopGate.js et al.'s

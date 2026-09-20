@@ -188,7 +188,7 @@ async function getEngineProcesses() {
 let kiteClient = null;
 function ensureKite() {
     if (kiteClient) return kiteClient;
-    const ACCESS_TOKEN = fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim();
+    const ACCESS_TOKEN = engineConfig.getAccessToken();
     kiteClient = new KiteConnect({ api_key: engineConfig.API_KEY });
     kiteClient.setAccessToken(ACCESS_TOKEN);
     return kiteClient;
@@ -2321,7 +2321,7 @@ async function backtestHedgePairFlow() {
         console.log(c.yellow("  invalid date — use YYYY-MM-DD")); await pauseForReview(); return;
     }
 
-    const ACCESS_TOKEN = fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim();
+    const ACCESS_TOKEN = engineConfig.getAccessToken();
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
     kc.setAccessToken(ACCESS_TOKEN);
 
@@ -3135,12 +3135,11 @@ async function updateAccessToken() {
 
     try {
         const session = await kc.generateSession(requestToken, engineConfig.API_SECRET);
-        // .env's ACCESS_TOKEN is the one place to look now — see
-        // engineConfig.js's header on ACCESS_TOKEN_FILE for why that file
-        // is still also written (every engine process reads the file
-        // directly, not process.env).
+        // .env's ACCESS_TOKEN is the ONLY place this is written now — every
+        // reader across the codebase calls engineConfig.getAccessToken(),
+        // which re-reads .env fresh every time (see engineConfig.js). No
+        // more access_code.txt mirror file as of this change.
         upsertEnvVar("ACCESS_TOKEN", session.access_token);
-        fs.writeFileSync(engineConfig.ACCESS_TOKEN_FILE, session.access_token);
         console.log(c.green(`  access token updated -> .env (ACCESS_TOKEN)`));
         console.log(c.yellow("  restart any running processes to pick up the new token."));
         csvRepo       = null;   // force a fresh instrument-dump load next time it's needed

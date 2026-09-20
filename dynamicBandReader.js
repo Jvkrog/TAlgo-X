@@ -24,7 +24,6 @@
 // ever happened — "no white", defaults green), "red" while SHORT.
 "use strict";
 
-const fs = require("fs");
 const { KiteConnect } = require("kiteconnect");
 const { fetchHistoricalCandles } = require("./historicalFetch");
 
@@ -92,7 +91,7 @@ function createDynamicBandReader({ token, timeframe, bandStep, engineConfig, lab
     // every refresh instead of caching it from the first read.
     function getClient() {
         if (!kc) kc = new KiteConnect({ api_key: engineConfig.API_KEY });
-        kc.setAccessToken(fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim());
+        kc.setAccessToken(engineConfig.getAccessToken());
         return kc;
     }
 

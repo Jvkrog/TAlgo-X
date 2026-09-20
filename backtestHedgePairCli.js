@@ -13,7 +13,6 @@
 // by hand) is the separate follow-up already flagged in chat.
 "use strict";
 
-const fs = require("fs");
 const readline = require("readline");
 const { KiteConnect } = require("kiteconnect");
 const engineConfig = require("./engineConfig");
@@ -62,7 +61,7 @@ async function main() {
 
     rl.close();
 
-    const ACCESS_TOKEN = fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim();
+    const ACCESS_TOKEN = engineConfig.getAccessToken();
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
     kc.setAccessToken(ACCESS_TOKEN);
 

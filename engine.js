@@ -15,7 +15,6 @@ const { createContractPinStore }      = require("./contractPins");
 const { resolveCurrent }              = require("./instrumentResolution");
 const engineConfig                    = require("./engineConfig");
 const c                               = require("./c");
-const fs                              = require("fs");
 const { KiteConnect, KiteTicker }     = require("kiteconnect");
 
 const { createTelegram }     = require("./telegram");
@@ -43,7 +42,7 @@ async function main() {
     const underlying = process.env.UNDERLYING || "NATGASMINI";
     const def = getDefinition(underlying, process.env.EXCHANGE_OVERRIDE);
 
-    const ACCESS_TOKEN = fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim();
+    const ACCESS_TOKEN = engineConfig.getAccessToken();
 
     // ─── RESOLVE CONTRACT — CSV Repository load + Contract Resolver pick.
     console.log(c.dim(`[${def.tgPrefix}] loading instrument dump...`));
