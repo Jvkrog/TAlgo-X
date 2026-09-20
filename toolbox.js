@@ -30,6 +30,7 @@ const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = requ
 const { INDICATOR_CATALOG } = require("./indicatorCatalog");
 const { normalizePrice }    = require("./price");
 const { createTelegram }    = require("./telegram");
+const { upsertEnvVar }      = require("./envFile");
 const customStrategyDb = require("./customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("./historicalFetch");
 const { adx } = require("./indicators");
@@ -3134,11 +3135,17 @@ async function updateAccessToken() {
 
     try {
         const session = await kc.generateSession(requestToken, engineConfig.API_SECRET);
+        // .env's ACCESS_TOKEN is the one place to look now — see
+        // engineConfig.js's header on ACCESS_TOKEN_FILE for why that file
+        // is still also written (every engine process reads the file
+        // directly, not process.env).
+        upsertEnvVar("ACCESS_TOKEN", session.access_token);
         fs.writeFileSync(engineConfig.ACCESS_TOKEN_FILE, session.access_token);
-        console.log(c.green(`  access token updated -> ${engineConfig.ACCESS_TOKEN_FILE}`));
+        console.log(c.green(`  access token updated -> .env (ACCESS_TOKEN)`));
         console.log(c.yellow("  restart any running processes to pick up the new token."));
         csvRepo       = null;   // force a fresh instrument-dump load next time it's needed
         equityCsvRepo = null;   // same, for the NSE equity dump
+        nfoCsvRepo    = null;   // same, for the NFO options dump
         kiteClient    = null;   // was authenticated with the now-stale token
     } catch (err) {
         console.log(c.red(`  token exchange failed: ${err.message}`));
