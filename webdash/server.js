@@ -26,7 +26,7 @@ const pm2 = require("pm2");
 const sqlite3 = require("sqlite3").verbose();
 const { KiteConnect } = require("kiteconnect");
 const engineConfig = require("../engineConfig");
-const { upsertEnvVar } = require("../envFile");
+const { upsertEnvVar, ENV_PATH: ENV_FILE_PATH } = require("../envFile");
 
 // ─── TOOLBOX PORT — same modules toolbox.js's Add Instrument / Backtest /
 // Setup Credentials screens use, required directly rather than reaching
@@ -106,18 +106,19 @@ const pinStore = createContractPinStore(path.join(ROOT, "contractPins.json"));
 let csvRepo = null;
 let equityCsvRepo = null;
 
-// Deliberately NOT memoized — engineConfig.ACCESS_TOKEN_FILE gets rewritten
-// daily by the accesscode generator, and this server process stays up for
-// days at a time (unlike a one-shot toolbox.js CLI invocation). Caching the
-// client here meant every toolbox request after the day's first one kept
-// using whichever token was on disk at server boot, failing with "Incorrect
-// api_key or access_token" even once the on-disk file was current again —
+// Deliberately NOT memoized — .env's ACCESS_TOKEN gets refreshed daily by
+// the token-exchange flow, and this server process stays up for days at a
+// time (unlike a one-shot toolbox.js CLI invocation). Caching the client
+// here meant every toolbox request after the day's first one kept using
+// whichever token was current at server boot, failing with "Incorrect
+// api_key or access_token" even once the day's new token was in .env —
 // same construct-fresh-each-time pattern the token-exchange endpoint below
-// already uses, now applied here too.
+// already uses, now applied here too. engineConfig.getAccessToken() itself
+// re-reads .env from disk on every call, not process.env's boot-time cache
+// — that's what actually makes this safe to not memoize.
 function ensureToolboxKite() {
-    const ACCESS_TOKEN = fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim();
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
-    kc.setAccessToken(ACCESS_TOKEN);
+    kc.setAccessToken(engineConfig.getAccessToken());
     return kc;
 }
 
@@ -304,11 +305,11 @@ async function exchangeToken(requestToken) {
     }
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
     const session = await kc.generateSession(requestToken, engineConfig.API_SECRET);
-    // .env's ACCESS_TOKEN is the one place to look now — see engineConfig.js's
-    // header on ACCESS_TOKEN_FILE for why that file is still also written
-    // (every engine process reads the file directly, not process.env).
+    // .env's ACCESS_TOKEN is the ONLY place this is written now — every
+    // reader across the codebase calls engineConfig.getAccessToken(), which
+    // re-reads .env fresh every time. No more access_code.txt mirror file
+    // as of this change (see engineConfig.js).
     upsertEnvVar("ACCESS_TOKEN", session.access_token);
-    fs.writeFileSync(engineConfig.ACCESS_TOKEN_FILE, session.access_token);
     return session;
 }
 
@@ -1733,8 +1734,8 @@ app.post("/api/toolbox/roll/apply", async (req, res) => {
 
 // ─── KITE ACCESS TOKEN ──────────────────────────────────────────────────────
 // Same exchange this project's toolbox.js already does by hand every
-// morning (kc.generateSession + write to engineConfig.ACCESS_TOKEN_FILE) —
-// this just adds a browser-driven way to trigger it, either via the
+// morning (kc.generateSession + upsertEnvVar("ACCESS_TOKEN", ...) into
+// .env) — this just adds a browser-driven way to trigger it, either via the
 // auto-capture callback (if you've pointed your Kite app's Redirect URL at
 // GET /api/token/callback on this server) or via manual paste, same as the
 // CLI's "paste the request_token" prompt. Neither path touches any engine
@@ -1746,10 +1747,18 @@ if (!engineConfig.API_KEY) {
 
 app.get("/api/token/status", (req, res) => {
     try {
-        const exists = fs.existsSync(engineConfig.ACCESS_TOKEN_FILE);
-        const stat = exists ? fs.statSync(engineConfig.ACCESS_TOKEN_FILE) : null;
+        const token = engineConfig.getAccessToken();
+        // No per-key mtime once ACCESS_TOKEN lives inside .env alongside
+        // everything else (unlike the old dedicated access_code.txt, whose
+        // mtime WAS exactly "when the token last changed") — the whole
+        // .env file's mtime is the closest available proxy. Slightly
+        // over-reports (any unrelated .env edit bumps it too), but this
+        // field is a rough "does this look stale" signal for a human
+        // glancing at the dashboard, not something anything else depends
+        // on for correctness.
+        const stat = fs.existsSync(ENV_FILE_PATH) ? fs.statSync(ENV_FILE_PATH) : null;
         res.json({
-            set: exists && fs.readFileSync(engineConfig.ACCESS_TOKEN_FILE, "utf8").trim().length > 0,
+            set: token.length > 0,
             updatedAt: stat ? stat.mtime : null,
             apiKeyConfigured: !!engineConfig.API_KEY,
             apiSecretConfigured: !!engineConfig.API_SECRET,
