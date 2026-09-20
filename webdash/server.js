@@ -222,19 +222,46 @@ const sessions = new Map(); // token -> expiresAt
 // actually update. Only prompts once ever, the same way any other .env
 // value works — set WEBDASH_PIN="" in .env and remove it if you deliberately
 // want auth disabled again without being asked every time.
-async function ensureWebdashPin() {
+//
+// askHidden() masks what's typed with `*` as it's typed — the plain
+// rl.question() used everywhere else in this codebase is fine for
+// underlying names and lot sizes, but a PIN (and, below, API_SECRET)
+// echoing in plaintext to a terminal someone might be screen-sharing or
+// recording defeats the point of having one. Falls back to a normal
+// (visible) prompt when stdout isn't a real TTY (e.g. piped/redirected
+// output) — the `_writeToOutput` override this relies on only makes sense
+// against an actual terminal.
+function askHidden(rl, query) {
+    if (!process.stdout.isTTY) {
+        return new Promise(resolve => rl.question(query, answer => resolve(answer.trim())));
+    }
+    return new Promise(resolve => {
+        const originalWriteToOutput = rl._writeToOutput;
+        rl._writeToOutput = function (stringToWrite) {
+            // Let the prompt text itself and the final newline through
+            // untouched; mask every other character typed as `*`.
+            if (stringToWrite === query || stringToWrite === "\r\n" || stringToWrite === "\n") {
+                originalWriteToOutput.call(rl, stringToWrite);
+            } else {
+                originalWriteToOutput.call(rl, "*");
+            }
+        };
+        rl.question(query, answer => {
+            rl._writeToOutput = originalWriteToOutput;
+            resolve(answer.trim());
+        });
+    });
+}
+
+async function ensureWebdashPin(rl) {
     if (WEBDASH_PIN) return;
     console.log("webdash: no WEBDASH_PIN set in .env yet — the dashboard would otherwise be open to anyone who reaches this port.");
-    const readline = require("readline");
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const question = q => new Promise(resolve => rl.question(q, resolve));
     let pin = "";
     while (pin.length < 4) {
-        pin = (await question("  set a PIN for the dashboard (4+ characters, or blank to skip and leave it disabled): ")).trim();
+        pin = await askHidden(rl, "  set a PIN for the dashboard (4+ characters, or blank to skip and leave it disabled): ");
         if (pin === "") break; // explicit opt-out — don't loop forever on someone who really doesn't want one
         if (pin.length < 4) console.log("  PIN must be at least 4 characters — try again.");
     }
-    rl.close();
     if (pin === "") {
         console.log("webdash: continuing without a PIN — dashboard will be open to anyone who reaches this port.");
         return;
@@ -242,6 +269,38 @@ async function ensureWebdashPin() {
     upsertEnvVar("WEBDASH_PIN", pin);
     WEBDASH_PIN = pin; // this same process picks it up immediately, no restart
     console.log("webdash: PIN saved to .env — dashboard is now locked.");
+}
+
+// CHANGED Sep 2026 (reported directly) — API_KEY/API_SECRET missing used to
+// just print a warning at boot and let every /api/token/* route 404/500
+// the first time someone actually tried to use them. Now asked for right
+// here too, same one-time-at-boot pattern as the PIN above, so "generate
+// token" always has what it needs by the time anyone reaches that screen.
+// engineConfig is required once and shared by reference across this whole
+// process (never destructured into a separate local anywhere in this
+// file) — mutating engineConfig.API_KEY/API_SECRET directly here is
+// picked up immediately by every route that reads it, no restart needed,
+// same reasoning as WEBDASH_PIN above.
+async function ensureApiCredentials(rl) {
+    if (!engineConfig.API_KEY) {
+        const key = (await new Promise(resolve => rl.question("webdash: API_KEY not set in .env — Kite API key: ", a => resolve(a.trim())))) || "";
+        if (key) {
+            upsertEnvVar("API_KEY", key);
+            engineConfig.API_KEY = key;
+        }
+    }
+    if (!engineConfig.API_SECRET) {
+        const secret = await askHidden(rl, "webdash: API_SECRET not set in .env — Kite API secret: ");
+        if (secret) {
+            upsertEnvVar("API_SECRET", secret);
+            engineConfig.API_SECRET = secret;
+        }
+    }
+    if (!engineConfig.API_KEY || !engineConfig.API_SECRET) {
+        console.warn("webdash: API_KEY/API_SECRET still not set — /api/token/* routes will fail until they are (Settings, or edit .env directly).");
+    } else {
+        console.log("webdash: API credentials saved to .env.");
+    }
 }
 
 function parseCookies(header) {
@@ -1740,10 +1799,8 @@ app.post("/api/toolbox/roll/apply", async (req, res) => {
 // GET /api/token/callback on this server) or via manual paste, same as the
 // CLI's "paste the request_token" prompt. Neither path touches any engine
 // process directly — same "restart to pick it up" caveat toolbox.js already
-// has applies here too.
-if (!engineConfig.API_KEY) {
-    console.warn("webdash: API_KEY not set in .env — /api/token/* routes will fail until it is");
-}
+// has applies here too. (No more "API_KEY not set" warning here — superseded
+// by ensureApiCredentials() prompting for it at boot, see above.)
 
 app.get("/api/token/status", (req, res) => {
     try {
@@ -1863,7 +1920,14 @@ dashWss.on("connection", ws => {
 });
 
 (async () => {
-    await ensureWebdashPin();
+    // One shared readline interface for both boot-time prompts below,
+    // closed right after — nothing later in this file needs stdin (every
+    // other "ask a human something" path here goes through the browser).
+    const readline = require("readline");
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    await ensureApiCredentials(rl);
+    await ensureWebdashPin(rl);
+    rl.close();
     try {
         await pm2Connect();
     } catch (err) {
