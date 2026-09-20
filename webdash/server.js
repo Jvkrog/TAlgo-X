@@ -26,6 +26,7 @@ const pm2 = require("pm2");
 const sqlite3 = require("sqlite3").verbose();
 const { KiteConnect } = require("kiteconnect");
 const engineConfig = require("../engineConfig");
+const { upsertEnvVar } = require("../envFile");
 
 // ─── TOOLBOX PORT — same modules toolbox.js's Add Instrument / Backtest /
 // Setup Credentials screens use, required directly rather than reaching
@@ -207,13 +208,39 @@ async function scanUnderlyings(underlyings, repo, exchange, onProgress) {
 // silently locking someone out of a dashboard they never configured a PIN
 // for.
 const crypto = require("crypto");
-const WEBDASH_PIN = process.env.WEBDASH_PIN || null;
+let WEBDASH_PIN = process.env.WEBDASH_PIN || null;   // CHANGED: was const — ensureWebdashPin() below can now set it
 const SESSION_COOKIE = "webdash_session";
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12h
 const sessions = new Map(); // token -> expiresAt
 
-if (!WEBDASH_PIN) {
-    console.warn("webdash: WEBDASH_PIN not set in .env — PIN lock is DISABLED, dashboard is open to anyone who reaches this port");
+// CHANGED Sep 2026 (reported directly) — instead of just warning and
+// running wide open, `webdash` now stops at boot and asks for a PIN right
+// there in the terminal if .env doesn't have one yet, saves it straight to
+// .env (upsertEnvVar), and continues — one run, no separate setup step, no
+// restart needed since WEBDASH_PIN above is now a `let` this function can
+// actually update. Only prompts once ever, the same way any other .env
+// value works — set WEBDASH_PIN="" in .env and remove it if you deliberately
+// want auth disabled again without being asked every time.
+async function ensureWebdashPin() {
+    if (WEBDASH_PIN) return;
+    console.log("webdash: no WEBDASH_PIN set in .env yet — the dashboard would otherwise be open to anyone who reaches this port.");
+    const readline = require("readline");
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const question = q => new Promise(resolve => rl.question(q, resolve));
+    let pin = "";
+    while (pin.length < 4) {
+        pin = (await question("  set a PIN for the dashboard (4+ characters, or blank to skip and leave it disabled): ")).trim();
+        if (pin === "") break; // explicit opt-out — don't loop forever on someone who really doesn't want one
+        if (pin.length < 4) console.log("  PIN must be at least 4 characters — try again.");
+    }
+    rl.close();
+    if (pin === "") {
+        console.log("webdash: continuing without a PIN — dashboard will be open to anyone who reaches this port.");
+        return;
+    }
+    upsertEnvVar("WEBDASH_PIN", pin);
+    WEBDASH_PIN = pin; // this same process picks it up immediately, no restart
+    console.log("webdash: PIN saved to .env — dashboard is now locked.");
 }
 
 function parseCookies(header) {
@@ -277,6 +304,10 @@ async function exchangeToken(requestToken) {
     }
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
     const session = await kc.generateSession(requestToken, engineConfig.API_SECRET);
+    // .env's ACCESS_TOKEN is the one place to look now — see engineConfig.js's
+    // header on ACCESS_TOKEN_FILE for why that file is still also written
+    // (every engine process reads the file directly, not process.env).
+    upsertEnvVar("ACCESS_TOKEN", session.access_token);
     fs.writeFileSync(engineConfig.ACCESS_TOKEN_FILE, session.access_token);
     return session;
 }
@@ -1822,12 +1853,13 @@ dashWss.on("connection", ws => {
     }
 });
 
-pm2Connect()
-    .then(() => {
-        server.listen(PORT, () => console.log(`webdash server listening on :${PORT}`));
-    })
-    .catch(err => {
+(async () => {
+    await ensureWebdashPin();
+    try {
+        await pm2Connect();
+    } catch (err) {
         console.error("webdash: failed to connect to PM2 —", err.message);
         console.error("webdash: starting anyway (instrument list / controls will be unavailable until PM2 is reachable)");
-        server.listen(PORT, () => console.log(`webdash server listening on :${PORT}`));
-    });
+    }
+    server.listen(PORT, () => console.log(`webdash server listening on :${PORT}`));
+})();
