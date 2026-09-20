@@ -70,6 +70,28 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 function ask(prompt) {
     return new Promise(resolve => rl.question(prompt, answer => resolve(answer.trim())));
 }
+// Masks what's typed with `*` as it's typed — for secrets (API_SECRET) that
+// shouldn't echo in plaintext to a terminal someone might be screen-sharing
+// or recording. Falls back to a normal (visible) prompt when stdout isn't a
+// real TTY, since the `_writeToOutput` override this relies on only makes
+// sense against an actual terminal.
+function askHidden(prompt) {
+    if (!process.stdout.isTTY) return ask(prompt);
+    return new Promise(resolve => {
+        const original = rl._writeToOutput;
+        rl._writeToOutput = function (stringToWrite) {
+            if (stringToWrite === prompt || stringToWrite === "\r\n" || stringToWrite === "\n") {
+                original.call(rl, stringToWrite);
+            } else {
+                original.call(rl, "*");
+            }
+        };
+        rl.question(prompt, answer => {
+            rl._writeToOutput = original;
+            resolve(answer.trim());
+        });
+    });
+}
 // Every action function ends with this. The main loop calls console.clear()
 // on its very next renderMenu(), so without an explicit pause here, any
 // success/error message printed by an action gets wiped before it's
@@ -3085,15 +3107,15 @@ async function setupCredentials() {
 
     const fields = [
         { key: "API_KEY",          label: "Kite API key" },
-        { key: "API_SECRET",       label: "Kite API secret" },
-        { key: "TELEGRAM_TOKEN",   label: "Telegram bot token" },
+        { key: "API_SECRET",       label: "Kite API secret",  hidden: true },
+        { key: "TELEGRAM_TOKEN",   label: "Telegram bot token", hidden: true },
         { key: "TELEGRAM_CHAT_ID", label: "Telegram chat ID" },
     ];
 
     const updates = {};
     for (const f of fields) {
         console.log(`  ${f.label}: ${maskSecret(current[f.key])}`);
-        const input = await ask(`  new value (blank = keep): `);
+        const input = await (f.hidden ? askHidden(`  new value (blank = keep): `) : ask(`  new value (blank = keep): `));
         if (input) updates[f.key] = input;
         console.log();
     }
@@ -3115,9 +3137,34 @@ async function setupCredentials() {
     await pauseForReview();
 }
 
-async function updateAccessToken() {
+// CHANGED Sep 2026 (reported directly) — used to just print an error and
+// bail if API_SECRET wasn't set yet. Now prompts for whichever of
+// API_KEY/API_SECRET is missing right here (same as setupCredentials()
+// would ask, just inline so "generate token" doesn't dead-end into a
+// separate menu screen first) and saves it before continuing.
+async function ensureApiCredentialsForToken() {
+    if (engineConfig.API_KEY && engineConfig.API_SECRET) return true;
+    console.log(c.yellow("  API_KEY/API_SECRET not set in .env yet — needed to exchange a request_token."));
+    const updates = {};
+    if (!engineConfig.API_KEY) {
+        const key = await ask("  Kite API key: ");
+        if (key) { updates.API_KEY = key; engineConfig.API_KEY = key; }
+    }
     if (!engineConfig.API_SECRET) {
-        console.log(c.red("  API_SECRET not set in .env — required to exchange request_token for access_token"));
+        const secret = await askHidden("  Kite API secret: ");
+        if (secret) { updates.API_SECRET = secret; engineConfig.API_SECRET = secret; }
+    }
+    if (Object.keys(updates).length > 0) writeEnvFile(updates);
+    if (!engineConfig.API_KEY || !engineConfig.API_SECRET) {
+        console.log(c.red("  still missing — can't continue without both."));
+        return false;
+    }
+    console.log(c.green("  saved to .env."));
+    return true;
+}
+
+async function updateAccessToken() {
+    if (!(await ensureApiCredentialsForToken())) {
         await pauseForReview();
         return;
     }
