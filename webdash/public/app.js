@@ -2425,24 +2425,24 @@ async function renderRollPickStep() {
     if (candidates.length === 0) {
       html += `<div class="tb-form-hint">no running MCX instruments to roll</div>`;
     } else {
-      html += `<div class="tb-form-label" style="margin-bottom:8px">select instrument to roll</div>`;
+      html += `<div class="tb-form-label" style="margin-bottom:8px">select underlying to roll</div>`;
       candidates.forEach(c => {
-        html += `<button class="tb-pick-item" data-roll-name="${c.name}" style="width:100%;text-align:left;margin-bottom:6px">${c.underlying} <span style="color:var(--dim);font-size:10px">— ${c.strategyLabel}</span></button>`;
+        html += `<button class="tb-pick-item" data-roll-underlying="${c.underlying}" style="width:100%;text-align:left;margin-bottom:6px">${c.underlying} <span style="color:var(--dim);font-size:10px">— used by: ${c.labels.join(", ")}</span></button>`;
       });
     }
     tbRollBody.innerHTML = html;
-    tbRollBody.querySelectorAll("[data-roll-name]").forEach(btn => {
-      btn.addEventListener("click", () => renderRollPreviewStep(btn.dataset.rollName));
+    tbRollBody.querySelectorAll("[data-roll-underlying]").forEach(btn => {
+      btn.addEventListener("click", () => renderRollPreviewStep(btn.dataset.rollUnderlying));
     });
   } catch (err) {
     tbRollBody.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
   }
 }
 
-async function renderRollPreviewStep(name) {
+async function renderRollPreviewStep(underlying) {
   tbRollBody.innerHTML = `<div class="tb-form-hint">resolving...</div>`;
   try {
-    const preview = await (await fetch(`/api/toolbox/roll/preview/${encodeURIComponent(name)}`)).json();
+    const preview = await (await fetch(`/api/toolbox/roll/preview/${encodeURIComponent(underlying)}`)).json();
     if (preview.error) {
       tbRollBody.innerHTML = `
         <button class="tb-back-link" id="rollBackErr">‹ back</button>
