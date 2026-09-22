@@ -4424,6 +4424,302 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// DYNAMIC_MID_COLOR_SHORT_HOLD — strategy #22 (variant of DYNAMIC_MID_COLOR
+// #14/#16, built per explicit request). A red-only short-side strategy
+// that refuses to close a losing position on a color flip and only takes
+// profit once one actually exists.
+//
+// Rules, as specified:
+//  - Entries: SHORT ONLY. A bullish (breakHigh) signal while flat is
+//    NEVER traded — unlike every other DYNAMIC_MID_COLOR sibling, this
+//    one has no LONG side at all and never flips/reverses same-candle.
+//  - While SHORT and the band flips bullish (breakHigh): check the
+//    position's live uPnL. NOT in profit -> HOLD (position stays open,
+//    the band is deliberately NOT shifted, so this re-checks every
+//    candle until either profit turns positive or price falls back
+//    under the band on its own). IN profit -> EXIT. No reversal into
+//    LONG afterward — the strategy goes flat and waits for the next
+//    fresh SHORT breakout.
+//  - Continuation (breakLow while already SHORT) shifts the band down
+//    exactly like every other DYNAMIC_MID_COLOR sibling — that's not a
+//    flip, nothing to hold or exit.
+//  - "no chopiness no sl nothing": deliberately does NOT wire chopGate,
+//    volumeGate, longCandleGate, or htfGate — none of those universal
+//    filters apply here. No ATR trailing stop, no profit target either
+//    — the ONLY exit path is the profitable-flip rule above (plus
+//    EOD/lifecycle, which every strategy still gets from outside this
+//    file). dailyHaGate.js (the one universal gate that lives inside
+//    orders.js's enter() itself, not here, so it can't be skipped the
+//    same way) is explicitly disabled for this strategy via
+//    context.dailyHaGateEnabled = false in initSignals() below — left
+//    on, it could otherwise contradict the short-only rule on a green
+//    daily candle.
+//  - NRML, not MIS: this strategy is meant to carry positions overnight,
+//    so context.carryOvernight is force-set to true in initSignals()
+//    regardless of whatever the operator configured for this instrument
+//    at deploy time — orders.js derives its order product ("NRML" vs
+//    "MIS") from that flag, so this makes NRML unconditional for this
+//    strategy specifically rather than relying on the operator to
+//    remember the toggle.
+//
+// Band mechanics (mid/high/low, breakout/shift) are copied unchanged
+// from createDynamicMidColorStrategy — this is a genuine sibling, not a
+// rewrite of the indicator itself.
+//
+// Boot/restart: same history-replay convention as DYNAMIC_MID_COLOR —
+// replayHistory() below re-runs this exact short-only/hold-through-flip
+// state machine over preloaded candle CLOSES (close-only, since that's
+// all history gives) to reconstruct band geometry AND, if it implies an
+// open SHORT with no real position already resumed from SQLite, places
+// one for real at today's live price on the very first candle — same
+// boot convention every other color-coded strategy in this file uses.
+// A saved position that is NOT "SHORT" (this strategy can never open
+// LONG) is treated as a stale/foreign row and flattened rather than
+// resumed — see initSignals().
+// ════════════════════════════════════════════════════════════════════════
+function createDynamicMidColorShortHoldStrategy({ context, engineConfig, state, db, candles, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() } }) {
+    function persist(position, entryPrice, positionSource) {
+        db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
+    }
+
+    function shiftBand(dir, bandStep) {
+        state.bandMid += dir * bandStep;
+        state.bandHigh = state.bandMid + bandStep;
+        state.bandLow  = state.bandMid - bandStep;
+    }
+
+    // Red while SHORT, holds "red" through any flat gap too — short-only,
+    // there is no green position to ever show; kept for dashboard/log
+    // parity with the other DYNAMIC_MID_COLOR variants' color field.
+    function directionColor(position) {
+        if (position === "SHORT") state.lastColor = "red";
+        return state.lastColor || "red";
+    }
+
+    async function doExit(side, livePrice, reason) {
+        const closed = await orders.exit(side);
+        if (engineConfig.LIVE_ORDERS && closed === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} exit failed (${reason}) — will retry next candle`));
+            return false;
+        }
+        tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
+        const exitPnl = await positionsClose(livePrice, reason);
+        persist(null, 0);
+        const exitCol = exitPnl > 0 ? c.green : exitPnl < 0 ? c.red : c.white;
+        console.log(exitCol(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        return true;
+    }
+
+    async function doEnter(side, livePrice, reason) {
+        // No chop/volume/long-candle/htf gates — deliberately, see header.
+        // dailyHaGate is disabled per-instrument via
+        // context.dailyHaGateEnabled (set in initSignals) rather than
+        // skipped here, since it lives inside orders.enter() itself.
+        const ordered = await orders.enter(side);
+        if (engineConfig.LIVE_ORDERS && ordered === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
+            return false;
+        }
+
+        state.position    = side;
+        state.tradesToday = (state.tradesToday || 0) + 1;
+        state.entryPrice  = livePrice;
+        state.positionSource = "DYNAMIC_MID_COLOR_SHORT_HOLD";
+        state.openTradeId = await db.insertOpenTrade(
+            context.tgPrefix, context.symbol, side, context.lots, livePrice
+        );
+
+        persist(side, livePrice, "DYNAMIC_MID_COLOR_SHORT_HOLD");
+        console.log(c[directionColor(side)](`[${context.tgPrefix}] ▼ ${side} ${reason}  @ ${livePrice.toFixed(2)}  Band:[${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: null, arrow: "▼" });
+        tg(`▼ ${side} ${reason} @ ₹${livePrice.toFixed(2)}\nBand: [${state.bandLow.toFixed(2)}, ${state.bandHigh.toFixed(2)}]`);
+        return true;
+    }
+
+    async function runSignals(rawClose, bandStep) {
+        const livePrice = candles.getLivePrice() ?? rawClose;
+        const uPnL = state.position ? positionsUnrealised(livePrice) : 0;
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+        const session = (state.pnl || 0) + uPnL;
+        const color   = directionColor(state.position);
+        console.log(c[color](`[${context.tgPrefix}] ${ts} DMIDC-SH  ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  [${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, color });
+
+        if (!engineConfig.ENGINE_ENABLED) return;
+
+        const breakHigh = rawClose > state.bandHigh;
+        const breakLow  = rawClose < state.bandLow;
+
+        if (state.position === "SHORT") {
+            if (breakLow) {
+                // continuation, not a flip — nothing to hold/exit
+                shiftBand(-1, bandStep);
+                console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT DOWN  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+            } else if (breakHigh) {
+                if (uPnL > 0) {
+                    console.log(c.yellow(`[${context.tgPrefix}] SHORT FLIP, IN PROFIT (+${uPnL.toFixed(0)})  close:${rawClose.toFixed(2)} > high:${state.bandHigh.toFixed(2)}`));
+                    const exited = await doExit("SHORT", livePrice, "PROFITABLE FLIP EXIT");
+                    if (exited) {
+                        shiftBand(+1, bandStep);
+                        console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT UP  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+                    }
+                    // deliberately no reversal into LONG — short-only.
+                } else {
+                    console.log(c.dim(`[${context.tgPrefix}] SHORT FLIP, NOT in profit (${fmt(uPnL)})  HOLDING  close:${rawClose.toFixed(2)} > high:${state.bandHigh.toFixed(2)}`));
+                    // band deliberately NOT shifted — re-checked every candle
+                }
+            }
+        } else {
+            if (breakLow) {
+                console.log(c.yellow(`[${context.tgPrefix}] SHORT BREAKOUT  close:${rawClose.toFixed(2)} < low:${state.bandLow.toFixed(2)}`));
+                const entered = await doEnter("SHORT", livePrice, "SHORT ENTRY");
+                if (entered) {
+                    shiftBand(-1, bandStep);
+                    console.log(c.cyan(`[${context.tgPrefix}] BAND SHIFT DOWN  -> ${state.bandHigh.toFixed(2)}/${state.bandMid.toFixed(2)}/${state.bandLow.toFixed(2)}`));
+                }
+            }
+            // breakHigh while flat -> no action, red-only entries.
+        }
+    }
+
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown()) return;
+        const rawCandles = candles.getRawCandles();
+        const bandStep = context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
+
+        if (!state.historyReplayed) {
+            state.historyReplayed = true;
+            const replayWindow = rawCandles.slice(-engineConfig.MAX_CANDLES);
+            const replay = replayHistory(replayWindow, bandStep);
+
+            if (replay) {
+                state.bandMid  = replay.bandMid;
+                state.bandHigh = replay.bandHigh;
+                state.bandLow  = replay.bandLow;
+                console.log(c.cyan(`[${context.tgPrefix}] HIST REPLAY  ${replayWindow.length} candles -> MID:${replay.bandMid.toFixed(2)} HIGH:${replay.bandHigh.toFixed(2)} LOW:${replay.bandLow.toFixed(2)}  implied:${replay.position ?? "flat"}`));
+            } else {
+                state.bandMid  = rawCandle.close;
+                state.bandHigh = state.bandMid + bandStep;
+                state.bandLow  = state.bandMid - bandStep;
+                console.log(c.cyan(`[${context.tgPrefix}] BAND INIT  MID:${state.bandMid.toFixed(2)} HIGH:${state.bandHigh.toFixed(2)} LOW:${state.bandLow.toFixed(2)} STEP:${bandStep}`));
+            }
+
+            if (!state.resumedFromDb && engineConfig.ENGINE_ENABLED && replay?.position === "SHORT") {
+                const livePrice = candles.getLivePrice() ?? rawCandle.close;
+                await doEnter("SHORT", livePrice, "HIST REPLAY ENTRY");
+            }
+            return; // this candle is fully accounted for by the replay above
+        }
+
+        await runSignals(rawCandle.close, bandStep);
+    }
+
+    // Same short-only/hold-through-unprofitable-flip state machine as
+    // runSignals above, replayed over historical CLOSES only (that's all
+    // history gives us — no live tick-by-tick uPnL to check mid-candle,
+    // so "in profit" here means "this candle's close beats the replayed
+    // entry close", the same thing runSignals' live uPnL check reduces
+    // to at each candle's own close anyway).
+    function replayHistory(rawCandles, bandStep) {
+        if (!rawCandles || rawCandles.length === 0) return null;
+
+        let mid = rawCandles[0].close;
+        let high = mid + bandStep;
+        let low  = mid - bandStep;
+        let position = null;
+        let entryClose = null;
+
+        for (let i = 1; i < rawCandles.length; i++) {
+            const close = rawCandles[i].close;
+            const breakHigh = close > high;
+            const breakLow  = close < low;
+
+            if (position === "SHORT") {
+                if (breakLow) {
+                    mid -= bandStep;
+                } else if (breakHigh) {
+                    const profit = entryClose - close;
+                    if (profit > 0) {
+                        position = null;
+                        entryClose = null;
+                        mid += bandStep;
+                    }
+                    // not in profit -> hold, band unchanged
+                }
+            } else {
+                if (breakLow) {
+                    position = "SHORT";
+                    entryClose = close;
+                    mid -= bandStep;
+                }
+                // breakHigh while flat -> no action, red-only
+            }
+            high = mid + bandStep;
+            low  = mid - bandStep;
+        }
+
+        return { bandMid: mid, bandHigh: high, bandLow: low, position };
+    }
+
+    async function initSignals() {
+        try {
+            // Force NRML/overnight-carry for this strategy specifically,
+            // regardless of whatever the operator configured for this
+            // instrument at deploy time — see header comment.
+            context.carryOvernight = true;
+            // dailyHaGate lives inside orders.js's enter(), not here, so
+            // it can't be skipped the same way chop/volume/etc. are —
+            // disable it per-instrument instead (see header comment).
+            context.dailyHaGateEnabled = false;
+
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+
+            state.bandHigh        = null;
+            state.bandMid         = null;
+            state.bandLow         = null;
+            state.historyReplayed = false;
+            state.lastColor = "red";
+
+            state.resumedFromDb = false;
+            if (saved?.position === "SHORT") {
+                state.position   = saved.position;
+                state.entryPrice = saved.entry_price;
+                state.positionSource = saved.position_source || "DYNAMIC_MID_COLOR_SHORT_HOLD";
+
+                const openTrade = await db.getOpenTrade(context.tgPrefix);
+                state.openTradeId = openTrade ? openTrade.id : null;
+                state.resumedFromDb = true;
+            } else if (saved?.position) {
+                // A saved LONG would only mean a stale row from before
+                // this strategy existed, or manual DB tampering — this
+                // strategy never opens LONG, so flatten the stale row
+                // rather than silently resuming a position it can't own.
+                console.warn(c.yellow(`[${context.tgPrefix}] WARNING: saved position was ${saved.position}, but this strategy is short-only — clearing stale row, not resuming`));
+                db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+            }
+
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+            state.tradesToday = await db.getTradeCountToday(context.tgPrefix);
+
+            const info = state.position
+                ? `${state.position}@${state.entryPrice}`
+                : "flat (pending history replay on first candle)";
+            console.log();
+            console.log(c.red(`[${context.tgPrefix}] ${info}`));
+            console.log();
+
+            await orders.reconcile(state);
+
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // DYNAMIC_MID_COLOR_HL — strategy #16. A variant of DYNAMIC_MID_COLOR (#14),
 // NOT a replacement — #14 is untouched. Same always-in-market, no-white,
 // ATR-SL, optional-target, boot-time-history-replay design in every
@@ -6435,6 +6731,7 @@ const STRATEGIES = {
     DYNAMIC_BAND:         createDynamicBandStrategy,
     DYNAMIC_MID_COLOR:    createDynamicMidColorStrategy,
     DYNAMIC_MID_COLOR_HL: createDynamicMidColorHLStrategy,
+    DYNAMIC_MID_COLOR_SHORT_HOLD: createDynamicMidColorShortHoldStrategy,
     ALMA_TRI_BAND:        createAlmaTriBandStrategy,
     ALMA_PRO_FAST:        createAlmaProFastStrategy,
     ALMA_PRO_SLOW:        createAlmaProSlowStrategy,
@@ -6463,6 +6760,7 @@ const STRATEGY_INFO = {
     DYNAMIC_BAND:         { label: "Dynamic Band Breakout",       description: "fixed-price-step HIGH/MID/LOW band, closed-candle breakout only, immediate entry on breach (direct port of the reference Pine script), band shifts by one step on every entry/continuation, immediate exit+reverse on the opposite boundary — no ATR stop-loss, the reversal boundary itself is the stop", short: "DBAND" },
     DYNAMIC_MID_COLOR:    { label: "Dynamic Mid (Color-Coded, ATR SL)", description: "only the mid line is ever plotted (high/low are internal-only, never drawn); always-in-market — a breakout exits the current position and enters the opposite side same candle, no gap, adds an ATR trailing stop-loss and an optional fixed profit target; on every boot, replays preloaded history through the same band logic and places a real entry immediately if it implies one, same as the ALMA strategies entering at 9:15; tags every tick green/red (no white — color holds the last direction through any flat gap) by current position direction for dashboard color coding", short: "DMIDC" },
     DYNAMIC_MID_COLOR_HL: { label: "Dynamic Mid HL (Tight Continuation)", description: "variant of Dynamic Mid (Color-Coded) — identical in every respect except the band's continuation shift (extending further in the direction already held) uses this candle's HIGH while LONG / LOW while SHORT instead of close, trailing tighter behind the trend so the opposite-side reversal boundary is reached sooner; the reversal trigger itself and flat-state entries stay CLOSE-based, unchanged, to avoid a single wick alone flipping or opening a position", short: "DMIDHL" },
+    DYNAMIC_MID_COLOR_SHORT_HOLD: { label: "Dynamic Mid (Short-Only, Profit-Hold)", description: "variant of Dynamic Mid (Color-Coded) — SHORT ONLY, never opens or reverses into LONG; a bullish color flip only exits an open SHORT if it is currently in profit, otherwise holds through the flip and re-checks every candle; no chop/volume/long-candle/HTF filters, no ATR stop, no target — the profitable-flip rule is the only exit besides EOD; always carries overnight on NRML regardless of the instrument's own carry-overnight setting", short: "DMIDC-SH" },
     ALMA_TRI_BAND:        { label: "ALMA Tri-Band Agreement", description: "fast ALMA (HA close) + ALMA(high)/ALMA(low) bands driven by one shared bull/bear/grey state (green/red/grey), with big-candle and band-compression filters forcing grey; enters/exits on state flips, reverses immediately on the opposite decisive color; grey behavior while a position is open is configurable per instrument \u2014 exit flat or hold through it (default: hold); adds an ATR trailing stop and optional fixed target, neither present in the original indicator", short: "ATRIB" },
     ALMA_PRO_FAST:        { label: "ALMA Pro \u2014 Fast Engine", description: "the FAST half of strategy #17 (\"TAlgo \u2014 Pro Engine\"): fast ALMA (HA close) + ALMA(high)/ALMA(low) band, band-compression forces sideways/flat, slope+breakout confirm entries; band gate toggleable per instrument (default ON, OFF trades on slope alone), fast/band ALMA lengths also configurable per instrument (default 20/50); Choppiness Index entry filter toggleable per instrument (default ON, not in the original); run alongside ALMA_PRO_SLOW on a DIFFERENT underlying (e.g. the mini contract) for a genuine dual-engine setup \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APF" },
     ALMA_PRO_SLOW:        { label: "ALMA Pro \u2014 Slow Engine", description: "the SLOW half of strategy #17: single slow ALMA(100) on HA close, entry LEVEL-based on the line's own current slope direction (deadband-filtered, same whipsaw control ALMA_FAST uses) \u2014 no band/breakout confirmation, that's the fast engine's job; Choppiness Index entry filter toggleable per instrument (default ON, not in the original); run alongside ALMA_PRO_FAST on a DIFFERENT underlying (e.g. the full-lot contract) \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APS" },
@@ -6521,6 +6819,7 @@ const STRATEGY_TIMEFRAME = {
     // otherwise, easy to override per-instrument via TIMEFRAME_OVERRIDE.
     DYNAMIC_MID_COLOR:    "15m",
     DYNAMIC_MID_COLOR_HL: "15m",
+    DYNAMIC_MID_COLOR_SHORT_HOLD: "15m",
     // Pine source has no fixed chart timeframe (reuses whatever the chart
     // is on) — 15m matches the platform default, adjustable as usual.
     ALMA_TRI_BAND:        "15m",
@@ -6546,4 +6845,4 @@ const STRATEGY_TIMEFRAME = {
 
 const DEFAULT_STRATEGY = "DPI_TREND_MEANREV";
 
-module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy, createVolumeDeltaCvdStrategy, createPureHaStrategy, createDailyHaBiasStrategy };
+module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createDynamicMidColorShortHoldStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy, createVolumeDeltaCvdStrategy, createPureHaStrategy, createDailyHaBiasStrategy };
