@@ -1679,31 +1679,52 @@ app.get("/api/toolbox/hedgepairs/logs/:name", async (req, res) => {
 // the same sibling-process warning: the pin applies to every process
 // running that underlying, not just the one picked, so a partial restart
 // leaves processes split across two different contracts.
+//
+// CHANGED Sep 2026 (reported directly: "there is no contract roll for
+// hedge pairs", then "in webdash too") — candidates/preview are keyed by
+// UNDERLYING now, not a single process name, because a hedge pair leg
+// (hedgePairEngine.js, a different PM2 script entirely from engine.js) has
+// no equivalent standalone "process for this underlying" the way a plain
+// instrument does; underlying is the one identity both share, and it's
+// what pinStore itself is keyed on anyway. apply was already underlying-
+// scoped from the start, so only candidates/preview needed the change —
+// see toolbox.js's rollContract() for the CLI side of this same fix.
 app.get("/api/toolbox/roll/candidates", async (req, res) => {
     try {
-        const procs = await getEngineProcesses();
-        const candidates = procs.filter(p => p.exchange !== "NSE");
-        res.json(candidates.map(p => ({
-            name: p.name,
-            underlying: p.underlying,
-            strategy: p.strategy,
-            strategyLabel: (STRATEGY_INFO[p.strategy] || { label: p.strategy }).label,
-        })));
+        const procs = (await getEngineProcesses()).filter(p => p.exchange !== "NSE");
+        const hedgePairs = await getHedgePairProcesses();
+
+        const byUnderlying = new Map(); // underlying -> { underlying, exchange, labels: [] }
+        const addRef = (underlying, exchange, label) => {
+            if (!byUnderlying.has(underlying)) byUnderlying.set(underlying, { underlying, exchange, labels: [] });
+            byUnderlying.get(underlying).labels.push(label);
+        };
+        procs.forEach(p => addRef(p.underlying, p.exchange, (STRATEGY_INFO[p.strategy] || { label: p.strategy }).label));
+        hedgePairs.forEach(p => {
+            addRef(p.coreUnderlying,  p.exchange, `${p.name} (core leg)`);
+            addRef(p.hedgeUnderlying, p.exchange, `${p.name} (hedge leg)`);
+        });
+
+        res.json(Array.from(byUnderlying.values()));
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-app.get("/api/toolbox/roll/preview/:name", async (req, res) => {
+app.get("/api/toolbox/roll/preview/:underlying", async (req, res) => {
     try {
+        const underlying = req.params.underlying;
         const procs = await getEngineProcesses();
-        const p = procs.find(pr => pr.name === req.params.name);
-        if (!p) return res.status(404).json({ error: "process not found" });
+        const hedgePairs = await getHedgePairProcesses();
+        const siblings = procs.filter(sib => sib.underlying === underlying);
+        const affectedPairs = hedgePairs.filter(hp => hp.coreUnderlying === underlying || hp.hedgeUnderlying === underlying);
+        if (siblings.length === 0 && affectedPairs.length === 0) return res.status(404).json({ error: `no running processes for ${underlying}` });
 
-        const def = getDefinition(p.underlying, p.exchange);
+        const exchange = siblings[0]?.exchange || affectedPairs[0]?.exchange;
+        const def = getDefinition(underlying, exchange);
         if (def.noRoll) {
             return res.status(400).json({
-                error: `${p.underlying} is an NSE equity, not a futures contract — it doesn't expire, so there's nothing to roll.`,
+                error: `${underlying} is an NSE equity, not a futures contract — it doesn't expire, so there's nothing to roll.`,
                 noRoll: true,
             });
         }
@@ -1711,23 +1732,24 @@ app.get("/api/toolbox/roll/preview/:name", async (req, res) => {
         const repo = await ensureCsvLoaded();
         let current;
         try {
-            current = resolveCurrent(p.underlying, def, repo, pinStore).contract;
+            current = resolveCurrent(underlying, def, repo, pinStore).contract;
         } catch (err) {
             return res.status(400).json({ error: err.message });
         }
 
-        const allFutures = repo.findFuturesFor(p.underlying);
+        const allFutures = repo.findFuturesFor(underlying);
         const currentIdx = allFutures.findIndex(f => f.token === current.token);
         const next = currentIdx >= 0 ? allFutures[currentIdx + 1] : null;
 
-        const siblings = procs.filter(sib => sib.underlying === p.underlying);
-
         res.json({
-            underlying: p.underlying,
+            underlying,
             current: { symbol: current.symbol, token: current.token, lotSize: current.lotSize, tickSize: current.tickSize },
             next: next ? { symbol: next.symbol, token: next.token, lotSize: next.lotSize } : null,
             manualEntryNeeded: !next,
-            siblings: siblings.map(s => ({ name: s.name, strategy: s.strategy })),
+            siblings: [
+                ...siblings.map(s => ({ name: s.name, strategy: s.strategy })),
+                ...affectedPairs.map(hp => ({ name: hp.name, strategy: `hedge pair (${hp.coreUnderlying === underlying ? "core" : "hedge"} leg)` })),
+            ],
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1740,10 +1762,12 @@ app.post("/api/toolbox/roll/apply", async (req, res) => {
 
     try {
         const procs = await getEngineProcesses();
+        const hedgePairs = await getHedgePairProcesses();
         const siblings = procs.filter(sib => sib.underlying === underlying);
-        if (siblings.length === 0) return res.status(404).json({ error: `no running processes for ${underlying}` });
+        const affectedPairs = hedgePairs.filter(hp => hp.coreUnderlying === underlying || hp.hedgeUnderlying === underlying);
+        if (siblings.length === 0 && affectedPairs.length === 0) return res.status(404).json({ error: `no running processes for ${underlying}` });
 
-        const exchange = siblings[0].exchange;
+        const exchange = siblings[0]?.exchange || affectedPairs[0]?.exchange;
         const def = getDefinition(underlying, exchange);
         if (def.noRoll) return res.status(400).json({ error: `${underlying} is an NSE equity — nothing to roll` });
 
@@ -1781,8 +1805,20 @@ app.post("/api/toolbox/roll/apply", async (req, res) => {
                     result.restartFailed.push({ name: target.name, error: err.message });
                 }
             }
+            for (const hp of affectedPairs) {
+                try {
+                    // No env rebuild here — pin lives in pinStore's own
+                    // file, not a PM2 env var, so a plain restart is enough
+                    // (see toolbox.js's rollContract() for the same call).
+                    await pm2RestartWithConfig({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name: hp.name, cwd: ROOT });
+                    result.restarted.push(hp.name);
+                } catch (err) {
+                    result.restartFailed.push({ name: hp.name, error: err.message });
+                }
+            }
         } else {
-            result.note = `pin saved but NOT applied yet — ${siblings.map(s => s.name).join(", ")} still on ${current.symbol} until restarted`;
+            const stillOn = [...siblings.map(s => s.name), ...affectedPairs.map(hp => hp.name)];
+            result.note = `pin saved but NOT applied yet — ${stillOn.join(", ")} still on ${current.symbol} until restarted`;
         }
 
         res.json(result);
