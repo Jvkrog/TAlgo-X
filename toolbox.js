@@ -2897,14 +2897,43 @@ async function viewLogs(procs) {
 // ─── VIEW LOGS end ──────────────────────────────────────────────────────────
 
 // ─── ROLL CONTRACT — manual roll, matches the confirm-before-commit flow ────
+// CHANGED Sep 2026 (reported directly: "there is no contract roll for
+// hedge pairs") — this used to only ever list `procs` (getEngineProcesses()
+// — single-leg instruments), so a hedge pair's core/hedge underlying had no
+// way to reach this screen at all unless a SEPARATE standalone engine also
+// happened to be running on that same underlying. The roll mechanism
+// itself was never actually missing anything for hedge pairs — pinStore
+// pins are keyed by underlying string, and hedgePairContext.js already
+// calls the exact same resolveCurrent(def.underlying, ...) every leg uses
+// (see instrumentResolution.js) — this was purely a "can't even get to the
+// menu" gap in the toolbox UI, not a gap in the roll logic underneath it.
 async function rollContract(procs) {
-    if (procs.length === 0) { console.log(c.yellow("  no instruments running to roll")); await pauseForReview(); return; }
+    const hedgePairs = await getHedgePairProcesses();
 
-    procs.forEach((p, i) => console.log(`  ${String(i + 1).padStart(2)}. ${p.underlying}/${(STRATEGY_INFO[p.strategy] || { short: p.strategy }).short}`));
-    const pick = await ask("  select instrument to roll (blank to cancel): ");
+    // One entry per distinct underlying, whichever process(es) reference it
+    // — a hedge pair leg and a standalone engine on the same underlying
+    // share one pin either way, so they collapse into a single roll action
+    // rather than listing the same underlying twice.
+    const byUnderlying = new Map(); // underlying -> { underlying, exchange, labels: [] }
+    const addRef = (underlying, exchange, label) => {
+        if (!byUnderlying.has(underlying)) byUnderlying.set(underlying, { underlying, exchange, labels: [] });
+        byUnderlying.get(underlying).labels.push(label);
+    };
+    procs.forEach(p => addRef(p.underlying, p.exchange, (STRATEGY_INFO[p.strategy] || { short: p.strategy }).short));
+    hedgePairs.forEach(p => {
+        addRef(p.coreUnderlying,  p.exchange, `${p.name} (core leg)`);
+        addRef(p.hedgeUnderlying, p.exchange, `${p.name} (hedge leg)`);
+    });
+    const candidates = Array.from(byUnderlying.values());
+
+    if (candidates.length === 0) { console.log(c.yellow("  no instruments running to roll")); await pauseForReview(); return; }
+
+    candidates.forEach((cand, i) => console.log(`  ${String(i + 1).padStart(2)}. ${cand.underlying.padEnd(14)} used by: ${cand.labels.join(", ")}`));
+    const pick = await ask("  select underlying to roll (blank to cancel): ");
     if (!pick) return;
-    const p = procs[Number(pick) - 1];
-    if (!p) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    const picked = candidates[Number(pick) - 1];
+    if (!picked) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    const p = { underlying: picked.underlying, exchange: picked.exchange };
 
     const def = getDefinition(p.underlying, p.exchange);
     if (def.noRoll) {
@@ -2995,20 +3024,23 @@ async function rollContract(procs) {
     }
     console.log();
 
-    // The pin just saved is scoped to the UNDERLYING, not this one process
-    // — any sibling process running a different strategy on the same
-    // underlying reads that same pin. Restarting only the picked process
-    // would leave siblings silently trading the OLD contract until their
-    // own next restart, which is exactly the kind of split-contract state
-    // that becomes possible now that one underlying can run more than one
-    // strategy at once (see toProcessName). All of them need to move to
-    // the new contract together.
+    // Same "everyone sharing this underlying's pin needs to restart
+    // together" reasoning, extended to hedge pair legs — a hedge pair
+    // process isn't in `procs` (it's a totally separate PM2 script,
+    // hedgePairEngine.js, tracked via getHedgePairProcesses()) but its
+    // core/hedge leg reads the exact same pinStore entry for its underlying
+    // (see hedgePairContext.js), so it's just as stale as any sibling
+    // engine.js process until it restarts too.
     const siblings = procs.filter(sib => sib.underlying === p.underlying);
-    if (siblings.length > 1) {
-        console.log(c.yellow(`  ⚠ ${siblings.length} processes run ${p.underlying} (${siblings.map(s => (STRATEGY_INFO[s.strategy] || { short: s.strategy }).short).join(", ")}) — all of them need this restart, not just the one picked, or they'll end up split across two different contracts.`));
+    const affectedPairs = hedgePairs.filter(hp => hp.coreUnderlying === p.underlying || hp.hedgeUnderlying === p.underlying);
+    if (siblings.length > 1 || affectedPairs.length > 0) {
+        const parts = [];
+        if (siblings.length > 0)      parts.push(siblings.map(s => (STRATEGY_INFO[s.strategy] || { short: s.strategy }).short).join(", "));
+        if (affectedPairs.length > 0) parts.push(affectedPairs.map(hp => `${hp.name} (${hp.coreUnderlying === p.underlying ? "core" : "hedge"} leg)`).join(", "));
+        console.log(c.yellow(`  ⚠ ${siblings.length + affectedPairs.length} process(es) run ${p.underlying} (${parts.join(", ")}) — all of them need this restart, not just the one picked, or they'll end up split across two different contracts.`));
     }
 
-    const restart = (await ask(`  Restart engine${siblings.length > 1 ? "s" : ""}? [Y/N]: `)).trim().toUpperCase();
+    const restart = (await ask(`  Restart engine${(siblings.length + affectedPairs.length) > 1 ? "s" : ""}? [Y/N]: `)).trim().toUpperCase();
     if (restart === "Y") {
         for (const target of siblings) {
             try {
@@ -3018,8 +3050,22 @@ async function rollContract(procs) {
                 console.log(c.red(`  restart failed for ${target.name}: ${err.message} — pin is saved, restart manually when ready`));
             }
         }
+        for (const hp of affectedPairs) {
+            try {
+                // No env rebuild needed here (unlike engine.js above) — the
+                // pin lives in pinStore's own file, not a PM2 env var, so a
+                // plain restart is enough for hedgePairContext.js to pick
+                // it up on next boot; same restart shape the hedge pair
+                // screen's own [S] start action already uses.
+                await pm2Restart({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name: hp.name, cwd: __dirname });
+                console.log(c.green(`  restarted ${hp.name} — now running ${p.underlying} on ${next.symbol}`));
+            } catch (err) {
+                console.log(c.red(`  restart failed for ${hp.name}: ${err.message} — pin is saved, restart manually when ready`));
+            }
+        }
     } else {
-        console.log(c.yellow(`  pin saved but NOT applied yet — ${siblings.map(s => s.name).join(", ")} still on ${current.symbol} until restarted`));
+        const stillOn = [...siblings.map(s => s.name), ...affectedPairs.map(hp => hp.name)];
+        console.log(c.yellow(`  pin saved but NOT applied yet — ${stillOn.join(", ")} still on ${current.symbol} until restarted`));
     }
     await pauseForReview();
 }
