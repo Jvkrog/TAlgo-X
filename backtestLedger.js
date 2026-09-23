@@ -76,6 +76,24 @@ function createBacktestLedger({ clock }) {
         return Promise.resolve(total);
     }
 
+    // Mirrors db.js's own getTradeCountToday exactly: counts every trade
+    // (open or closed, doesn't matter — db.js's real SQL doesn't filter
+    // on status either) whose trade_date (set at insertOpenTrade time,
+    // from the entry) matches today. This was missing entirely until
+    // Sep 2026 — every strategy's initSignals() calls
+    // db.getTradeCountToday(context.tgPrefix) unconditionally, inside the
+    // same try/catch that also does the real position-restore work, so
+    // the gap silently short-circuited state.tradesToday AND the
+    // orders.reconcile() call right after it for every strategy running
+    // in a backtest, not just the one whose Step 7 run surfaced it
+    // ("db.getTradeCountToday is not a function", caught and logged as a
+    // WARNING rather than crashing the run — easy to miss).
+    function getTradeCountToday(engine) {
+        const today = clock.now().toISOString().split("T")[0];
+        const total = trades.filter(t => t.engine === engine && t.trade_date === today).length;
+        return Promise.resolve(total);
+    }
+
     function getTradesForDate(engine, dateStr) {
         return Promise.resolve(trades.filter(t => t.engine === engine && t.trade_date === dateStr));
     }
@@ -103,7 +121,7 @@ function createBacktestLedger({ clock }) {
 
     return {
         initDB, savePosition, loadPosition, saveRegime, loadRegime, clearAllPositions,
-        insertOpenTrade, closeTrade, getOpenTrade, getRealizedPnlToday, getTradesForDate,
+        insertOpenTrade, closeTrade, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate,
         getAllTrades,
     };
 }
