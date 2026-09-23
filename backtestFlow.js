@@ -104,6 +104,12 @@ const STRATEGY_PARAMS = {
         { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
         { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
     ],
+    DYNAMIC_MID_COLOR_SHORT_HOLD: [
+        { key: "BAND_STEP_DEFAULT", label: "Band step \u2014 fixed price distance between HIGH/MID/LOW (internal only, never plotted \u2014 per-instrument override takes precedence live)" },
+        // No ST_ATR_LEN/ATR_SL_MULT — this strategy has no ATR stop-loss
+        // at all (see its own header comment in strategies.js). Its only
+        // exit is the profitable-flip rule, which reads nothing tunable.
+    ],
     ALMA_TRI_BAND: [
         { key: "ALMA_TRI_FAST_LEN",           label: "Fast ALMA length (HA close)" },
         { key: "ALMA_TRI_BAND_LEN",           label: "Band ALMA length (raw high/low)" },
@@ -316,6 +322,16 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     // engineConfig the same way (see runBacktest in backtestRun.js),
     // they're just not tied to one strategy's STRATEGY_PARAMS entry since
     // this gate isn't strategy-specific.
+    // DYNAMIC_MID_COLOR_SHORT_HOLD deliberately wires in NONE of the
+    // gates below (chop/long-candle/double-order/ATR-SL/volume) — see
+    // its own header comment in strategies.js: doEnter() there never
+    // checks any of them, so asking here would be answered-but-unread,
+    // same reasoning DAILY_HA_BIAS's own skip further down already
+    // established for this file.
+    const isShortHold = strategyKey === "DYNAMIC_MID_COLOR_SHORT_HOLD";
+    if (isShortHold) {
+        console.log(c.dim(`  DYNAMIC_MID_COLOR_SHORT_HOLD ignores the chop/long-candle/double-order/ATR-SL/volume filters entirely (no gates, no stop-loss — see its header comment in strategies.js) — those prompts are skipped`));
+    } else {
     const chopUseDefault = engineConfig.CHOP_GATE_ALWAYS_FORCE !== false;
     const chopUseInput = (await ask(`  Use Choppiness Index filter on every entry? [Y/n] (default ${chopUseDefault ? "Y" : "N"}): `)).trim().toUpperCase();
     if (chopUseInput) params.CHOP_GATE_ALWAYS_FORCE = chopUseInput !== "N";
@@ -405,6 +421,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
             else console.log(c.yellow(`  invalid value for volume SMA period, using default`));
         }
     }
+    } // !isShortHold
 
     // PURE_HA-only anti-whipsaw flip confirmation.
     if (strategyKey === "PURE_HA") {
@@ -420,9 +437,17 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     // since backtestRun.js's EOD handler respects it exactly like
     // lifecycle.js does live (see that file's EOD block): on, a position
     // open at EOD carries into the next day instead of force-closing.
-    const carryDefault = context.carryOvernight === true;
-    const carryInput = (await ask(`  Carry positions overnight past EOD (NRML-style)? [y/N] (default ${carryDefault ? "Y" : "N"}): `)).trim().toUpperCase();
-    if (carryInput) context.carryOvernight = carryInput === "Y";
+    // DYNAMIC_MID_COLOR_SHORT_HOLD force-sets this true itself in
+    // initSignals() (that call happens AFTER this wizard, inside
+    // runBacktest) regardless of what's answered here — skip the prompt
+    // and set it directly so Step 7's summary line reads accurately.
+    if (isShortHold) {
+        context.carryOvernight = true;
+    } else {
+        const carryDefault = context.carryOvernight === true;
+        const carryInput = (await ask(`  Carry positions overnight past EOD (NRML-style)? [y/N] (default ${carryDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+        if (carryInput) context.carryOvernight = carryInput === "Y";
+    }
 
     // Max daily loss circuit breaker — universal, every strategy.
     const maxLossInput = await ask(`  Max daily loss in rupees, quits for the day if breached (blank = no floor): `);
@@ -451,9 +476,18 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     // htfGate.js (still live-only — its stub in backtestRun.js always
     // returns false, so a toggle for it here would be a no-op), this one
     // genuinely does something in a backtest.
-    const dailyHaDefault = context.dailyHaGateEnabled !== false;
-    const dailyHaInput = (await ask(`  Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)? [Y/n] (default ${dailyHaDefault ? "Y" : "N"}): `)).trim().toUpperCase();
-    if (dailyHaInput) context.dailyHaGateEnabled = dailyHaInput !== "N";
+    // DYNAMIC_MID_COLOR_SHORT_HOLD force-sets this OFF itself in
+    // initSignals() (see strategies.js header comment — a green daily
+    // candle would otherwise block the entire strategy, which is only
+    // ever short) — skip the prompt and set it directly, same reasoning
+    // as carryOvernight above.
+    if (isShortHold) {
+        context.dailyHaGateEnabled = false;
+    } else {
+        const dailyHaDefault = context.dailyHaGateEnabled !== false;
+        const dailyHaInput = (await ask(`  Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)? [Y/n] (default ${dailyHaDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+        if (dailyHaInput) context.dailyHaGateEnabled = dailyHaInput !== "N";
+    }
 
     // ── Step 7: Confirmation ───────────────────────────────────────────────
     console.log();
@@ -463,7 +497,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     console.log(`  Timeframe:  ${timeframe}`);
     console.log(`  Range:      ${from.toISOString().split("T")[0]} -> ${to.toISOString().split("T")[0]}`);
     console.log(`  Params:     ${Object.keys(params).length ? JSON.stringify(params) : "(all defaults)"}`);
-    console.log(`  Risk:       chop:${params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on"} lc:${context.longCandleFilterEnabled === false ? "off" : "on"} double:${context.disableDoubleOrders ? "off" : "on"} vol:${context.volumeFilterEnabled ? "on" : "off"} atr:${strategyKey === "ALMA_BAND" ? "n/a (band SL)" : context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"} maxloss:${context.maxDailyLoss ?? "none"} sessionTarget:${context.sessionTargetRupees ?? "none"} dailyha:${context.dailyHaGateEnabled === false ? "off" : "on"}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);
+    console.log(`  Risk:       chop:${isShortHold ? "n/a" : (params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on")} lc:${isShortHold ? "n/a" : (context.longCandleFilterEnabled === false ? "off" : "on")} double:${isShortHold ? "n/a" : (context.disableDoubleOrders ? "off" : "on")} vol:${isShortHold ? "n/a" : (context.volumeFilterEnabled ? "on" : "off")} atr:${strategyKey === "ALMA_BAND" ? "n/a (band SL)" : isShortHold ? "n/a (no SL)" : context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"}${isShortHold ? " (forced)" : ""} maxloss:${context.maxDailyLoss ?? "none"} sessionTarget:${context.sessionTargetRupees ?? "none"} dailyha:${context.dailyHaGateEnabled === false ? "off" : "on"}${isShortHold ? " (forced)" : ""}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);
     const confirm = (await ask("  Proceed? (Y/N): ")).trim().toUpperCase();
     if (confirm !== "Y") { console.log(c.dim("  cancelled")); await pauseForReview(); return; }
 

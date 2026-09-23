@@ -4605,7 +4605,28 @@ function createDynamicMidColorShortHoldStrategy({ context, engineConfig, state, 
                 console.log(c.cyan(`[${context.tgPrefix}] BAND INIT  MID:${state.bandMid.toFixed(2)} HIGH:${state.bandHigh.toFixed(2)} LOW:${state.bandLow.toFixed(2)} STEP:${bandStep}`));
             }
 
-            if (!state.resumedFromDb && engineConfig.ENGINE_ENABLED && replay?.position === "SHORT") {
+            // !state.position guard (in addition to !state.resumedFromDb):
+            // this strategy always carries overnight (context.carryOvernight
+            // is forced true — see initSignals), so a position can already
+            // be open going INTO a fresh replay. Live never hits this path
+            // (a carried position is always resumedFromDb=true, since a
+            // real overnight position always exists in SQLite by the next
+            // boot) but a backtest replay resets state.historyReplayed every
+            // calendar day (backtestRun.js, for exactly this reason: "live
+            // gets a fresh replay-and-possibly-enter EVERY trading morning
+            // for free... this backtest replay is one continuous loop with
+            // no restart") while resumedFromDb is only ever set once, at
+            // the very start of the whole run (ledger.loadPosition() always
+            // resolves null in backtest — see backtestRun.js's own comment
+            // on its initSignals() call). Without this guard, a backtest
+            // that carries a SHORT overnight into a new day would have
+            // re-entered a SECOND same-side SHORT on top of the position
+            // already open the moment that day's replay again implied one
+            // (near-certain, since it's the same underlying trend) —
+            // doubling size with no matching doubled exit. Harmless to add
+            // live too: it's simply always true there already whenever
+            // resumedFromDb is false.
+            if (!state.position && !state.resumedFromDb && engineConfig.ENGINE_ENABLED && replay?.position === "SHORT") {
                 const livePrice = candles.getLivePrice() ?? rawCandle.close;
                 await doEnter("SHORT", livePrice, "HIST REPLAY ENTRY");
             }
