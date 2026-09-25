@@ -45,6 +45,7 @@ const { runBacktest } = require("../backtestRun");
 const { STRATEGY_PARAMS } = require("../backtestFlow");
 const { setEmitSuppressed } = require("../eventBridge");
 const { getShortName } = require("../shortNames");
+const dualHedgeUsers = require("../dualHedgeUsers");
 const { adx } = require("../indicators");
 const { createMarketStateClient } = require("../marketStateClient");
 const { createMarketWatchlist } = require("../marketWatchlist");
@@ -1672,6 +1673,202 @@ app.get("/api/toolbox/hedgepairs/logs/:name", async (req, res) => {
     }
 });
 
+// ─── DUAL HEDGE — deploy/manage dualHedgeEngine.js processes. See that
+// file's own header for the full spec. NOT the same thing as Hedge Pairs
+// above (one account, two instruments) — this is two SEPARATE Kite
+// accounts, one instrument, one LONG-only, the other SHORT-only. Mirrors
+// toolbox.js's own dualHedgeScreen()/addDualHedge()/manageDualHedgeUsersScreen()
+// — see that file's comments for the full reasoning behind each field.
+async function getDualHedgeProcesses() {
+    const list = await pm2List();
+    return list
+        .filter(p => p.pm2_env.env?.DH_UNDERLYING)
+        .map(p => ({
+            name:       p.name,
+            underlying: p.pm2_env.env.DH_UNDERLYING,
+            longUser:   p.pm2_env.env.DH_LONG_USER,
+            shortUser:  p.pm2_env.env.DH_SHORT_USER,
+            status:     p.pm2_env.status,
+            uptime:     p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
+            lots:       p.pm2_env.env?.DH_LOTS_OVERRIDE || "1",
+            maxLoss:    p.pm2_env.env?.DH_MAX_LOSS_RUPEES_OVERRIDE || "3000",
+            live:       p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
+            exchange:   p.pm2_env.env?.DH_EXCHANGE_OVERRIDE || "MCX",
+            outLogPath: p.pm2_env.pm_out_log_path,
+            errLogPath: p.pm2_env.pm_err_log_path,
+        }));
+}
+
+app.get("/api/toolbox/dualhedge", async (req, res) => {
+    try {
+        res.json({ deployments: await getDualHedgeProcesses() });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get("/api/toolbox/dualhedge/lotmult/:underlying", (req, res) => {
+    try {
+        const def = getDefinition(req.params.underlying, "MCX");
+        res.json({ lotMultRequired: def.lotMult === null });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Users sub-resource — named Kite accounts, stored in .env via
+// dualHedgeUsers.js, independent of engineConfig's own single global
+// account (see dualHedgeUsers.js's header). accessToken is never sent
+// back to the client in full — only whether one is set — same posture
+// engineConfig's own credential endpoints already take.
+function redactUser(u) {
+    return { name: u.name, hasApiKey: !!u.apiKey, hasApiSecret: !!u.apiSecret, hasAccessToken: !!u.accessToken };
+}
+
+app.get("/api/toolbox/dualhedge/users", (req, res) => {
+    try {
+        res.json({ users: dualHedgeUsers.listUsers().map(redactUser) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post("/api/toolbox/dualhedge/users", (req, res) => {
+    const { name, apiKey, apiSecret } = req.body || {};
+    if (!name || !apiKey || !apiSecret) {
+        return res.status(400).json({ error: "name, apiKey and apiSecret are all required" });
+    }
+    try {
+        const saved = dualHedgeUsers.saveUserCredentials(name, { apiKey, apiSecret });
+        res.json({ ok: true, name: saved });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete("/api/toolbox/dualhedge/users/:name", (req, res) => {
+    try {
+        dualHedgeUsers.removeUser(req.params.name);
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Same request_token -> access_token exchange as the single global
+// account's own /api/toolbox/token route (exchangeToken() above), just
+// scoped to one named dual-hedge user's own API key/secret instead of
+// engineConfig's.
+app.post("/api/toolbox/dualhedge/users/token", async (req, res) => {
+    const { name, requestToken: rawInput } = req.body || {};
+    if (!name || !rawInput) return res.status(400).json({ error: "name and requestToken are both required" });
+    try {
+        const user = dualHedgeUsers.getUser(name);
+        if (!user.apiKey || !user.apiSecret) {
+            return res.status(400).json({ error: `${name} is missing an API key/secret — add credentials first` });
+        }
+        const requestToken = extractRequestToken(rawInput);
+        const kc = new KiteConnect({ api_key: user.apiKey });
+        const session = await kc.generateSession(requestToken, user.apiSecret);
+        dualHedgeUsers.saveUserToken(user.name, session.access_token);
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post("/api/toolbox/dualhedge", async (req, res) => {
+    const {
+        underlying, longUser, shortUser, lots, maxLossRupees,
+        lotMultOverride, bandStepOverride, live, confirmLive,
+    } = req.body || {};
+
+    if (!underlying || !longUser || !shortUser) {
+        return res.status(400).json({ error: "underlying, longUser and shortUser are all required" });
+    }
+    if (longUser === shortUser) {
+        return res.status(400).json({ error: "longUser and shortUser must be different accounts" });
+    }
+    const users = dualHedgeUsers.listUsers();
+    for (const [label, name] of [["longUser", longUser], ["shortUser", shortUser]]) {
+        const u = users.find(x => x.name === dualHedgeUsers.sanitizeName(name));
+        if (!u || !u.apiKey || !u.accessToken) {
+            return res.status(400).json({ error: `${label} "${name}" is not a fully configured dual-hedge user (missing API key or access token)` });
+        }
+    }
+    // Same rule toolbox.js/instrument mode/hedge pairs enforce: going live
+    // requires the literal word "LIVE" server-side too, not just a
+    // client-side checkbox.
+    if (live && confirmLive !== "LIVE") {
+        return res.status(400).json({ error: 'going live requires confirmLive: "LIVE"' });
+    }
+
+    const def = getDefinition(underlying, "MCX");
+    if (def.lotMult === null && !lotMultOverride) {
+        return res.status(400).json({ error: `lotMultOverride is required for ${underlying} (no context.js override on file)` });
+    }
+
+    const name = `${getShortName(underlying)}DualHedge`;
+    const env = {
+        DH_UNDERLYING: underlying, DH_LONG_USER: dualHedgeUsers.sanitizeName(longUser), DH_SHORT_USER: dualHedgeUsers.sanitizeName(shortUser),
+        DH_EXCHANGE_OVERRIDE: "MCX", DH_LOTS_OVERRIDE: String(lots || 1),
+        DH_MAX_LOSS_RUPEES_OVERRIDE: String(maxLossRupees || 3000), LIVE_ORDERS_OVERRIDE: String(!!live),
+    };
+    if (lotMultOverride)  env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
+    if (bandStepOverride) env.DH_BAND_STEP_OVERRIDE = String(bandStepOverride);
+
+    try {
+        await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: ROOT, env });
+        res.json({ ok: true, name });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post("/api/toolbox/dualhedge/start", async (req, res) => {
+    const { name } = req.body || {};
+    if (!name) return res.status(400).json({ error: "name is required" });
+    try {
+        await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: ROOT });
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.post("/api/toolbox/dualhedge/stop", async (req, res) => {
+    const { name } = req.body || {};
+    if (!name) return res.status(400).json({ error: "name is required" });
+    try {
+        await pm2Stop(name);
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.delete("/api/toolbox/dualhedge/:name", async (req, res) => {
+    try {
+        await pm2Delete(req.params.name);
+        res.json({ ok: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+app.get("/api/toolbox/dualhedge/logs/:name", async (req, res) => {
+    try {
+        const deployments = await getDualHedgeProcesses();
+        const p = deployments.find(x => x.name === req.params.name);
+        if (!p) return res.status(404).json({ error: "process not found" });
+        const out = tailFile(p.outLogPath, N_LOG_LINES);
+        const err = tailFile(p.errLogPath, N_LOG_LINES);
+        res.json({ outLogPath: p.outLogPath || null, errLogPath: p.errLogPath || null, out, err });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // ─── ROLL CONTRACT — MCX futures only. NSE equities don't expire (see
 // context.js's context.noRoll), so they're excluded from the candidate
 // list up front rather than surfaced and then rejected. Same underlying-
@@ -1693,6 +1890,7 @@ app.get("/api/toolbox/roll/candidates", async (req, res) => {
     try {
         const procs = (await getEngineProcesses()).filter(p => p.exchange !== "NSE");
         const hedgePairs = await getHedgePairProcesses();
+        const dualHedges = await getDualHedgeProcesses();
 
         const byUnderlying = new Map(); // underlying -> { underlying, exchange, labels: [] }
         const addRef = (underlying, exchange, label) => {
@@ -1704,6 +1902,7 @@ app.get("/api/toolbox/roll/candidates", async (req, res) => {
             addRef(p.coreUnderlying,  p.exchange, `${p.name} (core leg)`);
             addRef(p.hedgeUnderlying, p.exchange, `${p.name} (hedge leg)`);
         });
+        dualHedges.forEach(p => addRef(p.underlying, p.exchange, `${p.name} (dual hedge)`));
 
         res.json(Array.from(byUnderlying.values()));
     } catch (err) {
@@ -1716,11 +1915,13 @@ app.get("/api/toolbox/roll/preview/:underlying", async (req, res) => {
         const underlying = req.params.underlying;
         const procs = await getEngineProcesses();
         const hedgePairs = await getHedgePairProcesses();
+        const dualHedges = await getDualHedgeProcesses();
         const siblings = procs.filter(sib => sib.underlying === underlying);
         const affectedPairs = hedgePairs.filter(hp => hp.coreUnderlying === underlying || hp.hedgeUnderlying === underlying);
-        if (siblings.length === 0 && affectedPairs.length === 0) return res.status(404).json({ error: `no running processes for ${underlying}` });
+        const affectedDuals = dualHedges.filter(dh => dh.underlying === underlying);
+        if (siblings.length === 0 && affectedPairs.length === 0 && affectedDuals.length === 0) return res.status(404).json({ error: `no running processes for ${underlying}` });
 
-        const exchange = siblings[0]?.exchange || affectedPairs[0]?.exchange;
+        const exchange = siblings[0]?.exchange || affectedPairs[0]?.exchange || affectedDuals[0]?.exchange;
         const def = getDefinition(underlying, exchange);
         if (def.noRoll) {
             return res.status(400).json({
@@ -1749,6 +1950,7 @@ app.get("/api/toolbox/roll/preview/:underlying", async (req, res) => {
             siblings: [
                 ...siblings.map(s => ({ name: s.name, strategy: s.strategy })),
                 ...affectedPairs.map(hp => ({ name: hp.name, strategy: `hedge pair (${hp.coreUnderlying === underlying ? "core" : "hedge"} leg)` })),
+                ...affectedDuals.map(dh => ({ name: dh.name, strategy: "dual hedge" })),
             ],
         });
     } catch (err) {
@@ -1763,11 +1965,13 @@ app.post("/api/toolbox/roll/apply", async (req, res) => {
     try {
         const procs = await getEngineProcesses();
         const hedgePairs = await getHedgePairProcesses();
+        const dualHedges = await getDualHedgeProcesses();
         const siblings = procs.filter(sib => sib.underlying === underlying);
         const affectedPairs = hedgePairs.filter(hp => hp.coreUnderlying === underlying || hp.hedgeUnderlying === underlying);
-        if (siblings.length === 0 && affectedPairs.length === 0) return res.status(404).json({ error: `no running processes for ${underlying}` });
+        const affectedDuals = dualHedges.filter(dh => dh.underlying === underlying);
+        if (siblings.length === 0 && affectedPairs.length === 0 && affectedDuals.length === 0) return res.status(404).json({ error: `no running processes for ${underlying}` });
 
-        const exchange = siblings[0]?.exchange || affectedPairs[0]?.exchange;
+        const exchange = siblings[0]?.exchange || affectedPairs[0]?.exchange || affectedDuals[0]?.exchange;
         const def = getDefinition(underlying, exchange);
         if (def.noRoll) return res.status(400).json({ error: `${underlying} is an NSE equity — nothing to roll` });
 
@@ -1816,8 +2020,17 @@ app.post("/api/toolbox/roll/apply", async (req, res) => {
                     result.restartFailed.push({ name: hp.name, error: err.message });
                 }
             }
+            for (const dh of affectedDuals) {
+                try {
+                    // Same reasoning as the hedge-pair restart above.
+                    await pm2RestartWithConfig({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name: dh.name, cwd: ROOT });
+                    result.restarted.push(dh.name);
+                } catch (err) {
+                    result.restartFailed.push({ name: dh.name, error: err.message });
+                }
+            }
         } else {
-            const stillOn = [...siblings.map(s => s.name), ...affectedPairs.map(hp => hp.name)];
+            const stillOn = [...siblings.map(s => s.name), ...affectedPairs.map(hp => hp.name), ...affectedDuals.map(dh => dh.name)];
             result.note = `pin saved but NOT applied yet — ${stillOn.join(", ")} still on ${current.symbol} until restarted`;
         }
 
