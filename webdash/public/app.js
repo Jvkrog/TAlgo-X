@@ -2861,14 +2861,31 @@ async function renderDualHedgeUsers() {
       html += `<div class="tb-form-hint">none yet</div>`;
     } else {
       users.forEach(u => {
+        // "generate token" is a real <a> link (href set right after render,
+        // below) so tapping it is a normal link tap \u2014 works on mobile,
+        // no popup-blocker issues \u2014 same pattern as the app's own single-
+        // account token button (see refreshTokenStatus()/loadLoginUrl()
+        // above). The paste-back panel underneath is the fallback/second
+        // half of that same flow: Kite redirects back with a request_token
+        // this account's OWN Kite app may or may not be registered to
+        // capture automatically, so pasting it (or the whole redirect URL)
+        // always works regardless of that registration.
         html += `
           <div class="tb-watch-row">
             <div class="tb-watch-main">
               <div class="tb-watch-inst">${u.name}</div>
               <div class="tb-watch-meta">key:${u.hasApiKey ? "set" : "MISSING"} \u00b7 secret:${u.hasApiSecret ? "set" : "MISSING"} \u00b7 token:${u.hasAccessToken ? "set" : "none"}</div>
             </div>
-            <button class="tb-cli-action" data-dh-token="${u.name}" style="padding:4px 8px;font-size:11px">token</button>
+            <a class="tb-cli-action" id="dhTokenLink-${u.name}" data-dh-token-toggle="${u.name}" href="#" target="_blank" rel="noopener" style="padding:4px 8px;font-size:11px;text-decoration:none">generate token</a>
             <button class="tb-watch-remove" data-dh-user-remove="${u.name}" title="remove">\u2715</button>
+          </div>
+          <div class="tb-form-hint" id="dhTokenPanel-${u.name}" style="display:none;margin:4px 0 12px 4px">
+            <div style="margin-bottom:4px">after logging in as ${u.name}, paste the request_token (or the full redirect URL) here:</div>
+            <div class="tb-search-row">
+              <input type="text" id="dhTokenInput-${u.name}" placeholder="request_token or redirect URL">
+              <button data-dh-token-exchange="${u.name}">exchange</button>
+            </div>
+            <div id="dhTokenErr-${u.name}"></div>
           </div>`;
       });
     }
@@ -2885,20 +2902,50 @@ async function renderDualHedgeUsers() {
     tbDualHedgeBody.innerHTML = html;
     tbDualHedgeBody.querySelector("#dhUsersBack").addEventListener("click", loadDualHedgeList);
 
-    tbDualHedgeBody.querySelectorAll("[data-dh-token]").forEach(btn => {
+    // Pre-fetch each configured user's login URL and set it as the link's
+    // href BEFORE any click happens (getLoginURL() is a pure local string
+    // build server-side, no Kite network call, so this is cheap to do for
+    // everyone up front) \u2014 exactly why the single-account token button
+    // does the same via loadLoginUrl() rather than fetching on click: the
+    // href has to already be real by the time the browser evaluates the
+    // anchor click, or the popup-blocker-safe "just a normal link" property
+    // is lost.
+    users.filter(u => u.hasApiKey).forEach(async u => {
+      try {
+        const data = await (await fetch(`/api/toolbox/dualhedge/users/${encodeURIComponent(u.name)}/login-url`)).json();
+        const link = tbDualHedgeBody.querySelector(`#dhTokenLink-${CSS.escape(u.name)}`);
+        if (data.url && link) link.href = data.url;
+      } catch { /* leave href as "#" \u2014 click will just toggle the paste panel, still usable */ }
+    });
+
+    tbDualHedgeBody.querySelectorAll("[data-dh-token-toggle]").forEach(link => {
+      link.addEventListener("click", () => {
+        // Real navigation to Kite's login page happens via the href itself
+        // (target="_blank") \u2014 this handler's only job is to also reveal
+        // the paste-back panel for when they come back with a token.
+        const panel = tbDualHedgeBody.querySelector(`#dhTokenPanel-${CSS.escape(link.dataset.dhTokenToggle)}`);
+        if (panel) panel.style.display = panel.style.display === "none" ? "" : "none";
+      });
+    });
+    tbDualHedgeBody.querySelectorAll("[data-dh-token-exchange]").forEach(btn => {
       btn.addEventListener("click", async () => {
-        const name = btn.dataset.dhToken;
-        const input = prompt(`Paste ${name}'s request_token (raw token or full redirect URL from THEIR OWN Kite login):`);
-        if (!input) return;
+        const name = btn.dataset.dhTokenExchange;
+        const input = tbDualHedgeBody.querySelector(`#dhTokenInput-${CSS.escape(name)}`);
+        const errBox = tbDualHedgeBody.querySelector(`#dhTokenErr-${CSS.escape(name)}`);
+        const val = input.value.trim();
+        if (!val) return;
         btn.disabled = true; btn.textContent = "...";
         try {
           const res = await fetch("/api/toolbox/dualhedge/users/token", {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, requestToken: input }),
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, requestToken: val }),
           });
           const data = await res.json();
-          if (!res.ok) { alert(data.error || "failed"); btn.disabled = false; btn.textContent = "token"; return; }
+          if (!res.ok) { errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed"}</div>`; btn.disabled = false; btn.textContent = "exchange"; return; }
           renderDualHedgeUsers();
-        } catch (err) { alert(err.message); btn.disabled = false; btn.textContent = "token"; }
+        } catch (err) {
+          errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+          btn.disabled = false; btn.textContent = "exchange";
+        }
       });
     });
     tbDualHedgeBody.querySelectorAll("[data-dh-user-remove]").forEach(btn => {
