@@ -52,19 +52,19 @@
 // "shared reader, per-leg state" shape hedgePairEngine.js already
 // established for its own core/hedge legs — see that file's header.
 //
-// NO LIVE WEBSOCKET TICKER — same choice and same reasoning
-// hedgePairEngine.js made for itself (see its header): every signal here
-// is a periodic REST poll (DH_POLL_MS, default 15s — tighter than
-// hedgePairEngine.js's 60s default since this engine's max-loss cut,
-// once armed, should be checked more often than an hourly/daily
-// strategy's signals need). No slStore/checkSL tick-level machinery
-// (unlike a strategies.js entry running inside engine.js, which gets that
-// for free via candlePoll.js's WebSocket loop) — that machinery is part
-// of engine.js's own per-instrument WebSocket-ticker infrastructure,
-// which this standalone multi-account process doesn't have and, per
-// hedgePairEngine.js's own precedent, doesn't need: the take-profit AND
-// max-loss checks are just two branches of the same per-tick uPnL
-// evaluation once a leg has flipped (see checkLeg() below).
+// NO LIVE WEBSOCKET TICKER, and NO frequent REST polling either — this
+// engine runs strictly on the band signal's own 15-minute cadence, same
+// as the removed single-account DYNAMIC_MID_COLOR_SHORT_HOLD strategy did
+// via processCandle: one check per completed 15m candle, nothing faster.
+// An earlier version of this file polled every 15s "for responsiveness"
+// (reusing hedgePairEngine.js's own no-ticker rationale) — that was an
+// unrequested deviation and has been removed: entries, the take-profit/
+// max-loss evaluation once flipped, AND the heartbeat log line below all
+// happen exactly once per 15-minute slot, scheduled the same way
+// candlePoll.js schedules a live engine.js strategy's own candle-close
+// check (msUntilNextSlot15Plus10() below is that same slot-boundary-plus-
+// buffer math, just inlined here rather than shared, since this engine
+// has no candle buffer of its own to hang a shared helper off of).
 //
 // CREDENTIALS: dualHedgeUsers.js — separate from engineConfig.js's single
 // global API_KEY/ACCESS_TOKEN (see that file's header for why). Market
@@ -87,7 +87,6 @@
 //                             lotMult override in context.js
 //   DH_BAND_STEP_OVERRIDE     optional, else engineConfig.BAND_STEP_DEFAULT
 //   DH_MAX_LOSS_RUPEES_OVERRIDE   default 3000
-//   DH_POLL_MS                default 15000
 //   LIVE_ORDERS_OVERRIDE      "true" | "false" — same convention as engine.js
 //
 // NOT YET WIRED: webdash has no panel for this yet (toolbox.js's new
@@ -112,8 +111,8 @@ const positions = require("./positions");
 const { emitEvent } = require("./eventBridge");
 const { createDynamicBandReader } = require("./dynamicBandReader");
 
-const POLL_MS = Number(process.env.DH_POLL_MS) || 15 * 1000;
 const MAX_LOSS_RUPEES = Number(process.env.DH_MAX_LOSS_RUPEES_OVERRIDE) || 3000;
+const SLOT_MINUTES = 15; // fixed — matches the shared band reader's own "15m" timeframe below
 
 async function main() {
     const UNDERLYING = process.env.DH_UNDERLYING;
@@ -314,9 +313,11 @@ async function main() {
         // else: hold — "we dont close position (closing makes it losing trade)"
     }
 
-    // ─── Web dashboard live log/PnL panes — same shape as
-    // hedgePairEngine.js's own emitLivePnl(), one TICK per leg per poll.
+    // ─── Web dashboard live pane + console heartbeat — one line per leg,
+    // once per 15-minute tick (see msUntilNextSlot15Plus10() below for why
+    // that's the cadence, not a faster poll).
     async function emitLivePnl() {
+        const ts = new Date().toLocaleTimeString("en-IN", { hour12: false });
         for (const leg of [long, short]) {
             const price = await getLtp(leg.ltpKey).catch(() => null);
             if (price === null) continue;
@@ -325,13 +326,17 @@ async function main() {
             emitEvent(leg.context.tgPrefix, "TICK", {
                 price, uPnl, session, position: leg.state.position, entryPrice: leg.state.entryPrice || null,
             });
+            const posStr = leg.state.position ? `${leg.state.position}@${leg.state.entryPrice.toFixed(2)}${leg.state.flipped ? " (flipped)" : ""}` : "flat";
+            const fmt = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+            const color = leg.state.position ? (uPnl >= 0 ? c.green : c.red) : c.dim;
+            console.log(color(`[${leg.context.tgPrefix}] ${ts}  price ${price.toFixed(2).padStart(9)}  ${posStr.padEnd(24)}  uPnL:${fmt(uPnl).padStart(7)}  session:${fmt(session).padStart(8)}`));
         }
     }
 
     async function tick() {
         try {
             const band = await bandReader.getLatest();
-            if (!band || !band.color) return; // no read yet — try again next poll
+            if (!band || !band.color) { console.log(c.dim("DUAL HEDGE  no band read yet — will retry next 15m slot")); return; }
             await checkLeg(long, band.color);
             await checkLeg(short, band.color);
             await emitLivePnl();
@@ -340,9 +345,30 @@ async function main() {
         }
     }
 
+    // ─── 15-minute slot-boundary scheduling — same shape and same +10s
+    // publish-lag buffer as candlePoll.js's own msUntilNextSlotPlus10()/
+    // scheduleNext() (see that file), just inlined here rather than
+    // imported, since this engine has no candle buffer of its own to hang
+    // a shared helper off. Runs exactly once per completed 15m candle —
+    // not a faster poll — because the band signal (and therefore every
+    // decision a leg makes) only actually changes on that cadence; polling
+    // faster would just re-evaluate the same unchanged signal.
+    function msUntilNextSlot15Plus10() {
+        const now   = new Date();
+        const istMs = now.getTime() + (5.5 * 60 * 60 * 1000);
+        const ist   = new Date(istMs);
+        const secInSlot = (ist.getUTCMinutes() % SLOT_MINUTES) * 60 + ist.getUTCSeconds();
+        const msToNextClose = (SLOT_MINUTES * 60 - secInSlot) * 1000 - ist.getUTCMilliseconds();
+        return msToNextClose + 10 * 1000;
+    }
+
+    function scheduleNextTick() {
+        setTimeout(async () => { await tick(); scheduleNextTick(); }, msUntilNextSlot15Plus10());
+    }
+
     bandReader.prewarm();
     await tick();
-    setInterval(tick, POLL_MS);
+    scheduleNextTick();
 }
 
 main().catch(err => {
