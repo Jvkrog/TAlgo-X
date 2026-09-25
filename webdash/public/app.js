@@ -2759,4 +2759,308 @@ async function renderHedgePairAddForm() {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// DUAL HEDGE — two SEPARATE Kite accounts, one LONG-only, one SHORT-only,
+// same instrument/band signal. NOT the same as Hedge Pairs above (one
+// account, two instruments) — see dualHedgeEngine.js's own header. Mirrors
+// the Hedge Pairs modal's shape (list / add flow / logs), with one real
+// difference: hedge pairs picks core+hedge UNDERLYINGS via live search;
+// dual hedge picks ONE underlying that way, but LONG/SHORT are picked from
+// a short, bounded list of pre-configured accounts (dropdowns, not
+// search) — plus its own Users sub-view for managing those accounts.
+const tbDualHedgeModal = document.getElementById("tbDualHedgeModal");
+const tbDualHedgeBody  = document.getElementById("tbDualHedgeBody");
+const tbDualHedgeClose = document.getElementById("tbDualHedgeClose");
+document.getElementById("tbOpenDualHedge").addEventListener("click", openDualHedgeModal);
+tbDualHedgeClose.addEventListener("click", () => tbDualHedgeModal.classList.remove("open"));
+tbDualHedgeModal.addEventListener("click", e => { if (e.target === tbDualHedgeModal) tbDualHedgeModal.classList.remove("open"); });
+
+let dhAddState = null; // null = showing the list; {} once "add" is opened, accumulates {underlying}
+
+async function openDualHedgeModal() {
+  dhAddState = null;
+  tbDualHedgeBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  tbDualHedgeModal.classList.add("open");
+  await loadDualHedgeList();
+}
+
+async function loadDualHedgeList() {
+  try {
+    const { deployments } = await (await fetch("/api/toolbox/dualhedge")).json();
+
+    let html = `<div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="tb-cli-action" id="dhAddBtn">+ add deployment</button>
+      <button class="tb-cli-action" id="dhUsersBtn">manage users</button>
+    </div>`;
+
+    if (deployments.length === 0) {
+      html += `<div class="tb-form-hint">none running yet \u2014 add accounts under "manage users" first, then a deployment</div>`;
+    } else {
+      deployments.forEach(d => {
+        const modeTag = d.live ? `<span style="color:var(--red,#f0616d)">LIVE</span>` : `<span style="color:var(--dim)">PAPER</span>`;
+        html += `
+          <div class="tb-watch-row">
+            <div class="tb-watch-main">
+              <div class="tb-watch-inst">${d.name}</div>
+              <div class="tb-watch-meta">${d.underlying} \u00b7 LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot \u00b7 maxLoss:\u20b9${d.maxLoss} (armed only after a flip) \u00b7 ${modeTag} \u00b7 [${d.status}]</div>
+            </div>
+            <button class="tb-cli-action" data-dh-logs="${d.name}" style="padding:4px 8px;font-size:11px">logs</button>
+            <button class="tb-cli-action" data-dh-toggle="${d.name}" data-dh-status="${d.status}" style="padding:4px 8px;font-size:11px">${d.status === "online" ? "stop" : "start"}</button>
+            <button class="tb-watch-remove" data-dh-remove="${d.name}" title="remove">\u2715</button>
+          </div>`;
+      });
+    }
+
+    tbDualHedgeBody.innerHTML = html;
+    tbDualHedgeBody.querySelector("#dhAddBtn").addEventListener("click", () => { dhAddState = {}; renderDualHedgeAddUnderlyingPicker(); });
+    tbDualHedgeBody.querySelector("#dhUsersBtn").addEventListener("click", renderDualHedgeUsers);
+
+    tbDualHedgeBody.querySelectorAll("[data-dh-toggle]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const name = btn.dataset.dhToggle;
+        const startingNow = btn.dataset.dhStatus !== "online";
+        btn.disabled = true;
+        try {
+          await fetch(`/api/toolbox/dualhedge/${startingNow ? "start" : "stop"}`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+          });
+          loadDualHedgeList();
+        } catch (err) { btn.disabled = false; }
+      });
+    });
+    tbDualHedgeBody.querySelectorAll("[data-dh-remove]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        if (!confirm(`Remove ${btn.dataset.dhRemove}? This stops and deletes the PM2 process.`)) return;
+        await fetch(`/api/toolbox/dualhedge/${encodeURIComponent(btn.dataset.dhRemove)}`, { method: "DELETE" });
+        loadDualHedgeList();
+      });
+    });
+    tbDualHedgeBody.querySelectorAll("[data-dh-logs]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const data = await (await fetch(`/api/toolbox/dualhedge/logs/${encodeURIComponent(btn.dataset.dhLogs)}`)).json();
+        tbLogsTitle.textContent = btn.dataset.dhLogs;
+        tbLogsBody.innerHTML = `<div class="tb-log-pane"><div class="tb-log-label">stdout</div><pre>${(data.out || []).join("\n") || "(empty)"}</pre></div><div class="tb-log-pane"><div class="tb-log-label">stderr</div><pre>${(data.err || []).join("\n") || "(empty)"}</pre></div>`;
+        tbLogsModal.classList.add("open");
+      });
+    });
+  } catch (err) {
+    tbDualHedgeBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+  }
+}
+
+// ─── Users sub-view — named Kite accounts (dualHedgeUsers.js), separate
+// from the app's own single global account under "setup credentials".
+async function renderDualHedgeUsers() {
+  tbDualHedgeBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  try {
+    const { users } = await (await fetch("/api/toolbox/dualhedge/users")).json();
+    let html = `<button class="tb-back-link" id="dhUsersBack">\u2039 back</button>
+      <div class="tb-form-hint" style="margin:8px 0">Each account here is a SEPARATE Kite login \u2014 not the same as this app's own "setup credentials" account.</div>`;
+
+    if (users.length === 0) {
+      html += `<div class="tb-form-hint">none yet</div>`;
+    } else {
+      users.forEach(u => {
+        html += `
+          <div class="tb-watch-row">
+            <div class="tb-watch-main">
+              <div class="tb-watch-inst">${u.name}</div>
+              <div class="tb-watch-meta">key:${u.hasApiKey ? "set" : "MISSING"} \u00b7 secret:${u.hasApiSecret ? "set" : "MISSING"} \u00b7 token:${u.hasAccessToken ? "set" : "none"}</div>
+            </div>
+            <button class="tb-cli-action" data-dh-token="${u.name}" style="padding:4px 8px;font-size:11px">token</button>
+            <button class="tb-watch-remove" data-dh-user-remove="${u.name}" title="remove">\u2715</button>
+          </div>`;
+      });
+    }
+
+    html += `
+      <div class="tb-form-hint" style="margin:14px 0 6px"><b>add a user</b></div>
+      <div class="tb-form-row"><div class="tb-form-label">name (a label, e.g. a family member's name)</div><input type="text" id="dhUserName"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Kite API key</div><input type="text" id="dhUserApiKey"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Kite API secret</div><input type="password" id="dhUserApiSecret"></div>
+      <div id="dhUserAddErrBox"></div>
+      <button class="tb-submit-btn" id="dhUserAddSubmit">save user</button>
+    `;
+
+    tbDualHedgeBody.innerHTML = html;
+    tbDualHedgeBody.querySelector("#dhUsersBack").addEventListener("click", loadDualHedgeList);
+
+    tbDualHedgeBody.querySelectorAll("[data-dh-token]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const name = btn.dataset.dhToken;
+        const input = prompt(`Paste ${name}'s request_token (raw token or full redirect URL from THEIR OWN Kite login):`);
+        if (!input) return;
+        btn.disabled = true; btn.textContent = "...";
+        try {
+          const res = await fetch("/api/toolbox/dualhedge/users/token", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, requestToken: input }),
+          });
+          const data = await res.json();
+          if (!res.ok) { alert(data.error || "failed"); btn.disabled = false; btn.textContent = "token"; return; }
+          renderDualHedgeUsers();
+        } catch (err) { alert(err.message); btn.disabled = false; btn.textContent = "token"; }
+      });
+    });
+    tbDualHedgeBody.querySelectorAll("[data-dh-user-remove]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        if (!confirm(`Remove ${btn.dataset.dhUserRemove} from the dual-hedge user registry? (credentials stay in .env, unused)`)) return;
+        await fetch(`/api/toolbox/dualhedge/users/${encodeURIComponent(btn.dataset.dhUserRemove)}`, { method: "DELETE" });
+        renderDualHedgeUsers();
+      });
+    });
+    tbDualHedgeBody.querySelector("#dhUserAddSubmit").addEventListener("click", async () => {
+      const errBox = tbDualHedgeBody.querySelector("#dhUserAddErrBox");
+      const body = {
+        name: tbDualHedgeBody.querySelector("#dhUserName").value.trim(),
+        apiKey: tbDualHedgeBody.querySelector("#dhUserApiKey").value.trim(),
+        apiSecret: tbDualHedgeBody.querySelector("#dhUserApiSecret").value.trim(),
+      };
+      if (!body.name || !body.apiKey || !body.apiSecret) {
+        errBox.innerHTML = `<div class="tb-err-box">name, API key and API secret are all required</div>`;
+        return;
+      }
+      const btn = tbDualHedgeBody.querySelector("#dhUserAddSubmit");
+      btn.disabled = true; btn.textContent = "saving...";
+      try {
+        const res = await fetch("/api/toolbox/dualhedge/users", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) { errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed"}</div>`; btn.disabled = false; btn.textContent = "save user"; return; }
+        renderDualHedgeUsers();
+      } catch (err) {
+        errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+        btn.disabled = false; btn.textContent = "save user";
+      }
+    });
+  } catch (err) {
+    tbDualHedgeBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+  }
+}
+
+// ─── Add-deployment flow: underlying via the same live search Hedge
+// Pairs/Add Instrument use, then LONG/SHORT accounts via dropdowns
+// (bounded, pre-configured list \u2014 no search needed there).
+function renderDualHedgeAddUnderlyingPicker() {
+  tbDualHedgeBody.innerHTML = `
+    <button class="tb-back-link" id="dhBack">\u2039 back</button>
+    <div class="tb-form-hint" style="margin:8px 0">underlying (both accounts trade this same instrument, opposite directions)</div>
+    <div class="tb-search-row">
+      <input type="text" id="dhSearchInput" placeholder="search underlying...">
+      <button id="dhSearchBtn">search</button>
+    </div>
+    <div id="dhSearchHint" class="tb-form-hint"></div>
+    <div id="dhSearchPickList" class="tb-pick-list"></div>
+  `;
+  tbDualHedgeBody.querySelector("#dhBack").addEventListener("click", () => { dhAddState = null; loadDualHedgeList(); });
+  const input = tbDualHedgeBody.querySelector("#dhSearchInput");
+  const hint  = tbDualHedgeBody.querySelector("#dhSearchHint");
+  const list  = tbDualHedgeBody.querySelector("#dhSearchPickList");
+  async function runSearch() {
+    const q = input.value.trim();
+    hint.textContent = "searching...";
+    list.innerHTML = "";
+    try {
+      const data = await (await fetch(`/api/toolbox/instruments?exchange=MCX&q=${encodeURIComponent(q)}`)).json();
+      const matches = data.matches || [];
+      if (matches.length === 0) { hint.textContent = "no matches"; return; }
+      hint.textContent = `${matches.length} match(es)`;
+      matches.slice(0, 30).forEach(u => {
+        const btn = document.createElement("button");
+        btn.className = "tb-pick-item";
+        btn.textContent = u;
+        btn.addEventListener("click", () => { dhAddState.underlying = u; renderDualHedgeAddForm(); });
+        list.appendChild(btn);
+      });
+    } catch (err) {
+      hint.textContent = `search failed: ${err.message}`;
+    }
+  }
+  tbDualHedgeBody.querySelector("#dhSearchBtn").addEventListener("click", runSearch);
+  input.addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
+}
+
+async function renderDualHedgeAddForm() {
+  const [lm, usersData] = await Promise.all([
+    (await fetch(`/api/toolbox/dualhedge/lotmult/${encodeURIComponent(dhAddState.underlying)}`)).json().catch(() => ({})),
+    (await fetch("/api/toolbox/dualhedge/users")).json().catch(() => ({ users: [] })),
+  ]);
+  const readyUsers = (usersData.users || []).filter(u => u.hasApiKey && u.hasAccessToken);
+
+  if (readyUsers.length < 2) {
+    tbDualHedgeBody.innerHTML = `
+      <button class="tb-back-link" id="dhBack">\u2039 back</button>
+      <div class="tb-err-box" style="margin-top:8px">need at least 2 fully-configured users (API key + access token) \u2014 currently ${readyUsers.length}. Use "manage users" first.</div>
+    `;
+    tbDualHedgeBody.querySelector("#dhBack").addEventListener("click", () => { dhAddState = null; loadDualHedgeList(); });
+    return;
+  }
+
+  const userOptions = readyUsers.map(u => `<option value="${u.name}">${u.name}</option>`).join("");
+
+  tbDualHedgeBody.innerHTML = `
+    <button class="tb-back-link" id="dhBack">\u2039 back</button>
+    <div class="tb-form-hint" style="margin:8px 0">underlying: <b>${dhAddState.underlying}</b><br>LONG account enters LONG only, SHORT account enters SHORT only \u2014 both carry overnight, SL only arms after that leg's own first adverse flip.</div>
+
+    <div class="tb-form-row"><div class="tb-form-label">LONG account</div><select id="dhLongUser">${userOptions}</select></div>
+    <div class="tb-form-row"><div class="tb-form-label">SHORT account (must differ from LONG)</div><select id="dhShortUser">${userOptions}</select></div>
+    <div class="tb-form-row"><div class="tb-form-label">lots per leg (default 1)</div><input type="number" id="dhLots" min="1" step="1" value="1"></div>
+    <div class="tb-form-row"><div class="tb-form-label">max-loss cut in rupees, armed only after a leg's own first adverse flip (default 3000)</div><input type="number" id="dhMaxLoss" min="1" step="1" value="3000"></div>
+    <div class="tb-form-row" style="display:${lm.lotMultRequired ? "" : "none"}">
+      <div class="tb-form-label">lot multiplier \u2014 REQUIRED, no context.js override on file for ${dhAddState.underlying}. Real contract multiplier, not broker lot_size.</div>
+      <input type="number" id="dhLotMult" min="1" step="any">
+    </div>
+    <div class="tb-form-row"><div class="tb-form-label">band step override (blank = engine default)</div><input type="number" id="dhBandStep" min="0" step="any"></div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="dhLive"><span>go LIVE (real orders on BOTH accounts) \u2014 unchecked = paper</span></label>
+    </div>
+    <div id="dhAddErrBox"></div>
+    <button class="tb-submit-btn" id="dhAddSubmit">start dual hedge</button>
+  `;
+
+  tbDualHedgeBody.querySelector("#dhBack").addEventListener("click", renderDualHedgeAddUnderlyingPicker);
+
+  tbDualHedgeBody.querySelector("#dhAddSubmit").addEventListener("click", async () => {
+    const errBox = tbDualHedgeBody.querySelector("#dhAddErrBox");
+    const longUser  = tbDualHedgeBody.querySelector("#dhLongUser").value;
+    const shortUser = tbDualHedgeBody.querySelector("#dhShortUser").value;
+    if (longUser === shortUser) {
+      errBox.innerHTML = `<div class="tb-err-box">LONG and SHORT must be different accounts</div>`;
+      return;
+    }
+    const live = tbDualHedgeBody.querySelector("#dhLive").checked;
+    let confirmLive;
+    if (live) {
+      confirmLive = prompt('This starts REAL orders on BOTH accounts. Type "LIVE" to confirm:');
+      if (confirmLive !== "LIVE") { errBox.innerHTML = `<div class="tb-err-box">not confirmed \u2014 not started</div>`; return; }
+    }
+    const body = {
+      underlying: dhAddState.underlying, longUser, shortUser,
+      lots: tbDualHedgeBody.querySelector("#dhLots").value || 1,
+      maxLossRupees: tbDualHedgeBody.querySelector("#dhMaxLoss").value || 3000,
+      lotMultOverride: tbDualHedgeBody.querySelector("#dhLotMult")?.value || undefined,
+      bandStepOverride: tbDualHedgeBody.querySelector("#dhBandStep")?.value || undefined,
+      live, confirmLive,
+    };
+    const btn = tbDualHedgeBody.querySelector("#dhAddSubmit");
+    btn.disabled = true; btn.textContent = "starting...";
+    try {
+      const res = await fetch("/api/toolbox/dualhedge", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed to start"}</div>`;
+        btn.disabled = false; btn.textContent = "start dual hedge";
+        return;
+      }
+      dhAddState = null;
+      loadDualHedgeList();
+    } catch (err) {
+      errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+      btn.disabled = false; btn.textContent = "start dual hedge";
+    }
+  });
+}
+
 initAuth();
