@@ -1733,6 +1733,21 @@ app.get("/api/toolbox/dualhedge/users", (req, res) => {
     }
 });
 
+app.get("/api/toolbox/dualhedge/users/:name/login-url", (req, res) => {
+    // Same as the single-account /api/token/login-url above — kc.getLoginURL()
+    // is a pure local string builder (no network call to Kite), so this is
+    // safe to call synchronously and pre-fetch for every user up front (see
+    // app.js's loadDualHedgeUserLoginUrls()) rather than only on click.
+    try {
+        const user = dualHedgeUsers.getUser(req.params.name);
+        if (!user.apiKey) return res.status(400).json({ error: `${req.params.name} has no API key set` });
+        const kc = new KiteConnect({ api_key: user.apiKey });
+        res.json({ url: kc.getLoginURL() });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.post("/api/toolbox/dualhedge/users", (req, res) => {
     const { name, apiKey, apiSecret } = req.body || {};
     if (!name || !apiKey || !apiSecret) {
