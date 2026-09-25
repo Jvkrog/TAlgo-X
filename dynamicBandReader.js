@@ -68,9 +68,14 @@ function replayBandColor(rawCandles, bandStep) {
 
 // Refresh cadence / lookback — identical to haCandleReader.js's own
 // constants (same "roughly half the bar's own duration" reasoning, same
-// window comfortably larger than any warmup this module needs).
-const REFRESH_MS = { "1h": 15 * 60 * 1000, "1d": 6 * 60 * 60 * 1000 };
-const LOOKBACK_DAYS = { "1h": 15, "1d": 90 };
+// window comfortably larger than any warmup this module needs). "15m"
+// added for dualHedgeEngine.js (see that file's header) — refresh every
+// 5 min (~1/3 of the bar) and a 7-day lookback, which at MCX's ~14h/day
+// session gives roughly 350+ bars of replay warmup, comfortably more than
+// this module's band-geometry replay needs (same order of magnitude as
+// engineConfig.MAX_CANDLES-driven warmup elsewhere in this codebase).
+const REFRESH_MS = { "15m": 5 * 60 * 1000, "1h": 15 * 60 * 1000, "1d": 6 * 60 * 60 * 1000 };
+const LOOKBACK_DAYS = { "15m": 7, "1h": 15, "1d": 90 };
 
 function createDynamicBandReader({ token, timeframe, bandStep, engineConfig, label }) {
     if (!REFRESH_MS[timeframe]) {

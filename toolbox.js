@@ -39,6 +39,7 @@ const { runHedgePairBacktest } = require("./backtestHedgePair");
 const { playBootAnimation, renderStaticBanner, animateBoxUpward } = require("./bootAnimation");
 
 const { getShortName } = require("./shortNames");
+const dualHedgeUsers = require("./dualHedgeUsers");
 const { createMarketStateClient } = require("./marketStateClient");
 const { createMarketWatchlist }   = require("./marketWatchlist");
 const pinStore        = createContractPinStore();
@@ -355,6 +356,7 @@ const HELP_ROWS = [
     [["L", "Logs"], ["T", "Token"], ["B", "Backtest"], ["N", "Trending"]],
     [["Q", "Quit"], ["E", "Creds"], ["K", "Market"], ["P", "Edit Params"]],
     [["U", "Custom Strategy"], ["V", "Risk Mgmt"], ["H", "Hedge Pairs"], ["O", "Options"]],
+    [["G", "Dual Hedge"], null, null, null],
 ];
 function renderMenuHelpLines() {
     return HELP_ROWS.map(row => {
@@ -373,6 +375,7 @@ const PLAIN_MODE = process.env.TALGOX_PLAIN === "1";
 async function renderMenu() {
     const procs = await getEngineProcesses();
     const hedgePairs = await getHedgePairProcesses();
+    const dualHedges = await getDualHedgeProcesses();
 
     const lines = [];
     lines.push(boxTop());
@@ -437,6 +440,11 @@ async function renderMenu() {
     if (hedgePairs.length > 0) {
         const online = hedgePairs.filter(p => p.status === "online").length;
         lines.push(boxLine(c.dim(`  Hedge Pairs: ${online}/${hedgePairs.length} running — press H for details`)));
+        lines.push(boxDivider("═"));
+    }
+    if (dualHedges.length > 0) {
+        const online = dualHedges.filter(p => p.status === "online").length;
+        lines.push(boxLine(c.dim(`  Dual Hedge: ${online}/${dualHedges.length} running — press G for details`)));
         lines.push(boxDivider("═"));
     }
     lines.push(...renderMenuHelpLines());
@@ -2412,7 +2420,258 @@ async function hedgePairScreen() {
     }
 }
 
-// ─── OPTIONS — manual chain browsing + order placement only (Sep 2026,
+// ─── DUAL HEDGE — deploy screen for dualHedgeEngine.js (see that file's own
+// header for the full spec). Two SEPARATE Kite accounts, one LONG-only, one
+// SHORT-only, same instrument/band signal, positions carry overnight — NOT
+// the same thing as Hedge Pairs above (which is ONE account, TWO
+// instruments/legs). Own small screen for the same reason hedgePairScreen()
+// is separate from the main instrument table: getEngineProcesses() filters
+// on a single UNDERLYING env var, and a dual-hedge process sets
+// DH_UNDERLYING/DH_LONG_USER/DH_SHORT_USER instead, so it'd never show up
+// there anyway.
+async function getDualHedgeProcesses() {
+    const list = await pm2List();
+    return list
+        .filter(p => p.pm2_env.env?.DH_UNDERLYING)
+        .map(p => ({
+            name:       p.name,
+            underlying: p.pm2_env.env.DH_UNDERLYING,
+            longUser:   p.pm2_env.env.DH_LONG_USER,
+            shortUser:  p.pm2_env.env.DH_SHORT_USER,
+            status:     p.pm2_env.status,
+            uptime:     p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
+            lots:       p.pm2_env.env?.DH_LOTS_OVERRIDE || "1",
+            maxLoss:    p.pm2_env.env?.DH_MAX_LOSS_RUPEES_OVERRIDE || "3000",
+            live:       p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
+            exchange:   p.pm2_env.env?.DH_EXCHANGE_OVERRIDE || "MCX",
+            outLogPath: p.pm2_env.pm_out_log_path,
+            errLogPath: p.pm2_env.pm_err_log_path,
+        }));
+}
+
+// ─── Users sub-screen — add/list/remove named Kite accounts + exchange
+// each one's own request_token -> access_token, all via dualHedgeUsers.js.
+// Same request_token exchange pattern as the single global account's
+// updateAccessToken() above, just per-user instead of the one engineConfig
+// account (reuses the same extractRequestToken() helper).
+async function addDualHedgeUser() {
+    const nameInput = await ask("  user name (a label — e.g. a family member's name, not their Kite login): ");
+    if (!nameInput) { await pauseForReview(); return; }
+    const apiKey = await ask("  Kite API key: ");
+    if (!apiKey) { console.log(c.yellow("  API key required")); await pauseForReview(); return; }
+    const apiSecret = await askHidden("  Kite API secret: ");
+    if (!apiSecret) { console.log(c.yellow("  API secret required")); await pauseForReview(); return; }
+    const name = dualHedgeUsers.saveUserCredentials(nameInput, { apiKey, apiSecret });
+    console.log(c.green(`  saved -> .env (DH_USER_${name}_*)`));
+    console.log(c.dim(`  now generate an access token for ${name} (option T on this screen) before using them in a deployment.`));
+    await pauseForReview();
+}
+
+async function updateDualHedgeUserToken() {
+    const users = dualHedgeUsers.listUsers();
+    if (users.length === 0) { console.log(c.yellow("  no dual-hedge users configured yet — press A first")); await pauseForReview(); return; }
+    users.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u.name}  key:${u.apiKey ? "set" : c.red("MISSING")}  token:${u.accessToken ? "set" : c.yellow("none")}`));
+    const idx = await ask("  generate/update access token for which number: ");
+    const user = users[Number(idx) - 1];
+    if (!user) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!user.apiKey || !user.apiSecret) { console.log(c.red(`  ${user.name} is missing an API key/secret — remove and re-add`)); await pauseForReview(); return; }
+
+    const kc = new KiteConnect({ api_key: user.apiKey });
+    console.log();
+    console.log(c.dim(`  paste the request_token from ${user.name}'s OWN Kite mobile app login (raw token or full redirect URL):`));
+    const input = await ask("  request_token: ");
+    const requestToken = extractRequestToken(input);
+    if (!requestToken) { console.log(c.red("  no token found in that input")); await pauseForReview(); return; }
+    try {
+        const session = await kc.generateSession(requestToken, user.apiSecret);
+        dualHedgeUsers.saveUserToken(user.name, session.access_token);
+        console.log(c.green(`  access token updated -> .env (DH_USER_${user.name}_ACCESS_TOKEN)`));
+        console.log(c.yellow("  restart any dual-hedge deployment using this user to pick up the new token."));
+    } catch (err) {
+        console.log(c.red(`  token exchange failed: ${err.message}`));
+    }
+    await pauseForReview();
+}
+
+async function removeDualHedgeUserFlow() {
+    const users = dualHedgeUsers.listUsers();
+    if (users.length === 0) { console.log(c.yellow("  no dual-hedge users configured")); await pauseForReview(); return; }
+    users.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u.name}`));
+    const idx = await ask("  remove which number: ");
+    const user = users[Number(idx) - 1];
+    if (!user) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    dualHedgeUsers.removeUser(user.name);
+    console.log(c.green(`  removed ${user.name} from the dual-hedge user registry (credentials left in .env, unused)`));
+    await pauseForReview();
+}
+
+async function manageDualHedgeUsersScreen() {
+    let running = true;
+    while (running) {
+        const users = dualHedgeUsers.listUsers();
+        console.log();
+        console.log(c.bold("  \u2500\u2500 Dual Hedge Users \u2500\u2500"));
+        if (users.length === 0) {
+            console.log(c.dim("  none yet — press A to add one"));
+        } else {
+            users.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u.name}  key:${u.apiKey ? "set" : c.red("MISSING")}  token:${u.accessToken ? "set" : c.yellow("none")}`));
+        }
+        console.log();
+        console.log(c.dim("  [A] add user   [T] generate/update token   [D] remove   [B] back"));
+        const input = (await ask("  > ")).trim().toUpperCase();
+        if (input === "A")      await addDualHedgeUser();
+        else if (input === "T") await updateDualHedgeUserToken();
+        else if (input === "D") await removeDualHedgeUserFlow();
+        else if (input === "B" || input === "") running = false;
+        else { console.log(c.yellow("  unrecognized option")); }
+    }
+}
+
+async function addDualHedge() {
+    const users = dualHedgeUsers.listUsers().filter(u => u.apiKey && u.accessToken);
+    if (users.length < 2) {
+        console.log(c.yellow(`  need at least 2 fully-configured users (API key + access token) — currently ${users.length}. Use the Users submenu first.`));
+        await pauseForReview();
+        return;
+    }
+    console.log(c.dim("  LONG account: enters LONG on a green band signal, never shorts"));
+    console.log(c.dim("  SHORT account: enters SHORT on a red band signal, never longs"));
+    console.log(c.dim("  both carry overnight (NRML); SL only arms after that leg's own first adverse flip"));
+    console.log();
+
+    const repo = await ensureCsvLoaded();
+    const all  = repo.listUnderlyings();
+    const underlying = await pickUnderlying(all, "Dual Hedge");
+    if (!underlying) { await pauseForReview(); return; }
+
+    function pickUser(label, excludeName) {
+        const options = users.filter(u => u.name !== excludeName);
+        options.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u.name}`));
+        return options;
+    }
+    console.log(c.bold(`  ${underlying} — LONG account:`));
+    let opts = pickUser("LONG");
+    let idx = await ask("  select number: ");
+    const longUser = opts[Number(idx) - 1];
+    if (!longUser) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+
+    console.log(c.bold(`  ${underlying} — SHORT account (must differ from ${longUser.name}):`));
+    opts = pickUser("SHORT", longUser.name);
+    idx = await ask("  select number: ");
+    const shortUser = opts[Number(idx) - 1];
+    if (!shortUser) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+
+    // Same lotMult reality-check every other deploy flow in this file uses.
+    const def = getDefinition(underlying, "MCX");
+    let lotMultOverride = null;
+    if (def.lotMult === null) {
+        console.log(c.yellow(`  \u26a0 lot multiplier required for ${underlying} — broker lot_size can't be trusted, see context.js's header.`));
+        let val = null;
+        do {
+            const input = await ask("  lot multiplier — price move x this = PnL per lot (required): ");
+            if (!input) { console.log(c.yellow("  required — no safe default")); continue; }
+            const parsed = Number(input);
+            if (!Number.isFinite(parsed) || parsed <= 0) { console.log(c.yellow(`  "${input}" isn't a valid positive number`)); continue; }
+            val = parsed;
+        } while (val === null);
+        lotMultOverride = val;
+    }
+
+    const lotsInput = await ask("  lots per leg (default 1, applies to both accounts unless you set per-leg overrides later via PM2 env): ");
+    const lots = lotsInput ? Number(lotsInput) : 1;
+    if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  invalid lots value")); await pauseForReview(); return; }
+
+    const maxLossInput = await ask("  max-loss cut in rupees, armed only after a leg's own first adverse flip (default 3000): ");
+    const maxLoss = maxLossInput ? Number(maxLossInput) : 3000;
+    if (!Number.isFinite(maxLoss) || maxLoss <= 0) { console.log(c.yellow("  invalid max-loss value")); await pauseForReview(); return; }
+
+    const bandStepInput = await ask("  band step override (blank = engine default): ");
+    const bandStep = bandStepInput ? Number(bandStepInput) : null;
+
+    const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
+    let isLive = modeInput === "L";
+    if (isLive) {
+        const confirmLive = (await ask(c.red('  this will place REAL orders on BOTH accounts. type "LIVE" to confirm: '))).trim();
+        if (confirmLive !== "LIVE") {
+            console.log(c.dim("  not confirmed — starting in paper mode instead"));
+            isLive = false;
+        }
+    }
+
+    const name = `${getShortName(underlying)}DualHedge`;
+    const env = {
+        DH_UNDERLYING: underlying, DH_LONG_USER: longUser.name, DH_SHORT_USER: shortUser.name,
+        DH_EXCHANGE_OVERRIDE: "MCX", DH_LOTS_OVERRIDE: String(lots),
+        DH_MAX_LOSS_RUPEES_OVERRIDE: String(maxLoss), LIVE_ORDERS_OVERRIDE: String(isLive),
+    };
+    if (lotMultOverride) env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
+    if (bandStep)        env.DH_BAND_STEP_OVERRIDE = String(bandStep);
+
+    try {
+        await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: __dirname, env });
+        console.log(c.green(`  started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  maxLoss:\u20b9${maxLoss}  ${isLive ? "LIVE" : "PAPER"})`));
+    } catch (err) {
+        console.log(c.red(`  failed to start: ${err.message}`));
+    }
+    await pauseForReview();
+}
+
+async function dualHedgeActionByNumber(deployments, verb, fn) {
+    const input = await ask(`  ${verb} which number: `);
+    const dep = deployments[Number(input) - 1];
+    if (!dep) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    try {
+        await fn(dep.name);
+        console.log(c.green(`  ${verb}ed ${dep.name}`));
+    } catch (err) {
+        console.log(c.red(`  failed to ${verb}: ${err.message}`));
+    }
+    await pauseForReview();
+}
+
+async function dualHedgeScreen() {
+    let running = true;
+    while (running) {
+        const deployments = await getDualHedgeProcesses();
+
+        console.log();
+        console.log(c.bold("  \u2500\u2500 Dual Hedge \u2500\u2500"));
+        if (deployments.length === 0) {
+            console.log(c.dim("  none running — press U to add accounts first, then A to add a deployment"));
+        } else {
+            deployments.forEach((d, i) => {
+                const modeTag = d.live ? c.red("LIVE") : c.cyan("PAPER");
+                let statusStr;
+                if (d.status === "online") statusStr = c.green(`\u25cf ${fmtUptime(d.uptime)}`);
+                else                        statusStr = c.red(`\u25cf ${d.status.toUpperCase()}`);
+                console.log(`  ${String(i + 1).padStart(2)}. ${d.name.padEnd(20)} ${d.underlying.padEnd(14)} LONG:${d.longUser.padEnd(10)} SHORT:${d.shortUser.padEnd(10)} ${d.lots} lot  maxLoss:\u20b9${d.maxLoss}  ${modeTag}  ${statusStr}`);
+            });
+        }
+        console.log();
+        console.log(c.dim("  [A] add   [X] stop   [S] start   [D] remove   [L] logs   [U] users   [B] back"));
+        const input = (await ask("  > ")).trim().toUpperCase();
+
+        if (input === "A")      await addDualHedge();
+        else if (input === "X") await dualHedgeActionByNumber(deployments, "stop", n => pm2Stop(n));
+        else if (input === "S") await dualHedgeActionByNumber(deployments, "start", n => pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name: n, cwd: __dirname }));
+        else if (input === "D") await dualHedgeActionByNumber(deployments, "remove", n => pm2Delete(n));
+        else if (input === "U") await manageDualHedgeUsersScreen();
+        else if (input === "L") {
+            const idx = await ask("  view logs for which number: ");
+            const dep = deployments[Number(idx) - 1];
+            if (!dep) { console.log(c.yellow("  invalid selection")); await pauseForReview(); }
+            else {
+                console.log(c.dim(`  out: ${dep.outLogPath}`));
+                console.log(c.dim(`  err: ${dep.errLogPath}`));
+                await pauseForReview();
+            }
+        }
+        else if (input === "B" || input === "") running = false;
+        else { console.log(c.yellow("  unrecognized option")); }
+    }
+}
+
+
 // reported directly). Deliberately NOT a PM2-managed engine like every
 // other instrument/hedge-pair here — no strategy, no auto entry/exit, no
 // running process at all. Positions are read straight from Kite's own
@@ -2909,11 +3168,16 @@ async function viewLogs(procs) {
 // menu" gap in the toolbox UI, not a gap in the roll logic underneath it.
 async function rollContract(procs) {
     const hedgePairs = await getHedgePairProcesses();
+    const dualHedges = await getDualHedgeProcesses();
 
     // One entry per distinct underlying, whichever process(es) reference it
     // — a hedge pair leg and a standalone engine on the same underlying
     // share one pin either way, so they collapse into a single roll action
-    // rather than listing the same underlying twice.
+    // rather than listing the same underlying twice. Dual-hedge deployments
+    // join the same collapsing: unlike a hedge pair (two DIFFERENT
+    // underlyings, core+hedge), a dual-hedge deployment's LONG and SHORT
+    // legs trade the SAME underlying (see dualHedgeEngine.js's header), so
+    // it only ever contributes ONE addRef call, not two.
     const byUnderlying = new Map(); // underlying -> { underlying, exchange, labels: [] }
     const addRef = (underlying, exchange, label) => {
         if (!byUnderlying.has(underlying)) byUnderlying.set(underlying, { underlying, exchange, labels: [] });
@@ -2924,6 +3188,7 @@ async function rollContract(procs) {
         addRef(p.coreUnderlying,  p.exchange, `${p.name} (core leg)`);
         addRef(p.hedgeUnderlying, p.exchange, `${p.name} (hedge leg)`);
     });
+    dualHedges.forEach(p => addRef(p.underlying, p.exchange, `${p.name} (dual hedge)`));
     const candidates = Array.from(byUnderlying.values());
 
     if (candidates.length === 0) { console.log(c.yellow("  no instruments running to roll")); await pauseForReview(); return; }
@@ -3025,22 +3290,25 @@ async function rollContract(procs) {
     console.log();
 
     // Same "everyone sharing this underlying's pin needs to restart
-    // together" reasoning, extended to hedge pair legs — a hedge pair
-    // process isn't in `procs` (it's a totally separate PM2 script,
-    // hedgePairEngine.js, tracked via getHedgePairProcesses()) but its
-    // core/hedge leg reads the exact same pinStore entry for its underlying
-    // (see hedgePairContext.js), so it's just as stale as any sibling
-    // engine.js process until it restarts too.
+    // together" reasoning, extended to hedge pair legs AND dual-hedge
+    // deployments — neither is in `procs` (separate PM2 scripts,
+    // hedgePairEngine.js / dualHedgeEngine.js, tracked via their own
+    // getXProcesses()) but both read the exact same pinStore entry for
+    // their underlying (hedgePairContext.js / dualHedgeContext.js both
+    // call the same resolveCurrent()), so both are just as stale as any
+    // sibling engine.js process until they restart too.
     const siblings = procs.filter(sib => sib.underlying === p.underlying);
-    const affectedPairs = hedgePairs.filter(hp => hp.coreUnderlying === p.underlying || hp.hedgeUnderlying === p.underlying);
-    if (siblings.length > 1 || affectedPairs.length > 0) {
+    const affectedPairs  = hedgePairs.filter(hp => hp.coreUnderlying === p.underlying || hp.hedgeUnderlying === p.underlying);
+    const affectedDuals  = dualHedges.filter(dh => dh.underlying === p.underlying);
+    if (siblings.length > 1 || affectedPairs.length > 0 || affectedDuals.length > 0) {
         const parts = [];
         if (siblings.length > 0)      parts.push(siblings.map(s => (STRATEGY_INFO[s.strategy] || { short: s.strategy }).short).join(", "));
         if (affectedPairs.length > 0) parts.push(affectedPairs.map(hp => `${hp.name} (${hp.coreUnderlying === p.underlying ? "core" : "hedge"} leg)`).join(", "));
-        console.log(c.yellow(`  ⚠ ${siblings.length + affectedPairs.length} process(es) run ${p.underlying} (${parts.join(", ")}) — all of them need this restart, not just the one picked, or they'll end up split across two different contracts.`));
+        if (affectedDuals.length > 0) parts.push(affectedDuals.map(dh => `${dh.name} (dual hedge)`).join(", "));
+        console.log(c.yellow(`  ⚠ ${siblings.length + affectedPairs.length + affectedDuals.length} process(es) run ${p.underlying} (${parts.join(", ")}) — all of them need this restart, not just the one picked, or they'll end up split across two different contracts.`));
     }
 
-    const restart = (await ask(`  Restart engine${(siblings.length + affectedPairs.length) > 1 ? "s" : ""}? [Y/N]: `)).trim().toUpperCase();
+    const restart = (await ask(`  Restart engine${(siblings.length + affectedPairs.length + affectedDuals.length) > 1 ? "s" : ""}? [Y/N]: `)).trim().toUpperCase();
     if (restart === "Y") {
         for (const target of siblings) {
             try {
@@ -3063,8 +3331,21 @@ async function rollContract(procs) {
                 console.log(c.red(`  restart failed for ${hp.name}: ${err.message} — pin is saved, restart manually when ready`));
             }
         }
+        for (const dh of affectedDuals) {
+            try {
+                // Same reasoning as the hedge-pair restart above — pin
+                // lives in pinStore, not PM2 env, so a plain restart is
+                // enough for dualHedgeContext.js to pick it up for BOTH
+                // legs (they resolve the same underlying independently,
+                // but from the same pin).
+                await pm2Restart({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name: dh.name, cwd: __dirname });
+                console.log(c.green(`  restarted ${dh.name} — now running ${p.underlying} on ${next.symbol}`));
+            } catch (err) {
+                console.log(c.red(`  restart failed for ${dh.name}: ${err.message} — pin is saved, restart manually when ready`));
+            }
+        }
     } else {
-        const stillOn = [...siblings.map(s => s.name), ...affectedPairs.map(hp => hp.name)];
+        const stillOn = [...siblings.map(s => s.name), ...affectedPairs.map(hp => hp.name), ...affectedDuals.map(dh => dh.name)];
         console.log(c.yellow(`  pin saved but NOT applied yet — ${stillOn.join(", ")} still on ${current.symbol} until restarted`));
     }
     await pauseForReview();
@@ -3518,6 +3799,7 @@ async function main() {
         else if (input === "U")           await createCustomStrategy();
         else if (input === "V")           await riskManagement(procs);
         else if (input === "H")           await hedgePairScreen();
+        else if (input === "G")           await dualHedgeScreen();
         else if (input === "O")           await optionsScreen();
         else if (input === "Q")           { running = false; redraw = false; }
         else                               { console.log(c.yellow("  unrecognized option")); redraw = false; }

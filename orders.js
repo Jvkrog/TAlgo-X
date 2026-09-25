@@ -34,9 +34,18 @@ const c            = require("./c");
 const { normalizePrice } = require("./price");
 const { createDailyHaGate } = require("./dailyHaGate");
 
-function createOrders(context, tg) {
-    const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
-    kc.setAccessToken(engineConfig.getAccessToken());
+// kcOverride (optional, added for dualHedgeEngine.js — see that file's
+// header): when provided, use THIS already-authenticated KiteConnect
+// client instead of constructing one from the single global
+// engineConfig.API_KEY/getAccessToken() account. Every existing caller
+// (engine.js, hedgePairEngine.js) passes only 2 args and is completely
+// unaffected — this parameter is additive only, default path unchanged.
+function createOrders(context, tg, kcOverride) {
+    const kc = kcOverride || (() => {
+        const k = new KiteConnect({ api_key: engineConfig.API_KEY });
+        k.setAccessToken(engineConfig.getAccessToken());
+        return k;
+    })();
 
     // Universal daily-HA directional gate — see dailyHaGate.js's own header
     // for why this lives here instead of alongside chopGate.js et al.'s
