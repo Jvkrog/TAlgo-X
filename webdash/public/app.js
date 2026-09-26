@@ -10,6 +10,8 @@
 const grid       = document.getElementById("instrumentGrid");
 const hedgePairsPanel = document.getElementById("hedgePairsPanel");
 const hedgePairsGrid  = document.getElementById("hedgePairsGrid");
+const dualHedgePanel  = document.getElementById("dualHedgePanel");
+const dualHedgeGrid   = document.getElementById("dualHedgeGrid");
 const logStream  = document.getElementById("logStream");
 const connStatus = document.getElementById("connStatus");
 const totalPnlEl = document.getElementById("totalSessionPnl");
@@ -266,6 +268,115 @@ async function loadHedgePairs() {
   }
 }
 
+// ── dual hedge cards — same main-dashboard-visibility treatment as hedge
+// pair cards above (mirrors that block exactly), for the same reason: a
+// dual-hedge deployment running live previously gave no signal at all on
+// the primary operator view, only inside the Toolbox "⇅ dual hedge" modal.
+// One real difference from hedge pairs: BOTH legs of a dual-hedge
+// deployment trade the SAME underlying (see dualHedgeEngine.js's header)
+// — dualHedgeContext.js suffixes tgPrefix as `${underlying}_DH_LONG` /
+// `${underlying}_DH_SHORT` specifically so the two legs' events don't
+// collide with each other OR with a plain single-account engine on that
+// same underlying (which would just be `${underlying}` with no suffix).
+let dualHedges = [];
+let dualHedgeLegIndex = new Map(); // tgPrefix -> {dealName, leg:"long"|"short"}
+const dualHedgeLegPnl = new Map(); // tgPrefix -> last {uPnl, session}
+
+function buildDualHedgeCard(d) {
+  const el = document.createElement("div");
+  el.className = "card";
+  el.id = `dh-${d.name}`;
+  el.innerHTML = `
+    <div class="card-top">
+      <div class="card-id">
+        <span class="card-underlying">${d.underlying}</span>
+        <span class="card-strategy">dual hedge \u00b7 maxLoss:\u20b9${d.maxLoss} (armed only after a flip)</span>
+      </div>
+      <div>
+        <span class="status-pill ${d.status === "online" ? "online" : "offline"}" data-role="status">${d.status}</span>
+        <span class="mode-pill ${d.live ? "live" : ""}">${d.live ? "live" : "paper"}</span>
+      </div>
+    </div>
+    <div class="card-price-row">
+      <span class="card-price">LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot NRML each</span>
+    </div>
+    <div class="pnl-row">
+      <div class="pnl-box">
+        <span class="pnl-label">LONG (${d.longUser})</span>
+        <span class="pnl-value flat" data-role="long-pnl">+0</span>
+      </div>
+      <div class="pnl-box">
+        <span class="pnl-label">SHORT (${d.shortUser})</span>
+        <span class="pnl-value flat" data-role="short-pnl">+0</span>
+      </div>
+      <div class="pnl-box">
+        <span class="pnl-label">unrealized</span>
+        <span class="pnl-value flat" data-role="unrealized">+0</span>
+      </div>
+      <div class="pnl-box">
+        <span class="pnl-label">realized</span>
+        <span class="pnl-value flat" data-role="realized">+0</span>
+      </div>
+    </div>
+    <div class="card-controls">
+      <button class="btn btn-start" data-action="start">start</button>
+      <button class="btn btn-stop" data-action="stop">stop</button>
+      <button class="btn btn-restart" data-action="restart">restart</button>
+    </div>
+  `;
+  el.querySelectorAll("[data-action]").forEach(btn => {
+    btn.addEventListener("click", () => control(d.name, btn.dataset.action, el));
+  });
+  return el;
+}
+
+// Same shape as updateHedgePairLeg() — see that function's own comment.
+function updateDualHedgeLeg(engine, uPnl, session) {
+  const hit = dualHedgeLegIndex.get(engine);
+  if (!hit) return;
+  if (uPnl !== undefined) dualHedgeLegPnl.set(engine, { uPnl: uPnl || 0, session: session || 0 });
+
+  const el = document.getElementById(`dh-${hit.dealName}`);
+  if (!el) return;
+
+  const own = dualHedgeLegPnl.get(engine) || { uPnl: 0, session: 0 };
+  const ownEl = el.querySelector(`[data-role="${hit.leg}-pnl"]`);
+  if (ownEl) { ownEl.textContent = fmtSigned(own.session); ownEl.className = `pnl-value ${cls(own.session)}`; }
+
+  const longKey = `${hit.underlying}_DH_LONG`, shortKey = `${hit.underlying}_DH_SHORT`;
+  const c1 = dualHedgeLegPnl.get(longKey)  || { uPnl: 0, session: 0 };
+  const c2 = dualHedgeLegPnl.get(shortKey) || { uPnl: 0, session: 0 };
+  const totalUnrealized = c1.uPnl + c2.uPnl;
+  const totalRealized   = (c1.session - c1.uPnl) + (c2.session - c2.uPnl);
+
+  const uEl = el.querySelector('[data-role="unrealized"]');
+  if (uEl) { uEl.textContent = fmtSigned(totalUnrealized); uEl.className = `pnl-value ${cls(totalUnrealized)}`; }
+  const rEl = el.querySelector('[data-role="realized"]');
+  if (rEl) { rEl.textContent = fmtSigned(totalRealized); rEl.className = `pnl-value ${cls(totalRealized)}`; }
+}
+
+async function loadDualHedges() {
+  try {
+    const data = await (await fetch("/api/toolbox/dualhedge")).json();
+    dualHedges = data.deployments || [];
+    if (dualHedges.length === 0) {
+      dualHedgePanel.style.display = "none";
+      return;
+    }
+    dualHedgePanel.style.display = "";
+    dualHedgeGrid.innerHTML = "";
+    dualHedgeLegIndex = new Map();
+    dualHedges.forEach(d => {
+      dualHedgeGrid.appendChild(buildDualHedgeCard(d));
+      const legMeta = { dealName: d.name, underlying: d.underlying };
+      dualHedgeLegIndex.set(`${d.underlying}_DH_LONG`,  { ...legMeta, leg: "long" });
+      dualHedgeLegIndex.set(`${d.underlying}_DH_SHORT`, { ...legMeta, leg: "short" });
+    });
+  } catch (err) {
+    // best-effort, same as loadHedgePairs
+  }
+}
+
 async function loadEngineState(inst) {
   try {
     const res = await fetch(`/api/state/${encodeURIComponent(inst.underlying)}/${encodeURIComponent(inst.strategy)}`);
@@ -345,7 +456,7 @@ async function loadInstruments() {
   }
 }
 
-refreshBtn.addEventListener("click", () => { loadInstruments(); loadHedgePairs(); });
+refreshBtn.addEventListener("click", () => { loadInstruments(); loadHedgePairs(); loadDualHedges(); });
 
 // ── kite access token ───────────────────────────────────────────────────
 // Primary path: the token button's href is set to Kite's real login URL, so
@@ -525,6 +636,7 @@ function handleEvent(msg) {
     });
     updateCardPnl(msg.engine, msg.uPnl, msg.session);
     updateHedgePairLeg(msg.engine, msg.uPnl, msg.session);
+    updateDualHedgeLeg(msg.engine, msg.uPnl, msg.session);
     sessionPnlByUnderlying.set(msg.engine, msg.session);
     updateTotalPnl();
 
@@ -550,6 +662,7 @@ function handleEvent(msg) {
   if (msg.type === "ENTRY") {
     if (!isReplay) flashCards(msg.engine, 1);
     updateHedgePairLeg(msg.engine, undefined, undefined);
+    updateDualHedgeLeg(msg.engine, undefined, undefined);
     // msg.arrow (▲/▼) is currently only sent by DYNAMIC_MID_COLOR — every
     // other strategy's ENTRY payload has no `arrow` field, so this is a
     // no-op for them (undefined -> empty prefix, unchanged tag).
@@ -570,6 +683,7 @@ function handleEvent(msg) {
   if (msg.type === "EXIT") {
     if (!isReplay) flashCards(msg.engine, msg.pnl >= 0 ? 1 : -1);
     updateHedgePairLeg(msg.engine, 0, msg.session);
+    updateDualHedgeLeg(msg.engine, 0, msg.session);
     sessionPnlByUnderlying.set(msg.engine, msg.session);
     updateTotalPnl();
     appendLog({
@@ -642,12 +756,14 @@ function startApp() {
   appendLog({ type: "SYS", text: `[dashboard] booting...` });
   loadInstruments();
   loadHedgePairs();
+  loadDualHedges();
   connect();
   refreshTokenStatus();
   loadLoginUrl();
   handleTokenRedirectParams();
   setInterval(loadInstruments, 30000); // periodic resync in case PM2 state changed outside the dashboard
   setInterval(loadHedgePairs, 30000);
+  setInterval(loadDualHedges, 30000);
 }
 
 function revealApp(instant) {
