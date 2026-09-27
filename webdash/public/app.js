@@ -22,8 +22,7 @@ const tokenBtn = document.getElementById("tokenBtn");
 const tokenDot = document.getElementById("tokenDot");
 const tokenLabel = document.getElementById("tokenLabel");
 const tokenPanel = document.getElementById("tokenPanel");
-const tokenInput = document.getElementById("tokenInput");
-const tokenExchangeBtn = document.getElementById("tokenExchangeBtn");
+const tokenAccountList = document.getElementById("tokenAccountList");
 const appRoot = document.getElementById("appRoot");
 const lockScreen = document.getElementById("lockScreen");
 const lockDots = document.getElementById("lockDots");
@@ -459,59 +458,149 @@ async function loadInstruments() {
 refreshBtn.addEventListener("click", () => { loadInstruments(); loadHedgePairs(); loadDualHedges(); });
 
 // ── kite access token ───────────────────────────────────────────────────
-// Primary path: the token button's href is set to Kite's real login URL, so
-// tapping it is a normal link tap (works on mobile without popup-blocker
-// issues). If your Kite app's Redirect URL points at this server's
-// /api/token/callback, the token is captured and exchanged automatically —
-// you'll land back here with ?token=ok. Otherwise, the panel below the
-// button is a manual fallback: paste the request_token (or the full
-// redirect URL Kite sent you to) and exchange it by hand, same as the CLI.
+// Unified panel: the app's own global account PLUS every Dual Hedge/Gap
+// Capture user (they share one registry — see gapCaptureEngine.js's
+// header) rendered as one list, each row wired the same way — a real <a>
+// href set to Kite's real login URL (works as a normal link tap, no
+// popup-blocker issues on mobile) that ALSO reveals an inline paste-back
+// panel for pasting the request_token (or full redirect URL) Kite sends
+// back. Previously this only existed per-account inside the Dual Hedge
+// modal's separate "Manage Users" screen — moved up here so generating (or
+// checking the freshness of) ANY account's token doesn't require first
+// digging into that modal. tokenAccounts caches the last /api/token/status
+// fetch so exchange handlers (added once per render) can look up the right
+// endpoint/body shape for whichever row they belong to.
+let tokenAccounts = [];
+
+function tokenAccountDescriptor(u) {
+  // u === null → the app's own global engineConfig account. Otherwise a
+  // redacted dual-hedge/gap-capture user (from /api/token/status's users[]).
+  if (u === null) {
+    return {
+      key: "global", label: "global account",
+      hasApiKey: true, // /api/token/login-url itself 400s if API_KEY is unset; treat as "try it"
+      hasAccessToken: tokenGlobalSet, tokenFresh: tokenGlobalFresh, accessTokenDate: tokenGlobalDate,
+      loginUrlPath: "/api/token/login-url",
+      exchangePath: "/api/token/exchange",
+      buildBody: val => ({ input: val }),
+    };
+  }
+  return {
+    key: u.name, label: u.name,
+    hasApiKey: u.hasApiKey, hasAccessToken: u.hasAccessToken, tokenFresh: u.tokenFresh, accessTokenDate: u.accessTokenDate,
+    loginUrlPath: `/api/toolbox/dualhedge/users/${encodeURIComponent(u.name)}/login-url`,
+    exchangePath: "/api/toolbox/dualhedge/users/token",
+    buildBody: val => ({ name: u.name, requestToken: val }),
+  };
+}
+
+let tokenGlobalSet = false, tokenGlobalFresh = false, tokenGlobalDate = null;
+
+function renderTokenAccountRow(acc) {
+  const statusClass = !acc.hasAccessToken ? "unset" : (acc.tokenFresh ? "set" : "stale");
+  const statusText  = !acc.hasAccessToken ? "no token" : (acc.tokenFresh ? "fresh" : `stale — ${acc.accessTokenDate || "unknown date"}`);
+  const linkDisabled = !acc.hasApiKey;
+  return `
+    <div class="token-account-row">
+      <div class="token-account-main">
+        <span class="token-dot ${statusClass}"></span>
+        <span class="token-account-label">${acc.label}</span>
+        <span class="token-account-status">${statusText}</span>
+      </div>
+      <a class="token-account-link${linkDisabled ? " disabled" : ""}" id="tokenGenLink-${acc.key}"
+         data-token-toggle="${acc.key}" href="#" target="_blank" rel="noopener">${linkDisabled ? "no API key" : "generate"}</a>
+    </div>
+    <div class="token-account-panel" id="tokenGenPanel-${acc.key}" style="display:none">
+      <div class="token-panel-row">
+        <input type="text" id="tokenGenInput-${acc.key}" class="token-input" placeholder="request_token or redirect URL">
+        <button class="btn btn-restart" data-token-exchange="${acc.key}">exchange</button>
+      </div>
+      <div id="tokenGenErr-${acc.key}"></div>
+    </div>`;
+}
+
 async function refreshTokenStatus() {
   try {
     const status = await (await fetch("/api/token/status")).json();
-    tokenDot.className = `token-dot ${status.set ? "set" : "unset"}`;
-    tokenLabel.textContent = status.set ? "token set" : "generate token";
+    tokenGlobalSet = status.set; tokenGlobalFresh = status.fresh; tokenGlobalDate = status.tokenDate;
+    tokenAccounts = [tokenAccountDescriptor(null), ...(status.users || []).map(u => tokenAccountDescriptor(u))];
+
+    // Badge: red if the GLOBAL account itself isn't fresh (every normal
+    // engine depends on it, so that's the critical case); amber if global
+    // is fine but N other accounts need attention; green only if everyone
+    // does. Flips automatically at the IST date rollover — see
+    // engineConfig.js's isAccessTokenFresh() for why no separate
+    // EOD-triggered job is needed for this.
+    const needsAttention = tokenAccounts.filter(a => a.key !== "global" && (!a.hasAccessToken || !a.tokenFresh));
+    if (!status.fresh) {
+      tokenDot.className = `token-dot ${status.set ? "stale" : "unset"}`;
+      tokenLabel.textContent = status.set ? "token stale" : "generate token";
+    } else if (needsAttention.length > 0) {
+      tokenDot.className = "token-dot stale";
+      tokenLabel.textContent = `${needsAttention.length} stale`;
+    } else {
+      tokenDot.className = "token-dot set";
+      tokenLabel.textContent = "tokens fresh";
+    }
+
+    tokenAccountList.innerHTML = tokenAccounts.map(renderTokenAccountRow).join("");
+
+    // Prefetch each row's real login URL (pure local string build server-
+    // side, no Kite network call — cheap to do for everyone up front, same
+    // reasoning the old per-user Dual Hedge panel already used).
+    tokenAccounts.filter(a => a.hasApiKey).forEach(async acc => {
+      try {
+        const data = await (await fetch(acc.loginUrlPath)).json();
+        const link = tokenAccountList.querySelector(`#tokenGenLink-${CSS.escape(acc.key)}`);
+        if (data.url && link) link.href = data.url;
+      } catch { /* leave href as "#" — click still reveals the paste panel */ }
+    });
+
+    tokenAccountList.querySelectorAll("[data-token-toggle]").forEach(link => {
+      link.addEventListener("click", () => {
+        // Real navigation to Kite's login page happens via the href itself
+        // (target="_blank") — this handler's only job is to also reveal
+        // the paste-back panel for when they come back with a token.
+        const panel = tokenAccountList.querySelector(`#tokenGenPanel-${CSS.escape(link.dataset.tokenToggle)}`);
+        if (panel) panel.style.display = panel.style.display === "none" ? "" : "none";
+      });
+    });
+    tokenAccountList.querySelectorAll("[data-token-exchange]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const key = btn.dataset.tokenExchange;
+        const acc = tokenAccounts.find(a => a.key === key);
+        const input = tokenAccountList.querySelector(`#tokenGenInput-${CSS.escape(key)}`);
+        const errBox = tokenAccountList.querySelector(`#tokenGenErr-${CSS.escape(key)}`);
+        const val = input.value.trim();
+        if (!val || !acc) return;
+        btn.disabled = true; btn.textContent = "...";
+        try {
+          const res = await fetch(acc.exchangePath, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(acc.buildBody(val)),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed"}</div>`;
+            btn.disabled = false; btn.textContent = "exchange";
+            return;
+          }
+          appendLog({ type: "SYS", text: `[token] ${acc.label} access token updated — restart engines to pick it up` });
+          refreshTokenStatus();
+        } catch (err) {
+          errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+          btn.disabled = false; btn.textContent = "exchange";
+        }
+      });
+    });
   } catch {
     tokenDot.className = "token-dot";
     tokenLabel.textContent = "generate token";
   }
 }
 
-async function loadLoginUrl() {
-  try {
-    const data = await (await fetch("/api/token/login-url")).json();
-    if (data.url) tokenBtn.href = data.url;
-  } catch { /* leave href as-is; click will just 404 harmlessly */ }
-}
-
-tokenBtn.addEventListener("click", () => {
+tokenBtn.addEventListener("click", e => {
+  e.preventDefault(); // href is a placeholder now — this button only toggles the panel, each row has its own real login link
   tokenPanel.classList.toggle("open");
-});
-
-tokenExchangeBtn.addEventListener("click", async () => {
-  const input = tokenInput.value.trim();
-  if (!input) return;
-  tokenExchangeBtn.textContent = "...";
-  try {
-    const res = await fetch("/api/token/exchange", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ input }),
-    });
-    const data = await res.json();
-    if (res.ok) {
-      appendLog({ type: "SYS", text: "[token] access token updated — restart engines to pick it up" });
-      tokenInput.value = "";
-      tokenPanel.classList.remove("open");
-      refreshTokenStatus();
-    } else {
-      appendLog({ type: "ERROR", text: `[token] exchange failed: ${data.error}` });
-    }
-  } catch (err) {
-    appendLog({ type: "ERROR", text: `[token] exchange failed: ${err.message}` });
-  } finally {
-    tokenExchangeBtn.textContent = "exchange";
-  }
 });
 
 function handleTokenRedirectParams() {
@@ -759,7 +848,6 @@ function startApp() {
   loadDualHedges();
   connect();
   refreshTokenStatus();
-  loadLoginUrl();
   handleTokenRedirectParams();
   setInterval(loadInstruments, 30000); // periodic resync in case PM2 state changed outside the dashboard
   setInterval(loadHedgePairs, 30000);
@@ -2966,12 +3054,17 @@ async function loadDualHedgeList() {
 
 // ─── Users sub-view — named Kite accounts (dualHedgeUsers.js), separate
 // from the app's own single global account under "setup credentials".
+// Token generation itself now also lives in the header's unified token
+// panel (see app.js's refreshTokenStatus()/tokenAccountDescriptor()) —
+// this view is still the place to ADD/REMOVE accounts and stays usable
+// for generating a token too (same underlying endpoints), just not the
+// only place anymore.
 async function renderDualHedgeUsers() {
   tbDualHedgeBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
   try {
     const { users } = await (await fetch("/api/toolbox/dualhedge/users")).json();
     let html = `<button class="tb-back-link" id="dhUsersBack">\u2039 back</button>
-      <div class="tb-form-hint" style="margin:8px 0">Each account here is a SEPARATE Kite login \u2014 not the same as this app's own "setup credentials" account.</div>`;
+      <div class="tb-form-hint" style="margin:8px 0">Each account here is a SEPARATE Kite login \u2014 not the same as this app's own "setup credentials" account. Tokens can also be generated from the header's token panel.</div>`;
 
     if (users.length === 0) {
       html += `<div class="tb-form-hint">none yet</div>`;
@@ -2979,18 +3072,19 @@ async function renderDualHedgeUsers() {
       users.forEach(u => {
         // "generate token" is a real <a> link (href set right after render,
         // below) so tapping it is a normal link tap \u2014 works on mobile,
-        // no popup-blocker issues \u2014 same pattern as the app's own single-
-        // account token button (see refreshTokenStatus()/loadLoginUrl()
-        // above). The paste-back panel underneath is the fallback/second
-        // half of that same flow: Kite redirects back with a request_token
-        // this account's OWN Kite app may or may not be registered to
-        // capture automatically, so pasting it (or the whole redirect URL)
-        // always works regardless of that registration.
+        // no popup-blocker issues \u2014 same pattern as the header's own
+        // unified token panel (see app.js's refreshTokenStatus()). The
+        // paste-back panel underneath is the fallback/second half of that
+        // same flow: Kite redirects back with a request_token this
+        // account's OWN Kite app may or may not be registered to capture
+        // automatically, so pasting it (or the whole redirect URL) always
+        // works regardless of that registration.
+        const tokenStatus = !u.hasAccessToken ? "none" : (u.tokenFresh ? "fresh" : `stale (${u.accessTokenDate || "?"})`);
         html += `
           <div class="tb-watch-row">
             <div class="tb-watch-main">
               <div class="tb-watch-inst">${u.name}</div>
-              <div class="tb-watch-meta">key:${u.hasApiKey ? "set" : "MISSING"} \u00b7 secret:${u.hasApiSecret ? "set" : "MISSING"} \u00b7 token:${u.hasAccessToken ? "set" : "none"}</div>
+              <div class="tb-watch-meta">key:${u.hasApiKey ? "set" : "MISSING"} \u00b7 secret:${u.hasApiSecret ? "set" : "MISSING"} \u00b7 token:${tokenStatus}</div>
             </div>
             <a class="tb-cli-action" id="dhTokenLink-${u.name}" data-dh-token-toggle="${u.name}" href="#" target="_blank" rel="noopener" style="padding:4px 8px;font-size:11px;text-decoration:none">generate token</a>
             <button class="tb-watch-remove" data-dh-user-remove="${u.name}" title="remove">\u2715</button>
@@ -3021,11 +3115,11 @@ async function renderDualHedgeUsers() {
     // Pre-fetch each configured user's login URL and set it as the link's
     // href BEFORE any click happens (getLoginURL() is a pure local string
     // build server-side, no Kite network call, so this is cheap to do for
-    // everyone up front) \u2014 exactly why the single-account token button
-    // does the same via loadLoginUrl() rather than fetching on click: the
-    // href has to already be real by the time the browser evaluates the
-    // anchor click, or the popup-blocker-safe "just a normal link" property
-    // is lost.
+    // everyone up front) \u2014 exactly why the header's own unified token
+    // panel does the same in refreshTokenStatus() rather than fetching on
+    // click: the href has to already be real by the time the browser
+    // evaluates the anchor click, or the popup-blocker-safe "just a normal
+    // link" property is lost.
     users.filter(u => u.hasApiKey).forEach(async u => {
       try {
         const data = await (await fetch(`/api/toolbox/dualhedge/users/${encodeURIComponent(u.name)}/login-url`)).json();

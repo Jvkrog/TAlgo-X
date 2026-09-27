@@ -188,6 +188,7 @@ body {
 }
 .token-dot.set   { background: var(--green); box-shadow: 0 0 6px var(--green); }
 .token-dot.unset { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.token-dot.stale { background: var(--yellow, #ffcc4d); box-shadow: 0 0 6px var(--yellow, #ffcc4d); }
 
 .token-panel {
   display: none;
@@ -221,6 +222,44 @@ body {
 }
 .token-input:focus { outline: none; border-color: var(--border-strong); }
 .token-panel-row .btn { flex: 0 0 auto; padding: 9px 16px; }
+
+/* ── unified per-account token rows (header panel + Dual Hedge/Gap
+   Capture user management both use this same row shape) ─────────────── */
+.token-account-list { display: flex; flex-direction: column; gap: 4px; }
+.token-account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 2px;
+  border-bottom: 1px solid var(--border);
+}
+.token-account-row:last-child { border-bottom: none; }
+.token-account-main { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.token-account-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--white);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.token-account-status { font-size: 10.5px; color: var(--dim); white-space: nowrap; }
+.token-account-link {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--green);
+  text-decoration: none;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.token-account-link:hover { border-color: var(--border-strong); background: rgba(51,255,136,0.08); }
+.token-account-link.disabled { color: var(--dim); pointer-events: none; opacity: 0.5; }
+.token-account-panel { padding: 6px 2px 12px; }
+.token-account-panel .token-panel-row { margin-top: 6px; }
 
 /* ── layout ───────────────────────────────────────────────────────────── */
 .layout {

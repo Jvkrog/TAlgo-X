@@ -73,7 +73,7 @@
         <span class="session-value" id="engineCount">0</span>
       </div>
     </div>
-    <a class="token-btn" id="tokenBtn" href="#" target="_blank" rel="noopener">
+    <a class="token-btn" id="tokenBtn" href="#">
       <span class="token-dot" id="tokenDot"></span>
       <span id="tokenLabel">generate token</span>
     </a>
@@ -81,14 +81,14 @@
 
   <div class="token-panel" id="tokenPanel">
     <div class="token-panel-hint">
-      if your Kite app's Redirect URL points here, the token is captured
-      automatically after login. Otherwise paste the request_token (or full
-      redirect URL) below:
+      Every account below is a SEPARATE Kite login — the global account every
+      normal engine uses, plus any Dual Hedge / Gap Capture accounts (they
+      share one registry). A token is only good for the IST day it was
+      generated — "stale" means yesterday's (or older). Tap an account's
+      link to log in, then paste the request_token (or full redirect URL)
+      back here.
     </div>
-    <div class="token-panel-row">
-      <input type="text" id="tokenInput" class="token-input" placeholder="request_token or redirect URL">
-      <button class="btn btn-restart" id="tokenExchangeBtn">exchange</button>
-    </div>
+    <div class="token-account-list" id="tokenAccountList"></div>
   </div>
 </header>
 
