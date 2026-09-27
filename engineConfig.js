@@ -38,14 +38,40 @@ const resolveLocal = p => (p ? path.resolve(__dirname, p) : p);
 // being re-read on every use gave them for free. A plain
 // `process.env.ACCESS_TOKEN` here would have silently dropped that.
 const { readEnvVarFresh } = require("./envFile");
+const { todayIST } = require("./istTime");
 function getAccessToken() {
     return (readEnvVarFresh("ACCESS_TOKEN") || "").trim();
+}
+
+// ACCESS_TOKEN_DATE — the IST calendar date the token currently in
+// ACCESS_TOKEN was actually generated on, written alongside it wherever
+// ACCESS_TOKEN itself is written (webdash/server.js's exchangeToken(),
+// toolbox.js's own CLI exchange). Reported directly: the dashboard's
+// "token set" badge used to just check ACCESS_TOKEN.length > 0, so it
+// stayed green forever even days after the token had actually gone stale —
+// Kite access tokens are only valid for the trading day they were issued
+// on, so a token from three days ago reads as "set" but is dead the moment
+// any engine actually tries to use it. isAccessTokenFresh() is the fix:
+// "set AND generated on today's IST date" — the same day-boundary
+// reasoning hedgePairEngine.js/gapCaptureEngine.js already use for their
+// own same-day-only position resume, just applied to the token itself.
+// This naturally flips stale at the IST midnight rollover (well after any
+// trading day's EOD, well before the next morning's session) rather than
+// needing its own separate EOD-triggered job.
+function getAccessTokenDate() {
+    return (readEnvVarFresh("ACCESS_TOKEN_DATE") || "").trim();
+}
+function isAccessTokenFresh() {
+    const token = getAccessToken();
+    return token.length > 0 && getAccessTokenDate() === todayIST();
 }
 
 module.exports = {
     API_KEY:           process.env.API_KEY,
     API_SECRET:        process.env.API_SECRET,       // needed by toolbox.js to exchange request_token -> access_token
     getAccessToken,
+    getAccessTokenDate,
+    isAccessTokenFresh,
 
     // Instrument source — checked in this order (see instrumentSource.js):
     //   1. local CSV file at this path, if it exists and parses successfully

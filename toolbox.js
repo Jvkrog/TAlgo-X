@@ -31,6 +31,7 @@ const { INDICATOR_CATALOG } = require("./indicatorCatalog");
 const { normalizePrice }    = require("./price");
 const { createTelegram }    = require("./telegram");
 const { upsertEnvVar }      = require("./envFile");
+const { todayIST }          = require("./istTime");
 const customStrategyDb = require("./customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("./historicalFetch");
 const { adx } = require("./indicators");
@@ -3738,6 +3739,7 @@ async function updateAccessToken() {
         // which re-reads .env fresh every time (see engineConfig.js). No
         // more access_code.txt mirror file as of this change.
         upsertEnvVar("ACCESS_TOKEN", session.access_token);
+        upsertEnvVar("ACCESS_TOKEN_DATE", todayIST());
         console.log(c.green(`  access token updated -> .env (ACCESS_TOKEN)`));
         console.log(c.yellow("  restart any running processes to pick up the new token."));
         csvRepo       = null;   // force a fresh instrument-dump load next time it's needed

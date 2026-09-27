@@ -40,6 +40,7 @@
 "use strict";
 
 const { upsertEnvVar, readEnvVarFresh } = require("./envFile");
+const { todayIST } = require("./istTime");
 
 function sanitizeName(name) {
     return String(name).trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
@@ -50,19 +51,28 @@ function listUserNames() {
     return raw.split(",").map(s => s.trim()).filter(Boolean);
 }
 
-// Returns { name, apiKey, apiSecret, accessToken } for one user, all
-// re-read fresh, or null fields if that user was never fully configured.
-// Does NOT check DH_USERS membership — callers that need "is this a known
-// user" should check listUserNames() first; this just reads whatever is
-// on disk for that sanitized name, same fail-open posture
-// readEnvVarFresh() itself has everywhere else in this codebase.
+// Returns { name, apiKey, apiSecret, accessToken, accessTokenDate, tokenFresh }
+// for one user, all re-read fresh, or null/empty fields if that user was
+// never fully configured. accessTokenDate/tokenFresh mirror engineConfig.js's
+// getAccessTokenDate()/isAccessTokenFresh() for the single global account —
+// same reasoning: a per-user token that's merely present but from an
+// earlier day is functionally dead for today's trading, and the old
+// "hasAccessToken" check alone (still exposed for backward compat) can't
+// tell the two apart. Does NOT check DH_USERS membership — callers that
+// need "is this a known user" should check listUserNames() first; this
+// just reads whatever is on disk for that sanitized name, same fail-open
+// posture readEnvVarFresh() itself has everywhere else in this codebase.
 function getUser(name) {
     const n = sanitizeName(name);
+    const accessToken     = (readEnvVarFresh(`DH_USER_${n}_ACCESS_TOKEN`) || "").trim();
+    const accessTokenDate = (readEnvVarFresh(`DH_USER_${n}_ACCESS_TOKEN_DATE`) || "").trim();
     return {
         name: n,
         apiKey:      (readEnvVarFresh(`DH_USER_${n}_API_KEY`) || "").trim(),
         apiSecret:   (readEnvVarFresh(`DH_USER_${n}_API_SECRET`) || "").trim(),
-        accessToken: (readEnvVarFresh(`DH_USER_${n}_ACCESS_TOKEN`) || "").trim(),
+        accessToken,
+        accessTokenDate,
+        tokenFresh: accessToken.length > 0 && accessTokenDate === todayIST(),
     };
 }
 
@@ -89,6 +99,7 @@ function saveUserCredentials(name, { apiKey, apiSecret }) {
 function saveUserToken(name, accessToken) {
     const n = sanitizeName(name);
     upsertEnvVar(`DH_USER_${n}_ACCESS_TOKEN`, accessToken);
+    upsertEnvVar(`DH_USER_${n}_ACCESS_TOKEN_DATE`, todayIST());
 }
 
 // Removes a user from the DH_USERS registry only — mirrors how nothing
