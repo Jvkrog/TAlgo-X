@@ -257,7 +257,7 @@ function askHidden(rl, query) {
 
 async function ensureWebdashPin(rl) {
     if (WEBDASH_PIN) return;
-    console.log("webdash: no WEBDASH_PIN set in .env yet — the dashboard would otherwise be open to anyone who reaches this port.");
+    console.log("webdash: no dashboard PIN configured yet — the dashboard would otherwise be open to anyone who reaches this port.");
     let pin = "";
     while (pin.length < 4) {
         pin = await askHidden(rl, "  set a PIN for the dashboard (4+ characters, or blank to skip and leave it disabled): ");
@@ -270,7 +270,7 @@ async function ensureWebdashPin(rl) {
     }
     upsertEnvVar("WEBDASH_PIN", pin);
     WEBDASH_PIN = pin; // this same process picks it up immediately, no restart
-    console.log("webdash: PIN saved to .env — dashboard is now locked.");
+    console.log("webdash: PIN saved — dashboard is now locked.");
 }
 
 // CHANGED Sep 2026 (reported directly) — API_KEY/API_SECRET missing used to
@@ -285,23 +285,23 @@ async function ensureWebdashPin(rl) {
 // same reasoning as WEBDASH_PIN above.
 async function ensureApiCredentials(rl) {
     if (!engineConfig.API_KEY) {
-        const key = (await new Promise(resolve => rl.question("webdash: API_KEY not set in .env — Kite API key: ", a => resolve(a.trim())))) || "";
+        const key = (await new Promise(resolve => rl.question("webdash: Kite API key not configured yet — enter it now: ", a => resolve(a.trim())))) || "";
         if (key) {
             upsertEnvVar("API_KEY", key);
             engineConfig.API_KEY = key;
         }
     }
     if (!engineConfig.API_SECRET) {
-        const secret = await askHidden(rl, "webdash: API_SECRET not set in .env — Kite API secret: ");
+        const secret = await askHidden(rl, "webdash: Kite API secret not configured yet — enter it now: ");
         if (secret) {
             upsertEnvVar("API_SECRET", secret);
             engineConfig.API_SECRET = secret;
         }
     }
     if (!engineConfig.API_KEY || !engineConfig.API_SECRET) {
-        console.warn("webdash: API_KEY/API_SECRET still not set — /api/token/* routes will fail until they are (Settings, or edit .env directly).");
+        console.warn("webdash: Kite API credentials still not configured — /api/token/* routes will fail until they are (set them from Settings).");
     } else {
-        console.log("webdash Starting.....");
+        console.log("webdash: Kite API credentials saved.");
     }
 }
 
@@ -362,7 +362,7 @@ function extractRequestToken(input) {
 
 async function exchangeToken(requestToken) {
     if (!engineConfig.API_SECRET) {
-        throw new Error("API_SECRET not set in .env — required to exchange request_token for access_token");
+        throw new Error("Kite API secret not configured yet — set it from Settings before exchanging a request_token");
     }
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
     const session = await kc.generateSession(requestToken, engineConfig.API_SECRET);
@@ -1419,7 +1419,7 @@ app.post("/api/toolbox/credentials", (req, res) => {
     // engineConfig.js reads .env once at require() time — same caveat
     // toolbox.js's setupCredentials flags: this process (and any running
     // engine) needs an actual restart to pick up new values.
-    res.json({ ok: true, changed: Object.keys(updates).length, note: "takes effect on next process restart — engineConfig reads .env once at boot" });
+    res.json({ ok: true, changed: Object.keys(updates).length, note: "takes effect on next process restart" });
 });
 
 // ─── TRENDING INSTRUMENTS — same ADX(14) daily-candle scan toolbox.js's
@@ -2162,7 +2162,7 @@ app.get("/api/token/status", (req, res) => {
 });
 
 app.get("/api/token/login-url", (req, res) => {
-    if (!engineConfig.API_KEY) return res.status(400).json({ error: "API_KEY not set in .env" });
+    if (!engineConfig.API_KEY) return res.status(400).json({ error: "Kite API key not configured yet — set it from Settings" });
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
     res.json({ url: kc.getLoginURL() });
 });
