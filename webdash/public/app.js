@@ -959,11 +959,21 @@ function wirePanelDragAndResize(panel) {
 }
 
 function enterLayoutEditMode() {
+  // Capture each panel's CURRENT position/size FIRST, while the container
+  // is still the plain CSS grid (position:static) — freezeCurrentPositions()
+  // reads getBoundingClientRect(), and that has to happen BEFORE
+  // .layout-freeform is added, because that class is what switches panels
+  // to position:absolute. Adding it first (the original bug) collapsed
+  // every panel to the same top-left spot before we ever measured it, so
+  // "current position" was already garbage — that's what caused the
+  // jumbling on entering edit mode, and Live Log (last in the HTML, so it
+  // paints over earlier siblings by default) visually swallowing
+  // Instruments once both were stuck at that same wrong spot.
+  const layout = freezeCurrentPositions(loadSavedLayout());
   layoutEditMode = true;
   dashboardView.classList.add("layout-freeform", "layout-edit-mode");
   layoutEditToggle.textContent = "\u2713 done";
   layoutResetBtn.style.display = "";
-  const layout = freezeCurrentPositions(loadSavedLayout());
   saveLayout(layout);
   applyLayout(layout);
   dashboardPanels().forEach(wirePanelDragAndResize);
