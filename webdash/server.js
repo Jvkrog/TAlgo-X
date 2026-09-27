@@ -27,6 +27,7 @@ const sqlite3 = require("sqlite3").verbose();
 const { KiteConnect } = require("kiteconnect");
 const engineConfig = require("../engineConfig");
 const { upsertEnvVar, ENV_PATH: ENV_FILE_PATH } = require("../envFile");
+const { todayIST } = require("../istTime");
 
 // ─── TOOLBOX PORT — same modules toolbox.js's Add Instrument / Backtest /
 // Setup Credentials screens use, required directly rather than reaching
@@ -368,8 +369,10 @@ async function exchangeToken(requestToken) {
     // .env's ACCESS_TOKEN is the ONLY place this is written now — every
     // reader across the codebase calls engineConfig.getAccessToken(), which
     // re-reads .env fresh every time. No more access_code.txt mirror file
-    // as of this change (see engineConfig.js).
+    // as of this change (see engineConfig.js). ACCESS_TOKEN_DATE written
+    // alongside it — see engineConfig.js's isAccessTokenFresh() for why.
     upsertEnvVar("ACCESS_TOKEN", session.access_token);
+    upsertEnvVar("ACCESS_TOKEN_DATE", todayIST());
     return session;
 }
 
@@ -1720,9 +1723,16 @@ app.get("/api/toolbox/dualhedge/lotmult/:underlying", (req, res) => {
 // dualHedgeUsers.js, independent of engineConfig's own single global
 // account (see dualHedgeUsers.js's header). accessToken is never sent
 // back to the client in full — only whether one is set — same posture
-// engineConfig's own credential endpoints already take.
+// engineConfig's own credential endpoints already take. tokenFresh/
+// accessTokenDate ARE safe to send (dates, not secrets) and are what the
+// unified token panel (see /api/token/status below + app.js's
+// refreshTokenStatus()) uses to flag a per-user token as stale even
+// though one is technically "set".
 function redactUser(u) {
-    return { name: u.name, hasApiKey: !!u.apiKey, hasApiSecret: !!u.apiSecret, hasAccessToken: !!u.accessToken };
+    return {
+        name: u.name, hasApiKey: !!u.apiKey, hasApiSecret: !!u.apiSecret,
+        hasAccessToken: !!u.accessToken, tokenFresh: u.tokenFresh, accessTokenDate: u.accessTokenDate || null,
+    };
 }
 
 app.get("/api/toolbox/dualhedge/users", (req, res) => {
@@ -2076,13 +2086,32 @@ app.get("/api/token/status", (req, res) => {
         // over-reports (any unrelated .env edit bumps it too), but this
         // field is a rough "does this look stale" signal for a human
         // glancing at the dashboard, not something anything else depends
-        // on for correctness.
+        // on for correctness. `fresh`/`tokenDate` below are the actual
+        // signal now (see engineConfig.js's isAccessTokenFresh()) —
+        // `updatedAt` is kept only for anyone already reading it.
         const stat = fs.existsSync(ENV_FILE_PATH) ? fs.statSync(ENV_FILE_PATH) : null;
+        // Dual-hedge/gap-capture users share ONE registry (dualHedgeUsers.js
+        // — see gapCaptureEngine.js's header for why it reuses it), so one
+        // list here covers both engines' accounts. Bundled into this same
+        // response (rather than a second round trip to
+        // /api/toolbox/dualhedge/users) so the unified token panel in the
+        // header — see app.js's refreshTokenStatus() — can render every
+        // account's status, and the badge can reflect the worst of ALL of
+        // them, from a single fetch.
+        const users = dualHedgeUsers.listUsers().map(redactUser);
+        const staleCount   = (token.length > 0 && !engineConfig.isAccessTokenFresh() ? 1 : 0)
+                            + users.filter(u => u.hasAccessToken && !u.tokenFresh).length;
+        const missingCount = (token.length > 0 ? 0 : 1) + users.filter(u => !u.hasAccessToken).length;
         res.json({
             set: token.length > 0,
+            fresh: engineConfig.isAccessTokenFresh(),
+            tokenDate: engineConfig.getAccessTokenDate() || null,
             updatedAt: stat ? stat.mtime : null,
             apiKeyConfigured: !!engineConfig.API_KEY,
             apiSecretConfigured: !!engineConfig.API_SECRET,
+            users,
+            staleCount,
+            missingCount,
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
