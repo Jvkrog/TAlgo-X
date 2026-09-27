@@ -301,7 +301,7 @@ async function ensureApiCredentials(rl) {
     if (!engineConfig.API_KEY || !engineConfig.API_SECRET) {
         console.warn("webdash: API_KEY/API_SECRET still not set — /api/token/* routes will fail until they are (Settings, or edit .env directly).");
     } else {
-        console.log("webdash: API credentials saved to .env.");
+        console.log("webdash Starting.....");
     }
 }
 
