@@ -18,6 +18,8 @@ const totalPnlEl = document.getElementById("totalSessionPnl");
 const engineCountEl = document.getElementById("engineCount");
 const autoscrollToggle = document.getElementById("autoscrollToggle");
 const refreshBtn = document.getElementById("refreshBtn");
+const layoutEditToggle = document.getElementById("layoutEditToggle");
+const layoutResetBtn = document.getElementById("layoutResetBtn");
 const tokenBtn = document.getElementById("tokenBtn");
 const tokenDot = document.getElementById("tokenDot");
 const tokenLabel = document.getElementById("tokenLabel");
@@ -525,22 +527,19 @@ async function refreshTokenStatus() {
     tokenGlobalSet = status.set; tokenGlobalFresh = status.fresh; tokenGlobalDate = status.tokenDate;
     tokenAccounts = [tokenAccountDescriptor(null), ...(status.users || []).map(u => tokenAccountDescriptor(u))];
 
-    // Badge: red if the GLOBAL account itself isn't fresh (every normal
-    // engine depends on it, so that's the critical case); amber if global
-    // is fine but N other accounts need attention; green only if everyone
-    // does. Flips automatically at the IST date rollover — see
-    // engineConfig.js's isAccessTokenFresh() for why no separate
-    // EOD-triggered job is needed for this.
-    const needsAttention = tokenAccounts.filter(a => a.key !== "global" && (!a.hasAccessToken || !a.tokenFresh));
-    if (!status.fresh) {
-      tokenDot.className = `token-dot ${status.set ? "stale" : "unset"}`;
-      tokenLabel.textContent = status.set ? "token stale" : "generate token";
-    } else if (needsAttention.length > 0) {
-      tokenDot.className = "token-dot stale";
-      tokenLabel.textContent = `${needsAttention.length} stale`;
-    } else {
+    // Badge: red the moment ANY account is stale/missing (global OR any
+    // Dual Hedge/Gap Capture user) — not just the global one. Flips
+    // automatically at the IST date rollover — see engineConfig.js's
+    // isAccessTokenFresh() for why no separate EOD-triggered job is needed.
+    const needsAttention = tokenAccounts.filter(a => !a.hasAccessToken || !a.tokenFresh);
+    if (needsAttention.length === 0) {
       tokenDot.className = "token-dot set";
       tokenLabel.textContent = "tokens fresh";
+    } else {
+      tokenDot.className = "token-dot unset";
+      tokenLabel.textContent = needsAttention.length === 1 && needsAttention[0].key === "global"
+        ? (tokenGlobalSet ? "token stale" : "generate token")
+        : `${needsAttention.length} stale`;
     }
 
     tokenAccountList.innerHTML = tokenAccounts.map(renderTokenAccountRow).join("");
@@ -837,6 +836,175 @@ function handleEvent(msg) {
   }
 }
 
+// ── freeform dashboard layout (drag + resize any panel) ─────────────────
+// Off by default (the plain CSS grid auto-flow keeps working exactly as
+// before) — toggled on via the "layout" button in the tabbar. Positions/
+// sizes are per-browser (localStorage), not synced anywhere — this is a
+// personal arrangement preference, same scope as e.g. autoscrollToggle.
+// Once turned on for the first time, freeform stays on for that browser
+// (a saved layout existing IS the signal — see reapplySavedLayoutIfAny()
+// below) even across reloads; "reset" clears it back to the plain grid.
+const LAYOUT_STORAGE_KEY = "talgox_dashboard_layout_v1";
+let layoutEditMode = false;
+let layoutZTop = 10;
+
+function loadSavedLayout() {
+  try { return JSON.parse(localStorage.getItem(LAYOUT_STORAGE_KEY) || "{}"); }
+  catch { return {}; }
+}
+function saveLayout(layout) {
+  try { localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layout)); }
+  catch { /* storage full/unavailable (e.g. private browsing) — layout just won't persist across reloads, still works this session */ }
+}
+function dashboardPanels() {
+  return Array.from(dashboardView.querySelectorAll(":scope > .panel"));
+}
+
+// Freezes each currently-visible panel's rendered position/size (from
+// normal grid flow, or from a PREVIOUS freeform session) into absolute
+// px — but only for panels that don't already have a saved entry, so
+// turning freeform on doesn't jump anything, and a panel that only just
+// became visible (hedgePairsPanel/dualHedgePanel toggle display:none -> ""
+// once real deployments exist) still gets a sane starting spot instead of
+// overlapping everything else at 0,0.
+function freezeCurrentPositions(saved) {
+  const containerRect = dashboardView.getBoundingClientRect();
+  dashboardPanels().forEach(panel => {
+    if (panel.style.display === "none" || saved[panel.id]) return;
+    const r = panel.getBoundingClientRect();
+    saved[panel.id] = {
+      left: Math.round(r.left - containerRect.left + dashboardView.scrollLeft),
+      top: Math.round(r.top - containerRect.top + dashboardView.scrollTop),
+      width: Math.round(r.width),
+      height: Math.round(r.height),
+    };
+  });
+  return saved;
+}
+
+function applyLayout(layout) {
+  let maxBottom = 0;
+  dashboardPanels().forEach(panel => {
+    const pos = layout[panel.id];
+    if (!pos) return;
+    panel.style.left = pos.left + "px";
+    panel.style.top = pos.top + "px";
+    panel.style.width = pos.width + "px";
+    panel.style.height = pos.height + "px";
+    if (panel.style.display !== "none") maxBottom = Math.max(maxBottom, pos.top + pos.height);
+  });
+  dashboardView.style.minHeight = (maxBottom + 40) + "px";
+}
+
+function ensureResizeHandle(panel) {
+  if (panel.querySelector(":scope > .panel-resize-handle")) return;
+  const handle = document.createElement("div");
+  handle.className = "panel-resize-handle";
+  panel.appendChild(handle);
+}
+
+function wirePanelDragAndResize(panel) {
+  if (panel.dataset.layoutWired) return;
+  panel.dataset.layoutWired = "1";
+  ensureResizeHandle(panel);
+  const head = panel.querySelector(":scope > .panel-head");
+  const resizeHandle = panel.querySelector(":scope > .panel-resize-handle");
+
+  function persist() {
+    const layout = loadSavedLayout();
+    layout[panel.id] = { left: panel.offsetLeft, top: panel.offsetTop, width: panel.offsetWidth, height: panel.offsetHeight };
+    saveLayout(layout);
+    applyLayout(layout); // recompute container min-height against the new bounds
+  }
+
+  head?.addEventListener("pointerdown", e => {
+    if (!layoutEditMode) return;
+    if (e.target.closest("button, input, label")) return; // don't hijack the refresh/autoscroll controls living in the same head
+    e.preventDefault();
+    panel.style.zIndex = String(++layoutZTop);
+    const startX = e.clientX, startY = e.clientY;
+    const startLeft = panel.offsetLeft, startTop = panel.offsetTop;
+    head.setPointerCapture(e.pointerId);
+    function onMove(ev) {
+      panel.style.left = Math.max(0, startLeft + (ev.clientX - startX)) + "px";
+      panel.style.top  = Math.max(0, startTop  + (ev.clientY - startY)) + "px";
+    }
+    function onUp() {
+      head.removeEventListener("pointermove", onMove);
+      persist();
+    }
+    head.addEventListener("pointermove", onMove);
+    head.addEventListener("pointerup", onUp, { once: true });
+  });
+
+  resizeHandle.addEventListener("pointerdown", e => {
+    if (!layoutEditMode) return;
+    e.preventDefault();
+    e.stopPropagation(); // don't also trigger the drag handler above
+    panel.style.zIndex = String(++layoutZTop);
+    const startX = e.clientX, startY = e.clientY;
+    const startWidth = panel.offsetWidth, startHeight = panel.offsetHeight;
+    resizeHandle.setPointerCapture(e.pointerId);
+    function onMove(ev) {
+      panel.style.width  = Math.max(240, startWidth  + (ev.clientX - startX)) + "px";
+      panel.style.height = Math.max(140, startHeight + (ev.clientY - startY)) + "px";
+    }
+    function onUp() {
+      resizeHandle.removeEventListener("pointermove", onMove);
+      persist();
+    }
+    resizeHandle.addEventListener("pointermove", onMove);
+    resizeHandle.addEventListener("pointerup", onUp, { once: true });
+  });
+}
+
+function enterLayoutEditMode() {
+  layoutEditMode = true;
+  dashboardView.classList.add("layout-freeform", "layout-edit-mode");
+  layoutEditToggle.textContent = "\u2713 done";
+  layoutResetBtn.style.display = "";
+  const layout = freezeCurrentPositions(loadSavedLayout());
+  saveLayout(layout);
+  applyLayout(layout);
+  dashboardPanels().forEach(wirePanelDragAndResize);
+}
+function exitLayoutEditMode() {
+  layoutEditMode = false;
+  dashboardView.classList.remove("layout-edit-mode");
+  layoutEditToggle.textContent = "\u26f6 layout";
+  // freeform positioning itself stays applied — that IS the point, the
+  // custom arrangement should survive leaving edit mode. Only the drag/
+  // resize AFFORDANCES (dashed outline, move cursor, resize handles) turn
+  // off, via the layout-edit-mode class alone.
+}
+layoutEditToggle?.addEventListener("click", () => { layoutEditMode ? exitLayoutEditMode() : enterLayoutEditMode(); });
+layoutResetBtn?.addEventListener("click", () => {
+  try { localStorage.removeItem(LAYOUT_STORAGE_KEY); } catch { /* nothing to clear */ }
+  dashboardView.classList.remove("layout-freeform", "layout-edit-mode");
+  dashboardView.style.minHeight = "";
+  dashboardPanels().forEach(panel => {
+    panel.style.left = panel.style.top = panel.style.width = panel.style.height = panel.style.zIndex = "";
+  });
+  layoutEditMode = false;
+  layoutEditToggle.textContent = "\u26f6 layout";
+  layoutResetBtn.style.display = "none";
+});
+
+// Re-applies a PREVIOUSLY saved layout on boot, if this browser has one —
+// covers a page reload while freeform was already on. A panel that toggles
+// visible later (real hedge-pair/dual-hedge deployments showing up after
+// boot) picks its own starting spot the next time edit mode is opened;
+// until then it just renders wherever the plain grid flow would put it,
+// since .layout-freeform positions ONLY the panels present in `saved`.
+function reapplySavedLayoutIfAny() {
+  const saved = loadSavedLayout();
+  if (Object.keys(saved).length === 0) return;
+  dashboardView.classList.add("layout-freeform");
+  dashboardPanels().forEach(ensureResizeHandle);
+  applyLayout(saved);
+  layoutResetBtn.style.display = "";
+}
+
 // ── boot (behind the PIN lock) ──────────────────────────────────────────
 let appStarted = false;
 function startApp() {
@@ -849,6 +1017,7 @@ function startApp() {
   connect();
   refreshTokenStatus();
   handleTokenRedirectParams();
+  reapplySavedLayoutIfAny();
   setInterval(loadInstruments, 30000); // periodic resync in case PM2 state changed outside the dashboard
   setInterval(loadHedgePairs, 30000);
   setInterval(loadDualHedges, 30000);
@@ -2621,20 +2790,57 @@ async function openRollModal() {
   await renderRollPickStep();
 }
 
+let rollPickFilter = "all"; // persists across re-renders within one modal open (e.g. after a manual-entry back-navigation)
+
+// Categorizes a candidate purely from its `labels` strings (no extra
+// server round trip needed — /api/toolbox/roll/candidates already tags
+// each label with "(core leg)"/"(hedge leg)" for hedge pairs and
+// "(dual hedge)"/"(gap capture)" for the two dual-account engines, see
+// that route's own comment for why). Dual Hedge and Gap Capture share one
+// tab ("dual hedge") since they're the same "two Kite logins, same
+// underlying" shape — just a different entry trigger — rather than
+// splitting into a 3rd tab for an engine that has no deploy UI here yet.
+function rollCandidateCategory(c) {
+  const isPair = c.labels.some(l => /\(core leg\)|\(hedge leg\)/.test(l));
+  const isDual = c.labels.some(l => /\(dual hedge\)|\(gap capture\)/.test(l));
+  if (isPair) return "hedgepair";
+  if (isDual) return "dualhedge";
+  return "engine";
+}
+
 async function renderRollPickStep() {
   tbRollBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
   try {
     const candidates = await (await fetch("/api/toolbox/roll/candidates")).json();
+    const categorized = candidates.map(c => ({ ...c, category: rollCandidateCategory(c) }));
+    const counts = {
+      all: categorized.length,
+      engine: categorized.filter(c => c.category === "engine").length,
+      hedgepair: categorized.filter(c => c.category === "hedgepair").length,
+      dualhedge: categorized.filter(c => c.category === "dualhedge").length,
+    };
+    const tabs = [["all", "all"], ["engine", "engines"], ["hedgepair", "hedge pairs"], ["dualhedge", "dual hedge"]];
+
     let html = `<div class="tb-warn-box">⚠ roll contract only applies to MCX futures — NSE equities don't expire, so they're left out of this list.</div>`;
-    if (candidates.length === 0) {
-      html += `<div class="tb-form-hint">no running MCX instruments to roll</div>`;
+    html += `<div class="tb-roll-tabbar">`;
+    tabs.forEach(([key, label]) => {
+      html += `<button class="tb-roll-tab${rollPickFilter === key ? " active" : ""}" data-roll-filter="${key}">${label} (${counts[key]})</button>`;
+    });
+    html += `</div>`;
+
+    const shown = categorized.filter(c => rollPickFilter === "all" || c.category === rollPickFilter);
+    if (shown.length === 0) {
+      html += `<div class="tb-form-hint">${candidates.length === 0 ? "no running MCX instruments to roll" : "none in this category"}</div>`;
     } else {
       html += `<div class="tb-form-label" style="margin-bottom:8px">select underlying to roll</div>`;
-      candidates.forEach(c => {
+      shown.forEach(c => {
         html += `<button class="tb-pick-item" data-roll-underlying="${c.underlying}" style="width:100%;text-align:left;margin-bottom:6px">${c.underlying} <span style="color:var(--dim);font-size:10px">— used by: ${c.labels.join(", ")}</span></button>`;
       });
     }
     tbRollBody.innerHTML = html;
+    tbRollBody.querySelectorAll("[data-roll-filter]").forEach(btn => {
+      btn.addEventListener("click", () => { rollPickFilter = btn.dataset.rollFilter; renderRollPickStep(); });
+    });
     tbRollBody.querySelectorAll("[data-roll-underlying]").forEach(btn => {
       btn.addEventListener("click", () => renderRollPreviewStep(btn.dataset.rollUnderlying));
     });

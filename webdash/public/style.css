@@ -261,6 +261,52 @@ body {
 .token-account-panel { padding: 6px 2px 12px; }
 .token-account-panel .token-panel-row { margin-top: 6px; }
 
+/* ── freeform dashboard layout (drag + resize any panel) ─────────────────
+   Off by default — the plain grid flow above still applies until the
+   "layout" toggle in the tabbar has been used at least once (see app.js).
+   #dashboardView (ID, not just .layout) is used here so this overrides
+   the grid rules above by specificity without needing !important. */
+#dashboardView.layout-freeform {
+  display: block;
+  position: relative;
+}
+#dashboardView.layout-freeform > .panel {
+  position: absolute;
+  margin: 0;
+  max-width: none;
+  box-sizing: border-box;
+}
+#dashboardView.layout-edit-mode > .panel {
+  outline: 1px dashed var(--border-strong);
+  outline-offset: 2px;
+}
+#dashboardView.layout-edit-mode > .panel > .panel-head {
+  cursor: move;
+  user-select: none;
+}
+.panel-resize-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+  display: none;
+  z-index: 5;
+}
+#dashboardView.layout-edit-mode .panel-resize-handle { display: block; }
+.panel-resize-handle::before {
+  content: "";
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--border-strong);
+  border-bottom: 2px solid var(--border-strong);
+  opacity: 0.7;
+}
+
 /* ── layout ───────────────────────────────────────────────────────────── */
 .layout {
   position: relative;
@@ -879,6 +925,8 @@ body {
   position: relative;
   z-index: 2;
 }
+.tabbar-spacer { flex: 1; }
+.tabbar-layout-btn { align-self: center; margin-left: 4px; font-size: 10.5px; padding: 6px 12px; }
 .tab {
   font-family: var(--font-mono);
   font-size: 12px;
@@ -1085,6 +1133,19 @@ body {
   border-radius: 8px;
   margin-bottom: 14px;
 }
+.tb-roll-tabbar { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+.tb-roll-tab {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+.tb-roll-tab:hover { border-color: var(--border-strong); color: var(--white); }
+.tb-roll-tab.active { border-color: var(--green); color: var(--green); background: rgba(51,255,136,0.08); }
 .tb-err-box {
   font-size: 11px;
   color: var(--red);
