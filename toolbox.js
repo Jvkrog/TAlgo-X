@@ -99,7 +99,7 @@ function askHidden(prompt) {
 // success/error message printed by an action gets wiped before it's
 // readable — exactly what happened with the token screen.
 function pauseForReview() {
-    return ask(c.dim("  press enter to continue..."));
+    return ask(c.dim("  Press enter to continue..."));
 }
 
 // ─── PM2 HELPERS — callback API wrapped as promises ──────────────────────────
@@ -221,7 +221,7 @@ function ensureKite() {
 // ─── CSV REPOSITORY — lazy load, reused across "Add instrument" calls ───────
 async function ensureCsvLoaded() {
     if (csvRepo) return csvRepo;
-    console.log(c.dim("  loading instrument dump..."));
+    console.log(c.dim("  Loading instrument dump..."));
     const kc = ensureKite();
     csvRepo = createCsvRepository({
         fetchRows: createInstrumentSource({
@@ -231,7 +231,7 @@ async function ensureCsvLoaded() {
         }).fetchRows,
     });
     await csvRepo.load();
-    console.log(c.dim(`  loaded ${csvRepo.listUnderlyings().length} underlyings`));
+    console.log(c.dim(`  Loaded ${csvRepo.listUnderlyings().length} underlyings`));
     return csvRepo;
 }
 
@@ -242,7 +242,7 @@ async function ensureCsvLoaded() {
 // they're asking for.
 async function ensureEquityCsvLoaded() {
     if (equityCsvRepo) return equityCsvRepo;
-    console.log(c.dim("  loading NSE equity dump..."));
+    console.log(c.dim("  Loading NSE equity dump..."));
     const kc = ensureKite();
     equityCsvRepo = createCsvRepository({
         fetchRows: createInstrumentSource({
@@ -252,7 +252,7 @@ async function ensureEquityCsvLoaded() {
         }).fetchRows,
     });
     await equityCsvRepo.load();
-    console.log(c.dim(`  loaded ${equityCsvRepo.listEquitySymbols().length} equities`));
+    console.log(c.dim(`  Loaded ${equityCsvRepo.listEquitySymbols().length} equities`));
     return equityCsvRepo;
 }
 
@@ -272,13 +272,13 @@ async function ensureEquityCsvLoaded() {
 // empty/broken file — nothing new to handle here.
 async function ensureNfoCsvLoaded() {
     if (nfoCsvRepo) return nfoCsvRepo;
-    console.log(c.dim("  loading NFO instrument dump..."));
+    console.log(c.dim("  Loading NFO instrument dump..."));
     const kc = ensureKite();
     nfoCsvRepo = createCsvRepository({
         fetchRows: createInstrumentSource({ filePath: null, kc, exchange: "NFO" }).fetchRows,
     });
     await nfoCsvRepo.load();
-    console.log(c.dim(`  loaded ${nfoCsvRepo.listOptionUnderlyings().length} NFO option underlyings`));
+    console.log(c.dim(`  Loaded ${nfoCsvRepo.listOptionUnderlyings().length} NFO option underlyings`));
     return nfoCsvRepo;
 }
 
@@ -287,7 +287,7 @@ async function ensureNfoCsvLoaded() {
 // underlyings (MCX) or equity tradingsymbols (NSE); which repo/list method
 // applies depends entirely on which exchange was picked.
 async function pickExchangeAndRepo() {
-    const choice = (await ask("  exchange — [1] MCX Futures (default)  [2] NSE Stocks: ")).trim();
+    const choice = (await ask("  Exchange — [1] MCX Futures (default)  [2] NSE Stocks: ")).trim();
     if (choice === "2") {
         const repo = await ensureEquityCsvLoaded();
         return { exchange: "NSE", repo, list: repo.listEquitySymbols() };
@@ -385,7 +385,7 @@ async function renderMenu() {
     lines.push(boxDivider("═"));
 
     if (procs.length === 0) {
-        lines.push(boxLine(c.dim("  no instruments running — press A to add one")));
+        lines.push(boxLine(c.dim("  No instruments running — press A to add one")));
     } else {
         // INSTRUMENT now shows underlying/strategy — necessary, not just
         // nice-to-have, now that the same underlying can run under more
@@ -611,12 +611,12 @@ function buildProcessEnv(p, overrides = {}) {
 
 async function toggleMode(procs) {
     const targets = procs.filter(p => selected.has(p.name));
-    if (targets.length === 0) { console.log(c.yellow("  nothing selected")); await pauseForReview(); return; }
+    if (targets.length === 0) { console.log(c.yellow("  Nothing selected")); await pauseForReview(); return; }
 
     for (const p of targets) {
         const goingLive = !p.live;
         if (goingLive) {
-            const confirmLive = (await ask(c.red(`  switch ${p.underlying} to LIVE — real orders. type "LIVE" to confirm: `))).trim();
+            const confirmLive = (await ask(c.red(`  Switch ${p.underlying} to LIVE — real orders. type "LIVE" to confirm: `))).trim();
             if (confirmLive !== "LIVE") { console.log(c.dim(`  ${p.underlying} left in paper mode`)); continue; }
         }
         // Carry-overnight — asked on every mode switch so it's never left
@@ -624,7 +624,7 @@ async function toggleMode(procs) {
         // carry setting picked back when this was paper). Shows current
         // value as the default (blank = keep).
         const carryDefault = !!p.carryOvernight;
-        const carryInput = (await ask(`  carry position overnight? [y/N] (current: ${carryDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+        const carryInput = (await ask(`  Carry position overnight? [y/N] (current: ${carryDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
         const carryOvernight = carryInput ? carryInput === "Y" : carryDefault;
         if (carryOvernight && !carryDefault) {
             console.log(c.yellow(`  ⚠ carry-overnight ON — entries will use NRML (not MIS), EOD will hold the position instead of closing it.`));
@@ -637,7 +637,7 @@ async function toggleMode(procs) {
             const carryTag = carryOvernight ? c.yellow(" CARRY") : "";
             console.log(c.green(`  ${p.underlying} -> ${goingLive ? c.red("LIVE") : c.cyan("PAPER")}${carryTag} (restarted)`));
         } catch (err) {
-            console.log(c.red(`  failed to switch ${p.underlying}: ${err.message}`));
+            console.log(c.red(`  Failed to switch ${p.underlying}: ${err.message}`));
         }
     }
     await pauseForReview();
@@ -654,17 +654,17 @@ async function toggleMode(procs) {
 // can't be used to edit something already running. This is that edit path.
 async function editInstrument(procs) {
     const targets = procs.filter(p => selected.has(p.name));
-    if (targets.length === 0) { console.log(c.yellow("  nothing selected")); await pauseForReview(); return; }
+    if (targets.length === 0) { console.log(c.yellow("  Nothing selected")); await pauseForReview(); return; }
 
     for (const p of targets) {
         console.log();
-        console.log(c.dim(`  editing ${p.underlying} (${(STRATEGY_INFO[p.strategy] || { label: p.strategy }).label}) — blank keeps current value`));
+        console.log(c.dim(`  Editing ${p.underlying} (${(STRATEGY_INFO[p.strategy] || { label: p.strategy }).label}) — blank keeps current value`));
 
         // Target points — mirrors configureAndStartInstrument's prompt.
         // "0" or "clear" removes an existing target (goes back to
         // strategy-only exits); blank keeps whatever's set now.
         const targetDefault = p.targetPoints !== null ? String(p.targetPoints) : "none";
-        const targetInput = (await ask(`  profit target in points (current: ${targetDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
+        const targetInput = (await ask(`  Profit target in points (current: ${targetDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
         let targetPoints = p.targetPoints;
         if (targetInput) {
             if (targetInput === "0" || targetInput.toLowerCase() === "clear") {
@@ -688,7 +688,7 @@ async function editInstrument(procs) {
         let targetMode = p.targetMode || "fixed";
         if (targetPoints === null) {
             const adaptiveDefault = targetMode === "adaptive" ? "Y" : "N";
-            const adaptiveInput = (await ask(`  adaptive target sizing? [y/N] (current: ${adaptiveDefault}, blank = keep): `)).trim().toUpperCase();
+            const adaptiveInput = (await ask(`  Adaptive target sizing? [y/N] (current: ${adaptiveDefault}, blank = keep): `)).trim().toUpperCase();
             if (adaptiveInput) targetMode = adaptiveInput === "Y" ? "adaptive" : "fixed";
         } else {
             targetMode = "fixed"; // a fixed points value always wins — keep the two fields consistent
@@ -700,7 +700,7 @@ async function editInstrument(procs) {
         // exclusivity intact through an edit the same way the add-instrument
         // wizard enforces it at creation.
         const sessionTargetDefault = p.sessionTargetRupees !== null ? String(p.sessionTargetRupees) : "none";
-        const sessionTargetInput = (await ask(`  session profit ceiling in rupees, whole day (current: ${sessionTargetDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
+        const sessionTargetInput = (await ask(`  Session profit ceiling in rupees, whole day (current: ${sessionTargetDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
         let sessionTargetRupees = p.sessionTargetRupees;
         if (sessionTargetInput) {
             if (sessionTargetInput === "0" || sessionTargetInput.toLowerCase() === "clear") {
@@ -712,7 +712,7 @@ async function editInstrument(procs) {
                 } else {
                     sessionTargetRupees = parsedSessionTarget;
                     if (targetPoints !== null || targetMode === "adaptive") {
-                        console.log(c.dim(`  session target set — clearing the per-trade target (they're mutually exclusive)`));
+                        console.log(c.dim(`  Session target set — clearing the per-trade target (they're mutually exclusive)`));
                         targetPoints = null;
                         targetMode = "fixed";
                     }
@@ -723,13 +723,13 @@ async function editInstrument(procs) {
             // Only reachable if targetPoints/targetMode were just changed
             // ABOVE in this same edit pass while an old session target was
             // still in play from before — same tie-break, other direction.
-            console.log(c.dim(`  per-trade target set — clearing the session target (they're mutually exclusive)`));
+            console.log(c.dim(`  Per-trade target set — clearing the session target (they're mutually exclusive)`));
             sessionTargetRupees = null;
         }
 
         // Lots — same shape as the add-instrument prompt.
         const lotsDefault = p.lots === "default" ? "1" : p.lots;
-        const lotsInput = (await ask(`  lots (current: ${lotsDefault}, blank = keep): `)).trim();
+        const lotsInput = (await ask(`  Lots (current: ${lotsDefault}, blank = keep): `)).trim();
         let lots = p.lots;
         if (lotsInput) {
             const parsedLots = Number(lotsInput);
@@ -745,7 +745,7 @@ async function editInstrument(procs) {
         let bandStep = p.bandStep;
         if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL") {
             const bandDefault = p.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
-            const bandInput = (await ask(`  band step in price points (current: ${bandDefault}, blank = keep): `)).trim();
+            const bandInput = (await ask(`  Band step in price points (current: ${bandDefault}, blank = keep): `)).trim();
             if (bandInput) {
                 const parsedStep = Number(bandInput);
                 if (!Number.isFinite(parsedStep) || parsedStep <= 0) {
@@ -758,7 +758,7 @@ async function editInstrument(procs) {
         let greyExitEnabled = p.greyExitEnabled;
         if (p.strategy === "ALMA_TRI_BAND") {
             const greyDefault = p.greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT;
-            const greyInput = (await ask(`  exit on grey state? [y/N] (current: ${greyDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            const greyInput = (await ask(`  Exit on grey state? [y/N] (current: ${greyDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (greyInput) greyExitEnabled = greyInput === "Y";
         }
         // ALMA band enable/disable — ALMA_PRO_FAST only. OFF drops the
@@ -769,7 +769,7 @@ async function editInstrument(procs) {
         let almaBandEnabled = p.almaBandEnabled;
         if (p.strategy === "ALMA_PRO_FAST") {
             const bandDefault = p.almaBandEnabled !== false;
-            const bandEnableInput = (await ask(`  use ALMA band gate? [Y/n] (current: ${bandDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            const bandEnableInput = (await ask(`  Use ALMA band gate? [Y/n] (current: ${bandDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (bandEnableInput) almaBandEnabled = bandEnableInput !== "N";
         }
         // ALMA fast/band length — ALMA_PRO_FAST only. "0"/"clear" resets to
@@ -779,7 +779,7 @@ async function editInstrument(procs) {
         let almaBandLen = p.almaBandLen;
         if (p.strategy === "ALMA_PRO_FAST") {
             const fastLenDefault = almaFastLen ?? `default (${engineConfig.ALMA_PRO_FAST_LEN})`;
-            const fastLenInput = (await ask(`  fast ALMA length (current: ${fastLenDefault}, "0"/"clear" to reset, blank = keep): `)).trim();
+            const fastLenInput = (await ask(`  Fast ALMA length (current: ${fastLenDefault}, "0"/"clear" to reset, blank = keep): `)).trim();
             if (fastLenInput) {
                 if (fastLenInput === "0" || fastLenInput.toLowerCase() === "clear") {
                     almaFastLen = null;
@@ -794,7 +794,7 @@ async function editInstrument(procs) {
             }
             if (almaBandEnabled) {
                 const bandLenDefault = almaBandLen ?? `default (${engineConfig.ALMA_PRO_BAND_LEN})`;
-                const bandLenInput = (await ask(`  band ALMA length (current: ${bandLenDefault}, "0"/"clear" to reset, blank = keep): `)).trim();
+                const bandLenInput = (await ask(`  Band ALMA length (current: ${bandLenDefault}, "0"/"clear" to reset, blank = keep): `)).trim();
                 if (bandLenInput) {
                     if (bandLenInput === "0" || bandLenInput.toLowerCase() === "clear") {
                         almaBandLen = null;
@@ -814,7 +814,7 @@ async function editInstrument(procs) {
         let almaChopFilterEnabled = p.almaChopFilterEnabled;
         if (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") {
             const chopFilterDefault = p.almaChopFilterEnabled !== false;
-            const chopFilterInput = (await ask(`  use Choppiness Index entry filter? [Y/n] (current: ${chopFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            const chopFilterInput = (await ask(`  Use Choppiness Index entry filter? [Y/n] (current: ${chopFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (chopFilterInput) almaChopFilterEnabled = chopFilterInput !== "N";
         }
 
@@ -829,7 +829,7 @@ async function editInstrument(procs) {
         let chopMax = p.chopMax;
         if (p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW") {
             const chopFilterDefault = p.chopFilterEnabled !== false;
-            const chopFilterInput = (await ask(`  use Choppiness Index entry filter? [Y/n] (current: ${chopFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            const chopFilterInput = (await ask(`  Use Choppiness Index entry filter? [Y/n] (current: ${chopFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (chopFilterInput) chopFilterEnabled = chopFilterInput !== "N";
 
             if (chopFilterEnabled) {
@@ -867,11 +867,11 @@ async function editInstrument(procs) {
         // regardless of the chopFilterEnabled setting above — see
         // chopGate.js's `force` option.
         const doubleOrderDefault = p.disableDoubleOrders === true;
-        const doubleOrderInput = (await ask(`  disable double orders (blocks reversal re-entries only)? [y/N] (current: ${doubleOrderDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+        const doubleOrderInput = (await ask(`  Disable double orders (blocks reversal re-entries only)? [y/N] (current: ${doubleOrderDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
         let disableDoubleOrders = p.disableDoubleOrders;
         if (doubleOrderInput) disableDoubleOrders = doubleOrderInput === "Y";
         if (!disableDoubleOrders) {
-            console.log(c.dim(`  double orders stay allowed — reversal re-entries stay gated only by the Choppiness Index check every entry already gets`));
+            console.log(c.dim(`  Double orders stay allowed — reversal re-entries stay gated only by the Choppiness Index check every entry already gets`));
         }
 
         // ATR stop-loss multiplier — universal, but only read by
@@ -901,7 +901,7 @@ async function editInstrument(procs) {
         let flipConfirmCandles = p.flipConfirmCandles;
         if (p.strategy === "PURE_HA") {
             const flipDefault = p.flipConfirmCandles !== null ? String(p.flipConfirmCandles) : "1 (immediate flip)";
-            const flipInput = (await ask(`  reversal candles required to flip, anti-whipsaw (current: ${flipDefault}, "0"/"clear" for immediate, blank = keep): `)).trim();
+            const flipInput = (await ask(`  Reversal candles required to flip, anti-whipsaw (current: ${flipDefault}, "0"/"clear" for immediate, blank = keep): `)).trim();
             if (flipInput) {
                 if (flipInput === "0" || flipInput.toLowerCase() === "clear") {
                     flipConfirmCandles = null;
@@ -919,7 +919,7 @@ async function editInstrument(procs) {
         // Max daily loss circuit breaker — universal. "0"/"clear" removes
         // the floor entirely; blank keeps whatever's currently set.
         const maxDailyLossDefault = p.maxDailyLoss !== null ? String(p.maxDailyLoss) : "none";
-        const maxDailyLossInput = (await ask(`  max daily loss in rupees (current: ${maxDailyLossDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
+        const maxDailyLossInput = (await ask(`  Max daily loss in rupees (current: ${maxDailyLossDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
         let maxDailyLoss = p.maxDailyLoss;
         if (maxDailyLossInput) {
             if (maxDailyLossInput === "0" || maxDailyLossInput.toLowerCase() === "clear") {
@@ -946,7 +946,7 @@ async function editInstrument(procs) {
                 : (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
             console.log(c.green(`  ${p.underlying} updated${targetTag}${chopTag} lots:${lots === "default" ? "1" : lots} (restarted)`));
         } catch (err) {
-            console.log(c.red(`  failed to update ${p.underlying}: ${err.message}`));
+            console.log(c.red(`  Failed to update ${p.underlying}: ${err.message}`));
         }
     }
     await pauseForReview();
@@ -960,11 +960,11 @@ async function editInstrument(procs) {
 // fields, not a separate code path for applying them.
 async function riskManagement(procs) {
     const targets = procs.filter(p => selected.has(p.name));
-    if (targets.length === 0) { console.log(c.yellow("  nothing selected")); await pauseForReview(); return; }
+    if (targets.length === 0) { console.log(c.yellow("  Nothing selected")); await pauseForReview(); return; }
 
     for (const p of targets) {
         console.log();
-        console.log(c.dim(`  risk settings for ${p.underlying} (${(STRATEGY_INFO[p.strategy] || { label: p.strategy }).label}) — blank keeps current value`));
+        console.log(c.dim(`  Risk settings for ${p.underlying} (${(STRATEGY_INFO[p.strategy] || { label: p.strategy }).label}) — blank keeps current value`));
 
         // DAILY_HA_BIAS deliberately wires in NONE of the gates below (see
         // its header comment in strategies.js) — fixed SL = the previous
@@ -986,7 +986,7 @@ async function riskManagement(procs) {
         let almaChopFilterEnabled = p.almaChopFilterEnabled;
         if (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") {
             const chopFilterDefault = p.almaChopFilterEnabled !== false;
-            const chopFilterInput = (await ask(`  use Choppiness Index entry filter? [Y/n] (current: ${chopFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            const chopFilterInput = (await ask(`  Use Choppiness Index entry filter? [Y/n] (current: ${chopFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (chopFilterInput) almaChopFilterEnabled = chopFilterInput !== "N";
         }
 
@@ -996,7 +996,7 @@ async function riskManagement(procs) {
         let chopMax = p.chopMax;
         if (p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW" && !isDailyHaBias) {
             const chopFilterDefault = p.chopFilterEnabled !== false;
-            const chopFilterInput = (await ask(`  use Choppiness Index entry filter? [Y/n] (current: ${chopFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            const chopFilterInput = (await ask(`  Use Choppiness Index entry filter? [Y/n] (current: ${chopFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (chopFilterInput) chopFilterEnabled = chopFilterInput !== "N";
 
             if (chopFilterEnabled) {
@@ -1029,10 +1029,10 @@ async function riskManagement(procs) {
         let disableDoubleOrders = p.disableDoubleOrders;
         if (!isDailyHaBias) {
             const doubleOrderDefault = p.disableDoubleOrders === true;
-            const doubleOrderInput = (await ask(`  disable double orders (blocks reversal re-entries only)? [y/N] (current: ${doubleOrderDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            const doubleOrderInput = (await ask(`  Disable double orders (blocks reversal re-entries only)? [y/N] (current: ${doubleOrderDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (doubleOrderInput) disableDoubleOrders = doubleOrderInput === "Y";
             if (!disableDoubleOrders) {
-                console.log(c.dim(`  double orders stay allowed — reversal re-entries stay gated only by the Choppiness Index check every entry already gets`));
+                console.log(c.dim(`  Double orders stay allowed — reversal re-entries stay gated only by the Choppiness Index check every entry already gets`));
             }
         }
 
@@ -1062,7 +1062,7 @@ async function riskManagement(procs) {
         let flipConfirmCandles = p.flipConfirmCandles;
         if (p.strategy === "PURE_HA") {
             const flipDefault = p.flipConfirmCandles !== null ? String(p.flipConfirmCandles) : "1 (immediate flip)";
-            const flipInput = (await ask(`  reversal candles required to flip, anti-whipsaw (current: ${flipDefault}, "0"/"clear" for immediate, blank = keep): `)).trim();
+            const flipInput = (await ask(`  Reversal candles required to flip, anti-whipsaw (current: ${flipDefault}, "0"/"clear" for immediate, blank = keep): `)).trim();
             if (flipInput) {
                 if (flipInput === "0" || flipInput.toLowerCase() === "clear") {
                     flipConfirmCandles = null;
@@ -1082,11 +1082,11 @@ async function riskManagement(procs) {
         let volumeSmaPeriod = p.volumeSmaPeriod;
         if (!isDailyHaBias) {
             const volumeFilterDefault = p.volumeFilterEnabled === true;
-            const volumeFilterInput = (await ask(`  only enter when volume is above its SMA? [y/N] (current: ${volumeFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            const volumeFilterInput = (await ask(`  Only enter when volume is above its SMA? [y/N] (current: ${volumeFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (volumeFilterInput) volumeFilterEnabled = volumeFilterInput === "Y";
             if (volumeFilterEnabled) {
                 const volPeriodDefault = p.volumeSmaPeriod !== null ? String(p.volumeSmaPeriod) : `${engineConfig.VOLUME_SMA_LEN_DEFAULT} (default)`;
-                const volPeriodInput = (await ask(`  volume SMA period (current: ${volPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                const volPeriodInput = (await ask(`  Volume SMA period (current: ${volPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
                 if (volPeriodInput) {
                     if (volPeriodInput === "0" || volPeriodInput.toLowerCase() === "clear") {
                         volumeSmaPeriod = null;
@@ -1120,11 +1120,11 @@ async function riskManagement(procs) {
         let longCandleBodyAtrMult = p.longCandleBodyAtrMult;
         if (!isDailyHaBias) {
             const lcFilterDefault = p.longCandleFilterEnabled !== false;
-            const lcFilterInput = (await ask(`  block new entries after an abnormally large candle? [Y/n] (current: ${lcFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            const lcFilterInput = (await ask(`  Block new entries after an abnormally large candle? [Y/n] (current: ${lcFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (lcFilterInput) longCandleFilterEnabled = lcFilterInput !== "N";
             if (longCandleFilterEnabled) {
                 const lcPeriodDefault = longCandleAtrPeriod !== null ? String(longCandleAtrPeriod) : `${engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT} (default)`;
-                const lcPeriodInput = (await ask(`  long-candle ATR period (current: ${lcPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                const lcPeriodInput = (await ask(`  Long-candle ATR period (current: ${lcPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
                 if (lcPeriodInput) {
                     if (lcPeriodInput === "0" || lcPeriodInput.toLowerCase() === "clear") longCandleAtrPeriod = null;
                     else {
@@ -1134,7 +1134,7 @@ async function riskManagement(procs) {
                     }
                 }
                 const lcMultDefault = longCandleAtrMult !== null ? String(longCandleAtrMult) : `${engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT} (default)`;
-                const lcMultInput = (await ask(`  long-candle ATR multiplier (current: ${lcMultDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                const lcMultInput = (await ask(`  Long-candle ATR multiplier (current: ${lcMultDefault}, "0"/"clear" for default, blank = keep): `)).trim();
                 if (lcMultInput) {
                     if (lcMultInput === "0" || lcMultInput.toLowerCase() === "clear") longCandleAtrMult = null;
                     else {
@@ -1144,7 +1144,7 @@ async function riskManagement(procs) {
                     }
                 }
                 const lcCooldownDefault = longCandleCooldownCandles !== null ? String(longCandleCooldownCandles) : `${engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT} (default)`;
-                const lcCooldownInput = (await ask(`  long-candle cooldown, candles blocked after (current: ${lcCooldownDefault}, "clear" for default, blank = keep): `)).trim();
+                const lcCooldownInput = (await ask(`  Long-candle cooldown, candles blocked after (current: ${lcCooldownDefault}, "clear" for default, blank = keep): `)).trim();
                 if (lcCooldownInput) {
                     if (lcCooldownInput.toLowerCase() === "clear") longCandleCooldownCandles = null;
                     else {
@@ -1154,11 +1154,11 @@ async function riskManagement(procs) {
                     }
                 }
                 const lcBodyDefault = longCandleUseBodyFilter === true;
-                const lcBodyInput = (await ask(`  also require body confirmation (|close-open| >= ATR x mult)? [y/N] (current: ${lcBodyDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+                const lcBodyInput = (await ask(`  Also require body confirmation (|close-open| >= ATR x mult)? [y/N] (current: ${lcBodyDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
                 if (lcBodyInput) longCandleUseBodyFilter = lcBodyInput === "Y";
                 if (longCandleUseBodyFilter) {
                     const lcBodyMultDefault = longCandleBodyAtrMult !== null ? String(longCandleBodyAtrMult) : `${engineConfig.LONG_CANDLE_BODY_ATR_MULT_DEFAULT} (default)`;
-                    const lcBodyMultInput = (await ask(`  body confirmation ATR multiplier (current: ${lcBodyMultDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                    const lcBodyMultInput = (await ask(`  Body confirmation ATR multiplier (current: ${lcBodyMultDefault}, "0"/"clear" for default, blank = keep): `)).trim();
                     if (lcBodyMultInput) {
                         if (lcBodyMultInput === "0" || lcBodyMultInput.toLowerCase() === "clear") longCandleBodyAtrMult = null;
                         else {
@@ -1169,7 +1169,7 @@ async function riskManagement(procs) {
                     }
                 }
             } else {
-                console.log(c.dim(`  long-candle filter off — entries will NOT be blocked after abnormally large candles`));
+                console.log(c.dim(`  Long-candle filter off — entries will NOT be blocked after abnormally large candles`));
             }
         }
 
@@ -1182,17 +1182,17 @@ async function riskManagement(procs) {
         let htfChopMax = p.htfChopMax;
         if (!isDailyHaBias) {
             const htfGateDefault = p.htfGateEnabled !== false;
-            const htfGateInput = (await ask(`  block entries when a higher timeframe is trending but hasn't broken its own ALMA band? [Y/n] (current: ${htfGateDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            const htfGateInput = (await ask(`  Block entries when a higher timeframe is trending but hasn't broken its own ALMA band? [Y/n] (current: ${htfGateDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (htfGateInput) htfGateEnabled = htfGateInput !== "N";
             if (htfGateEnabled) {
                 const htfTfDefault = htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT;
-                const htfTfInput = (await ask(`  higher timeframe, 1h or 1d (current: ${htfTfDefault}, blank = keep): `)).trim().toLowerCase();
+                const htfTfInput = (await ask(`  Higher timeframe, 1h or 1d (current: ${htfTfDefault}, blank = keep): `)).trim().toLowerCase();
                 if (htfTfInput) {
                     if (htfTfInput === "1h" || htfTfInput === "1d") htfTimeframe = htfTfInput;
                     else console.log(c.yellow(`  "${htfTfInput}" isn't "1h" or "1d" — left unchanged (${htfTfDefault})`));
                 }
                 const htfPeriodDefault = htfChopPeriod !== null ? String(htfChopPeriod) : `${engineConfig.HTF_CHOP_LEN_DEFAULT} (default)`;
-                const htfPeriodInput = (await ask(`  higher-timeframe Choppiness Index period (current: ${htfPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                const htfPeriodInput = (await ask(`  Higher-timeframe Choppiness Index period (current: ${htfPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
                 if (htfPeriodInput) {
                     if (htfPeriodInput === "0" || htfPeriodInput.toLowerCase() === "clear") htfChopPeriod = null;
                     else {
@@ -1202,7 +1202,7 @@ async function riskManagement(procs) {
                     }
                 }
                 const htfMaxDefault = htfChopMax !== null ? String(htfChopMax) : `${engineConfig.HTF_CHOP_MAX_DEFAULT} (default)`;
-                const htfMaxInput = (await ask(`  higher-timeframe Choppiness Index max threshold, blocks below this (current: ${htfMaxDefault}, "0"/"clear" for default, blank = keep): `)).trim();
+                const htfMaxInput = (await ask(`  Higher-timeframe Choppiness Index max threshold, blocks below this (current: ${htfMaxDefault}, "0"/"clear" for default, blank = keep): `)).trim();
                 if (htfMaxInput) {
                     if (htfMaxInput === "0" || htfMaxInput.toLowerCase() === "clear") htfChopMax = null;
                     else {
@@ -1234,16 +1234,16 @@ async function riskManagement(procs) {
         // dailyHaGate.js's header for why this one isn't wired per-strategy
         // like the gates above).
         const dailyHaDefault = p.dailyHaGateEnabled !== false;
-        const dailyHaInput = (await ask(`  only allow entries matching the previous daily HA candle's color (green=long only, red=short only)? [Y/n] (current: ${dailyHaDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+        const dailyHaInput = (await ask(`  Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)? [Y/n] (current: ${dailyHaDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
         let dailyHaGateEnabled = p.dailyHaGateEnabled;
         if (dailyHaInput) dailyHaGateEnabled = dailyHaInput !== "N";
         if (dailyHaGateEnabled === false) {
-            console.log(c.dim(`  daily HA gate off — entries in either direction stay allowed regardless of yesterday's daily candle`));
+            console.log(c.dim(`  Daily HA gate off — entries in either direction stay allowed regardless of yesterday's daily candle`));
         }
 
         // Max daily loss circuit breaker — universal, every strategy.
         const maxDailyLossDefault = p.maxDailyLoss !== null ? String(p.maxDailyLoss) : "none";
-        const maxDailyLossInput = (await ask(`  max daily loss in rupees (current: ${maxDailyLossDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
+        const maxDailyLossInput = (await ask(`  Max daily loss in rupees (current: ${maxDailyLossDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
         let maxDailyLoss = p.maxDailyLoss;
         if (maxDailyLossInput) {
             if (maxDailyLossInput === "0" || maxDailyLossInput.toLowerCase() === "clear") {
@@ -1281,7 +1281,7 @@ async function riskManagement(procs) {
             const lossTag = maxDailyLoss !== null ? c.dim(` maxloss:-₹${maxDailyLoss}`) : "";
             console.log(c.green(`  ${p.underlying} risk settings updated${chopTag}${doubleTag}${atrTag}${flipTag}${volTag}${lcTag}${htfTag}${dailyHaTag}${lossTag} (restarted)`));
         } catch (err) {
-            console.log(c.red(`  failed to update ${p.underlying}: ${err.message}`));
+            console.log(c.red(`  Failed to update ${p.underlying}: ${err.message}`));
         }
     }
     await pauseForReview();
@@ -1306,34 +1306,34 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         return;
     }
     const previewExpiry = resolved.expiry ? resolved.expiry.toISOString().split("T")[0] : "n/a (equity, no roll)";
-    console.log(c.dim(`  would resolve to: ${resolved.symbol}  (expiry ${previewExpiry}, broker lot_size ${resolved.lotSize} — not used, see below)`));
+    console.log(c.dim(`  Would resolve to: ${resolved.symbol}  (expiry ${previewExpiry}, broker lot_size ${resolved.lotSize} — not used, see below)`));
 
     let lotMultOverride = null;
     if (def.lotMult === null) {
         console.log();
         console.log(c.yellow(`  ⚠ lot multiplier required for ${underlying}. The broker's lot_size field is a contract`));
         console.log(c.yellow(`    COUNT, not the real price multiplier, and can't be trusted as a default — this exact`));
-        console.log(c.yellow(`    pattern (lot_size=1) already caused a real PnL bug once, on NatGas Mini (real multiplier`));
-        console.log(c.yellow(`    was 250 MMBtu). Look up the actual contract spec before entering this.`));
+        console.log(c.yellow(`    Pattern (lot_size=1) already caused a real PnL bug once, on NatGas Mini (real multiplier`));
+        console.log(c.yellow(`    Was 250 MMBtu). Look up the actual contract spec before entering this.`));
         do {
-            const lotMultInput = await ask(`  lot multiplier — price move x this = PnL per lot (required, no default): `);
-            if (!lotMultInput) { console.log(c.yellow("  required — enter the real contract multiplier, there's no safe default to fall back to")); continue; }
+            const lotMultInput = await ask(`  Lot multiplier — price move x this = PnL per lot (required, no default): `);
+            if (!lotMultInput) { console.log(c.yellow("  Required — enter the real contract multiplier, there's no safe default to fall back to")); continue; }
             const parsed = Number(lotMultInput);
             if (!Number.isFinite(parsed) || parsed <= 0) { console.log(c.yellow(`  "${lotMultInput}" isn't a valid positive number — try again`)); continue; }
             lotMultOverride = parsed;
         } while (lotMultOverride === null);
     }
 
-    const lotsInput = await ask(`  lots (default 1): `);
+    const lotsInput = await ask(`  Lots (default 1): `);
     const lots = lotsInput ? Number(lotsInput) : 1;
-    if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  invalid lots value")); await pauseForReview(); return; }
+    if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  Invalid lots value")); await pauseForReview(); return; }
 
     const modeInput = (await ask(`  [L] Live  [P] Paper (default Paper): `)).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
-        const confirmLive = (await ask(c.red(`  this will place REAL orders. type "LIVE" to confirm: `))).trim();
+        const confirmLive = (await ask(c.red(`  This will place REAL orders. type "LIVE" to confirm: `))).trim();
         if (confirmLive !== "LIVE") {
-            console.log(c.dim("  not confirmed — starting in paper mode instead"));
+            console.log(c.dim("  Not confirmed — starting in paper mode instead"));
             isLive = false;
         }
     }
@@ -1342,7 +1342,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // should still simulate the same restore-across-days behavior a live
     // carry would have. Default is NO (MIS, EOD force-close) — carrying
     // overnight is a deliberate opt-in, not the safe default.
-    const carryInput = (await ask(`  carry position overnight instead of EOD close? [y/N] (default: N): `)).trim().toUpperCase();
+    const carryInput = (await ask(`  Carry position overnight instead of EOD close? [y/N] (default: N): `)).trim().toUpperCase();
     const carryOvernight = carryInput === "Y";
     if (carryOvernight) {
         console.log(c.yellow(`  ⚠ carry-overnight ON — entries will use NRML (not MIS), EOD will hold the position instead of closing it.`));
@@ -1359,7 +1359,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     const customStrategies = (await customStrategyDb.listStrategies()).filter(s => s.entryLong || s.entryShort);
     const strategyKeys = [...Object.keys(STRATEGIES), ...customStrategies.map(s => s.name)];
     console.log();
-    console.log(c.dim(`  strategy:`));
+    console.log(c.dim(`  Strategy:`));
     strategyKeys.forEach((key, i) => {
         const custom = customStrategies.find(s => s.name === key);
         if (custom) {
@@ -1373,11 +1373,11 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     });
     console.log();
-    const stratInput = await ask(`  select number (blank = default): `);
+    const stratInput = await ask(`  Select number (blank = default): `);
     let strategy = DEFAULT_STRATEGY;
     if (stratInput) {
         const picked = strategyKeys[Number(stratInput) - 1];
-        if (!picked) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+        if (!picked) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
         strategy = picked;
     }
 
@@ -1390,16 +1390,16 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     const customPicked = customStrategies.find(s => s.name === strategy);
     const defaultTimeframe = customPicked ? customPicked.timeframe : (STRATEGY_TIMEFRAME[strategy] || "15m");
     console.log();
-    console.log(c.dim(`  timeframe (default: ${defaultTimeframe}, this strategy's own cadence):`));
+    console.log(c.dim(`  Timeframe (default: ${defaultTimeframe}, this strategy's own cadence):`));
     timeframes.forEach((tf, i) => {
         const defTag = tf === defaultTimeframe ? c.dim(" (default)") : "";
         console.log(`  ${i + 1}. ${tf}${defTag}`);
     });
-    const tfInput = await ask(`  select number (blank = default): `);
+    const tfInput = await ask(`  Select number (blank = default): `);
     let timeframe = defaultTimeframe;
     if (tfInput) {
         const picked = timeframes[Number(tfInput) - 1];
-        if (!picked) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+        if (!picked) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
         timeframe = picked;
         if (timeframe !== defaultTimeframe) {
             console.log(c.yellow(`  ⚠ overriding ${strategy}'s default ${defaultTimeframe} cadence — its lookback params were tuned assuming ${defaultTimeframe} candles`));
@@ -1419,11 +1419,11 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // combined realized+unrealised total crossing the ceiling regardless
     // of any interim losing trade, unlike the per-trade target which only
     // ever looks at one trade's own entry/exit).
-    console.log(c.dim("  target type:"));
+    console.log(c.dim("  Target type:"));
     console.log("  1. Trade-level (points, tick-monitored, per trade)");
     console.log("  2. Session-level (rupees, whole day, irrespective of interim losses)");
     console.log("  3. None");
-    const targetTypeInput = (await ask("  select number (blank = none): ")).trim();
+    const targetTypeInput = (await ask("  Select number (blank = none): ")).trim();
 
     let targetPoints = null;
     let targetMode = "fixed";
@@ -1435,7 +1435,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         // level at entryPrice ± this many points, same for LONG/SHORT —
         // checked on every WebSocket tick (candlePoll.js's checkTarget),
         // applies regardless of which strategy is running.
-        const targetInput = await ask(`  profit target in points (blank = adaptive sizing instead): `);
+        const targetInput = await ask(`  Profit target in points (blank = adaptive sizing instead): `);
         if (targetInput) {
             const parsedTarget = Number(targetInput);
             if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) {
@@ -1450,11 +1450,11 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         // once per position instead of one fixed distance every trade — see
         // adaptiveTarget.js.
         if (targetPoints === null) {
-            const adaptiveInput = (await ask(`  use adaptive target sizing (CHOP + DPI efficiency)? [Y/n] (default: Y): `)).trim().toUpperCase();
+            const adaptiveInput = (await ask(`  Use adaptive target sizing (CHOP + DPI efficiency)? [Y/n] (default: Y): `)).trim().toUpperCase();
             targetMode = adaptiveInput === "N" ? "fixed" : "adaptive";
         }
     } else if (targetTypeInput === "2") {
-        const sessionTargetInput = await ask(`  session profit ceiling in rupees, quits for the day once reached: `);
+        const sessionTargetInput = await ask(`  Session profit ceiling in rupees, quits for the day once reached: `);
         const parsedSessionTarget = Number(sessionTargetInput);
         if (!Number.isFinite(parsedSessionTarget) || parsedSessionTarget <= 0) {
             console.log(c.yellow(`  "${sessionTargetInput}" isn't a valid positive number — starting with no target instead`));
@@ -1471,7 +1471,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // mode checks.
     let almaBandEnabled = true;
     if (strategy === "ALMA_PRO_FAST") {
-        const almaBandInput = (await ask(`  use ALMA band gate? [Y/n] (default: Y): `)).trim().toUpperCase();
+        const almaBandInput = (await ask(`  Use ALMA band gate? [Y/n] (default: Y): `)).trim().toUpperCase();
         almaBandEnabled = almaBandInput !== "N";
     }
 
@@ -1483,7 +1483,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     let almaFastLen = null;
     let almaBandLen = null;
     if (strategy === "ALMA_PRO_FAST") {
-        const fastLenInput = (await ask(`  fast ALMA length (default: ${engineConfig.ALMA_PRO_FAST_LEN}): `)).trim();
+        const fastLenInput = (await ask(`  Fast ALMA length (default: ${engineConfig.ALMA_PRO_FAST_LEN}): `)).trim();
         if (fastLenInput) {
             const parsedFastLen = Number(fastLenInput);
             if (!Number.isFinite(parsedFastLen) || parsedFastLen <= 0) {
@@ -1493,7 +1493,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
             }
         }
         if (almaBandEnabled) {
-            const bandLenInput = (await ask(`  band ALMA length (default: ${engineConfig.ALMA_PRO_BAND_LEN}): `)).trim();
+            const bandLenInput = (await ask(`  Band ALMA length (default: ${engineConfig.ALMA_PRO_BAND_LEN}): `)).trim();
             if (bandLenInput) {
                 const parsedBandLen = Number(bandLenInput);
                 if (!Number.isFinite(parsedBandLen) || parsedBandLen <= 0) {
@@ -1534,7 +1534,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // (band/slope for FAST, slope-level for SLOW) still applies unchanged.
     let almaChopFilterEnabled = true;
     if (strategy === "ALMA_PRO_FAST" || strategy === "ALMA_PRO_SLOW") {
-        const chopFilterInput = (await ask(`  use Choppiness Index entry filter? [Y/n] (default: Y): `)).trim().toUpperCase();
+        const chopFilterInput = (await ask(`  Use Choppiness Index entry filter? [Y/n] (default: Y): `)).trim().toUpperCase();
         almaChopFilterEnabled = chopFilterInput !== "N";
     }
 
@@ -1554,7 +1554,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     let chopPeriod = null;
     let chopMax = null;
     if (strategy !== "ALMA_PRO_FAST" && strategy !== "ALMA_PRO_SLOW") {
-        const chopFilterInput = (await ask(`  use Choppiness Index entry filter? [Y/n] (default: Y): `)).trim().toUpperCase();
+        const chopFilterInput = (await ask(`  Use Choppiness Index entry filter? [Y/n] (default: Y): `)).trim().toUpperCase();
         chopFilterEnabled = chopFilterInput !== "N";
         if (chopFilterEnabled) {
             const periodInput = await ask(`  Choppiness Index period (blank = ${engineConfig.CHOP_LEN}): `);
@@ -1579,10 +1579,10 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // doubleOrderGate.js's header. Every entry, reversal or not, is
     // separately always run through the Choppiness Index check regardless
     // of the chop filter setting above — see chopGate.js's `force` option.
-    const doubleOrderInput = (await ask(`  disable double orders (blocks reversal re-entries only)? [y/N] (default: N): `)).trim().toUpperCase();
+    const doubleOrderInput = (await ask(`  Disable double orders (blocks reversal re-entries only)? [y/N] (default: N): `)).trim().toUpperCase();
     const disableDoubleOrders = doubleOrderInput === "Y";
     if (!disableDoubleOrders) {
-        console.log(c.dim(`  double orders stay allowed — reversal re-entries stay gated only by the Choppiness Index check every entry already gets`));
+        console.log(c.dim(`  Double orders stay allowed — reversal re-entries stay gated only by the Choppiness Index check every entry already gets`));
     }
 
     // ATR stop-loss multiplier — universal prompt, but only read by
@@ -1604,7 +1604,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // position actually flips. Blank = 1 (immediate flip).
     let flipConfirmCandles = null;
     if (strategy === "PURE_HA") {
-        const flipInput = (await ask(`  reversal candles required to flip, anti-whipsaw (blank = 1, immediate): `)).trim();
+        const flipInput = (await ask(`  Reversal candles required to flip, anti-whipsaw (blank = 1, immediate): `)).trim();
         if (flipInput) {
             const parsedConfirm = Number(flipInput);
             if (!Number.isInteger(parsedConfirm) || parsedConfirm < 1) {
@@ -1620,11 +1620,11 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // (volumeGate.js's isVolumeBlocked) of the configured period. Same
     // gate riskManagement() exposes post-deploy — asked here too so it
     // doesn't require an immediate restart just to turn on.
-    const volumeFilterInput = (await ask(`  only enter when volume is above its SMA? [y/N] (default: N): `)).trim().toUpperCase();
+    const volumeFilterInput = (await ask(`  Only enter when volume is above its SMA? [y/N] (default: N): `)).trim().toUpperCase();
     const volumeFilterEnabled = volumeFilterInput === "Y";
     let volumeSmaPeriod = null;
     if (volumeFilterEnabled) {
-        const volPeriodInput = (await ask(`  volume SMA period (blank = default ${engineConfig.VOLUME_SMA_LEN_DEFAULT}): `)).trim();
+        const volPeriodInput = (await ask(`  Volume SMA period (blank = default ${engineConfig.VOLUME_SMA_LEN_DEFAULT}): `)).trim();
         if (volPeriodInput) {
             const parsedVolPeriod = Number(volPeriodInput);
             if (!Number.isFinite(parsedVolPeriod) || parsedVolPeriod <= 0) {
@@ -1642,7 +1642,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // large candle (range >= ATR x multiplier). Same gate riskManagement()
     // exposes post-deploy — asked here too so a freshly-added instrument
     // starts protected instead of needing an immediate restart.
-    const lcFilterInput = (await ask(`  block new entries after an abnormally large candle? [Y/n] (default: Y): `)).trim().toUpperCase();
+    const lcFilterInput = (await ask(`  Block new entries after an abnormally large candle? [Y/n] (default: Y): `)).trim().toUpperCase();
     const longCandleFilterEnabled = lcFilterInput !== "N";
     let longCandleAtrPeriod = null;
     let longCandleAtrMult = null;
@@ -1650,28 +1650,28 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     let longCandleUseBodyFilter = false;
     let longCandleBodyAtrMult = null;
     if (longCandleFilterEnabled) {
-        const lcPeriodInput = (await ask(`  long-candle ATR period (blank = default ${engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}): `)).trim();
+        const lcPeriodInput = (await ask(`  Long-candle ATR period (blank = default ${engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}): `)).trim();
         if (lcPeriodInput) {
             const parsedLcPeriod = Number(lcPeriodInput);
             if (Number.isFinite(parsedLcPeriod) && parsedLcPeriod > 0) longCandleAtrPeriod = parsedLcPeriod;
             else console.log(c.yellow(`  "${lcPeriodInput}" isn't a valid positive number — using default (${engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT})`));
         }
-        const lcMultInput = (await ask(`  long-candle ATR multiplier (blank = default ${engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}): `)).trim();
+        const lcMultInput = (await ask(`  Long-candle ATR multiplier (blank = default ${engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}): `)).trim();
         if (lcMultInput) {
             const parsedLcMult = Number(lcMultInput);
             if (Number.isFinite(parsedLcMult) && parsedLcMult > 0) longCandleAtrMult = parsedLcMult;
             else console.log(c.yellow(`  "${lcMultInput}" isn't a valid positive number — using default (${engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT})`));
         }
-        const lcCooldownInput = (await ask(`  long-candle cooldown, candles blocked after (blank = default ${engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}): `)).trim();
+        const lcCooldownInput = (await ask(`  Long-candle cooldown, candles blocked after (blank = default ${engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}): `)).trim();
         if (lcCooldownInput) {
             const parsedLcCooldown = Number(lcCooldownInput);
             if (Number.isInteger(parsedLcCooldown) && parsedLcCooldown >= 0) longCandleCooldownCandles = parsedLcCooldown;
             else console.log(c.yellow(`  "${lcCooldownInput}" isn't a valid whole number >= 0 — using default (${engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT})`));
         }
-        const lcBodyInput = (await ask(`  also require body confirmation (|close-open| >= ATR x mult)? [y/N] (default: N): `)).trim().toUpperCase();
+        const lcBodyInput = (await ask(`  Also require body confirmation (|close-open| >= ATR x mult)? [y/N] (default: N): `)).trim().toUpperCase();
         longCandleUseBodyFilter = lcBodyInput === "Y";
         if (longCandleUseBodyFilter) {
-            const lcBodyMultInput = (await ask(`  body confirmation ATR multiplier (blank = default ${engineConfig.LONG_CANDLE_BODY_ATR_MULT_DEFAULT}): `)).trim();
+            const lcBodyMultInput = (await ask(`  Body confirmation ATR multiplier (blank = default ${engineConfig.LONG_CANDLE_BODY_ATR_MULT_DEFAULT}): `)).trim();
             if (lcBodyMultInput) {
                 const parsedLcBodyMult = Number(lcBodyMultInput);
                 if (Number.isFinite(parsedLcBodyMult) && parsedLcBodyMult > 0) longCandleBodyAtrMult = parsedLcBodyMult;
@@ -1679,29 +1679,29 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
             }
         }
     } else {
-        console.log(c.dim(`  long-candle filter off — entries will NOT be blocked after abnormally large candles`));
+        console.log(c.dim(`  Long-candle filter off — entries will NOT be blocked after abnormally large candles`));
     }
 
     // htfGate.js's universal higher-timeframe confirmation gate — ON by
     // default (opt-out, same posture as the long-candle filter above).
-    const htfGateInput = (await ask(`  block entries when a higher timeframe is trending but hasn't broken its own ALMA band? [Y/n] (default: Y): `)).trim().toUpperCase();
+    const htfGateInput = (await ask(`  Block entries when a higher timeframe is trending but hasn't broken its own ALMA band? [Y/n] (default: Y): `)).trim().toUpperCase();
     const htfGateEnabled = htfGateInput !== "N";
     let htfTimeframe = null;
     let htfChopPeriod = null;
     let htfChopMax = null;
     if (htfGateEnabled) {
-        const htfTfInput = (await ask(`  higher timeframe, 1h or 1d (blank = default ${engineConfig.HTF_GATE_TIMEFRAME_DEFAULT}): `)).trim().toLowerCase();
+        const htfTfInput = (await ask(`  Higher timeframe, 1h or 1d (blank = default ${engineConfig.HTF_GATE_TIMEFRAME_DEFAULT}): `)).trim().toLowerCase();
         if (htfTfInput) {
             if (htfTfInput === "1h" || htfTfInput === "1d") htfTimeframe = htfTfInput;
             else console.log(c.yellow(`  "${htfTfInput}" isn't "1h" or "1d" — using default (${engineConfig.HTF_GATE_TIMEFRAME_DEFAULT})`));
         }
-        const htfPeriodInput = (await ask(`  higher-timeframe Choppiness Index period (blank = default ${engineConfig.HTF_CHOP_LEN_DEFAULT}): `)).trim();
+        const htfPeriodInput = (await ask(`  Higher-timeframe Choppiness Index period (blank = default ${engineConfig.HTF_CHOP_LEN_DEFAULT}): `)).trim();
         if (htfPeriodInput) {
             const parsed = Number(htfPeriodInput);
             if (Number.isFinite(parsed) && parsed > 0) htfChopPeriod = parsed;
             else console.log(c.yellow(`  "${htfPeriodInput}" isn't a valid positive number — using default (${engineConfig.HTF_CHOP_LEN_DEFAULT})`));
         }
-        const htfMaxInput = (await ask(`  higher-timeframe Choppiness Index max threshold, blocks below this (blank = default ${engineConfig.HTF_CHOP_MAX_DEFAULT}): `)).trim();
+        const htfMaxInput = (await ask(`  Higher-timeframe Choppiness Index max threshold, blocks below this (blank = default ${engineConfig.HTF_CHOP_MAX_DEFAULT}): `)).trim();
         if (htfMaxInput) {
             const parsed = Number(htfMaxInput);
             if (Number.isFinite(parsed) && parsed > 0) htfChopMax = parsed;
@@ -1718,7 +1718,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // day — independent of target hits, fires on ANY exit reason that
     // pushes the day past the floor (SL, target, reversal).
     let maxDailyLoss = null;
-    const maxDailyLossInput = (await ask(`  max daily loss in rupees, quits for the day if breached (blank = no floor): `)).trim();
+    const maxDailyLossInput = (await ask(`  Max daily loss in rupees, quits for the day if breached (blank = no floor): `)).trim();
     if (maxDailyLossInput) {
         const parsedLoss = Number(maxDailyLossInput);
         if (!Number.isFinite(parsedLoss) || parsedLoss <= 0) {
@@ -1735,7 +1735,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // engineConfig.BAND_STEP_DEFAULT.
     let bandStep = null;
     if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL")) {
-        const bandStepInput = await ask(`  band step in price points (blank = default ${engineConfig.BAND_STEP_DEFAULT}): `);
+        const bandStepInput = await ask(`  Band step in price points (blank = default ${engineConfig.BAND_STEP_DEFAULT}): `);
         if (bandStepInput) {
             const parsedStep = Number(bandStepInput);
             if (!Number.isFinite(parsedStep) || parsedStep <= 0) {
@@ -1752,7 +1752,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // neutral reading rather than exiting on it.
     let greyExitEnabled = null;
     if (strategy === "ALMA_TRI_BAND") {
-        const greyExitInput = (await ask(`  exit on grey state instead of holding through it? [y/N] (default: N): `)).trim().toUpperCase();
+        const greyExitInput = (await ask(`  Exit on grey state instead of holding through it? [y/N] (default: N): `)).trim().toUpperCase();
         greyExitEnabled = greyExitInput === "Y";
     }
 
@@ -1788,8 +1788,8 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         if (conflict) {
             console.log(c.yellow(`  ⚠ ${underlying} is already running ${(STRATEGY_INFO[otherEngine] || { label: otherEngine }).label} as ${conflict.name}.`));
             console.log(c.yellow(`    ALMA_PRO_FAST and ALMA_PRO_SLOW are meant to run on DIFFERENT underlyings (e.g. one on the`));
-            console.log(c.yellow(`    mini contract, the other on the full-lot one) — pick a different underlying for this engine,`));
-            console.log(c.yellow(`    or leave it disabled by not starting it.`));
+            console.log(c.yellow(`    Mini contract, the other on the full-lot one) — pick a different underlying for this engine,`));
+            console.log(c.yellow(`    Or leave it disabled by not starting it.`));
             await pauseForReview();
             return;
         }
@@ -1862,9 +1862,9 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const volTag = volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
         const lcTag = longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
         const htfTag = htfGateEnabled ? c.dim(` htf:${htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}`) : c.yellow(" htf:off");
-        console.log(c.green(`  started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${almaLenTag}${almaChopTag}${vdChopTag}${bandStepTag}${greyExitTag}${volTag}${lcTag}${htfTag}${maxLossTag}`));
+        console.log(c.green(`  Started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${almaLenTag}${almaChopTag}${vdChopTag}${bandStepTag}${greyExitTag}${volTag}${lcTag}${htfTag}${maxLossTag}`));
     } catch (err) {
-        console.log(c.red(`  failed to start ${name}: ${err.message}`));
+        console.log(c.red(`  Failed to start ${name}: ${err.message}`));
     }
     await pauseForReview();
 }
@@ -1873,12 +1873,12 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
 async function addInstrument() {
     const { exchange, repo, list: all } = await pickExchangeAndRepo();
 
-    const query   = await ask("  search underlying (blank = show all): ");
+    const query   = await ask("  Search underlying (blank = show all): ");
     const matches = query
         ? all.filter(u => u.toLowerCase().includes(query.toLowerCase()))
         : all;
 
-    if (matches.length === 0) { console.log(c.yellow("  no matches")); await pauseForReview(); return; }
+    if (matches.length === 0) { console.log(c.yellow("  No matches")); await pauseForReview(); return; }
     if (matches.length > 30 && query === "") {
         console.log(c.yellow(`  ${all.length} underlyings total — type part of a name to narrow it down`));
         await pauseForReview();
@@ -1889,10 +1889,10 @@ async function addInstrument() {
     matches.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u}`));
     console.log();
 
-    const pick = await ask("  select number (blank to cancel): ");
+    const pick = await ask("  Select number (blank to cancel): ");
     if (!pick) return;
     const underlying = matches[Number(pick) - 1];
-    if (!underlying) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!underlying) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
     await configureAndStartInstrument(underlying, repo, exchange);
 }
@@ -1948,7 +1948,7 @@ async function scanTrendingInstruments(underlyings, repo, exchange) {
 
     const results = [];
     for (const underlying of underlyings) {
-        process.stdout.write(c.dim(`  scanning ${underlying}...`));
+        process.stdout.write(c.dim(`  Scanning ${underlying}...`));
 
         let attempt = 0;
         while (true) {
@@ -1982,7 +1982,7 @@ async function scanTrendingInstruments(underlyings, repo, exchange) {
                     process.stdout.write(`\r\x1b[2K`);
                     console.log(c.dim(`  ${underlying.padEnd(18)} — rate limited, retrying in ${attempt}s...`));
                     await sleep(attempt * 1000);
-                    process.stdout.write(c.dim(`  scanning ${underlying}...`));
+                    process.stdout.write(c.dim(`  Scanning ${underlying}...`));
                     continue;
                 }
                 process.stdout.write(`\r\x1b[2K`);
@@ -2027,7 +2027,7 @@ async function marketStatusScreen() {
         console.log(c.bold("  ── Market Status ──"));
 
         if (entries.length === 0) {
-            console.log(c.dim("  watchlist is empty — press A to add an instrument"));
+            console.log(c.dim("  Watchlist is empty — press A to add an instrument"));
         } else {
             const profiles = await Promise.all(entries.map(e => marketStateClient.getProfile(e.underlying)));
 
@@ -2056,7 +2056,7 @@ async function marketStatusScreen() {
         else if (input === "S")  await startScanner();
         else if (input === "X")  await stopScanner();
         else if (input === "B" || input === "") running = false;
-        else                      console.log(c.yellow("  unrecognized option"));
+        else                      console.log(c.yellow("  Unrecognized option"));
     }
 }
 
@@ -2076,12 +2076,12 @@ async function marketStatusScreen() {
 // marketWatchlist.js's header comment) — reuses real broker data instead
 // of trusting a hand-typed name.
 async function addToWatchlist() {
-    const choice = (await ask("  add from — [1] currently PM2-managed instruments  [2] browse MCX/NSE (default 2): ")).trim();
+    const choice = (await ask("  Add from — [1] currently PM2-managed instruments  [2] browse MCX/NSE (default 2): ")).trim();
 
     if (choice === "1") {
         const procs = await getEngineProcesses();
         if (procs.length === 0) {
-            console.log(c.yellow("  no PM2-managed instruments running — try [2] to browse MCX/NSE instead"));
+            console.log(c.yellow("  No PM2-managed instruments running — try [2] to browse MCX/NSE instead"));
             await pauseForReview();
             return;
         }
@@ -2090,13 +2090,13 @@ async function addToWatchlist() {
         procs.forEach((p, i) => console.log(`  ${String(i + 1).padStart(2)}. ${p.underlying.padEnd(16)} (${p.exchange})  ${p.name} [${p.status}]`));
         console.log();
 
-        const pick = await ask("  select number (blank to cancel): ");
+        const pick = await ask("  Select number (blank to cancel): ");
         if (!pick) return;
         const proc = procs[Number(pick) - 1];
-        if (!proc) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+        if (!proc) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
         marketWatchlist.add(proc.underlying, proc.exchange);
-        console.log(c.green(`  added ${proc.underlying} (${proc.exchange}) to watchlist`));
+        console.log(c.green(`  Added ${proc.underlying} (${proc.exchange}) to watchlist`));
         await pauseForReview();
         return;
     }
@@ -2106,12 +2106,12 @@ async function addToWatchlist() {
     // configureAndStartInstrument() at the end.
     const { exchange, list: all } = await pickExchangeAndRepo();
 
-    const query   = await ask("  search underlying (blank = show all): ");
+    const query   = await ask("  Search underlying (blank = show all): ");
     const matches = query
         ? all.filter(u => u.toLowerCase().includes(query.toLowerCase()))
         : all;
 
-    if (matches.length === 0) { console.log(c.yellow("  no matches")); await pauseForReview(); return; }
+    if (matches.length === 0) { console.log(c.yellow("  No matches")); await pauseForReview(); return; }
     if (matches.length > 30 && query === "") {
         console.log(c.yellow(`  ${all.length} underlyings total — type part of a name to narrow it down`));
         await pauseForReview();
@@ -2122,25 +2122,25 @@ async function addToWatchlist() {
     matches.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u}`));
     console.log();
 
-    const pick = await ask("  select number (blank to cancel): ");
+    const pick = await ask("  Select number (blank to cancel): ");
     if (!pick) return;
     const underlying = matches[Number(pick) - 1];
-    if (!underlying) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!underlying) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
     marketWatchlist.add(underlying, exchange);
-    console.log(c.green(`  added ${underlying} (${exchange}) to watchlist`));
+    console.log(c.green(`  Added ${underlying} (${exchange}) to watchlist`));
     await pauseForReview();
 }
 
 async function removeFromWatchlist(entries) {
-    if (entries.length === 0) { console.log(c.yellow("  watchlist is empty")); await pauseForReview(); return; }
+    if (entries.length === 0) { console.log(c.yellow("  Watchlist is empty")); await pauseForReview(); return; }
 
-    const input = await ask("  remove which number: ");
+    const input = await ask("  Remove which number: ");
     const entry = entries[Number(input) - 1];
-    if (!entry) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!entry) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
     marketWatchlist.remove(entry.underlying);
-    console.log(c.green(`  removed ${entry.underlying}`));
+    console.log(c.green(`  Removed ${entry.underlying}`));
     await pauseForReview();
 }
 
@@ -2153,7 +2153,7 @@ async function startScanner() {
         await pm2Start({ ...PM2_BASE_OPTS, script: "scannerService.js", name: SCANNER_PROCESS_NAME, cwd: __dirname });
         console.log(c.green(`  ${SCANNER_PROCESS_NAME} started`));
     } catch (err) {
-        console.log(c.red(`  failed to start scanner: ${err.message}`));
+        console.log(c.red(`  Failed to start scanner: ${err.message}`));
     }
     await pauseForReview();
 }
@@ -2163,7 +2163,7 @@ async function stopScanner() {
         await pm2Stop(SCANNER_PROCESS_NAME);
         console.log(c.green(`  ${SCANNER_PROCESS_NAME} stopped`));
     } catch (err) {
-        console.log(c.red(`  failed to stop scanner (is it running?): ${err.message}`));
+        console.log(c.red(`  Failed to stop scanner (is it running?): ${err.message}`));
     }
     await pauseForReview();
 }
@@ -2198,9 +2198,9 @@ async function getHedgePairProcesses() {
 }
 
 async function pickUnderlying(list, label) {
-    const query = await ask(`  search ${label} underlying (blank = show all): `);
+    const query = await ask(`  Search ${label} underlying (blank = show all): `);
     const matches = query ? list.filter(u => u.toLowerCase().includes(query.toLowerCase())) : list;
-    if (matches.length === 0) { console.log(c.yellow("  no matches")); return null; }
+    if (matches.length === 0) { console.log(c.yellow("  No matches")); return null; }
     if (matches.length > 30 && query === "") {
         console.log(c.yellow(`  ${list.length} underlyings total — type part of a name to narrow it down`));
         return null;
@@ -2208,16 +2208,16 @@ async function pickUnderlying(list, label) {
     console.log();
     matches.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u}`));
     console.log();
-    const pick = await ask("  select number (blank to cancel): ");
+    const pick = await ask("  Select number (blank to cancel): ");
     if (!pick) return null;
     const picked = matches[Number(pick) - 1];
-    if (!picked) { console.log(c.yellow("  invalid selection")); return null; }
+    if (!picked) { console.log(c.yellow("  Invalid selection")); return null; }
     return picked;
 }
 
 async function addHedgePair() {
-    console.log(c.dim("  core: full-size contract, daily-HA bias, NRML, EOD-only exit"));
-    console.log(c.dim("  hedge: mini contract, opens on adverse 1h HA against the core"));
+    console.log(c.dim("  Core: full-size contract, daily-HA bias, NRML, EOD-only exit"));
+    console.log(c.dim("  Hedge: mini contract, opens on adverse 1h HA against the core"));
     console.log();
 
     // MCX-only today — the two supported pairs (NATURALGAS/NATGASMINI,
@@ -2244,7 +2244,7 @@ async function addHedgePair() {
         let val = null;
         do {
             const input = await ask(`  ${legLabel} lot multiplier — price move x this = PnL per lot (required): `);
-            if (!input) { console.log(c.yellow("  required — no safe default")); continue; }
+            if (!input) { console.log(c.yellow("  Required — no safe default")); continue; }
             const parsed = Number(input);
             if (!Number.isFinite(parsed) || parsed <= 0) { console.log(c.yellow(`  "${input}" isn't a valid positive number`)); continue; }
             val = parsed;
@@ -2254,15 +2254,15 @@ async function addHedgePair() {
     const coreLotMultOverride  = await askLotMult(coreUnderlying, "CORE");
     const hedgeLotMultOverride = await askLotMult(hedgeUnderlying, "HEDGE");
 
-    const coreLotsInput  = await ask("  core lots (default 1): ");
-    const hedgeLotsInput = await ask("  hedge lots (default 5, the real 5:1 contract ratio for both supported pairs): ");
+    const coreLotsInput  = await ask("  Core lots (default 1): ");
+    const hedgeLotsInput = await ask("  Hedge lots (default 5, the real 5:1 contract ratio for both supported pairs): ");
     const coreLots  = coreLotsInput  ? Number(coreLotsInput)  : 1;
     const hedgeLots = hedgeLotsInput ? Number(hedgeLotsInput) : 5;
     if (!Number.isFinite(coreLots) || coreLots <= 0 || !Number.isFinite(hedgeLots) || hedgeLots <= 0) {
-        console.log(c.yellow("  invalid lots value")); await pauseForReview(); return;
+        console.log(c.yellow("  Invalid lots value")); await pauseForReview(); return;
     }
 
-    console.log(c.dim("  unwind mode — HA_FLIP: hedge closes when 1h HA flips back in the core's favor (default)"));
+    console.log(c.dim("  Unwind mode — HA_FLIP: hedge closes when 1h HA flips back in the core's favor (default)"));
     console.log(c.dim("               EOD_ONLY: hedge stays on till EOD regardless of 1h HA"));
     const unwindInput = (await ask("  [1] HA_FLIP  [2] EOD_ONLY (default 1): ")).trim();
     const unwindMode = unwindInput === "2" ? "EOD_ONLY" : "HA_FLIP";
@@ -2270,9 +2270,9 @@ async function addHedgePair() {
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
-        const confirmLive = (await ask(c.red('  this will place REAL orders on BOTH legs. type "LIVE" to confirm: '))).trim();
+        const confirmLive = (await ask(c.red('  This will place REAL orders on BOTH legs. type "LIVE" to confirm: '))).trim();
         if (confirmLive !== "LIVE") {
-            console.log(c.dim("  not confirmed — starting in paper mode instead"));
+            console.log(c.dim("  Not confirmed — starting in paper mode instead"));
             isLive = false;
         }
     }
@@ -2288,9 +2288,9 @@ async function addHedgePair() {
 
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name, cwd: __dirname, env });
-        console.log(c.green(`  started ${name} (core:${coreUnderlying} hedge:${hedgeUnderlying}, unwind:${unwindMode}, ${isLive ? "LIVE" : "PAPER"})`));
+        console.log(c.green(`  Started ${name} (core:${coreUnderlying} hedge:${hedgeUnderlying}, unwind:${unwindMode}, ${isLive ? "LIVE" : "PAPER"})`));
     } catch (err) {
-        console.log(c.red(`  failed to start: ${err.message}`));
+        console.log(c.red(`  Failed to start: ${err.message}`));
     }
     await pauseForReview();
 }
@@ -2298,12 +2298,12 @@ async function addHedgePair() {
 async function hedgePairActionByNumber(pairs, verb, fn) {
     const input = await ask(`  ${verb} which number: `);
     const pair = pairs[Number(input) - 1];
-    if (!pair) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!pair) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
     try {
         await fn(pair.name);
         console.log(c.green(`  ${verb}ed ${pair.name}`));
     } catch (err) {
-        console.log(c.red(`  failed to ${verb}: ${err.message}`));
+        console.log(c.red(`  Failed to ${verb}: ${err.message}`));
     }
     await pauseForReview();
 }
@@ -2311,8 +2311,8 @@ async function hedgePairActionByNumber(pairs, verb, fn) {
 async function backtestHedgePairFlow() {
     console.log();
     console.log(c.bold("  Backtest — Hedge Pair"));
-    console.log(c.dim("  core: full-size contract, daily-HA bias, 1 lot NRML, EOD-only exit"));
-    console.log(c.dim("  hedge: mini contract, opens on adverse 1h HA, unwinds per the mode below"));
+    console.log(c.dim("  Core: full-size contract, daily-HA bias, 1 lot NRML, EOD-only exit"));
+    console.log(c.dim("  Hedge: mini contract, opens on adverse 1h HA, unwinds per the mode below"));
     console.log();
 
     const repo = await ensureCsvLoaded();
@@ -2330,7 +2330,7 @@ async function backtestHedgePairFlow() {
         let val = null;
         do {
             const input = await ask(`  ${legLabel} lot multiplier (required): `);
-            if (!input) { console.log(c.yellow("  required — no safe default")); continue; }
+            if (!input) { console.log(c.yellow("  Required — no safe default")); continue; }
             const parsed = Number(input);
             if (!Number.isFinite(parsed) || parsed <= 0) { console.log(c.yellow(`  "${input}" isn't a valid positive number`)); continue; }
             val = parsed;
@@ -2340,22 +2340,22 @@ async function backtestHedgePairFlow() {
     const coreLotMultOverride  = await askLotMult(coreUnderlying, "CORE");
     const hedgeLotMultOverride = await askLotMult(hedgeUnderlying, "HEDGE");
 
-    const coreLotsInput  = await ask("  core lots (default 1): ");
-    const hedgeLotsInput = await ask("  hedge lots (default 5, the real 5:1 contract ratio for both supported pairs): ");
+    const coreLotsInput  = await ask("  Core lots (default 1): ");
+    const hedgeLotsInput = await ask("  Hedge lots (default 5, the real 5:1 contract ratio for both supported pairs): ");
     const coreLots  = coreLotsInput  ? Number(coreLotsInput)  : 1;
     const hedgeLots = hedgeLotsInput ? Number(hedgeLotsInput) : 5;
 
-    console.log(c.dim("  unwind mode — HA_FLIP: hedge closes when 1h HA flips back in the core's favor (default)"));
+    console.log(c.dim("  Unwind mode — HA_FLIP: hedge closes when 1h HA flips back in the core's favor (default)"));
     console.log(c.dim("               EOD_ONLY: hedge stays on till EOD regardless of 1h HA"));
     const unwindInput = (await ask("  [1] HA_FLIP  [2] EOD_ONLY (default 1): ")).trim();
     const unwindMode = unwindInput === "2" ? "EOD_ONLY" : "HA_FLIP";
 
-    const fromIn = await ask("  from (YYYY-MM-DD): ");
-    const toIn   = await ask("  to   (YYYY-MM-DD): ");
+    const fromIn = await ask("  From (YYYY-MM-DD): ");
+    const toIn   = await ask("  To   (YYYY-MM-DD): ");
     const from = new Date(fromIn);
     const to   = new Date(toIn);
     if (isNaN(from.getTime()) || isNaN(to.getTime())) {
-        console.log(c.yellow("  invalid date — use YYYY-MM-DD")); await pauseForReview(); return;
+        console.log(c.yellow("  Invalid date — use YYYY-MM-DD")); await pauseForReview(); return;
     }
 
     const ACCESS_TOKEN = engineConfig.getAccessToken();
@@ -2363,7 +2363,7 @@ async function backtestHedgePairFlow() {
     kc.setAccessToken(ACCESS_TOKEN);
 
     console.log();
-    console.log(c.dim("  fetching historical data + running replay..."));
+    console.log(c.dim("  Fetching historical data + running replay..."));
     try {
         const { report, paths } = await runHedgePairBacktest({
             coreUnderlying, hedgeUnderlying, exchange: "MCX",
@@ -2374,13 +2374,13 @@ async function backtestHedgePairFlow() {
         console.log();
         console.log();
         console.log(c.bold(`  Combined: ${report.metrics.combined.trades} trades, ${(report.metrics.combined.winRate * 100).toFixed(1)}% win rate, net ${report.metrics.combined.netPnL.toFixed(2)}`));
-        console.log(c.dim(`    core  (${report.core.symbol}):  ${report.metrics.core.trades} trades, net ${report.metrics.core.netPnL.toFixed(2)}`));
-        console.log(c.dim(`    hedge (${report.hedge.symbol}): ${report.metrics.hedge.trades} trades, net ${report.metrics.hedge.netPnL.toFixed(2)}`));
+        console.log(c.dim(`    Core  (${report.core.symbol}):  ${report.metrics.core.trades} trades, net ${report.metrics.core.netPnL.toFixed(2)}`));
+        console.log(c.dim(`    Hedge (${report.hedge.symbol}): ${report.metrics.hedge.trades} trades, net ${report.metrics.hedge.netPnL.toFixed(2)}`));
         console.log();
-        console.log(c.dim(`  report: ${paths.htmlPath}`));
-        console.log(c.dim(`  json:   ${paths.jsonPath}`));
+        console.log(c.dim(`  Report: ${paths.htmlPath}`));
+        console.log(c.dim(`  Json:   ${paths.jsonPath}`));
     } catch (err) {
-        console.log(c.red(`  backtest failed: ${err.message}`));
+        console.log(c.red(`  Backtest failed: ${err.message}`));
     }
     await pauseForReview();
 }
@@ -2393,7 +2393,7 @@ async function hedgePairScreen() {
         console.log();
         console.log(c.bold("  \u2500\u2500 Hedge Pairs \u2500\u2500"));
         if (pairs.length === 0) {
-            console.log(c.dim("  none running — press A to add one"));
+            console.log(c.dim("  None running — press A to add one"));
         } else {
             pairs.forEach((p, i) => {
                 const modeTag = p.live ? c.red("LIVE") : c.cyan("PAPER");
@@ -2413,17 +2413,17 @@ async function hedgePairScreen() {
         else if (input === "D") await hedgePairActionByNumber(pairs, "remove", n => pm2Delete(n));
         else if (input === "T") await backtestHedgePairFlow();
         else if (input === "L") {
-            const idx = await ask("  view logs for which number: ");
+            const idx = await ask("  View logs for which number: ");
             const pair = pairs[Number(idx) - 1];
-            if (!pair) { console.log(c.yellow("  invalid selection")); await pauseForReview(); }
+            if (!pair) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); }
             else {
-                console.log(c.dim(`  out: ${pair.outLogPath}`));
-                console.log(c.dim(`  err: ${pair.errLogPath}`));
+                console.log(c.dim(`  Out: ${pair.outLogPath}`));
+                console.log(c.dim(`  Err: ${pair.errLogPath}`));
                 await pauseForReview();
             }
         }
         else if (input === "B" || input === "") running = false;
-        else { console.log(c.yellow("  unrecognized option")); }
+        else { console.log(c.yellow("  Unrecognized option")); }
     }
 }
 
@@ -2462,53 +2462,53 @@ async function getDualHedgeProcesses() {
 // updateAccessToken() above, just per-user instead of the one engineConfig
 // account (reuses the same extractRequestToken() helper).
 async function addDualHedgeUser() {
-    const nameInput = await ask("  user name (a label — e.g. a family member's name, not their Kite login): ");
+    const nameInput = await ask("  User name (a label — e.g. a family member's name, not their Kite login): ");
     if (!nameInput) { await pauseForReview(); return; }
     const apiKey = await ask("  Kite API key: ");
     if (!apiKey) { console.log(c.yellow("  API key required")); await pauseForReview(); return; }
     const apiSecret = await askHidden("  Kite API secret: ");
     if (!apiSecret) { console.log(c.yellow("  API secret required")); await pauseForReview(); return; }
     const name = dualHedgeUsers.saveUserCredentials(nameInput, { apiKey, apiSecret });
-    console.log(c.green(`  saved -> .env (DH_USER_${name}_*)`));
-    console.log(c.dim(`  now generate an access token for ${name} (option T on this screen) before using them in a deployment.`));
+    console.log(c.green(`  Saved -> .env (DH_USER_${name}_*)`));
+    console.log(c.dim(`  Now generate an access token for ${name} (option T on this screen) before using them in a deployment.`));
     await pauseForReview();
 }
 
 async function updateDualHedgeUserToken() {
     const users = dualHedgeUsers.listUsers();
-    if (users.length === 0) { console.log(c.yellow("  no dual-hedge users configured yet — press A first")); await pauseForReview(); return; }
+    if (users.length === 0) { console.log(c.yellow("  No dual-hedge users configured yet — press A first")); await pauseForReview(); return; }
     users.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u.name}  key:${u.apiKey ? "set" : c.red("MISSING")}  token:${u.accessToken ? "set" : c.yellow("none")}`));
-    const idx = await ask("  generate/update access token for which number: ");
+    const idx = await ask("  Generate/update access token for which number: ");
     const user = users[Number(idx) - 1];
-    if (!user) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!user) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
     if (!user.apiKey || !user.apiSecret) { console.log(c.red(`  ${user.name} is missing an API key/secret — remove and re-add`)); await pauseForReview(); return; }
 
     const kc = new KiteConnect({ api_key: user.apiKey });
     console.log();
-    console.log(c.dim(`  paste the request_token from ${user.name}'s OWN Kite mobile app login (raw token or full redirect URL):`));
-    const input = await ask("  request_token: ");
+    console.log(c.dim(`  Paste the request_token from ${user.name}'s OWN Kite mobile app login (raw token or full redirect URL):`));
+    const input = await ask("  Request_token: ");
     const requestToken = extractRequestToken(input);
-    if (!requestToken) { console.log(c.red("  no token found in that input")); await pauseForReview(); return; }
+    if (!requestToken) { console.log(c.red("  No token found in that input")); await pauseForReview(); return; }
     try {
         const session = await kc.generateSession(requestToken, user.apiSecret);
         dualHedgeUsers.saveUserToken(user.name, session.access_token);
-        console.log(c.green(`  access token updated -> .env (DH_USER_${user.name}_ACCESS_TOKEN)`));
-        console.log(c.yellow("  restart any dual-hedge deployment using this user to pick up the new token."));
+        console.log(c.green(`  Access token updated -> .env (DH_USER_${user.name}_ACCESS_TOKEN)`));
+        console.log(c.yellow("  Restart any dual-hedge deployment using this user to pick up the new token."));
     } catch (err) {
-        console.log(c.red(`  token exchange failed: ${err.message}`));
+        console.log(c.red(`  Token exchange failed: ${err.message}`));
     }
     await pauseForReview();
 }
 
 async function removeDualHedgeUserFlow() {
     const users = dualHedgeUsers.listUsers();
-    if (users.length === 0) { console.log(c.yellow("  no dual-hedge users configured")); await pauseForReview(); return; }
+    if (users.length === 0) { console.log(c.yellow("  No dual-hedge users configured")); await pauseForReview(); return; }
     users.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u.name}`));
-    const idx = await ask("  remove which number: ");
+    const idx = await ask("  Remove which number: ");
     const user = users[Number(idx) - 1];
-    if (!user) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!user) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
     dualHedgeUsers.removeUser(user.name);
-    console.log(c.green(`  removed ${user.name} from the dual-hedge user registry (credentials left in .env, unused)`));
+    console.log(c.green(`  Removed ${user.name} from the dual-hedge user registry (credentials left in .env, unused)`));
     await pauseForReview();
 }
 
@@ -2519,7 +2519,7 @@ async function manageDualHedgeUsersScreen() {
         console.log();
         console.log(c.bold("  \u2500\u2500 Dual Hedge Users \u2500\u2500"));
         if (users.length === 0) {
-            console.log(c.dim("  none yet — press A to add one"));
+            console.log(c.dim("  None yet — press A to add one"));
         } else {
             users.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u.name}  key:${u.apiKey ? "set" : c.red("MISSING")}  token:${u.accessToken ? "set" : c.yellow("none")}`));
         }
@@ -2530,20 +2530,20 @@ async function manageDualHedgeUsersScreen() {
         else if (input === "T") await updateDualHedgeUserToken();
         else if (input === "D") await removeDualHedgeUserFlow();
         else if (input === "B" || input === "") running = false;
-        else { console.log(c.yellow("  unrecognized option")); }
+        else { console.log(c.yellow("  Unrecognized option")); }
     }
 }
 
 async function addDualHedge() {
     const users = dualHedgeUsers.listUsers().filter(u => u.apiKey && u.accessToken);
     if (users.length < 2) {
-        console.log(c.yellow(`  need at least 2 fully-configured users (API key + access token) — currently ${users.length}. Use the Users submenu first.`));
+        console.log(c.yellow(`  Need at least 2 fully-configured users (API key + access token) — currently ${users.length}. Use the Users submenu first.`));
         await pauseForReview();
         return;
     }
     console.log(c.dim("  LONG account: enters LONG on a green band signal, never shorts"));
     console.log(c.dim("  SHORT account: enters SHORT on a red band signal, never longs"));
-    console.log(c.dim("  both carry overnight (NRML); SL only arms after that leg's own first adverse flip"));
+    console.log(c.dim("  Both carry overnight (NRML); SL only arms after that leg's own first adverse flip"));
     console.log();
 
     const repo = await ensureCsvLoaded();
@@ -2558,25 +2558,25 @@ async function addDualHedge() {
     }
     console.log(c.bold(`  ${underlying} — LONG account:`));
     let opts = pickUser("LONG");
-    let idx = await ask("  select number: ");
+    let idx = await ask("  Select number: ");
     const longUser = opts[Number(idx) - 1];
-    if (!longUser) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!longUser) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
     console.log(c.bold(`  ${underlying} — SHORT account (must differ from ${longUser.name}):`));
     opts = pickUser("SHORT", longUser.name);
-    idx = await ask("  select number: ");
+    idx = await ask("  Select number: ");
     const shortUser = opts[Number(idx) - 1];
-    if (!shortUser) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!shortUser) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
     // Same lotMult reality-check every other deploy flow in this file uses.
     const def = getDefinition(underlying, "MCX");
     let lotMultOverride = null;
     if (def.lotMult === null) {
-        console.log(c.yellow(`  \u26a0 lot multiplier required for ${underlying} — broker lot_size can't be trusted, see context.js's header.`));
+        console.log(c.yellow(`  \u26a0 Lot multiplier required for ${underlying} — broker lot_size can't be trusted, see context.js's header.`));
         let val = null;
         do {
-            const input = await ask("  lot multiplier — price move x this = PnL per lot (required): ");
-            if (!input) { console.log(c.yellow("  required — no safe default")); continue; }
+            const input = await ask("  Lot multiplier — price move x this = PnL per lot (required): ");
+            if (!input) { console.log(c.yellow("  Required — no safe default")); continue; }
             const parsed = Number(input);
             if (!Number.isFinite(parsed) || parsed <= 0) { console.log(c.yellow(`  "${input}" isn't a valid positive number`)); continue; }
             val = parsed;
@@ -2584,23 +2584,23 @@ async function addDualHedge() {
         lotMultOverride = val;
     }
 
-    const lotsInput = await ask("  lots per leg (default 1, applies to both accounts unless you set per-leg overrides later via PM2 env): ");
+    const lotsInput = await ask("  Lots per leg (default 1, applies to both accounts unless you set per-leg overrides later via PM2 env): ");
     const lots = lotsInput ? Number(lotsInput) : 1;
-    if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  invalid lots value")); await pauseForReview(); return; }
+    if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  Invalid lots value")); await pauseForReview(); return; }
 
-    const maxLossInput = await ask("  max-loss cut in rupees, armed only after a leg's own first adverse flip (default 3000): ");
+    const maxLossInput = await ask("  Max-loss cut in rupees, armed only after a leg's own first adverse flip (default 3000): ");
     const maxLoss = maxLossInput ? Number(maxLossInput) : 3000;
-    if (!Number.isFinite(maxLoss) || maxLoss <= 0) { console.log(c.yellow("  invalid max-loss value")); await pauseForReview(); return; }
+    if (!Number.isFinite(maxLoss) || maxLoss <= 0) { console.log(c.yellow("  Invalid max-loss value")); await pauseForReview(); return; }
 
-    const bandStepInput = await ask("  band step override (blank = engine default): ");
+    const bandStepInput = await ask("  Band step override (blank = engine default): ");
     const bandStep = bandStepInput ? Number(bandStepInput) : null;
 
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
-        const confirmLive = (await ask(c.red('  this will place REAL orders on BOTH accounts. type "LIVE" to confirm: '))).trim();
+        const confirmLive = (await ask(c.red('  This will place REAL orders on BOTH accounts. type "LIVE" to confirm: '))).trim();
         if (confirmLive !== "LIVE") {
-            console.log(c.dim("  not confirmed — starting in paper mode instead"));
+            console.log(c.dim("  Not confirmed — starting in paper mode instead"));
             isLive = false;
         }
     }
@@ -2616,9 +2616,9 @@ async function addDualHedge() {
 
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: __dirname, env });
-        console.log(c.green(`  started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  maxLoss:\u20b9${maxLoss}  ${isLive ? "LIVE" : "PAPER"})`));
+        console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  maxLoss:\u20b9${maxLoss}  ${isLive ? "LIVE" : "PAPER"})`));
     } catch (err) {
-        console.log(c.red(`  failed to start: ${err.message}`));
+        console.log(c.red(`  Failed to start: ${err.message}`));
     }
     await pauseForReview();
 }
@@ -2626,12 +2626,12 @@ async function addDualHedge() {
 async function dualHedgeActionByNumber(deployments, verb, fn) {
     const input = await ask(`  ${verb} which number: `);
     const dep = deployments[Number(input) - 1];
-    if (!dep) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!dep) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
     try {
         await fn(dep.name);
         console.log(c.green(`  ${verb}ed ${dep.name}`));
     } catch (err) {
-        console.log(c.red(`  failed to ${verb}: ${err.message}`));
+        console.log(c.red(`  Failed to ${verb}: ${err.message}`));
     }
     await pauseForReview();
 }
@@ -2644,7 +2644,7 @@ async function dualHedgeScreen() {
         console.log();
         console.log(c.bold("  \u2500\u2500 Dual Hedge \u2500\u2500"));
         if (deployments.length === 0) {
-            console.log(c.dim("  none running — press U to add accounts first, then A to add a deployment"));
+            console.log(c.dim("  None running — press U to add accounts first, then A to add a deployment"));
         } else {
             deployments.forEach((d, i) => {
                 const modeTag = d.live ? c.red("LIVE") : c.cyan("PAPER");
@@ -2664,17 +2664,17 @@ async function dualHedgeScreen() {
         else if (input === "D") await dualHedgeActionByNumber(deployments, "remove", n => pm2Delete(n));
         else if (input === "U") await manageDualHedgeUsersScreen();
         else if (input === "L") {
-            const idx = await ask("  view logs for which number: ");
+            const idx = await ask("  View logs for which number: ");
             const dep = deployments[Number(idx) - 1];
-            if (!dep) { console.log(c.yellow("  invalid selection")); await pauseForReview(); }
+            if (!dep) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); }
             else {
-                console.log(c.dim(`  out: ${dep.outLogPath}`));
-                console.log(c.dim(`  err: ${dep.errLogPath}`));
+                console.log(c.dim(`  Out: ${dep.outLogPath}`));
+                console.log(c.dim(`  Err: ${dep.errLogPath}`));
                 await pauseForReview();
             }
         }
         else if (input === "B" || input === "") running = false;
-        else { console.log(c.yellow("  unrecognized option")); }
+        else { console.log(c.yellow("  Unrecognized option")); }
     }
 }
 
@@ -2713,13 +2713,13 @@ async function getGapCaptureProcesses() {
 async function addGapCapture() {
     const users = dualHedgeUsers.listUsers().filter(u => u.apiKey && u.accessToken);
     if (users.length < 2) {
-        console.log(c.yellow(`  need at least 2 fully-configured users (API key + access token) — currently ${users.length}. Use the Users submenu first.`));
+        console.log(c.yellow(`  Need at least 2 fully-configured users (API key + access token) — currently ${users.length}. Use the Users submenu first.`));
         await pauseForReview();
         return;
     }
     console.log(c.dim("  LONG account and SHORT account enter simultaneously at a fixed time, both unconditionally —"));
-    console.log(c.dim("  no band signal, no per-leg P&L monitoring. Both force-close at a fixed time later, unconditionally."));
-    console.log(c.dim("  intraday only (MIS) — neither leg carries overnight."));
+    console.log(c.dim("  No band signal, no per-leg P&L monitoring. Both force-close at a fixed time later, unconditionally."));
+    console.log(c.dim("  Intraday only (MIS) — neither leg carries overnight."));
     console.log();
 
     const repo = await ensureCsvLoaded();
@@ -2734,25 +2734,25 @@ async function addGapCapture() {
     }
     console.log(c.bold(`  ${underlying} — LONG account:`));
     let opts = pickUser("LONG");
-    let idx = await ask("  select number: ");
+    let idx = await ask("  Select number: ");
     const longUser = opts[Number(idx) - 1];
-    if (!longUser) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!longUser) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
     console.log(c.bold(`  ${underlying} — SHORT account (must differ from ${longUser.name}):`));
     opts = pickUser("SHORT", longUser.name);
-    idx = await ask("  select number: ");
+    idx = await ask("  Select number: ");
     const shortUser = opts[Number(idx) - 1];
-    if (!shortUser) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!shortUser) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
     // Same lotMult reality-check every other deploy flow in this file uses.
     const def = getDefinition(underlying, "MCX");
     let lotMultOverride = null;
     if (def.lotMult === null) {
-        console.log(c.yellow(`  \u26a0 lot multiplier required for ${underlying} — broker lot_size can't be trusted, see context.js's header.`));
+        console.log(c.yellow(`  \u26a0 Lot multiplier required for ${underlying} — broker lot_size can't be trusted, see context.js's header.`));
         let val = null;
         do {
-            const input = await ask("  lot multiplier — price move x this = PnL per lot (required): ");
-            if (!input) { console.log(c.yellow("  required — no safe default")); continue; }
+            const input = await ask("  Lot multiplier — price move x this = PnL per lot (required): ");
+            if (!input) { console.log(c.yellow("  Required — no safe default")); continue; }
             const parsed = Number(input);
             if (!Number.isFinite(parsed) || parsed <= 0) { console.log(c.yellow(`  "${input}" isn't a valid positive number`)); continue; }
             val = parsed;
@@ -2760,9 +2760,9 @@ async function addGapCapture() {
         lotMultOverride = val;
     }
 
-    const lotsInput = await ask("  lots per leg (default 1, applies to both accounts unless you set per-leg overrides later via PM2 env): ");
+    const lotsInput = await ask("  Lots per leg (default 1, applies to both accounts unless you set per-leg overrides later via PM2 env): ");
     const lots = lotsInput ? Number(lotsInput) : 1;
-    if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  invalid lots value")); await pauseForReview(); return; }
+    if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  Invalid lots value")); await pauseForReview(); return; }
 
     function askTimeOfDay(label, defaultHour, defaultMinute) {
         return ask(`  ${label} IST (HH:MM, default ${String(defaultHour).padStart(2, "0")}:${String(defaultMinute).padStart(2, "0")}): `);
@@ -2780,16 +2780,16 @@ async function addGapCapture() {
     do {
         const input = await askTimeOfDay("entry time", 11, 20);
         entry = parseTimeOfDay(input, 11, 20);
-        if (!entry) console.log(c.yellow("  invalid time — use HH:MM, e.g. 11:20"));
+        if (!entry) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 11:20"));
     } while (!entry);
 
     let exit = null;
     do {
         const input = await askTimeOfDay("exit time (force-close both legs, unconditionally)", 11, 25);
         exit = parseTimeOfDay(input, 11, 25);
-        if (!exit) console.log(c.yellow("  invalid time — use HH:MM, e.g. 11:25"));
+        if (!exit) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 11:25"));
         else if (exit.hour < entry.hour || (exit.hour === entry.hour && exit.minute <= entry.minute)) {
-            console.log(c.yellow(`  exit time must be after entry time (${String(entry.hour).padStart(2, "0")}:${String(entry.minute).padStart(2, "0")})`));
+            console.log(c.yellow(`  Exit time must be after entry time (${String(entry.hour).padStart(2, "0")}:${String(entry.minute).padStart(2, "0")})`));
             exit = null;
         }
     } while (!exit);
@@ -2797,9 +2797,9 @@ async function addGapCapture() {
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
-        const confirmLive = (await ask(c.red('  this will place REAL orders on BOTH accounts. type "LIVE" to confirm: '))).trim();
+        const confirmLive = (await ask(c.red('  This will place REAL orders on BOTH accounts. type "LIVE" to confirm: '))).trim();
         if (confirmLive !== "LIVE") {
-            console.log(c.dim("  not confirmed — starting in paper mode instead"));
+            console.log(c.dim("  Not confirmed — starting in paper mode instead"));
             isLive = false;
         }
     }
@@ -2816,9 +2816,9 @@ async function addGapCapture() {
 
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "gapCaptureEngine.js", name, cwd: __dirname, env });
-        console.log(c.green(`  started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  entry ${String(entry.hour).padStart(2, "0")}:${String(entry.minute).padStart(2, "0")} \u2192 exit ${String(exit.hour).padStart(2, "0")}:${String(exit.minute).padStart(2, "0")}  ${isLive ? "LIVE" : "PAPER"})`));
+        console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  entry ${String(entry.hour).padStart(2, "0")}:${String(entry.minute).padStart(2, "0")} \u2192 exit ${String(exit.hour).padStart(2, "0")}:${String(exit.minute).padStart(2, "0")}  ${isLive ? "LIVE" : "PAPER"})`));
     } catch (err) {
-        console.log(c.red(`  failed to start: ${err.message}`));
+        console.log(c.red(`  Failed to start: ${err.message}`));
     }
     await pauseForReview();
 }
@@ -2826,12 +2826,12 @@ async function addGapCapture() {
 async function gapCaptureActionByNumber(deployments, verb, fn) {
     const input = await ask(`  ${verb} which number: `);
     const dep = deployments[Number(input) - 1];
-    if (!dep) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!dep) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
     try {
         await fn(dep.name);
         console.log(c.green(`  ${verb}ed ${dep.name}`));
     } catch (err) {
-        console.log(c.red(`  failed to ${verb}: ${err.message}`));
+        console.log(c.red(`  Failed to ${verb}: ${err.message}`));
     }
     await pauseForReview();
 }
@@ -2844,7 +2844,7 @@ async function gapCaptureScreen() {
         console.log();
         console.log(c.bold("  \u2500\u2500 Gap Capture \u2500\u2500"));
         if (deployments.length === 0) {
-            console.log(c.dim("  none running — press U to add accounts first, then A to add a deployment"));
+            console.log(c.dim("  None running — press U to add accounts first, then A to add a deployment"));
         } else {
             deployments.forEach((d, i) => {
                 const modeTag = d.live ? c.red("LIVE") : c.cyan("PAPER");
@@ -2865,17 +2865,17 @@ async function gapCaptureScreen() {
         else if (input === "D") await gapCaptureActionByNumber(deployments, "remove", n => pm2Delete(n));
         else if (input === "U") await manageDualHedgeUsersScreen(); // same account registry as Dual Hedge — see file header
         else if (input === "L") {
-            const idx = await ask("  view logs for which number: ");
+            const idx = await ask("  View logs for which number: ");
             const dep = deployments[Number(idx) - 1];
-            if (!dep) { console.log(c.yellow("  invalid selection")); await pauseForReview(); }
+            if (!dep) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); }
             else {
-                console.log(c.dim(`  out: ${dep.outLogPath}`));
-                console.log(c.dim(`  err: ${dep.errLogPath}`));
+                console.log(c.dim(`  Out: ${dep.outLogPath}`));
+                console.log(c.dim(`  Err: ${dep.errLogPath}`));
                 await pauseForReview();
             }
         }
         else if (input === "B" || input === "") running = false;
-        else { console.log(c.yellow("  unrecognized option")); }
+        else { console.log(c.yellow("  Unrecognized option")); }
     }
 }
 
@@ -2957,12 +2957,12 @@ async function showOptionPositions(kc) {
     try {
         positions = await fetchOptionPositions(kc);
     } catch (err) {
-        console.log(c.red(`  failed to fetch positions: ${err.message}`));
+        console.log(c.red(`  Failed to fetch positions: ${err.message}`));
         await pauseForReview();
         return;
     }
     if (positions.length === 0) {
-        console.log(c.dim("  none open"));
+        console.log(c.dim("  None open"));
     } else {
         positions.forEach((p, i) => {
             const pnlStr = (p.pnl >= 0 ? c.green : c.red)(`${p.pnl >= 0 ? "+" : ""}${p.pnl.toFixed(2)}`);
@@ -2977,15 +2977,15 @@ async function showOptionPositions(kc) {
 async function squareOffOptionPosition(kc) {
     const positions = await showOptionPositions(kc);
     if (!positions || positions.length === 0) return;
-    const idx = await ask("  square off which number (blank = cancel): ");
+    const idx = await ask("  Square off which number (blank = cancel): ");
     if (!idx.trim()) return;
     const pos = positions[Number(idx) - 1];
-    if (!pos) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!pos) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
     const transaction_type = pos.quantity > 0 ? "SELL" : "BUY"; // opposite side flattens it
     const quantity = Math.abs(pos.quantity);
     const confirm = (await ask(`  ${transaction_type} ${quantity} ${pos.tradingsymbol} @ MARKET to square off — confirm? [Y/N]: `)).trim().toUpperCase();
-    if (confirm !== "Y") { console.log(c.dim("  cancelled")); return; }
+    if (confirm !== "Y") { console.log(c.dim("  Cancelled")); return; }
 
     try {
         const order = await kc.placeOrder("regular", {
@@ -2998,9 +2998,9 @@ async function squareOffOptionPosition(kc) {
             validity: "DAY",
             tag: "MANUAL_OPT_SQOFF",
         });
-        console.log(c.green(`  order placed — id:${order.order_id}`));
+        console.log(c.green(`  Order placed — id:${order.order_id}`));
     } catch (err) {
-        console.log(c.red(`  order failed: ${err.message}`));
+        console.log(c.red(`  Order failed: ${err.message}`));
     }
     await pauseForReview();
 }
@@ -3008,48 +3008,48 @@ async function squareOffOptionPosition(kc) {
 async function placeOptionOrder(kc) {
     console.log();
     console.log(c.bold("  \u2500\u2500 Place Option Order \u2500\u2500"));
-    const exchangeInput = (await ask("  exchange — [1] NFO (index)  [2] MCX (commodity): ")).trim();
+    const exchangeInput = (await ask("  Exchange — [1] NFO (index)  [2] MCX (commodity): ")).trim();
     const exchange = exchangeInput === "2" ? "MCX" : exchangeInput === "1" ? "NFO" : null;
-    if (!exchange) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!exchange) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
     const repo = exchange === "NFO" ? await ensureNfoCsvLoaded() : await ensureCsvLoaded();
     const underlyings = repo.listOptionUnderlyings();
     if (underlyings.length === 0) {
-        console.log(c.yellow(`  no ${exchange} option underlyings found in the instrument dump`));
+        console.log(c.yellow(`  No ${exchange} option underlyings found in the instrument dump`));
         await pauseForReview();
         return;
     }
-    const query = await ask("  search underlying (blank = show all): ");
+    const query = await ask("  Search underlying (blank = show all): ");
     const matches = query ? underlyings.filter(u => u.toLowerCase().includes(query.toLowerCase())) : underlyings;
-    if (matches.length === 0) { console.log(c.yellow("  no matches")); await pauseForReview(); return; }
+    if (matches.length === 0) { console.log(c.yellow("  No matches")); await pauseForReview(); return; }
     matches.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u}`));
-    const underlying = matches[Number(await ask("  select number: ")) - 1];
-    if (!underlying) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    const underlying = matches[Number(await ask("  Select number: ")) - 1];
+    if (!underlying) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
     const expiries = repo.listOptionExpiries(underlying);
-    if (expiries.length === 0) { console.log(c.yellow("  no expiries found")); await pauseForReview(); return; }
+    if (expiries.length === 0) { console.log(c.yellow("  No expiries found")); await pauseForReview(); return; }
     expiries.slice(0, 12).forEach((e, i) => console.log(`  ${String(i + 1).padStart(2)}. ${e}`));
-    const expiry = expiries[Number(await ask("  select expiry number: ")) - 1];
-    if (!expiry) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    const expiry = expiries[Number(await ask("  Select expiry number: ")) - 1];
+    if (!expiry) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
     const chain = repo.getOptionChain(underlying, expiry);
-    if (!chain || chain.strikes.length === 0) { console.log(c.yellow("  empty chain for that expiry")); await pauseForReview(); return; }
+    if (!chain || chain.strikes.length === 0) { console.log(c.yellow("  Empty chain for that expiry")); await pauseForReview(); return; }
 
     // getOptionSpot only touches this when exchange === "MCX" (in which
     // case `repo` already IS the MCX repo) — never lazily loads the MCX
     // dump on an NFO order just to pass something in.
     let spot = await getOptionSpot(kc, exchange, underlying, repo);
     if (!spot) {
-        console.log(c.yellow(`  couldn't auto-fetch spot/underlying price for ${underlying}`));
-        const manual = Number((await ask("  enter it manually: ")).trim());
-        if (!Number.isFinite(manual) || manual <= 0) { console.log(c.yellow("  invalid price")); await pauseForReview(); return; }
+        console.log(c.yellow(`  Couldn't auto-fetch spot/underlying price for ${underlying}`));
+        const manual = Number((await ask("  Enter it manually: ")).trim());
+        if (!Number.isFinite(manual) || manual <= 0) { console.log(c.yellow("  Invalid price")); await pauseForReview(); return; }
         spot = manual;
     }
 
     const step = inferStrikeStep(chain.strikes) || 1;
     const atm  = chain.strikes.reduce((closest, s) => Math.abs(s - spot) < Math.abs(closest - spot) ? s : closest, chain.strikes[0]);
 
-    const offsetInput = (await ask("  strikes each side of ATM to show (default 3): ")).trim();
+    const offsetInput = (await ask("  Strikes each side of ATM to show (default 3): ")).trim();
     const n = offsetInput ? Number(offsetInput) : 3;
     const nOffset = Number.isFinite(n) && n >= 0 ? n : 3;
     const shown = chain.strikes.filter(s => Math.abs(Math.round((s - atm) / step)) <= nOffset);
@@ -3063,8 +3063,8 @@ async function placeOptionOrder(kc) {
     try { ltps = await kc.getLTP([...ceKeys, ...peKeys]); } catch { /* fall through with blank LTPs below */ }
 
     console.log();
-    console.log(c.dim(`  spot: ${spot.toFixed(2)}   ATM: ${atm}   step: ${step}   expiry: ${expiry}`));
-    console.log(c.dim(`  strike      CE ltp      PE ltp`));
+    console.log(c.dim(`  Spot: ${spot.toFixed(2)}   ATM: ${atm}   step: ${step}   expiry: ${expiry}`));
+    console.log(c.dim(`  Strike      CE ltp      PE ltp`));
     shown.forEach(s => {
         const ceCt = chain.ce.get(s), peCt = chain.pe.get(s);
         const ceLtp = ceCt ? ltps[`${ceCt.exchange}:${ceCt.symbol}`]?.last_price : undefined;
@@ -3073,29 +3073,29 @@ async function placeOptionOrder(kc) {
         console.log(`  ${String(s).padStart(8)}   ${(ceLtp !== undefined ? ceLtp.toFixed(2) : "-").padStart(8)}   ${(peLtp !== undefined ? peLtp.toFixed(2) : "-").padStart(8)}${marker}`);
     });
 
-    const strikeInput = Number((await ask("  strike: ")).trim());
-    if (!chain.strikes.includes(strikeInput)) { console.log(c.yellow("  strike not in this chain")); await pauseForReview(); return; }
+    const strikeInput = Number((await ask("  Strike: ")).trim());
+    if (!chain.strikes.includes(strikeInput)) { console.log(c.yellow("  Strike not in this chain")); await pauseForReview(); return; }
     const typeInput = (await ask("  [C]E or [P]E: ")).trim().toUpperCase();
     const type = typeInput === "P" ? "PE" : typeInput === "C" ? "CE" : null;
-    if (!type) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!type) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
     const contract = (type === "CE" ? chain.ce : chain.pe).get(strikeInput);
-    if (!contract) { console.log(c.yellow(`  no ${type} contract at strike ${strikeInput}`)); await pauseForReview(); return; }
+    if (!contract) { console.log(c.yellow(`  No ${type} contract at strike ${strikeInput}`)); await pauseForReview(); return; }
 
     const sideInput = (await ask("  [B]UY or [S]ELL: ")).trim().toUpperCase();
     const transaction_type = sideInput === "S" ? "SELL" : sideInput === "B" ? "BUY" : null;
-    if (!transaction_type) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!transaction_type) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
-    const productInput = (await ask("  product — [1] MIS (intraday)  [2] NRML (carry): ")).trim();
+    const productInput = (await ask("  Product — [1] MIS (intraday)  [2] NRML (carry): ")).trim();
     const product = productInput === "2" ? "NRML" : "MIS";
 
-    const lotsInput = Number((await ask(`  lots (lot size ${contract.lotSize}): `)).trim());
-    if (!Number.isFinite(lotsInput) || lotsInput <= 0) { console.log(c.yellow("  invalid lots")); await pauseForReview(); return; }
+    const lotsInput = Number((await ask(`  Lots (lot size ${contract.lotSize}): `)).trim());
+    if (!Number.isFinite(lotsInput) || lotsInput <= 0) { console.log(c.yellow("  Invalid lots")); await pauseForReview(); return; }
     const quantity = Math.round(lotsInput) * contract.lotSize;
 
     console.log();
     console.log(c.bold(`  ${transaction_type} ${quantity} ${contract.symbol} (${product})`));
-    const confirm = (await ask("  confirm? [Y/N]: ")).trim().toUpperCase();
-    if (confirm !== "Y") { console.log(c.dim("  cancelled")); return; }
+    const confirm = (await ask("  Confirm? [Y/N]: ")).trim().toUpperCase();
+    if (confirm !== "Y") { console.log(c.dim("  Cancelled")); return; }
 
     try {
         let orderParams = {
@@ -3127,11 +3127,11 @@ async function placeOptionOrder(kc) {
         }
 
         const order = await kc.placeOrder("regular", orderParams);
-        console.log(c.green(`  order placed — id:${order.order_id}`));
+        console.log(c.green(`  Order placed — id:${order.order_id}`));
         const { tg } = createTelegram({ tgPrefix: "OPTIONS" }, engineConfig);
         await tg(`\u2705 Manual order placed [OPTIONS]\n${transaction_type} ${quantity} ${contract.symbol} (${product})\nid:${order.order_id}`);
     } catch (err) {
-        console.log(c.red(`  order failed: ${err.message}`));
+        console.log(c.red(`  Order failed: ${err.message}`));
     }
     await pauseForReview();
 }
@@ -3142,7 +3142,7 @@ async function optionsScreen() {
     while (running) {
         console.log();
         console.log(c.bold("  \u2500\u2500 Options (manual) \u2500\u2500"));
-        console.log(c.dim("  no auto-strategy here \u2014 chain browsing + manual order placement only"));
+        console.log(c.dim("  No auto-strategy here \u2014 chain browsing + manual order placement only"));
         console.log();
         console.log(c.dim("  [P] place order   [V] view positions   [X] square off   [B] back"));
         const input = (await ask("  > ")).trim().toUpperCase();
@@ -3151,30 +3151,30 @@ async function optionsScreen() {
         else if (input === "V") await showOptionPositions(kc);
         else if (input === "X") await squareOffOptionPosition(kc);
         else if (input === "B" || input === "") running = false;
-        else { console.log(c.yellow("  unrecognized option")); }
+        else { console.log(c.yellow("  Unrecognized option")); }
     }
 }
 
 async function trendingInstruments() {
     const { exchange, repo, list: all } = await pickExchangeAndRepo();
 
-    const query   = await ask("  search underlying to scan (blank = scan all): ");
+    const query   = await ask("  Search underlying to scan (blank = scan all): ");
     const matches = query
 
         ? all.filter(u => u.toLowerCase().includes(query.toLowerCase()))
         : all;
 
-    if (matches.length === 0) { console.log(c.yellow("  no matches")); await pauseForReview(); return; }
+    if (matches.length === 0) { console.log(c.yellow("  No matches")); await pauseForReview(); return; }
     if (matches.length > 30 && query === "") {
         console.log(c.yellow(`  ${all.length} underlyings total — scanning all of them means one historical-data`));
-        console.log(c.yellow(`  call each (rate-limited, so this will take a while) — type part of a name to narrow it`));
-        console.log(c.yellow(`  down, or confirm below to scan everything.`));
-        const confirm = (await ask(`  scan all ${all.length} anyway? [Y/N]: `)).trim().toUpperCase();
+        console.log(c.yellow(`  Call each (rate-limited, so this will take a while) — type part of a name to narrow it`));
+        console.log(c.yellow(`  Down, or confirm below to scan everything.`));
+        const confirm = (await ask(`  Scan all ${all.length} anyway? [Y/N]: `)).trim().toUpperCase();
         if (confirm !== "Y") return;
     }
 
     console.log();
-    console.log(c.dim(`  scanning ${matches.length} instrument(s) — ADX(${ADX_LEN}) on daily candles (${TRENDING_LOOKBACK_DAYS}d lookback), ≥${ADX_TREND_THRESH} = trending:`));
+    console.log(c.dim(`  Scanning ${matches.length} instrument(s) — ADX(${ADX_LEN}) on daily candles (${TRENDING_LOOKBACK_DAYS}d lookback), ≥${ADX_TREND_THRESH} = trending:`));
     console.log();
     const scanned = await scanTrendingInstruments(matches, repo, exchange);
 
@@ -3203,13 +3203,13 @@ async function trendingInstruments() {
     const trending       = trendingAll.filter(r => !runningByUnderlying.has(r.underlying));
 
     if (trendingAll.length === 0) {
-        console.log(c.yellow(`  nothing trending right now (${scanned.length} scanned, none ≥ ADX ${ADX_TREND_THRESH})`));
+        console.log(c.yellow(`  Nothing trending right now (${scanned.length} scanned, none ≥ ADX ${ADX_TREND_THRESH})`));
         await pauseForReview();
         return;
     }
 
     if (alreadyRunning.length > 0) {
-        console.log(c.dim(`  trending but already running — not recommended again:`));
+        console.log(c.dim(`  Trending but already running — not recommended again:`));
         alreadyRunning.forEach(r => {
             const procs = runningByUnderlying.get(r.underlying)
                 .map(p => `${p.name}[${p.status}${(STRATEGY_INFO[p.strategy] || { label: p.strategy }).label ? `/${(STRATEGY_INFO[p.strategy] || { label: p.strategy }).label}` : ""}]`)
@@ -3221,7 +3221,7 @@ async function trendingInstruments() {
     }
 
     if (trending.length === 0) {
-        console.log(c.yellow(`  nothing new to recommend — every trending instrument is already running under PM2`));
+        console.log(c.yellow(`  Nothing new to recommend — every trending instrument is already running under PM2`));
         await pauseForReview();
         return;
     }
@@ -3255,10 +3255,10 @@ async function trendingInstruments() {
     // deploy several picks in a row without re-running the scan for each.
     let picking = true;
     while (picking) {
-        const pick = await ask("  deploy number (blank to finish): ");
+        const pick = await ask("  Deploy number (blank to finish): ");
         if (!pick) { picking = false; break; }
         const chosen = trending[Number(pick) - 1];
-        if (!chosen) { console.log(c.yellow("  invalid selection")); continue; }
+        if (!chosen) { console.log(c.yellow("  Invalid selection")); continue; }
         await configureAndStartInstrument(chosen.underlying, repo, exchange);
     }
 }
@@ -3266,7 +3266,7 @@ async function trendingInstruments() {
 async function toggleInstrument(input, procs) {
     const idx = Number(input) - 1;
     const p   = procs[idx];
-    if (!p) { console.log(c.yellow("  no such instrument number")); await pauseForReview(); return; }
+    if (!p) { console.log(c.yellow("  No such instrument number")); await pauseForReview(); return; }
     if (selected.has(p.name)) selected.delete(p.name); else selected.add(p.name);
     // No pause here on the success path — this is pure navigation (just
     // flips a checkbox), and the redrawn menu on the next loop already
@@ -3275,33 +3275,33 @@ async function toggleInstrument(input, procs) {
 
 async function startSelected(procs) {
     const targets = procs.filter(p => selected.has(p.name));
-    if (targets.length === 0) { console.log(c.yellow("  nothing selected")); await pauseForReview(); return; }
+    if (targets.length === 0) { console.log(c.yellow("  Nothing selected")); await pauseForReview(); return; }
     for (const p of targets) {
-        try { await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname }); console.log(c.green(`  started ${p.name}`)); }
-        catch (err) { console.log(c.red(`  failed to start ${p.name}: ${err.message}`)); }
+        try { await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname }); console.log(c.green(`  Started ${p.name}`)); }
+        catch (err) { console.log(c.red(`  Failed to start ${p.name}: ${err.message}`)); }
     }
     await pauseForReview();
 }
 
 async function stopSelected(procs) {
     const targets = procs.filter(p => selected.has(p.name));
-    if (targets.length === 0) { console.log(c.yellow("  nothing selected")); await pauseForReview(); return; }
+    if (targets.length === 0) { console.log(c.yellow("  Nothing selected")); await pauseForReview(); return; }
     for (const p of targets) {
-        try { await pm2Stop(p.name); console.log(c.green(`  stopped ${p.name}`)); }
-        catch (err) { console.log(c.red(`  failed to stop ${p.name}: ${err.message}`)); }
+        try { await pm2Stop(p.name); console.log(c.green(`  Stopped ${p.name}`)); }
+        catch (err) { console.log(c.red(`  Failed to stop ${p.name}: ${err.message}`)); }
     }
     await pauseForReview();
 }
 
 async function restartSelected(procs) {
     const targets = procs.filter(p => selected.has(p.name));
-    if (targets.length === 0) { console.log(c.yellow("  nothing selected")); await pauseForReview(); return; }
+    if (targets.length === 0) { console.log(c.yellow("  Nothing selected")); await pauseForReview(); return; }
     for (const p of targets) {
         try {
             await pm2Restart({ ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true, env: buildProcessEnv(p) });
-            console.log(c.green(`  restarted ${p.name}`));
+            console.log(c.green(`  Restarted ${p.name}`));
         } catch (err) {
-            console.log(c.red(`  failed to restart ${p.name}: ${err.message}`));
+            console.log(c.red(`  Failed to restart ${p.name}: ${err.message}`));
         }
     }
     await pauseForReview();
@@ -3309,10 +3309,10 @@ async function restartSelected(procs) {
 
 async function deleteSelected(procs) {
     const targets = procs.filter(p => selected.has(p.name));
-    if (targets.length === 0) { console.log(c.yellow("  nothing selected")); await pauseForReview(); return; }
+    if (targets.length === 0) { console.log(c.yellow("  Nothing selected")); await pauseForReview(); return; }
     for (const p of targets) {
-        try { await pm2Delete(p.name); selected.delete(p.name); console.log(c.green(`  removed ${p.name}`)); }
-        catch (err) { console.log(c.red(`  failed to remove ${p.name}: ${err.message}`)); }
+        try { await pm2Delete(p.name); selected.delete(p.name); console.log(c.green(`  Removed ${p.name}`)); }
+        catch (err) { console.log(c.red(`  Failed to remove ${p.name}: ${err.message}`)); }
     }
     await pauseForReview();
 }
@@ -3332,13 +3332,13 @@ function tailFile(filePath, n) {
 }
 
 async function viewLogs(procs) {
-    if (procs.length === 0) { console.log(c.yellow("  no instruments running")); return; }
+    if (procs.length === 0) { console.log(c.yellow("  No instruments running")); return; }
 
     procs.forEach((p, i) => console.log(`  ${String(i + 1).padStart(2)}. ${p.underlying}/${(STRATEGY_INFO[p.strategy] || { short: p.strategy }).short}`));
-    const pick = await ask("  select instrument (blank to cancel): ");
+    const pick = await ask("  Select instrument (blank to cancel): ");
     if (!pick) return;
     const p = procs[Number(pick) - 1];
-    if (!p) { console.log(c.yellow("  invalid selection")); return; }
+    if (!p) { console.log(c.yellow("  Invalid selection")); return; }
 
     console.log();
     console.log(c.bold(`  ${p.name} — last ${N_LOG_LINES} lines (stdout)`));
@@ -3357,7 +3357,7 @@ async function viewLogs(procs) {
     }
 
     console.log();
-    await ask("  press enter to return to menu: ");
+    await ask("  Press enter to return to menu: ");
 }
 
 // ─── VIEW LOGS end ──────────────────────────────────────────────────────────
@@ -3402,20 +3402,20 @@ async function rollContract(procs) {
     gapCaptures.forEach(p => addRef(p.underlying, p.exchange, `${p.name} (gap capture)`));
     const candidates = Array.from(byUnderlying.values());
 
-    if (candidates.length === 0) { console.log(c.yellow("  no instruments running to roll")); await pauseForReview(); return; }
+    if (candidates.length === 0) { console.log(c.yellow("  No instruments running to roll")); await pauseForReview(); return; }
 
     candidates.forEach((cand, i) => console.log(`  ${String(i + 1).padStart(2)}. ${cand.underlying.padEnd(14)} used by: ${cand.labels.join(", ")}`));
-    const pick = await ask("  select underlying to roll (blank to cancel): ");
+    const pick = await ask("  Select underlying to roll (blank to cancel): ");
     if (!pick) return;
     const picked = candidates[Number(pick) - 1];
-    if (!picked) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!picked) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
     const p = { underlying: picked.underlying, exchange: picked.exchange };
 
     const def = getDefinition(p.underlying, p.exchange);
     if (def.noRoll) {
         console.log();
         console.log(c.dim(`  ${p.underlying} is an NSE equity, not a futures contract — it doesn't expire, so there's`));
-        console.log(c.dim(`  nothing to roll. It just keeps running on the same instrument indefinitely.`));
+        console.log(c.dim(`  Nothing to roll. It just keeps running on the same instrument indefinitely.`));
         await pauseForReview();
         return;
     }
@@ -3441,17 +3441,17 @@ async function rollContract(procs) {
     let manualEntry = false;
     if (!next) {
         console.log();
-        console.log(c.yellow(`  next contract for ${p.underlying} not found in the instrument dump.`));
-        console.log(c.yellow(`  enter it manually (you'll see it above as "Not found" for reference):`));
+        console.log(c.yellow(`  Next contract for ${p.underlying} not found in the instrument dump.`));
+        console.log(c.yellow(`  Enter it manually (you'll see it above as "Not found" for reference):`));
         console.log();
-        const symbol   = await ask("  new symbol: ");
-        if (!symbol) { console.log(c.dim("  cancelled")); await pauseForReview(); return; }
-        const tokenIn  = await ask("  new token: ");
+        const symbol   = await ask("  New symbol: ");
+        if (!symbol) { console.log(c.dim("  Cancelled")); await pauseForReview(); return; }
+        const tokenIn  = await ask("  New token: ");
         const token    = Number(tokenIn);
-        if (!Number.isFinite(token) || token <= 0) { console.log(c.yellow("  invalid token")); await pauseForReview(); return; }
-        const lotIn    = await ask(`  new lot size (blank = same as current, ${current.lotSize}): `);
+        if (!Number.isFinite(token) || token <= 0) { console.log(c.yellow("  Invalid token")); await pauseForReview(); return; }
+        const lotIn    = await ask(`  New lot size (blank = same as current, ${current.lotSize}): `);
         const lotSize  = lotIn ? Number(lotIn) : current.lotSize;
-        if (!Number.isFinite(lotSize) || lotSize <= 0) { console.log(c.yellow("  invalid lot size")); await pauseForReview(); return; }
+        if (!Number.isFinite(lotSize) || lotSize <= 0) { console.log(c.yellow("  Invalid lot size")); await pauseForReview(); return; }
 
         next = { symbol, token, lotSize, tickSize: current.tickSize, expiry: null };
         manualEntry = true;
@@ -3477,7 +3477,7 @@ async function rollContract(procs) {
     console.log();
 
     const confirm = (await ask("  Proceed? [Y] Yes  [N] No: ")).trim().toUpperCase();
-    if (confirm !== "Y") { console.log(c.dim("  cancelled")); await pauseForReview(); return; }
+    if (confirm !== "Y") { console.log(c.dim("  Cancelled")); await pauseForReview(); return; }
 
     const pin = manualEntry
         ? { symbol: next.symbol, token: next.token, lotSize: next.lotSize, tickSize: next.tickSize, manual: true }
@@ -3495,8 +3495,8 @@ async function rollContract(procs) {
     console.log(c.green("  ✓ Context Saved"));
     if (manualEntry) {
         console.log(c.yellow("  ⚠ saved as a manual pin — not CSV-validated. Once the broker/local file"));
-        console.log(c.yellow("    lists this contract for real, re-run the roll to replace it with a"));
-        console.log(c.yellow("    normal (self-healing) pin."));
+        console.log(c.yellow("    Lists this contract for real, re-run the roll to replace it with a"));
+        console.log(c.yellow("    Normal (self-healing) pin."));
     }
     console.log();
 
@@ -3526,9 +3526,9 @@ async function rollContract(procs) {
         for (const target of siblings) {
             try {
                 await pm2Restart({ ...PM2_BASE_OPTS, script: "engine.js", name: target.name, cwd: __dirname, updateEnv: true, env: buildProcessEnv(target) });
-                console.log(c.green(`  restarted ${target.name} — now running on ${next.symbol}`));
+                console.log(c.green(`  Restarted ${target.name} — now running on ${next.symbol}`));
             } catch (err) {
-                console.log(c.red(`  restart failed for ${target.name}: ${err.message} — pin is saved, restart manually when ready`));
+                console.log(c.red(`  Restart failed for ${target.name}: ${err.message} — pin is saved, restart manually when ready`));
             }
         }
         for (const hp of affectedPairs) {
@@ -3539,9 +3539,9 @@ async function rollContract(procs) {
                 // it up on next boot; same restart shape the hedge pair
                 // screen's own [S] start action already uses.
                 await pm2Restart({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name: hp.name, cwd: __dirname });
-                console.log(c.green(`  restarted ${hp.name} — now running ${p.underlying} on ${next.symbol}`));
+                console.log(c.green(`  Restarted ${hp.name} — now running ${p.underlying} on ${next.symbol}`));
             } catch (err) {
-                console.log(c.red(`  restart failed for ${hp.name}: ${err.message} — pin is saved, restart manually when ready`));
+                console.log(c.red(`  Restart failed for ${hp.name}: ${err.message} — pin is saved, restart manually when ready`));
             }
         }
         for (const dh of affectedDuals) {
@@ -3552,9 +3552,9 @@ async function rollContract(procs) {
                 // legs (they resolve the same underlying independently,
                 // but from the same pin).
                 await pm2Restart({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name: dh.name, cwd: __dirname });
-                console.log(c.green(`  restarted ${dh.name} — now running ${p.underlying} on ${next.symbol}`));
+                console.log(c.green(`  Restarted ${dh.name} — now running ${p.underlying} on ${next.symbol}`));
             } catch (err) {
-                console.log(c.red(`  restart failed for ${dh.name}: ${err.message} — pin is saved, restart manually when ready`));
+                console.log(c.red(`  Restart failed for ${dh.name}: ${err.message} — pin is saved, restart manually when ready`));
             }
         }
         for (const gc of affectedGaps) {
@@ -3564,14 +3564,14 @@ async function rollContract(procs) {
                 // dualHedgeContext.js (gapCaptureEngine.js's own resolver
                 // call, tag:"GC") to pick it up for both legs.
                 await pm2Restart({ ...PM2_BASE_OPTS, script: "gapCaptureEngine.js", name: gc.name, cwd: __dirname });
-                console.log(c.green(`  restarted ${gc.name} — now running ${p.underlying} on ${next.symbol}`));
+                console.log(c.green(`  Restarted ${gc.name} — now running ${p.underlying} on ${next.symbol}`));
             } catch (err) {
-                console.log(c.red(`  restart failed for ${gc.name}: ${err.message} — pin is saved, restart manually when ready`));
+                console.log(c.red(`  Restart failed for ${gc.name}: ${err.message} — pin is saved, restart manually when ready`));
             }
         }
     } else {
         const stillOn = [...siblings.map(s => s.name), ...affectedPairs.map(hp => hp.name), ...affectedDuals.map(dh => dh.name), ...affectedGaps.map(gc => gc.name)];
-        console.log(c.yellow(`  pin saved but NOT applied yet — ${stillOn.join(", ")} still on ${current.symbol} until restarted`));
+        console.log(c.yellow(`  Pin saved but NOT applied yet — ${stillOn.join(", ")} still on ${current.symbol} until restarted`));
     }
     await pauseForReview();
 }
@@ -3653,8 +3653,8 @@ async function setupCredentials() {
 
     console.log();
     console.log(c.bold("  CREDENTIALS"));
-    console.log(c.dim(`  file: ${ENV_PATH}`));
-    console.log(c.dim("  blank = keep current value"));
+    console.log(c.dim(`  File: ${ENV_PATH}`));
+    console.log(c.dim("  Blank = keep current value"));
     console.log();
 
     const fields = [
@@ -3667,25 +3667,25 @@ async function setupCredentials() {
     const updates = {};
     for (const f of fields) {
         console.log(`  ${f.label}: ${maskSecret(current[f.key])}`);
-        const input = await (f.hidden ? askHidden(`  new value (blank = keep): `) : ask(`  new value (blank = keep): `));
+        const input = await (f.hidden ? askHidden(`  New value (blank = keep): `) : ask(`  New value (blank = keep): `));
         if (input) updates[f.key] = input;
         console.log();
     }
 
     if (Object.keys(updates).length === 0) {
-        console.log(c.dim("  nothing changed"));
+        console.log(c.dim("  Nothing changed"));
         await pauseForReview();
         return;
     }
 
     writeEnvFile(updates);
-    console.log(c.green(`  saved ${Object.keys(updates).length} value(s) to .env`));
+    console.log(c.green(`  Saved ${Object.keys(updates).length} value(s) to .env`));
     // engineConfig.js reads these at require() time, once, into a frozen
     // module cache — this process (and any already-running engine) already
     // has the OLD values loaded in memory and won't see the new ones until
     // it's actually restarted, same reasoning as updateAccessToken() below.
-    console.log(c.yellow("  this only takes effect on the NEXT run — restart the toolbox (Ctrl+C, run"));
-    console.log(c.yellow("  talgox again) and restart any running engines to pick it up."));
+    console.log(c.yellow("  This only takes effect on the NEXT run — restart the toolbox (Ctrl+C, run"));
+    console.log(c.yellow("  Talgox again) and restart any running engines to pick it up."));
     await pauseForReview();
 }
 
@@ -3708,10 +3708,10 @@ async function ensureApiCredentialsForToken() {
     }
     if (Object.keys(updates).length > 0) writeEnvFile(updates);
     if (!engineConfig.API_KEY || !engineConfig.API_SECRET) {
-        console.log(c.red("  still missing — can't continue without both."));
+        console.log(c.red("  Still missing — can't continue without both."));
         return false;
     }
-    console.log(c.green("  saved to .env."));
+    console.log(c.green("  Saved to .env."));
     return true;
 }
 
@@ -3723,11 +3723,11 @@ async function updateAccessToken() {
 
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
     console.log();
-    console.log(c.dim("  paste the request_token from your Kite mobile app login (raw token or full redirect URL):"));
-    const input = await ask("  request_token: ");
+    console.log(c.dim("  Paste the request_token from your Kite mobile app login (raw token or full redirect URL):"));
+    const input = await ask("  Request_token: ");
     const requestToken = extractRequestToken(input);
     if (!requestToken) {
-        console.log(c.red("  no token found in that input"));
+        console.log(c.red("  No token found in that input"));
         await pauseForReview();
         return;
     }
@@ -3740,14 +3740,14 @@ async function updateAccessToken() {
         // more access_code.txt mirror file as of this change.
         upsertEnvVar("ACCESS_TOKEN", session.access_token);
         upsertEnvVar("ACCESS_TOKEN_DATE", todayIST());
-        console.log(c.green(`  access token updated -> .env (ACCESS_TOKEN)`));
-        console.log(c.yellow("  restart any running processes to pick up the new token."));
+        console.log(c.green(`  Access token updated -> .env (ACCESS_TOKEN)`));
+        console.log(c.yellow("  Restart any running processes to pick up the new token."));
         csvRepo       = null;   // force a fresh instrument-dump load next time it's needed
         equityCsvRepo = null;   // same, for the NSE equity dump
         nfoCsvRepo    = null;   // same, for the NFO options dump
         kiteClient    = null;   // was authenticated with the now-stale token
     } catch (err) {
-        console.log(c.red(`  token exchange failed: ${err.message}`));
+        console.log(c.red(`  Token exchange failed: ${err.message}`));
     }
     await pauseForReview();
 }
@@ -3785,11 +3785,11 @@ async function pickOperand(indicators, promptLabel) {
 
     console.log(c.dim(`  ${promptLabel}:`));
     options.forEach((o, i) => console.log(`  ${i + 1}. ${o}`));
-    const sel = await ask("  select number: ");
+    const sel = await ask("  Select number: ");
     const choice = options[Number(sel) - 1];
     if (!choice) return null;
     if (choice === "constant") {
-        const val = await ask("    value: ");
+        const val = await ask("    Value: ");
         const num = Number(val);
         return Number.isFinite(num) ? num : null;
     }
@@ -3805,11 +3805,11 @@ async function buildConditionList(indicators, label, side = null) {
         const left = await pickOperand(indicators, `condition ${conditions.length + 1} — left operand`);
         if (left === null) break;
 
-        console.log(c.dim("  operator:"));
+        console.log(c.dim("  Operator:"));
         const OPS = [">", "<", ">=", "<=", "==", "crosses_above", "crosses_below", "state_flips_to"];
         OPS.forEach((o, i) => console.log(`  ${i + 1}. ${o}${o === "state_flips_to" ? c.dim("  (slope/regime change)") : ""}`));
-        const opSel = OPS[Number(await ask("  select number: ")) - 1];
-        if (!opSel) { console.log(c.yellow("  invalid operator, skipping condition")); continue; }
+        const opSel = OPS[Number(await ask("  Select number: ")) - 1];
+        if (!opSel) { console.log(c.yellow("  Invalid operator, skipping condition")); continue; }
 
         if (opSel === "state_flips_to") {
             // Tab-implied color: on the LONG side, a slope/regime condition
@@ -3825,7 +3825,7 @@ async function buildConditionList(indicators, label, side = null) {
             const autoMatches = states && impliedColor ? states.filter(s => s.color === impliedColor) : [];
 
             if (states && autoMatches.length > 0) {
-                console.log(c.dim(`  auto: `) + c[impliedColor](impliedColor.toUpperCase()) + c.dim(` (${side} entry) \u2014 ${autoMatches.map(s => s.value).join(" or ")}`));
+                console.log(c.dim(`  Auto: `) + c[impliedColor](impliedColor.toUpperCase()) + c.dim(` (${side} entry) \u2014 ${autoMatches.map(s => s.value).join(" or ")}`));
                 if (autoMatches.length === 1) {
                     conditions.push({ left, operator: opSel, right: autoMatches[0].value });
                 } else {
@@ -3834,27 +3834,27 @@ async function buildConditionList(indicators, label, side = null) {
             } else {
                 let right;
                 if (states) {
-                    console.log(c.dim("  target state:"));
+                    console.log(c.dim("  Target state:"));
                     states.forEach((s, i) => console.log(`  ${i + 1}. ${c[s.color] ? c[s.color](s.value) : s.value}`));
                     console.log(`  ${states.length + 1}. ${c.dim("custom...")}`);
-                    const stSel = await ask("  select number: ");
+                    const stSel = await ask("  Select number: ");
                     const idx = Number(stSel) - 1;
                     if (idx >= 0 && idx < states.length) right = states[idx].value;
-                    else if (idx === states.length) right = await ask("    target state: ");
+                    else if (idx === states.length) right = await ask("    Target state: ");
                     else right = null;
                 } else {
-                    right = await ask("    target state (e.g. STRONG_BULL): ");
+                    right = await ask("    Target state (e.g. STRONG_BULL): ");
                 }
-                if (!right) { console.log(c.yellow("  state label required, skipping condition")); continue; }
+                if (!right) { console.log(c.yellow("  State label required, skipping condition")); continue; }
                 conditions.push({ left, operator: opSel, right });
             }
         } else {
             const right = await pickOperand(indicators, "right operand");
-            if (right === null) { console.log(c.yellow("  invalid right operand, skipping condition")); continue; }
+            if (right === null) { console.log(c.yellow("  Invalid right operand, skipping condition")); continue; }
             conditions.push({ left, operator: opSel, right });
         }
 
-        const more = await ask("  add another condition? (y/N): ");
+        const more = await ask("  Add another condition? (y/N): ");
         if (more.toLowerCase() !== "y") break;
     }
     return conditions.length ? { op: "AND", conditions } : null;
@@ -3864,45 +3864,45 @@ async function buildExitConfig(indicators) {
     console.log();
     console.log(c.dim("  EXIT / TARGET / RISK"));
 
-    const reversalAns = await ask("  exit on opposite entry signal? (Y/n): ");
+    const reversalAns = await ask("  Exit on opposite entry signal? (Y/n): ");
     const reversalExit = reversalAns.toLowerCase() !== "n";
 
-    const wantCondExit = await ask("  add an explicit exit condition too? (y/N): ");
+    const wantCondExit = await ask("  Add an explicit exit condition too? (y/N): ");
     let conditionExit = null;
     if (wantCondExit.toLowerCase() === "y") {
         const list = await buildConditionList(indicators, "EXIT CONDITION (any true = exit)");
         conditionExit = list ? { op: "OR", conditions: list.conditions } : null;
     }
 
-    console.log(c.dim("  target type: 1. points  2. none"));
-    const targetType = await ask("  select number: ");
+    console.log(c.dim("  Target type: 1. points  2. none"));
+    const targetType = await ask("  Select number: ");
     let target = null;
     if (targetType === "1") {
-        const val = await ask("    target points: ");
+        const val = await ask("    Target points: ");
         const num = Number(val);
         if (Number.isFinite(num) && num > 0) target = { type: "points", value: num };
-        else console.log(c.yellow("  invalid target, leaving unset"));
+        else console.log(c.yellow("  Invalid target, leaving unset"));
     }
 
-    console.log(c.dim("  stop-loss type: 1. ATR  2. points  3. none"));
-    const slType = await ask("  select number: ");
+    console.log(c.dim("  Stop-loss type: 1. ATR  2. points  3. none"));
+    const slType = await ask("  Select number: ");
     let stopLoss = null;
     if (slType === "1") {
         const atrBlocks = indicators.filter(i => i.type === "ATR");
         if (!atrBlocks.length) {
-            console.log(c.yellow("  no ATR indicator configured — pick 'points' instead, or go back and add one"));
+            console.log(c.yellow("  No ATR indicator configured — pick 'points' instead, or go back and add one"));
         } else {
             const mult = Number(await ask("    ATR multiplier: "));
             const atrRef = atrBlocks.length === 1
                 ? `${atrBlocks[0].id}.value`
                 : `${(await ask(`    which ATR id? (${atrBlocks.map(b => b.id).join(", ")}): `)).trim()}.value`;
             if (Number.isFinite(mult) && mult > 0) stopLoss = { type: "atr", mult, atrRef };
-            else console.log(c.yellow("  invalid multiplier, leaving stop unset"));
+            else console.log(c.yellow("  Invalid multiplier, leaving stop unset"));
         }
     } else if (slType === "2") {
-        const val = Number(await ask("    stop points: "));
+        const val = Number(await ask("    Stop points: "));
         if (Number.isFinite(val) && val > 0) stopLoss = { type: "points", value: val };
-        else console.log(c.yellow("  invalid value, leaving stop unset"));
+        else console.log(c.yellow("  Invalid value, leaving stop unset"));
     }
 
     return { reversalExit, conditionExit, target, stopLoss };
@@ -3914,12 +3914,12 @@ async function createCustomStrategy() {
     console.log();
 
     // Step 1 — Candle Type
-    console.log(c.dim("  candle type:"));
+    console.log(c.dim("  Candle type:"));
     console.log("  1. Raw");
     console.log("  2. Heikin-Ashi");
-    const candleInput = await ask("  select number: ");
+    const candleInput = await ask("  Select number: ");
     const candleType = candleInput === "2" ? "ha" : candleInput === "1" ? "raw" : null;
-    if (!candleType) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!candleType) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
     // Step 2 — Time Frame (tick mode intentionally excluded for now — see
     // chat: "ignore ticks for now". requiresCandles filtering below is a
@@ -3927,32 +3927,32 @@ async function createCustomStrategy() {
     // the same gate it'll need later instead of a second pass being required.)
     const TIMEFRAMES = ["5m", "15m", "30m", "1h"];
     console.log();
-    console.log(c.dim("  time frame:"));
+    console.log(c.dim("  Time frame:"));
     TIMEFRAMES.forEach((tf, i) => console.log(`  ${i + 1}. ${tf}`));
-    const tfInput = await ask("  select number: ");
+    const tfInput = await ask("  Select number: ");
     const timeframe = TIMEFRAMES[Number(tfInput) - 1];
-    if (!timeframe) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    if (!timeframe) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
 
     // Step 3 — Indicators (multi-select, comma-separated numbers)
     const indicatorKeys = Object.keys(INDICATOR_CATALOG).filter(key => INDICATOR_CATALOG[key].requiresCandles);
     console.log();
-    console.log(c.dim("  indicators (comma-separated numbers, e.g. 1,3,4):"));
+    console.log(c.dim("  Indicators (comma-separated numbers, e.g. 1,3,4):"));
     indicatorKeys.forEach((key, i) => console.log(`  ${i + 1}. ${INDICATOR_CATALOG[key].label}`));
-    const indInput = await ask("  select: ");
+    const indInput = await ask("  Select: ");
     const chosenKeys = indInput.split(",").map(s => s.trim()).filter(Boolean)
         .map(n => indicatorKeys[Number(n) - 1]).filter(Boolean);
-    if (chosenKeys.length === 0) { console.log(c.yellow("  pick at least one indicator")); await pauseForReview(); return; }
+    if (chosenKeys.length === 0) { console.log(c.yellow("  Pick at least one indicator")); await pauseForReview(); return; }
 
     // Step 4 — Configure each selected indicator
     const indicators = [];
     for (const key of chosenKeys) {
         const def = INDICATOR_CATALOG[key];
         console.log();
-        console.log(c.dim(`  configure ${def.label}:`));
-        const idInput = await ask(`  id (blank = ${key.toLowerCase()}_1): `);
+        console.log(c.dim(`  Configure ${def.label}:`));
+        const idInput = await ask(`  Id (blank = ${key.toLowerCase()}_1): `);
         const id = idInput || `${key.toLowerCase()}_1`;
         if (indicators.some(ind => ind.id === id)) {
-            console.log(c.yellow(`  id "${id}" already used in this strategy — skipping ${def.label}`));
+            console.log(c.yellow(`  Id "${id}" already used in this strategy — skipping ${def.label}`));
             continue;
         }
         const params = {};
@@ -3963,12 +3963,12 @@ async function createCustomStrategy() {
         }
         indicators.push({ id, type: key, params });
     }
-    if (indicators.length === 0) { console.log(c.yellow("  no indicators configured")); await pauseForReview(); return; }
+    if (indicators.length === 0) { console.log(c.yellow("  No indicators configured")); await pauseForReview(); return; }
 
     // Step 5 — Entry Conditions
     const entryLong  = await buildConditionList(indicators, "ENTRY \u2014 LONG", "long");
     const entryShort = await buildConditionList(indicators, "ENTRY \u2014 SHORT", "short");
-    if (!entryLong && !entryShort) { console.log(c.yellow("  need at least one entry side")); await pauseForReview(); return; }
+    if (!entryLong && !entryShort) { console.log(c.yellow("  Need at least one entry side")); await pauseForReview(); return; }
 
     // Step 6 — Exit / Target / Risk
     const exitConfig = await buildExitConfig(indicators);
@@ -3978,21 +3978,21 @@ async function createCustomStrategy() {
     // alongside the hardcoded ones)
     console.log();
     console.log(c.dim("  PREVIEW"));
-    console.log(`  candle: ${candleType}   timeframe: ${timeframe}`);
-    console.log(`  indicators: ${indicators.map(i => `${i.id}(${i.type})`).join(", ")}`);
-    console.log(`  entry long:  ${entryLong  ? JSON.stringify(entryLong)  : "(none)"}`);
-    console.log(`  entry short: ${entryShort ? JSON.stringify(entryShort) : "(none)"}`);
-    console.log(`  exit: ${JSON.stringify(exitConfig)}`);
-    const confirm = await ask("  save this strategy? (Y/n): ");
-    if (confirm.toLowerCase() === "n") { console.log(c.yellow("  discarded")); await pauseForReview(); return; }
+    console.log(`  Candle: ${candleType}   timeframe: ${timeframe}`);
+    console.log(`  Indicators: ${indicators.map(i => `${i.id}(${i.type})`).join(", ")}`);
+    console.log(`  Entry long:  ${entryLong  ? JSON.stringify(entryLong)  : "(none)"}`);
+    console.log(`  Entry short: ${entryShort ? JSON.stringify(entryShort) : "(none)"}`);
+    console.log(`  Exit: ${JSON.stringify(exitConfig)}`);
+    const confirm = await ask("  Save this strategy? (Y/n): ");
+    if (confirm.toLowerCase() === "n") { console.log(c.yellow("  Discarded")); await pauseForReview(); return; }
 
-    const name = await ask("  strategy name: ");
-    if (!name) { console.log(c.yellow("  name required")); await pauseForReview(); return; }
+    const name = await ask("  Strategy name: ");
+    if (!name) { console.log(c.yellow("  Name required")); await pauseForReview(); return; }
     try {
         await customStrategyDb.saveStrategy({ name, candleType, timeframe, indicators, entryLong, entryShort, exitConfig });
-        console.log(c.green(`  saved "${name}" \u2014 deploy it via "Add instrument", it now shows alongside the prebuilt list.`));
+        console.log(c.green(`  Saved "${name}" \u2014 deploy it via "Add instrument", it now shows alongside the prebuilt list.`));
     } catch (err) {
-        console.log(c.yellow(`  save failed: ${err.message.includes("UNIQUE") ? "a strategy named that already exists" : err.message}`));
+        console.log(c.yellow(`  Save failed: ${err.message.includes("UNIQUE") ? "a strategy named that already exists" : err.message}`));
     }
     await pauseForReview();
 }
@@ -4029,14 +4029,14 @@ async function main() {
         else if (input === "Y")           await gapCaptureScreen();
         else if (input === "O")           await optionsScreen();
         else if (input === "Q")           { running = false; redraw = false; }
-        else                               { console.log(c.yellow("  unrecognized option")); redraw = false; }
+        else                               { console.log(c.yellow("  Unrecognized option")); redraw = false; }
 
         if (running && redraw) procs = await renderMenu();
     }
 
     pm2.disconnect();
     rl.close();
-    console.log(c.dim("  bye."));
+    console.log(c.dim("  Bye."));
     // Without this, the process only exits if nothing else in the whole
     // codebase has left a timer/handle open — true today, but fragile:
     // one stray setInterval anywhere (a future feature, a leftover from
@@ -4046,7 +4046,7 @@ async function main() {
 }
 
 main().catch(err => {
-    console.error(c.red("toolbox crashed:"), err);
+    console.error(c.red("Toolbox crashed:"), err);
     try { pm2.disconnect(); } catch {}
     process.exit(1);
 });
