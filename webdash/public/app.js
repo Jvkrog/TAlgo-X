@@ -74,18 +74,18 @@ function buildCard(inst) {
     </div>
     <div class="pnl-row">
       <div class="pnl-box">
-        <span class="pnl-label">unrealized</span>
+        <span class="pnl-label">Unrealized</span>
         <span class="pnl-value flat" data-role="upnl">+0</span>
       </div>
       <div class="pnl-box">
-        <span class="pnl-label">session</span>
+        <span class="pnl-label">Session</span>
         <span class="pnl-value flat" data-role="session">+0</span>
       </div>
     </div>
     <div class="card-controls">
-      <button class="btn btn-start" data-action="start">start</button>
-      <button class="btn btn-stop" data-action="stop">stop</button>
-      <button class="btn btn-restart" data-action="restart">restart</button>
+      <button class="btn btn-start" data-action="start">Start</button>
+      <button class="btn btn-stop" data-action="stop">Stop</button>
+      <button class="btn btn-restart" data-action="restart">Restart</button>
     </div>
   `;
   el.querySelectorAll("[data-action]").forEach(btn => {
@@ -96,7 +96,7 @@ function buildCard(inst) {
 
 function renderInstruments() {
   if (instruments.length === 0) {
-    grid.innerHTML = `<div class="empty-state">no engines detected — waiting on PM2...</div>`;
+    grid.innerHTML = `<div class="empty-state">No engines detected — waiting on PM2...</div>`;
     engineCountEl.textContent = "0";
     renderedInstrumentNames = null;
     return;
@@ -197,18 +197,18 @@ function buildHedgePairCard(p) {
         <span class="pnl-value flat" data-role="hedge-pnl">+0</span>
       </div>
       <div class="pnl-box">
-        <span class="pnl-label">unrealized</span>
+        <span class="pnl-label">Unrealized</span>
         <span class="pnl-value flat" data-role="unrealized">+0</span>
       </div>
       <div class="pnl-box">
-        <span class="pnl-label">realized</span>
+        <span class="pnl-label">Realized</span>
         <span class="pnl-value flat" data-role="realized">+0</span>
       </div>
     </div>
     <div class="card-controls">
-      <button class="btn btn-start" data-action="start">start</button>
-      <button class="btn btn-stop" data-action="stop">stop</button>
-      <button class="btn btn-restart" data-action="restart">restart</button>
+      <button class="btn btn-start" data-action="start">Start</button>
+      <button class="btn btn-stop" data-action="stop">Stop</button>
+      <button class="btn btn-restart" data-action="restart">Restart</button>
     </div>
   `;
   el.querySelectorAll("[data-action]").forEach(btn => {
@@ -311,18 +311,18 @@ function buildDualHedgeCard(d) {
         <span class="pnl-value flat" data-role="short-pnl">+0</span>
       </div>
       <div class="pnl-box">
-        <span class="pnl-label">unrealized</span>
+        <span class="pnl-label">Unrealized</span>
         <span class="pnl-value flat" data-role="unrealized">+0</span>
       </div>
       <div class="pnl-box">
-        <span class="pnl-label">realized</span>
+        <span class="pnl-label">Realized</span>
         <span class="pnl-value flat" data-role="realized">+0</span>
       </div>
     </div>
     <div class="card-controls">
-      <button class="btn btn-start" data-action="start">start</button>
-      <button class="btn btn-stop" data-action="stop">stop</button>
-      <button class="btn btn-restart" data-action="restart">restart</button>
+      <button class="btn btn-start" data-action="start">Start</button>
+      <button class="btn btn-stop" data-action="stop">Stop</button>
+      <button class="btn btn-restart" data-action="restart">Restart</button>
     </div>
   `;
   el.querySelectorAll("[data-action]").forEach(btn => {
@@ -500,7 +500,7 @@ let tokenGlobalSet = false, tokenGlobalFresh = false, tokenGlobalDate = null;
 
 function renderTokenAccountRow(acc) {
   const statusClass = !acc.hasAccessToken ? "unset" : (acc.tokenFresh ? "set" : "stale");
-  const statusText  = !acc.hasAccessToken ? "no token" : (acc.tokenFresh ? "fresh" : `stale — ${acc.accessTokenDate || "unknown date"}`);
+  const statusText  = !acc.hasAccessToken ? "no token" : (acc.tokenFresh ? "fresh" : `stale — ${acc.accessTokenDate || "Unknown date"}`);
   const linkDisabled = !acc.hasApiKey;
   return `
     <div class="token-account-row">
@@ -515,7 +515,7 @@ function renderTokenAccountRow(acc) {
     <div class="token-account-panel" id="tokenGenPanel-${acc.key}" style="display:none">
       <div class="token-panel-row">
         <input type="text" id="tokenGenInput-${acc.key}" class="token-input" placeholder="request_token or redirect URL">
-        <button class="btn btn-restart" data-token-exchange="${acc.key}">exchange</button>
+        <button class="btn btn-restart" data-token-exchange="${acc.key}">Exchange</button>
       </div>
       <div id="tokenGenErr-${acc.key}"></div>
     </div>`;
@@ -534,7 +534,7 @@ async function refreshTokenStatus() {
     const needsAttention = tokenAccounts.filter(a => !a.hasAccessToken || !a.tokenFresh);
     if (needsAttention.length === 0) {
       tokenDot.className = "token-dot set";
-      tokenLabel.textContent = "tokens fresh";
+      tokenLabel.textContent = "Tokens fresh";
     } else {
       tokenDot.className = "token-dot unset";
       tokenLabel.textContent = needsAttention.length === 1 && needsAttention[0].key === "global"
@@ -579,21 +579,21 @@ async function refreshTokenStatus() {
           });
           const data = await res.json();
           if (!res.ok) {
-            errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed"}</div>`;
-            btn.disabled = false; btn.textContent = "exchange";
+            errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed"}</div>`;
+            btn.disabled = false; btn.textContent = "Exchange";
             return;
           }
           appendLog({ type: "SYS", text: `[token] ${acc.label} access token updated — restart engines to pick it up` });
           refreshTokenStatus();
         } catch (err) {
           errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
-          btn.disabled = false; btn.textContent = "exchange";
+          btn.disabled = false; btn.textContent = "Exchange";
         }
       });
     });
   } catch {
     tokenDot.className = "token-dot";
-    tokenLabel.textContent = "generate token";
+    tokenLabel.textContent = "Generate token";
   }
 }
 
@@ -608,7 +608,7 @@ function handleTokenRedirectParams() {
   if (params.get("token") === "ok") {
     appendLog({ type: "SYS", text: "[token] access token captured and updated automatically — restart engines to pick it up" });
   } else {
-    appendLog({ type: "ERROR", text: `[token] auto-capture failed: ${params.get("msg") || "unknown error"}` });
+    appendLog({ type: "ERROR", text: `[token] auto-capture failed: ${params.get("msg") || "Unknown error"}` });
   }
   history.replaceState({}, "", location.pathname);
   refreshTokenStatus();
@@ -662,12 +662,12 @@ function setConnStatus(state) {
   connStatus.classList.remove("live", "down");
   if (state === "live") {
     connStatus.classList.add("live");
-    connStatus.querySelector(".conn-label").textContent = "live";
+    connStatus.querySelector(".conn-label").textContent = "Live";
   } else if (state === "down") {
     connStatus.classList.add("down");
-    connStatus.querySelector(".conn-label").textContent = "disconnected";
+    connStatus.querySelector(".conn-label").textContent = "Disconnected";
   } else {
-    connStatus.querySelector(".conn-label").textContent = "connecting";
+    connStatus.querySelector(".conn-label").textContent = "Connecting";
   }
 }
 
@@ -817,7 +817,7 @@ function handleEvent(msg) {
           const el = document.getElementById(cardId(i));
           if (!el) return;
           const statusEl = el.querySelector('[data-role="status"]');
-          if (statusEl) { statusEl.textContent = "offline"; statusEl.className = "status-pill offline"; }
+          if (statusEl) { statusEl.textContent = "Offline"; statusEl.className = "status-pill offline"; }
         });
     }
     appendLog({
@@ -1229,7 +1229,7 @@ async function relock() {
   lockKeypad.classList.remove("exit");
   lockKeypad.style.opacity = "1";
   lockKeypad.style.pointerEvents = "auto";
-  lockSubtitle.textContent = "session timed out — enter pin to continue";
+  lockSubtitle.textContent = "Session timed out — enter pin to continue";
   pinBuffer = "";
   pinUnlocked = false;
   renderDots();
@@ -1246,7 +1246,7 @@ async function initAuth() {
     renderDots();
     if (status.locked) setLocked(status.lockedForMs || 30000);
   } catch {
-    lockSubtitle.textContent = "could not reach server — retrying...";
+    lockSubtitle.textContent = "Could not reach server — retrying...";
     setTimeout(initAuth, 3000);
   }
 }
@@ -1340,7 +1340,7 @@ async function loadRiskList() {
 
 function renderRiskList() {
   if (riskInstruments.length === 0) {
-    riskList.innerHTML = `<div class="empty-state">no engines detected</div>`;
+    riskList.innerHTML = `<div class="empty-state">No engines detected</div>`;
     return;
   }
   riskList.innerHTML = "";
@@ -1365,7 +1365,7 @@ function renderRiskList() {
         <span class="tb-strategy">${inst.strategy}</span>
       </div>
       <div class="tb-row-pills" style="flex-wrap:wrap">${badges.join("")}</div>
-      <button class="tb-row-edit" data-name="${inst.name}">manage risk</button>
+      <button class="tb-row-edit" data-name="${inst.name}">Manage risk</button>
     `;
     riskList.appendChild(row);
   });
@@ -1439,7 +1439,7 @@ async function loadToolboxList() {
 
 function renderToolboxList() {
   if (toolboxInstruments.length === 0) {
-    toolboxList.innerHTML = `<div class="empty-state">no engines detected</div>`;
+    toolboxList.innerHTML = `<div class="empty-state">No engines detected</div>`;
     return;
   }
   toolboxList.innerHTML = "";
@@ -1456,8 +1456,8 @@ function renderToolboxList() {
         <span class="status-pill ${inst.status === "online" ? "online" : "offline"}">${inst.status}</span>
         <span class="mode-pill ${inst.live ? "live" : ""}">${inst.live ? "live" : "paper"}</span>
       </div>
-      <button class="tb-row-edit" data-name="${inst.name}">edit</button>
-      <button class="tb-row-logs" data-name="${inst.name}">logs</button>
+      <button class="tb-row-edit" data-name="${inst.name}">Edit</button>
+      <button class="tb-row-logs" data-name="${inst.name}">Logs</button>
     `;
     toolboxList.appendChild(row);
   });
@@ -1543,40 +1543,40 @@ function openEditModal(inst) {
 
   tbEditBody.innerHTML = `
     <div class="tb-form-row">
-      <div class="tb-form-label">lots</div>
+      <div class="tb-form-label">Lots</div>
       <input type="number" id="editLots" value="${inst.lots === "default" ? 1 : inst.lots}" min="1" step="1">
     </div>
     <div class="tb-form-row">
-      <div class="tb-form-label">profit target in points (blank = none, "0"/"clear" to remove)</div>
+      <div class="tb-form-label">Profit target in points (blank = none, "0"/"clear" to remove)</div>
       <input type="number" id="editTarget" min="0" step="any" value="${inst.targetPoints !== null && inst.targetPoints !== undefined ? inst.targetPoints : ""}">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editAdaptive" ${inst.targetMode === "adaptive" ? "checked" : ""}><span>use adaptive target sizing instead (CHOP + DPI efficiency) — only applies while the fixed target above is blank</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="editAdaptive" ${inst.targetMode === "adaptive" ? "checked" : ""}><span>Use adaptive target sizing instead (CHOP + DPI efficiency) — only applies while the fixed target above is blank</span></label>
     </div>
     <div class="tb-form-row" style="${isAlmaProFast ? "" : "display:none"}">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editAlmaBand" ${inst.almaBandEnabled !== false ? "checked" : ""}><span>use ALMA band gate</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="editAlmaBand" ${inst.almaBandEnabled !== false ? "checked" : ""}><span>Use ALMA band gate</span></label>
     </div>
     <div class="tb-form-row" style="${isAlmaProFast ? "" : "display:none"}">
-      <div class="tb-form-label">fast ALMA length (blank = keep, "0"/"clear" = reset to default)</div>
+      <div class="tb-form-label">Fast ALMA length (blank = keep, "0"/"clear" = reset to default)</div>
       <input type="number" id="editAlmaFastLen" min="1" step="1" value="${inst.almaFastLen ?? ""}">
     </div>
     <div class="tb-form-row" id="editAlmaBandLenRow" style="${isAlmaProFast && inst.almaBandEnabled !== false ? "" : "display:none"}">
-      <div class="tb-form-label">band ALMA length (blank = keep, "0"/"clear" = reset to default)</div>
+      <div class="tb-form-label">Band ALMA length (blank = keep, "0"/"clear" = reset to default)</div>
       <input type="number" id="editAlmaBandLen" min="1" step="1" value="${inst.almaBandLen ?? ""}">
     </div>
     <div class="tb-form-row" style="${(isAlmaProFast || isAlmaProSlow) ? "" : "display:none"}">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editAlmaChop" ${inst.almaChopFilterEnabled !== false ? "checked" : ""}><span>use Choppiness Index entry filter</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="editAlmaChop" ${inst.almaChopFilterEnabled !== false ? "checked" : ""}><span>Use Choppiness Index entry filter</span></label>
     </div>
     <div class="tb-form-row" style="${isDynamicBand ? "" : "display:none"}">
-      <div class="tb-form-label">band step in price points (blank = keep, "0"/"clear" = reset to default)</div>
+      <div class="tb-form-label">Band step in price points (blank = keep, "0"/"clear" = reset to default)</div>
       <input type="number" id="editBandStep" min="0" step="any" value="${inst.bandStep ?? ""}">
     </div>
     <div class="tb-form-row" style="${isAlmaTriBand ? "" : "display:none"}">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editGreyExit" ${inst.greyExitEnabled ? "checked" : ""}><span>exit on grey state instead of holding through it</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="editGreyExit" ${inst.greyExitEnabled ? "checked" : ""}><span>Exit on grey state instead of holding through it</span></label>
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editDisableDouble" ${inst.disableDoubleOrders ? "checked" : ""}><span>disable double orders (blocks reversal re-entries only)</span></label>
-      <div class="tb-form-hint">reversal re-entries stay gated only by the Choppiness Index check every entry already gets, whether checked or not</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="editDisableDouble" ${inst.disableDoubleOrders ? "checked" : ""}><span>Disable double orders (blocks reversal re-entries only)</span></label>
+      <div class="tb-form-hint">Reversal re-entries stay gated only by the Choppiness Index check every entry already gets, whether checked or not</div>
     </div>
     <div class="tb-form-row">
       <div class="tb-form-label">ATR stop-loss multiplier (blank = default)</div>
@@ -1588,38 +1588,38 @@ function openEditModal(inst) {
       <input type="number" id="editFlipConfirm" min="1" step="1" value="${inst.flipConfirmCandles ?? ""}">
     </div>` : ""}
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editVolumeFilter" ${inst.volumeFilterEnabled ? "checked" : ""}><span>only enter when volume is above its SMA</span></label>
-      <div class="tb-form-hint">period below only applies while this is checked</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="editVolumeFilter" ${inst.volumeFilterEnabled ? "checked" : ""}><span>Only enter when volume is above its SMA</span></label>
+      <div class="tb-form-hint">Period below only applies while this is checked</div>
       <input type="number" id="editVolumeSmaPeriod" min="1" step="1" value="${inst.volumeSmaPeriod ?? ""}" placeholder="SMA period, blank = default">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editLongCandleFilter" ${inst.longCandleFilterEnabled !== false ? "checked" : ""}><span>block new entries after an abnormally large candle</span></label>
-      <div class="tb-form-hint">on by default — Sep 2 NATGASMINI/DYNAMIC_BAND fix. Range >= ATR x multiplier blocks new entries/reversals for a cooldown; existing SL/target/exit are never affected.</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="editLongCandleFilter" ${inst.longCandleFilterEnabled !== false ? "checked" : ""}><span>Block new entries after an abnormally large candle</span></label>
+      <div class="tb-form-hint">On by default — Sep 2 NATGASMINI/DYNAMIC_BAND fix. Range >= ATR x multiplier blocks new entries/reversals for a cooldown; existing SL/target/exit are never affected.</div>
       <input type="number" id="editLongCandleAtrPeriod" min="1" step="1" value="${inst.longCandleAtrPeriod ?? ""}" placeholder="ATR period, blank = default (14)">
       <input type="number" id="editLongCandleAtrMult" min="0" step="any" value="${inst.longCandleAtrMult ?? ""}" placeholder="ATR multiplier, blank = default (1.5)">
       <input type="number" id="editLongCandleCooldown" min="0" step="1" value="${inst.longCandleCooldownCandles ?? ""}" placeholder="cooldown candles, blank = default (2)">
     </div>
     <div class="tb-form-row">
-      <div class="tb-form-label">max daily loss in rupees (blank = no floor)</div>
+      <div class="tb-form-label">Max daily loss in rupees (blank = no floor)</div>
       <input type="number" id="editMaxDailyLoss" min="0" step="any" value="${inst.maxDailyLoss ?? ""}">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editHtfGate" ${inst.htfGateEnabled !== false ? "checked" : ""}><span>block entries when a higher timeframe is trending but price hasn't broken its band yet</span></label>
-      <div class="tb-form-hint">on by default. Checks the higher timeframe below; period/max tune that timeframe's own Choppiness Index reading.</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="editHtfGate" ${inst.htfGateEnabled !== false ? "checked" : ""}><span>Block entries when a higher timeframe is trending but price hasn't broken its band yet</span></label>
+      <div class="tb-form-hint">On by default. Checks the higher timeframe below; period/max tune that timeframe's own Choppiness Index reading.</div>
       <select id="editHtfTimeframe">
         <option value="1h" ${(inst.htfTimeframe || "1h") === "1h" ? "selected" : ""}>1h</option>
         <option value="1d" ${inst.htfTimeframe === "1d" ? "selected" : ""}>1d</option>
       </select>
       <input type="number" id="editHtfChopPeriod" min="1" step="1" value="${inst.htfChopPeriod ?? ""}" placeholder="chop period, blank = default (9)">
       <input type="number" id="editHtfChopMax" min="0" step="any" value="${inst.htfChopMax ?? ""}" placeholder="chop max, blank = default (58)">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editHtfBandBlock" ${inst.htfBandBlockEnabled !== false ? "checked" : ""}><span>also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="editHtfBandBlock" ${inst.htfBandBlockEnabled !== false ? "checked" : ""}><span>Also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editDailyHaGate" ${inst.dailyHaGateEnabled !== false ? "checked" : ""}><span>only allow entries matching the previous daily HA candle's color (green=long only, red=short only)</span></label>
-      <div class="tb-form-hint">on by default, applies universally regardless of strategy.</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="editDailyHaGate" ${inst.dailyHaGateEnabled !== false ? "checked" : ""}><span>Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)</span></label>
+      <div class="tb-form-hint">On by default, applies universally regardless of strategy.</div>
     </div>
     <div id="editErrBox"></div>
-    <button class="tb-submit-btn" id="editSubmit">save changes (restarts the process)</button>
+    <button class="tb-submit-btn" id="editSubmit">Save changes (restarts the process)</button>
   `;
   tbEditModal.classList.add("open");
 
@@ -1684,9 +1684,9 @@ function openEditModal(inst) {
       });
       const data = await res.json();
       if (!res.ok) {
-        errBox.textContent = data.error || "failed to save";
+        errBox.textContent = data.error || "Failed to save";
         submitBtn.disabled = false;
-        submitBtn.textContent = "save changes (restarts the process)";
+        submitBtn.textContent = "Save changes (restarts the process)";
         return;
       }
       tbEditModal.classList.remove("open");
@@ -1694,7 +1694,7 @@ function openEditModal(inst) {
     } catch (err) {
       errBox.textContent = err.message;
       submitBtn.disabled = false;
-      submitBtn.textContent = "save changes (restarts the process)";
+      submitBtn.textContent = "Save changes (restarts the process)";
     }
   });
 }
@@ -1703,15 +1703,15 @@ tbEditModal.addEventListener("click", e => { if (e.target === tbEditModal) tbEdi
 
 async function openLogsModal(name) {
   tbLogsTitle.textContent = `${name} — logs`;
-  tbLogsBody.innerHTML = "loading...";
+  tbLogsBody.innerHTML = "Loading...";
   tbLogsModal.classList.add("open");
   try {
     const data = await (await fetch(`/api/toolbox/logs/${encodeURIComponent(name)}`)).json();
     if (data.error) { tbLogsBody.textContent = data.error; return; }
-    let html = `<div class="tb-log-section-title">stdout — ${data.outLogPath || "unknown path"}</div>`;
+    let html = `<div class="tb-log-section-title">stdout — ${data.outLogPath || "Unknown path"}</div>`;
     html += `<pre>${(data.out.join("\n") || "(empty)").replace(/</g, "&lt;")}</pre>`;
     if (data.err && data.err.length) {
-      html += `<div class="tb-log-section-title">stderr — ${data.errLogPath || "unknown path"}</div>`;
+      html += `<div class="tb-log-section-title">stderr — ${data.errLogPath || "Unknown path"}</div>`;
       html += `<pre class="err-line">${data.err.join("\n").replace(/</g, "&lt;")}</pre>`;
     }
     tbLogsBody.innerHTML = html;
@@ -1737,18 +1737,18 @@ function openModeModal(names) {
     <div class="tb-mode-row">
       <div class="tb-mode-target">${names.length} instrument(s) selected</div>
       <div class="tb-mode-choice">
-        <button data-mode="paper">paper</button>
-        <button data-mode="live">live</button>
+        <button data-mode="paper">Paper</button>
+        <button data-mode="live">Live</button>
       </div>
       <label class="tb-carry-row">
         <input type="checkbox" id="tbCarryCheck">
-        <span>carry position overnight (NRML, not MIS)</span>
+        <span>Carry position overnight (NRML, not MIS)</span>
       </label>
       <div class="tb-confirm-live" id="tbConfirmLive">
         <div class="tb-confirm-live-warn">⚠ switching to LIVE places real orders. type LIVE to confirm:</div>
         <input type="text" id="tbConfirmLiveInput" placeholder="type LIVE">
       </div>
-      <button class="tb-mode-submit" id="tbModeSubmit" disabled>apply</button>
+      <button class="tb-mode-submit" id="tbModeSubmit" disabled>Apply</button>
     </div>
   `;
   tbModeModal.classList.add("open");
@@ -1818,17 +1818,17 @@ function openAddInstrumentModal() {
 function renderAddSearchStep() {
   tbAddBody.innerHTML = `
     <div class="tb-form-row">
-      <div class="tb-form-label">exchange</div>
+      <div class="tb-form-label">Exchange</div>
       <div class="tb-mode-choice" id="addExchangeChoice">
         <button data-ex="MCX" class="picked paper">MCX Futures</button>
         <button data-ex="NSE">NSE Stocks</button>
       </div>
     </div>
     <div class="tb-form-row">
-      <div class="tb-form-label">search underlying</div>
+      <div class="tb-form-label">Search underlying</div>
       <div class="tb-search-row">
         <input type="text" id="addSearchInput" placeholder="e.g. ZINC, NATGAS...">
-        <button id="addSearchBtn">search</button>
+        <button id="addSearchBtn">Search</button>
       </div>
     </div>
     <div class="tb-pick-list" id="addPickList"></div>
@@ -1844,13 +1844,13 @@ function renderAddSearchStep() {
   const pickList = tbAddBody.querySelector("#addPickList");
   const hint = tbAddBody.querySelector("#addSearchHint");
   async function runSearch() {
-    hint.textContent = "searching...";
+    hint.textContent = "Searching...";
     pickList.innerHTML = "";
     try {
       const q = searchInput.value.trim();
       const data = await (await fetch(`/api/toolbox/instruments?exchange=${addState.exchange}&q=${encodeURIComponent(q)}`)).json();
       if (data.error) { hint.textContent = data.error; return; }
-      if (data.matches.length === 0) { hint.textContent = "no matches"; return; }
+      if (data.matches.length === 0) { hint.textContent = "No matches"; return; }
       hint.textContent = data.truncated ? `showing 50 of ${data.total} — narrow your search` : `${data.matches.length} match(es)`;
       data.matches.forEach(u => {
         const btn = document.createElement("button");
@@ -1874,7 +1874,7 @@ async function selectAddUnderlying(underlying) {
   try {
     const preview = await (await fetch(`/api/toolbox/instruments/${encodeURIComponent(underlying)}/preview?exchange=${addState.exchange}`)).json();
     if (preview.error) {
-      tbAddBody.innerHTML = `<div class="tb-err-box">${preview.error}</div><button class="tb-back-link" id="addBackErr">‹ back to search</button>`;
+      tbAddBody.innerHTML = `<div class="tb-err-box">${preview.error}</div><button class="tb-back-link" id="addBackErr">‹ Back to search</button>`;
       tbAddBody.querySelector("#addBackErr").addEventListener("click", renderAddSearchStep);
       return;
     }
@@ -1894,109 +1894,109 @@ function renderAddConfigStep() {
   const strategies = addState.strategies;
   const defaultStrat = addState.defaultStrategy;
   tbAddBody.innerHTML = `
-    <button class="tb-back-link" id="addBack">‹ back to search</button>
+    <button class="tb-back-link" id="addBack">‹ Back to search</button>
     <div class="tb-resolved-box">
-      <div>would resolve to <span class="sym">${p.symbol}</span></div>
-      <div>expiry: ${p.expiry || "n/a (equity, no roll)"} — broker lot_size ${p.brokerLotSize}</div>
+      <div>Would resolve to <span class="sym">${p.symbol}</span></div>
+      <div>expiry: ${p.expiry || "N/a (equity, no roll)"} — broker lot_size ${p.brokerLotSize}</div>
     </div>
     ${p.lotMultRequired ? `
     <div class="tb-warn-box">⚠ lot multiplier required — the broker's lot_size is a contract COUNT, not the real price multiplier (this exact gap caused a real PnL bug once, on NatGas Mini). Look up the actual contract spec before entering this.</div>
     <div class="tb-form-row"><div class="tb-form-label">lot multiplier (required)</div><input type="number" id="addLotMult" placeholder="e.g. 250" min="0" step="any"></div>
     ` : ""}
     <div class="tb-form-row">
-      <div class="tb-form-label">strategy</div>
+      <div class="tb-form-label">Strategy</div>
       <div id="addStrategyList"></div>
     </div>
     <div class="tb-form-row">
-      <div class="tb-form-label">timeframe</div>
+      <div class="tb-form-label">Timeframe</div>
       <select id="addTimeframe"></select>
     </div>
     <div class="tb-form-row">
-      <div class="tb-form-label">lots</div>
+      <div class="tb-form-label">Lots</div>
       <input type="number" id="addLots" value="1" min="1" step="1">
     </div>
     <div class="tb-form-row">
-      <div class="tb-form-label">mode</div>
+      <div class="tb-form-label">Mode</div>
       <div class="tb-mode-choice" id="addModeChoice">
-        <button data-mode="paper" class="picked paper">paper</button>
-        <button data-mode="live">live</button>
+        <button data-mode="paper" class="picked paper">Paper</button>
+        <button data-mode="live">Live</button>
       </div>
       <div class="tb-confirm-live" id="addConfirmLive">
         <div class="tb-confirm-live-warn">⚠ this will place REAL orders. type LIVE to confirm:</div>
         <input type="text" id="addConfirmLiveInput" placeholder="type LIVE">
       </div>
     </div>
-    <label class="tb-form-row-inline"><input type="checkbox" id="addCarry"><span>carry position overnight instead of EOD close</span></label>
+    <label class="tb-form-row-inline"><input type="checkbox" id="addCarry"><span>Carry position overnight instead of EOD close</span></label>
     <div class="tb-form-row">
-      <div class="tb-form-label">profit target in points (tick-monitored, blank = none)</div>
+      <div class="tb-form-label">Profit target in points (tick-monitored, blank = none)</div>
       <input type="number" id="addTarget" min="0" step="any">
     </div>
     <div class="tb-form-row" id="addAlmaBandRow" style="display:none">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addAlmaBand" checked><span>use ALMA band gate (ALMA_PRO_FAST only, default: ON)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="addAlmaBand" checked><span>Use ALMA band gate (ALMA_PRO_FAST only, default: ON)</span></label>
     </div>
     <div class="tb-form-row" id="addAlmaFastLenRow" style="display:none">
-      <div class="tb-form-label">fast ALMA length (ALMA_PRO_FAST only, blank = default)</div>
+      <div class="tb-form-label">Fast ALMA length (ALMA_PRO_FAST only, blank = default)</div>
       <input type="number" id="addAlmaFastLen" min="1" step="1">
     </div>
     <div class="tb-form-row" id="addAlmaBandLenRow" style="display:none">
-      <div class="tb-form-label">band ALMA length (ALMA_PRO_FAST only, blank = default)</div>
+      <div class="tb-form-label">Band ALMA length (ALMA_PRO_FAST only, blank = default)</div>
       <input type="number" id="addAlmaBandLen" min="1" step="1">
     </div>
     <div class="tb-form-row" id="addAlmaChopRow" style="display:none">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addAlmaChop" checked><span>use Choppiness Index entry filter (ALMA_PRO_FAST/ALMA_PRO_SLOW only, default: ON)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="addAlmaChop" checked><span>Use Choppiness Index entry filter (ALMA_PRO_FAST/ALMA_PRO_SLOW only, default: ON)</span></label>
     </div>
     <div class="tb-form-row" id="addBandStepRow" style="display:none">
-      <div class="tb-form-label">band step in price points (DYNAMIC_BAND only, blank = default)</div>
+      <div class="tb-form-label">Band step in price points (DYNAMIC_BAND only, blank = default)</div>
       <input type="number" id="addBandStep" min="0" step="any">
     </div>
     <div class="tb-form-row" id="addGreyExitRow" style="display:none">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addGreyExit"><span>exit on grey state instead of holding through it (ALMA_TRI_BAND only, default: hold)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="addGreyExit"><span>Exit on grey state instead of holding through it (ALMA_TRI_BAND only, default: hold)</span></label>
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addDisableDouble"><span>disable double orders (blocks reversal re-entries only, default: allowed)</span></label>
-      <div class="tb-form-hint">reversal re-entries stay gated only by the Choppiness Index check every entry already gets, whether checked or not</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="addDisableDouble"><span>Disable double orders (blocks reversal re-entries only, default: allowed)</span></label>
+      <div class="tb-form-hint">Reversal re-entries stay gated only by the Choppiness Index check every entry already gets, whether checked or not</div>
     </div>
     <div class="tb-form-row">
       <div class="tb-form-label">ATR stop-loss multiplier (blank = default)</div>
       <input type="number" id="addAtrSlMult" min="0" step="any">
     </div>
     <div class="tb-form-row" id="addFlipConfirmRow" style="display:none">
-      <div class="tb-form-label">reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
+      <div class="tb-form-label">Reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
       <input type="number" id="addFlipConfirm" min="1" step="1">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addVolumeFilter"><span>only enter when volume is above its SMA</span></label>
-      <div class="tb-form-hint">period below only applies while this is checked</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="addVolumeFilter"><span>Only enter when volume is above its SMA</span></label>
+      <div class="tb-form-hint">Period below only applies while this is checked</div>
       <input type="number" id="addVolumeSmaPeriod" min="1" step="1" placeholder="SMA period, blank = default">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addLongCandleFilter" checked><span>block new entries after an abnormally large candle</span></label>
-      <div class="tb-form-hint">on by default — Sep 2 NATGASMINI/DYNAMIC_BAND fix. Existing SL/target/exit are never affected.</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="addLongCandleFilter" checked><span>Block new entries after an abnormally large candle</span></label>
+      <div class="tb-form-hint">On by default — Sep 2 NATGASMINI/DYNAMIC_BAND fix. Existing SL/target/exit are never affected.</div>
       <input type="number" id="addLongCandleAtrPeriod" min="1" step="1" placeholder="ATR period, blank = default (14)">
       <input type="number" id="addLongCandleAtrMult" min="0" step="any" placeholder="ATR multiplier, blank = default (1.5)">
       <input type="number" id="addLongCandleCooldown" min="0" step="1" placeholder="cooldown candles, blank = default (2)">
     </div>
     <div class="tb-form-row">
-      <div class="tb-form-label">max daily loss in rupees, quits for the day if breached (blank = no floor)</div>
+      <div class="tb-form-label">Max daily loss in rupees, quits for the day if breached (blank = no floor)</div>
       <input type="number" id="addMaxDailyLoss" min="0" step="any">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addHtfGate" checked><span>block entries when a higher timeframe is trending but price hasn't broken its band yet (default: ON)</span></label>
-      <div class="tb-form-hint">checks the higher timeframe below; period/max tune that timeframe's own Choppiness Index reading.</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="addHtfGate" checked><span>Block entries when a higher timeframe is trending but price hasn't broken its band yet (default: ON)</span></label>
+      <div class="tb-form-hint">Checks the higher timeframe below; period/max tune that timeframe's own Choppiness Index reading.</div>
       <select id="addHtfTimeframe">
         <option value="1h" selected>1h</option>
         <option value="1d">1d</option>
       </select>
       <input type="number" id="addHtfChopPeriod" min="1" step="1" placeholder="chop period, blank = default (9)">
       <input type="number" id="addHtfChopMax" min="0" step="any" placeholder="chop max, blank = default (58)">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addHtfBandBlock" checked><span>also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="addHtfBandBlock" checked><span>Also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addDailyHaGate" checked><span>only allow entries matching the previous daily HA candle's color (green=long only, red=short only)</span></label>
-      <div class="tb-form-hint">on by default, applies universally regardless of strategy.</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="addDailyHaGate" checked><span>Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)</span></label>
+      <div class="tb-form-hint">On by default, applies universally regardless of strategy.</div>
     </div>
     <div id="addErrBox"></div>
-    <button class="tb-submit-btn" id="addSubmit">start instrument</button>
+    <button class="tb-submit-btn" id="addSubmit">Start instrument</button>
   `;
   tbAddBody.querySelector("#addBack").addEventListener("click", renderAddSearchStep);
 
@@ -2072,15 +2072,15 @@ function renderAddConfigStep() {
     const submitBtn = tbAddBody.querySelector("#addSubmit");
     const lotMultInput = tbAddBody.querySelector("#addLotMult");
     if (p.lotMultRequired && (!lotMultInput.value || Number(lotMultInput.value) <= 0)) {
-      errBox.innerHTML = `<div class="tb-err-box">lot multiplier is required</div>`;
+      errBox.innerHTML = `<div class="tb-err-box">Lot multiplier is required</div>`;
       return;
     }
     if (isLive && tbAddBody.querySelector("#addConfirmLiveInput").value !== "LIVE") {
-      errBox.innerHTML = `<div class="tb-err-box">type LIVE to confirm live mode</div>`;
+      errBox.innerHTML = `<div class="tb-err-box">Type LIVE to confirm live mode</div>`;
       return;
     }
     submitBtn.disabled = true;
-    submitBtn.textContent = "starting...";
+    submitBtn.textContent = "Starting...";
     try {
       const body = {
         underlying: addState.underlying,
@@ -2119,9 +2119,9 @@ function renderAddConfigStep() {
       const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) {
-        errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed"}</div>`;
+        errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed"}</div>`;
         submitBtn.disabled = false;
-        submitBtn.textContent = "start instrument";
+        submitBtn.textContent = "Start instrument";
         return;
       }
       tbAddModal.classList.remove("open");
@@ -2130,7 +2130,7 @@ function renderAddConfigStep() {
     } catch (err) {
       errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
       submitBtn.disabled = false;
-      submitBtn.textContent = "start instrument";
+      submitBtn.textContent = "Start instrument";
     }
   });
 }
@@ -2147,7 +2147,7 @@ let btState = {};
 
 async function openBacktestModal() {
   btState = { exchange: "MCX" };
-  tbBacktestBody.innerHTML = `<div class="tb-form-hint">loading strategies...</div>`;
+  tbBacktestBody.innerHTML = `<div class="tb-form-hint">Loading strategies...</div>`;
   tbBacktestModal.classList.add("open");
   try {
     const stratData = await (await fetch("/api/toolbox/strategies")).json();
@@ -2160,7 +2160,7 @@ async function openBacktestModal() {
 }
 
 function renderBacktestStrategyStep() {
-  tbBacktestBody.innerHTML = `<div class="tb-form-row"><div class="tb-form-label">step 1/3 — strategy</div><div id="btStrategyList"></div></div>`;
+  tbBacktestBody.innerHTML = `<div class="tb-form-row"><div class="tb-form-label">Step 1/3 — strategy</div><div id="btStrategyList"></div></div>`;
   const list = tbBacktestBody.querySelector("#btStrategyList");
   btState.strategies.forEach(s => {
     const div = document.createElement("div");
@@ -2177,9 +2177,9 @@ function renderBacktestStrategyStep() {
 
 function renderBacktestInstrumentStep() {
   tbBacktestBody.innerHTML = `
-    <button class="tb-back-link" id="btBack1">‹ back to strategy</button>
+    <button class="tb-back-link" id="btBack1">‹ Back to strategy</button>
     <div class="tb-form-row">
-      <div class="tb-form-label">step 2/3 — instrument</div>
+      <div class="tb-form-label">Step 2/3 — instrument</div>
       <div class="tb-mode-choice" id="btExchangeChoice">
         <button data-ex="MCX" class="picked paper">MCX Futures</button>
         <button data-ex="NSE">NSE Stocks</button>
@@ -2187,7 +2187,7 @@ function renderBacktestInstrumentStep() {
     </div>
     <div class="tb-search-row">
       <input type="text" id="btSearchInput" placeholder="search underlying...">
-      <button id="btSearchBtn">search</button>
+      <button id="btSearchBtn">Search</button>
     </div>
     <div class="tb-pick-list" id="btPickList"></div>
     <div class="tb-form-hint" id="btSearchHint"></div>
@@ -2203,13 +2203,13 @@ function renderBacktestInstrumentStep() {
   const pickList = tbBacktestBody.querySelector("#btPickList");
   const hint = tbBacktestBody.querySelector("#btSearchHint");
   async function runSearch() {
-    hint.textContent = "searching...";
+    hint.textContent = "Searching...";
     pickList.innerHTML = "";
     try {
       const q = searchInput.value.trim();
       const data = await (await fetch(`/api/toolbox/instruments?exchange=${btState.exchange}&q=${encodeURIComponent(q)}`)).json();
       if (data.error) { hint.textContent = data.error; return; }
-      if (data.matches.length === 0) { hint.textContent = "no matches"; return; }
+      if (data.matches.length === 0) { hint.textContent = "No matches"; return; }
       hint.textContent = data.truncated ? `showing 50 of ${data.total} — narrow your search` : `${data.matches.length} match(es)`;
       data.matches.forEach(u => {
         const btn = document.createElement("button");
@@ -2228,7 +2228,7 @@ function renderBacktestInstrumentStep() {
 }
 
 async function renderBacktestParamsStep() {
-  tbBacktestBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  tbBacktestBody.innerHTML = `<div class="tb-form-hint">Loading...</div>`;
   let paramDefs = [];
   let preview = null;
   try {
@@ -2243,20 +2243,20 @@ async function renderBacktestParamsStep() {
   } catch { /* proceed with defaults-only form; submit-time validation still catches a missing multiplier */ }
 
   tbBacktestBody.innerHTML = `
-    <button class="tb-back-link" id="btBack2">‹ back to instrument</button>
+    <button class="tb-back-link" id="btBack2">‹ Back to instrument</button>
     <div class="tb-form-row">
-      <div class="tb-form-label">step 3/3 — range & params</div>
+      <div class="tb-form-label">Step 3/3 — range & params</div>
       <div class="tb-form-hint">${btState.underlying} — ${(btState.strategies.find(s => s.key === btState.strategy) || {}).label || btState.strategy}</div>
     </div>
-    <div class="tb-form-row"><div class="tb-form-label">timeframe</div><select id="btTimeframe"></select></div>
-    <div class="tb-form-row"><div class="tb-form-label">days back (default 30)</div><input type="number" id="btDays" placeholder="30" min="1"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Timeframe</div><select id="btTimeframe"></select></div>
+    <div class="tb-form-row"><div class="tb-form-label">Days back (default 30)</div><input type="number" id="btDays" placeholder="30" min="1"></div>
     <div class="tb-form-row" id="btLotMultRow" style="display:${preview && preview.lotMultRequired ? "" : "none"}">
-      <div class="tb-form-label">lot multiplier (required for this instrument)</div>
+      <div class="tb-form-label">Lot multiplier (required for this instrument)</div>
       <input type="number" id="btLotMult" min="0" step="any">
     </div>
     <div id="btParamsBox"></div>
     <div class="tb-form-row">
-      <div class="tb-form-label">risk (same as toolbox's backtest wizard)</div>
+      <div class="tb-form-label">Risk (same as toolbox's backtest wizard)</div>
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="btChopEnabled" checked><span>Choppiness Index filter on every entry (default Y)</span></label>
@@ -2264,40 +2264,40 @@ async function renderBacktestParamsStep() {
       <input type="number" id="btChopMax" placeholder="max threshold, default 58" min="0" step="any">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="btLcEnabled" checked><span>block entries after an abnormally large candle (default Y)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="btLcEnabled" checked><span>Block entries after an abnormally large candle (default Y)</span></label>
       <input type="number" id="btLcPeriod" placeholder="ATR period, default 14" min="1" step="1">
       <input type="number" id="btLcMult" placeholder="ATR multiplier, default 1.5" min="0" step="any">
       <input type="number" id="btLcCooldown" placeholder="cooldown candles, default 2" min="0" step="1">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="btDoubleDisabled"><span>disable double orders, blocks reversal re-entries only (default N)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="btDoubleDisabled"><span>Disable double orders, blocks reversal re-entries only (default N)</span></label>
     </div>
     <div class="tb-form-row" id="btAtrRow">
       <div class="tb-form-label">ATR stop-loss multiplier (blank = default)</div>
       <input type="number" id="btAtrMult" min="0" step="any">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="btVolEnabled"><span>only enter when volume is above its SMA (default N)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="btVolEnabled"><span>Only enter when volume is above its SMA (default N)</span></label>
       <input type="number" id="btVolPeriod" placeholder="SMA period, default 20" min="1" step="1">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="btCarry"><span>carry positions overnight past EOD, NRML-style (default N)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="btCarry"><span>Carry positions overnight past EOD, NRML-style (default N)</span></label>
     </div>
     <div class="tb-form-row">
-      <div class="tb-form-label">max daily loss in rupees, quits for the day if breached (blank = no floor)</div>
+      <div class="tb-form-label">Max daily loss in rupees, quits for the day if breached (blank = no floor)</div>
       <input type="number" id="btMaxLoss" min="0" step="any">
     </div>
     <div class="tb-form-row">
-      <div class="tb-form-label">session target in rupees, quits for the day once reached (blank = no ceiling)</div>
+      <div class="tb-form-label">Session target in rupees, quits for the day once reached (blank = no ceiling)</div>
       <input type="number" id="btSessionTarget" min="0" step="any">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="btDailyHaGate" checked><span>only allow entries matching the previous daily HA candle's color (green=long only, red=short only) (default Y)</span></label>
-      <div class="tb-form-hint">htf gate isn't offered here — its backtest replay is a live-only stub that always passes through, so a toggle for it would do nothing.</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="btDailyHaGate" checked><span>Only allow entries matching the previous daily HA candle's color (green=long only, red=short only) (default Y)</span></label>
+      <div class="tb-form-hint">Htf gate isn't offered here — its backtest replay is a live-only stub that always passes through, so a toggle for it would do nothing.</div>
     </div>
     <div id="btErrBox"></div>
     <div id="btResultBox"></div>
-    <button class="tb-submit-btn" id="btSubmit">run backtest</button>
+    <button class="tb-submit-btn" id="btSubmit">Run backtest</button>
   `;
   tbBacktestBody.querySelector("#btBack2").addEventListener("click", renderBacktestInstrumentStep);
 
@@ -2332,7 +2332,7 @@ async function renderBacktestParamsStep() {
     resultBox.innerHTML = "";
     const submitBtn = tbBacktestBody.querySelector("#btSubmit");
     submitBtn.disabled = true;
-    submitBtn.textContent = "running... (fetching history + replaying)";
+    submitBtn.textContent = "Running... (fetching history + replaying)";
     const params = {};
     paramsBox.querySelectorAll("input[data-param]").forEach(inp => { if (inp.value) params[inp.dataset.param] = inp.value; });
     const body = {
@@ -2364,9 +2364,9 @@ async function renderBacktestParamsStep() {
       const data = await res.json();
       if (!res.ok) {
         if (/lot multiplier/i.test(data.error || "")) tbBacktestBody.querySelector("#btLotMultRow").style.display = "";
-        errBox.innerHTML = `<div class="tb-err-box">${data.error || "backtest failed"}</div>`;
+        errBox.innerHTML = `<div class="tb-err-box">${data.error || "Backtest failed"}</div>`;
         submitBtn.disabled = false;
-        submitBtn.textContent = "run backtest";
+        submitBtn.textContent = "Run backtest";
         return;
       }
       const m = data.summary;
@@ -2374,14 +2374,14 @@ async function renderBacktestParamsStep() {
       const logText = (data.logLines || []).join("\n");
       resultBox.innerHTML = `
         <div class="tb-summary-grid">
-          <div class="tb-summary-cell"><div class="k">trades</div><div class="v">${m.trades}</div></div>
-          <div class="tb-summary-cell"><div class="k">win rate</div><div class="v">${(m.winRate * 100).toFixed(1)}%</div></div>
-          <div class="tb-summary-cell"><div class="k">profit factor</div><div class="v">${m.profitFactor === null ? "-" : m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2)}</div></div>
-          <div class="tb-summary-cell"><div class="k">net pnl</div><div class="v">${fmtMoney(m.netPnL)}</div></div>
-          <div class="tb-summary-cell"><div class="k">max drawdown</div><div class="v">${fmtMoney(m.maxDrawdown)}</div></div>
-          <div class="tb-summary-cell"><div class="k">avg trade</div><div class="v">${fmtMoney(m.avgTrade)}</div></div>
+          <div class="tb-summary-cell"><div class="k">Trades</div><div class="v">${m.trades}</div></div>
+          <div class="tb-summary-cell"><div class="k">Win rate</div><div class="v">${(m.winRate * 100).toFixed(1)}%</div></div>
+          <div class="tb-summary-cell"><div class="k">Profit factor</div><div class="v">${m.profitFactor === null ? "-" : m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2)}</div></div>
+          <div class="tb-summary-cell"><div class="k">Net pnl</div><div class="v">${fmtMoney(m.netPnL)}</div></div>
+          <div class="tb-summary-cell"><div class="k">Max drawdown</div><div class="v">${fmtMoney(m.maxDrawdown)}</div></div>
+          <div class="tb-summary-cell"><div class="k">Avg trade</div><div class="v">${fmtMoney(m.avgTrade)}</div></div>
         </div>
-        <a class="tb-report-link" href="${data.reportUrl}" target="_blank" rel="noopener">open full report ↗</a>
+        <a class="tb-report-link" href="${data.reportUrl}" target="_blank" rel="noopener">Open full report ↗</a>
         <div class="tb-bt-log-wrap">
           <button type="button" class="tb-bt-log-toggle" id="btLogToggle">▸ show full backtest log (${(data.logLines || []).length} lines)</button>
           <pre class="tb-bt-log" id="btLogBody" hidden></pre>
@@ -2396,11 +2396,11 @@ async function renderBacktestParamsStep() {
         logToggle.textContent = `${showing ? "▸ show" : "▾ hide"} full backtest log (${(data.logLines || []).length} lines)`;
       });
       submitBtn.disabled = false;
-      submitBtn.textContent = "run backtest";
+      submitBtn.textContent = "Run backtest";
     } catch (err) {
       errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
       submitBtn.disabled = false;
-      submitBtn.textContent = "run backtest";
+      submitBtn.textContent = "Run backtest";
     }
   });
 }
@@ -2414,21 +2414,21 @@ tbCredsClose.addEventListener("click", () => tbCredsModal.classList.remove("open
 tbCredsModal.addEventListener("click", e => { if (e.target === tbCredsModal) tbCredsModal.classList.remove("open"); });
 
 async function openCredentialsModal() {
-  tbCredsBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  tbCredsBody.innerHTML = `<div class="tb-form-hint">Loading...</div>`;
   tbCredsModal.classList.add("open");
   try {
     const fields = await (await fetch("/api/toolbox/credentials")).json();
     tbCredsBody.innerHTML = `
-      <div class="tb-form-hint" style="margin-bottom:14px">blank = keep current value</div>
+      <div class="tb-form-hint" style="margin-bottom:14px">Blank = keep current value</div>
       ${fields.map(f => `
         <div class="tb-form-row">
           <div class="tb-form-label">${f.key}${f.set ? "" : " (not set)"}</div>
-          <input type="text" data-cred="${f.key}" placeholder="${f.masked || "new value"}">
+          <input type="text" data-cred="${f.key}" placeholder="${f.masked || "New value"}">
         </div>
       `).join("")}
       <div id="credsErrBox"></div>
       <div id="credsMsgBox"></div>
-      <button class="tb-submit-btn" id="credsSubmit">save</button>
+      <button class="tb-submit-btn" id="credsSubmit">Save</button>
     `;
     tbCredsBody.querySelector("#credsSubmit").addEventListener("click", async () => {
       const errBox = tbCredsBody.querySelector("#credsErrBox");
@@ -2439,25 +2439,25 @@ async function openCredentialsModal() {
       tbCredsBody.querySelectorAll("input[data-cred]").forEach(inp => { if (inp.value) body[inp.dataset.cred] = inp.value; });
       const submitBtn = tbCredsBody.querySelector("#credsSubmit");
       submitBtn.disabled = true;
-      submitBtn.textContent = "saving...";
+      submitBtn.textContent = "Saving...";
       try {
         const res = await fetch("/api/toolbox/credentials", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         const data = await res.json();
         if (!res.ok) {
-          errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed"}</div>`;
+          errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed"}</div>`;
           submitBtn.disabled = false;
-          submitBtn.textContent = "save";
+          submitBtn.textContent = "Save";
           return;
         }
         msgBox.innerHTML = data.changed > 0
           ? `<div class="tb-form-hint">saved ${data.changed} value(s) — ${data.note}</div>`
-          : `<div class="tb-form-hint">nothing changed</div>`;
+          : `<div class="tb-form-hint">Nothing changed</div>`;
         submitBtn.disabled = false;
-        submitBtn.textContent = "save";
+        submitBtn.textContent = "Save";
       } catch (err) {
         errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
         submitBtn.disabled = false;
-        submitBtn.textContent = "save";
+        submitBtn.textContent = "Save";
       }
     });
   } catch (err) {
@@ -2484,20 +2484,20 @@ function openTrendingModal() {
 function renderTrendingSetupStep(confirmAllNotice) {
   tbTrendingBody.innerHTML = `
     <div class="tb-form-row">
-      <div class="tb-form-label">exchange</div>
+      <div class="tb-form-label">Exchange</div>
       <div class="tb-mode-choice" id="trendExchangeChoice">
         <button data-ex="MCX" class="picked paper">MCX Futures</button>
         <button data-ex="NSE">NSE Stocks</button>
       </div>
     </div>
     <div class="tb-form-row">
-      <div class="tb-form-label">filter (blank = scan all)</div>
+      <div class="tb-form-label">Filter (blank = scan all)</div>
       <input type="text" id="trendQuery" placeholder="e.g. ZINC, NATGAS...">
     </div>
     <div class="tb-form-hint">ADX(${14}) on daily candles, ${90}d lookback, ≥25 = trending. Rate-limited — a full scan can take a while.</div>
     ${confirmAllNotice ? `<div class="tb-warn-box">${confirmAllNotice}</div>` : ""}
     <div id="trendErrBox"></div>
-    <button class="tb-submit-btn" id="trendScanBtn">scan</button>
+    <button class="tb-submit-btn" id="trendScanBtn">Scan</button>
   `;
   const exBtns = tbTrendingBody.querySelectorAll("#trendExchangeChoice button");
   exBtns.forEach(btn => btn.addEventListener("click", () => {
@@ -2512,7 +2512,7 @@ async function runTrendingScan(confirmAll) {
   const errBox = tbTrendingBody.querySelector("#trendErrBox");
   const scanBtn = tbTrendingBody.querySelector("#trendScanBtn");
   if (errBox) errBox.innerHTML = "";
-  if (scanBtn) { scanBtn.disabled = true; scanBtn.textContent = "scanning..."; }
+  if (scanBtn) { scanBtn.disabled = true; scanBtn.textContent = "Scanning..."; }
   const q = (tbTrendingBody.querySelector("#trendQuery") || {}).value || "";
   try {
     const res = await fetch("/api/toolbox/trending/scan", {
@@ -2555,7 +2555,7 @@ async function runTrendingScan(confirmAll) {
     handleTrendingStreamResult(finalData, errorData, scanBtn);
   } catch (err) {
     if (errBox) errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
-    if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = "scan"; }
+    if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = "Scan"; }
   }
 }
 
@@ -2586,31 +2586,31 @@ function handleTrendingStreamResult(finalData, errorData, scanBtn) {
       const oldBtn = tbTrendingBody.querySelector("#trendScanBtn");
       const freshBtn = oldBtn.cloneNode(true);
       oldBtn.replaceWith(freshBtn);
-      freshBtn.textContent = "scan all anyway";
+      freshBtn.textContent = "Scan all anyway";
       freshBtn.addEventListener("click", () => runTrendingScan(true));
       return;
     }
     const errBox = tbTrendingBody.querySelector("#trendErrBox");
     if (errBox) errBox.innerHTML = `<div class="tb-err-box">${errorData.error}</div>`;
-    if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = "scan"; }
+    if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = "Scan"; }
     return;
   }
   if (finalData) {
     renderTrendingResults(finalData);
   } else {
     const errBox = tbTrendingBody.querySelector("#trendErrBox");
-    if (errBox) errBox.innerHTML = `<div class="tb-err-box">scan ended without a result — check the server log</div>`;
-    if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = "scan"; }
+    if (errBox) errBox.innerHTML = `<div class="tb-err-box">Scan ended without a result — check the server log</div>`;
+    if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = "Scan"; }
   }
 }
 
 function renderTrendingResults(data) {
   const { scanned, exchange, trending, alreadyRunning } = data;
-  let html = `<button class="tb-back-link" id="trendBack">‹ new scan</button>`;
+  let html = `<button class="tb-back-link" id="trendBack">‹ New scan</button>`;
   html += `<div class="tb-form-hint" style="margin-bottom:10px">${scanned} scanned</div>`;
 
   if (trending.length === 0 && alreadyRunning.length === 0) {
-    html += `<div class="tb-form-hint">nothing trending right now (ADX < 25)</div>`;
+    html += `<div class="tb-form-hint">Nothing trending right now (ADX < 25)</div>`;
   }
 
   // Split by category (recommended = ADX 25–30, exhausted = ADX > 30) —
@@ -2624,20 +2624,20 @@ function renderTrendingResults(data) {
     return `
       <div class="tb-trend-row">
         <div class="info">${r.underlying} <span class="adx">ADX ${r.adxVal.toFixed(1)}</span><br><span style="color:var(--dim);font-size:10px">${r.symbol}</span></div>
-        <button class="tb-trend-deploy-btn" data-deploy-idx="${idx}">deploy</button>
+        <button class="tb-trend-deploy-btn" data-deploy-idx="${idx}">Deploy</button>
       </div>`;
   }
 
   if (recommended.length > 0) {
-    html += `<div class="tb-trend-group-label">recommended (ADX 25\u201330) \u2014 not already running</div>`;
+    html += `<div class="tb-trend-group-label">Recommended (ADX 25\u201330) \u2014 not already running</div>`;
     recommended.forEach(r => { html += renderRow(r); });
   }
   if (exhausted.length > 0) {
-    html += `<div class="tb-trend-group-label" style="color:var(--yellow,#ffcc4d)">might be exhausted (ADX &gt; 30) \u2014 not already running</div>`;
+    html += `<div class="tb-trend-group-label" style="color:var(--yellow,#ffcc4d)">Might be exhausted (ADX &gt; 30) \u2014 not already running</div>`;
     exhausted.forEach(r => { html += renderRow(r); });
   }
   if (alreadyRunning.length > 0) {
-    html += `<div class="tb-trend-group-label">trending but already running</div>`;
+    html += `<div class="tb-trend-group-label">Trending but already running</div>`;
     alreadyRunning.forEach(r => {
       const tag = r.category === "exhausted" ? ` <span style="color:var(--yellow,#ffcc4d);font-size:9.5px">(might be exhausted)</span>` : "";
       html += `
@@ -2678,7 +2678,7 @@ function stateClass(state) {
 }
 
 async function openMarketModal() {
-  tbMarketBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  tbMarketBody.innerHTML = `<div class="tb-form-hint">Loading...</div>`;
   tbMarketModal.classList.add("open");
   await loadMarketStatus();
 }
@@ -2699,19 +2699,19 @@ async function loadMarketStatus() {
       </div>
       <div class="tb-search-row" style="margin-bottom:10px">
         <input type="text" id="marketAddInput" placeholder="add underlying to watchlist...">
-        <button id="marketAddBtn">add</button>
+        <button id="marketAddBtn">Add</button>
       </div>
       <div id="marketAddHint" class="tb-form-hint"></div>
       <div id="marketAddPickList" class="tb-pick-list"></div>
     `;
 
     if (entries.length === 0) {
-      html += `<div class="tb-form-hint">watchlist is empty — add an instrument above</div>`;
+      html += `<div class="tb-form-hint">Watchlist is empty — add an instrument above</div>`;
     } else {
       entries.forEach(e => {
         const p = e.profile;
         const cls = stateClass(p.structure.state);
-        const updated = p.updatedAt ? new Date(p.updatedAt).toLocaleTimeString([], { hour12: false }) : (p.unavailableReason || "no data");
+        const updated = p.updatedAt ? new Date(p.updatedAt).toLocaleTimeString([], { hour12: false }) : (p.unavailableReason || "No data");
         html += `
           <div class="tb-watch-row">
             <div class="tb-watch-main">
@@ -2748,7 +2748,7 @@ async function loadMarketStatus() {
     const addHint = tbMarketBody.querySelector("#marketAddHint");
     const addPickList = tbMarketBody.querySelector("#marketAddPickList");
     async function runMarketSearch() {
-      addHint.textContent = "searching...";
+      addHint.textContent = "Searching...";
       addPickList.innerHTML = "";
       try {
         const q = addInput.value.trim();
@@ -2759,7 +2759,7 @@ async function loadMarketStatus() {
           ...(data.matches || []).map(u => ({ underlying: u, exchange: "MCX" })),
           ...(nse.matches || []).map(u => ({ underlying: u, exchange: "NSE" })),
         ];
-        if (combined.length === 0) { addHint.textContent = "no matches"; return; }
+        if (combined.length === 0) { addHint.textContent = "No matches"; return; }
         addHint.textContent = `${combined.length} match(es)`;
         combined.slice(0, 30).forEach(m => {
           const btn = document.createElement("button");
@@ -2795,7 +2795,7 @@ tbRollClose.addEventListener("click", () => tbRollModal.classList.remove("open")
 tbRollModal.addEventListener("click", e => { if (e.target === tbRollModal) tbRollModal.classList.remove("open"); });
 
 async function openRollModal() {
-  tbRollBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  tbRollBody.innerHTML = `<div class="tb-form-hint">Loading...</div>`;
   tbRollModal.classList.add("open");
   await renderRollPickStep();
 }
@@ -2819,7 +2819,7 @@ function rollCandidateCategory(c) {
 }
 
 async function renderRollPickStep() {
-  tbRollBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  tbRollBody.innerHTML = `<div class="tb-form-hint">Loading...</div>`;
   try {
     const candidates = await (await fetch("/api/toolbox/roll/candidates")).json();
     const categorized = candidates.map(c => ({ ...c, category: rollCandidateCategory(c) }));
@@ -2842,7 +2842,7 @@ async function renderRollPickStep() {
     if (shown.length === 0) {
       html += `<div class="tb-form-hint">${candidates.length === 0 ? "no running MCX instruments to roll" : "none in this category"}</div>`;
     } else {
-      html += `<div class="tb-form-label" style="margin-bottom:8px">select underlying to roll</div>`;
+      html += `<div class="tb-form-label" style="margin-bottom:8px">Select underlying to roll</div>`;
       shown.forEach(c => {
         html += `<button class="tb-pick-item" data-roll-underlying="${c.underlying}" style="width:100%;text-align:left;margin-bottom:6px">${c.underlying} <span style="color:var(--dim);font-size:10px">— used by: ${c.labels.join(", ")}</span></button>`;
       });
@@ -2860,12 +2860,12 @@ async function renderRollPickStep() {
 }
 
 async function renderRollPreviewStep(underlying) {
-  tbRollBody.innerHTML = `<div class="tb-form-hint">resolving...</div>`;
+  tbRollBody.innerHTML = `<div class="tb-form-hint">Resolving...</div>`;
   try {
     const preview = await (await fetch(`/api/toolbox/roll/preview/${encodeURIComponent(underlying)}`)).json();
     if (preview.error) {
       tbRollBody.innerHTML = `
-        <button class="tb-back-link" id="rollBackErr">‹ back</button>
+        <button class="tb-back-link" id="rollBackErr">‹ Back</button>
         <div class="tb-err-box">${preview.error}</div>`;
       tbRollBody.querySelector("#rollBackErr").addEventListener("click", renderRollPickStep);
       return;
@@ -2879,20 +2879,20 @@ async function renderRollPreviewStep(underlying) {
 function renderRollConfirmStep(preview) {
   const { underlying, current, next, manualEntryNeeded, siblings } = preview;
   let html = `
-    <button class="tb-back-link" id="rollBack2">‹ back to instrument list</button>
+    <button class="tb-back-link" id="rollBack2">‹ Back to instrument list</button>
     <div class="tb-warn-box">⚠ MCX futures only — this instrument is confirmed MCX.</div>
     <div class="tb-resolved-box">
-      <div>instrument: <span class="sym">${underlying}</span></div>
+      <div>Instrument: <span class="sym">${underlying}</span></div>
       <div>current: ${current.symbol} (token ${current.token}, lot ${current.lotSize})</div>
-      <div>next: ${manualEntryNeeded ? '<span style="color:var(--yellow,#ffcc4d)">not found in instrument dump</span>' : `${next.symbol} (token ${next.token}, lot ${next.lotSize})`}</div>
+      <div>next: ${manualEntryNeeded ? '<span style="color:var(--yellow,#ffcc4d)">Not found in instrument dump</span>' : `${next.symbol} (token ${next.token}, lot ${next.lotSize})`}</div>
     </div>
   `;
 
   if (manualEntryNeeded) {
     html += `
       <div class="tb-warn-box">⚠ next contract not found in the local instrument dump — enter it manually.</div>
-      <div class="tb-form-row"><div class="tb-form-label">new symbol</div><input type="text" id="rollManualSymbol"></div>
-      <div class="tb-form-row"><div class="tb-form-label">new token</div><input type="number" id="rollManualToken"></div>
+      <div class="tb-form-row"><div class="tb-form-label">New symbol</div><input type="text" id="rollManualSymbol"></div>
+      <div class="tb-form-row"><div class="tb-form-label">New token</div><input type="number" id="rollManualToken"></div>
       <div class="tb-form-row"><div class="tb-form-label">new lot size (blank = same as current, ${current.lotSize})</div><input type="number" id="rollManualLot" placeholder="${current.lotSize}"></div>
     `;
   }
@@ -2905,7 +2905,7 @@ function renderRollConfirmStep(preview) {
     <label class="tb-form-row-inline" style="margin-bottom:14px"><input type="checkbox" id="rollRestartNow" checked><span>restart engine${siblings.length > 1 ? "s" : ""} immediately after saving the pin</span></label>
     <div id="rollErrBox"></div>
     <div id="rollResultBox"></div>
-    <button class="tb-submit-btn" id="rollApplyBtn">apply roll</button>
+    <button class="tb-submit-btn" id="rollApplyBtn">Apply roll</button>
   `;
 
   tbRollBody.innerHTML = html;
@@ -2924,14 +2924,14 @@ function renderRollConfirmStep(preview) {
       const token = tbRollBody.querySelector("#rollManualToken").value;
       const lotSize = tbRollBody.querySelector("#rollManualLot").value;
       if (!symbol || !token) {
-        errBox.innerHTML = `<div class="tb-err-box">symbol and token are required for a manual entry</div>`;
+        errBox.innerHTML = `<div class="tb-err-box">Symbol and token are required for a manual entry</div>`;
         return;
       }
       manualEntry = { symbol, token, lotSize: lotSize || undefined };
     }
 
     btn.disabled = true;
-    btn.textContent = "applying...";
+    btn.textContent = "Applying...";
     try {
       const res = await fetch("/api/toolbox/roll/apply", {
         method: "POST",
@@ -2944,9 +2944,9 @@ function renderRollConfirmStep(preview) {
       });
       const data = await res.json();
       if (!res.ok) {
-        errBox.innerHTML = `<div class="tb-err-box">${data.error || "roll failed"}</div>`;
+        errBox.innerHTML = `<div class="tb-err-box">${data.error || "Roll failed"}</div>`;
         btn.disabled = false;
-        btn.textContent = "apply roll";
+        btn.textContent = "Apply roll";
         return;
       }
       let resultHtml = `<div class="tb-form-hint">rolled ${data.oldSymbol} → ${data.newSymbol}${data.manual ? " (manual pin)" : ""}</div>`;
@@ -2959,7 +2959,7 @@ function renderRollConfirmStep(preview) {
     } catch (err) {
       errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
       btn.disabled = false;
-      btn.textContent = "apply roll";
+      btn.textContent = "Apply roll";
     }
   });
 }
@@ -2976,7 +2976,7 @@ let hpAddState = null; // null = showing the list; {} once "add" is opened, accu
 
 async function openHedgePairsModal() {
   hpAddState = null;
-  tbHedgePairsBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  tbHedgePairsBody.innerHTML = `<div class="tb-form-hint">Loading...</div>`;
   tbHedgePairsModal.classList.add("open");
   await loadHedgePairsList();
 }
@@ -2985,10 +2985,10 @@ async function loadHedgePairsList() {
   try {
     const { pairs } = await (await fetch("/api/toolbox/hedgepairs")).json();
 
-    let html = `<button class="tb-cli-action" id="hpAddBtn" style="margin-bottom:10px">+ add hedge pair</button>`;
+    let html = `<button class="tb-cli-action" id="hpAddBtn" style="margin-bottom:10px">+ Add hedge pair</button>`;
 
     if (pairs.length === 0) {
-      html += `<div class="tb-form-hint">none running yet</div>`;
+      html += `<div class="tb-form-hint">None running yet</div>`;
     } else {
       pairs.forEach(p => {
         const modeTag = p.live ? `<span style="color:var(--red,#f0616d)">LIVE</span>` : `<span style="color:var(--dim)">PAPER</span>`;
@@ -2998,7 +2998,7 @@ async function loadHedgePairsList() {
               <div class="tb-watch-inst">${p.name}</div>
               <div class="tb-watch-meta">core ${p.coreUnderlying} (${p.coreLots} lot) \u00b7 hedge ${p.hedgeUnderlying} (${p.hedgeLots} lots) \u00b7 unwind:${p.unwindMode} \u00b7 ${modeTag} \u00b7 [${p.status}]</div>
             </div>
-            <button class="tb-cli-action" data-hp-logs="${p.name}" style="padding:4px 8px;font-size:11px">logs</button>
+            <button class="tb-cli-action" data-hp-logs="${p.name}" style="padding:4px 8px;font-size:11px">Logs</button>
             <button class="tb-cli-action" data-hp-toggle="${p.name}" data-hp-status="${p.status}" style="padding:4px 8px;font-size:11px">${p.status === "online" ? "stop" : "start"}</button>
             <button class="tb-watch-remove" data-hp-remove="${p.name}" title="remove">\u2715</button>
           </div>`;
@@ -3032,7 +3032,7 @@ async function loadHedgePairsList() {
       btn.addEventListener("click", async () => {
         const data = await (await fetch(`/api/toolbox/hedgepairs/logs/${encodeURIComponent(btn.dataset.hpLogs)}`)).json();
         tbLogsTitle.textContent = btn.dataset.hpLogs;
-        tbLogsBody.innerHTML = `<div class="tb-log-pane"><div class="tb-log-label">stdout</div><pre>${(data.out || []).join("\n") || "(empty)"}</pre></div><div class="tb-log-pane"><div class="tb-log-label">stderr</div><pre>${(data.err || []).join("\n") || "(empty)"}</pre></div>`;
+        tbLogsBody.innerHTML = `<div class="tb-log-pane"><div class="tb-log-label">Stdout</div><pre>${(data.out || []).join("\n") || "(empty)"}</pre></div><div class="tb-log-pane"><div class="tb-log-label">Stderr</div><pre>${(data.err || []).join("\n") || "(empty)"}</pre></div>`;
         tbLogsModal.classList.add("open");
       });
     });
@@ -3050,7 +3050,7 @@ function renderHedgePairSearchStep(label, onPick) {
     <div class="tb-form-hint" style="margin:8px 0">${label}</div>
     <div class="tb-search-row">
       <input type="text" id="hpSearchInput" placeholder="search underlying...">
-      <button id="hpSearchBtn">search</button>
+      <button id="hpSearchBtn">Search</button>
     </div>
     <div id="hpSearchHint" class="tb-form-hint"></div>
     <div id="hpSearchPickList" class="tb-pick-list"></div>
@@ -3064,12 +3064,12 @@ function renderHedgePairSearchStep(label, onPick) {
   const list  = tbHedgePairsBody.querySelector("#hpSearchPickList");
   async function runSearch() {
     const q = input.value.trim();
-    hint.textContent = "searching...";
+    hint.textContent = "Searching...";
     list.innerHTML = "";
     try {
       const data = await (await fetch(`/api/toolbox/instruments?exchange=MCX&q=${encodeURIComponent(q)}`)).json();
       const matches = data.matches || [];
-      if (matches.length === 0) { hint.textContent = "no matches"; return; }
+      if (matches.length === 0) { hint.textContent = "No matches"; return; }
       hint.textContent = `${matches.length} match(es)`;
       matches.slice(0, 30).forEach(u => {
         const btn = document.createElement("button");
@@ -3107,14 +3107,14 @@ async function renderHedgePairAddForm() {
 
   tbHedgePairsBody.innerHTML = `
     <button class="tb-back-link" id="hpBack">\u2039 back</button>
-    <div class="tb-form-hint" style="margin:8px 0">core: <b>${hpAddState.core}</b> (1 lot NRML, daily-HA bias, EOD-only exit)<br>hedge: <b>${hpAddState.hedge}</b> (opens on adverse 1h HA against the core)</div>
+    <div class="tb-form-hint" style="margin:8px 0">Core: <b>${hpAddState.core}</b> (1 lot NRML, daily-HA bias, EOD-only exit)<br>Hedge: <b>${hpAddState.hedge}</b> (opens on adverse 1h HA against the core)</div>
 
     <div class="tb-form-row">
-      <div class="tb-form-label">core lots (default 1)</div>
+      <div class="tb-form-label">Core lots (default 1)</div>
       <input type="number" id="hpCoreLots" min="1" step="1" value="1">
     </div>
     <div class="tb-form-row">
-      <div class="tb-form-label">hedge lots (default 5 \u2014 the real 5:1 contract ratio for both supported pairs)</div>
+      <div class="tb-form-label">Hedge lots (default 5 \u2014 the real 5:1 contract ratio for both supported pairs)</div>
       <input type="number" id="hpHedgeLots" min="1" step="1" value="5">
     </div>
     <div class="tb-form-row" style="display:${coreLm.lotMultRequired ? "" : "none"}">
@@ -3126,17 +3126,17 @@ async function renderHedgePairAddForm() {
       <input type="number" id="hpHedgeLotMult" min="1" step="any">
     </div>
     <div class="tb-form-row">
-      <div class="tb-form-label">unwind mode</div>
+      <div class="tb-form-label">Unwind mode</div>
       <select id="hpUnwindMode">
         <option value="HA_FLIP" selected>HA_FLIP \u2014 hedge closes when 1h HA flips back in the core's favor</option>
         <option value="EOD_ONLY">EOD_ONLY \u2014 hedge stays on till EOD regardless of 1h HA</option>
       </select>
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="hpLive"><span>go LIVE (real orders on both legs) \u2014 unchecked = paper</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="hpLive"><span>Go LIVE (real orders on both legs) \u2014 unchecked = paper</span></label>
     </div>
     <div id="hpAddErrBox"></div>
-    <button class="tb-submit-btn" id="hpAddSubmit">start hedge pair</button>
+    <button class="tb-submit-btn" id="hpAddSubmit">Start hedge pair</button>
   `;
 
   tbHedgePairsBody.querySelector("#hpBack").addEventListener("click", renderHedgePairAddHedgePicker);
@@ -3147,7 +3147,7 @@ async function renderHedgePairAddForm() {
     let confirmLive;
     if (live) {
       confirmLive = prompt('This starts REAL orders on BOTH legs. Type "LIVE" to confirm:');
-      if (confirmLive !== "LIVE") { errBox.innerHTML = `<div class="tb-err-box">not confirmed \u2014 not started</div>`; return; }
+      if (confirmLive !== "LIVE") { errBox.innerHTML = `<div class="tb-err-box">Not confirmed \u2014 not started</div>`; return; }
     }
     const body = {
       coreUnderlying: hpAddState.core, hedgeUnderlying: hpAddState.hedge,
@@ -3159,22 +3159,22 @@ async function renderHedgePairAddForm() {
       live, confirmLive,
     };
     const btn = tbHedgePairsBody.querySelector("#hpAddSubmit");
-    btn.disabled = true; btn.textContent = "starting...";
+    btn.disabled = true; btn.textContent = "Starting...";
     try {
       const res = await fetch("/api/toolbox/hedgepairs", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) {
-        errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed to start"}</div>`;
-        btn.disabled = false; btn.textContent = "start hedge pair";
+        errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed to start"}</div>`;
+        btn.disabled = false; btn.textContent = "Start hedge pair";
         return;
       }
       hpAddState = null;
       loadHedgePairsList();
     } catch (err) {
       errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
-      btn.disabled = false; btn.textContent = "start hedge pair";
+      btn.disabled = false; btn.textContent = "Start hedge pair";
     }
   });
 }
@@ -3199,7 +3199,7 @@ let dhAddState = null; // null = showing the list; {} once "add" is opened, accu
 
 async function openDualHedgeModal() {
   dhAddState = null;
-  tbDualHedgeBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  tbDualHedgeBody.innerHTML = `<div class="tb-form-hint">Loading...</div>`;
   tbDualHedgeModal.classList.add("open");
   await loadDualHedgeList();
 }
@@ -3209,12 +3209,12 @@ async function loadDualHedgeList() {
     const { deployments } = await (await fetch("/api/toolbox/dualhedge")).json();
 
     let html = `<div style="display:flex;gap:8px;margin-bottom:10px">
-      <button class="tb-cli-action" id="dhAddBtn">+ add deployment</button>
-      <button class="tb-cli-action" id="dhUsersBtn">manage users</button>
+      <button class="tb-cli-action" id="dhAddBtn">+ Add deployment</button>
+      <button class="tb-cli-action" id="dhUsersBtn">Manage users</button>
     </div>`;
 
     if (deployments.length === 0) {
-      html += `<div class="tb-form-hint">none running yet \u2014 add accounts under "manage users" first, then a deployment</div>`;
+      html += `<div class="tb-form-hint">None running yet \u2014 add accounts under "manage users" first, then a deployment</div>`;
     } else {
       deployments.forEach(d => {
         const modeTag = d.live ? `<span style="color:var(--red,#f0616d)">LIVE</span>` : `<span style="color:var(--dim)">PAPER</span>`;
@@ -3224,7 +3224,7 @@ async function loadDualHedgeList() {
               <div class="tb-watch-inst">${d.name}</div>
               <div class="tb-watch-meta">${d.underlying} \u00b7 LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot \u00b7 maxLoss:\u20b9${d.maxLoss} (armed only after a flip) \u00b7 ${modeTag} \u00b7 [${d.status}]</div>
             </div>
-            <button class="tb-cli-action" data-dh-logs="${d.name}" style="padding:4px 8px;font-size:11px">logs</button>
+            <button class="tb-cli-action" data-dh-logs="${d.name}" style="padding:4px 8px;font-size:11px">Logs</button>
             <button class="tb-cli-action" data-dh-toggle="${d.name}" data-dh-status="${d.status}" style="padding:4px 8px;font-size:11px">${d.status === "online" ? "stop" : "start"}</button>
             <button class="tb-watch-remove" data-dh-remove="${d.name}" title="remove">\u2715</button>
           </div>`;
@@ -3259,7 +3259,7 @@ async function loadDualHedgeList() {
       btn.addEventListener("click", async () => {
         const data = await (await fetch(`/api/toolbox/dualhedge/logs/${encodeURIComponent(btn.dataset.dhLogs)}`)).json();
         tbLogsTitle.textContent = btn.dataset.dhLogs;
-        tbLogsBody.innerHTML = `<div class="tb-log-pane"><div class="tb-log-label">stdout</div><pre>${(data.out || []).join("\n") || "(empty)"}</pre></div><div class="tb-log-pane"><div class="tb-log-label">stderr</div><pre>${(data.err || []).join("\n") || "(empty)"}</pre></div>`;
+        tbLogsBody.innerHTML = `<div class="tb-log-pane"><div class="tb-log-label">Stdout</div><pre>${(data.out || []).join("\n") || "(empty)"}</pre></div><div class="tb-log-pane"><div class="tb-log-label">Stderr</div><pre>${(data.err || []).join("\n") || "(empty)"}</pre></div>`;
         tbLogsModal.classList.add("open");
       });
     });
@@ -3276,14 +3276,14 @@ async function loadDualHedgeList() {
 // for generating a token too (same underlying endpoints), just not the
 // only place anymore.
 async function renderDualHedgeUsers() {
-  tbDualHedgeBody.innerHTML = `<div class="tb-form-hint">loading...</div>`;
+  tbDualHedgeBody.innerHTML = `<div class="tb-form-hint">Loading...</div>`;
   try {
     const { users } = await (await fetch("/api/toolbox/dualhedge/users")).json();
     let html = `<button class="tb-back-link" id="dhUsersBack">\u2039 back</button>
       <div class="tb-form-hint" style="margin:8px 0">Each account here is a SEPARATE Kite login \u2014 not the same as this app's own "setup credentials" account. Tokens can also be generated from the header's token panel.</div>`;
 
     if (users.length === 0) {
-      html += `<div class="tb-form-hint">none yet</div>`;
+      html += `<div class="tb-form-hint">None yet</div>`;
     } else {
       users.forEach(u => {
         // "generate token" is a real <a> link (href set right after render,
@@ -3302,14 +3302,14 @@ async function renderDualHedgeUsers() {
               <div class="tb-watch-inst">${u.name}</div>
               <div class="tb-watch-meta">key:${u.hasApiKey ? "set" : "MISSING"} \u00b7 secret:${u.hasApiSecret ? "set" : "MISSING"} \u00b7 token:${tokenStatus}</div>
             </div>
-            <a class="tb-cli-action" id="dhTokenLink-${u.name}" data-dh-token-toggle="${u.name}" href="#" target="_blank" rel="noopener" style="padding:4px 8px;font-size:11px;text-decoration:none">generate token</a>
+            <a class="tb-cli-action" id="dhTokenLink-${u.name}" data-dh-token-toggle="${u.name}" href="#" target="_blank" rel="noopener" style="padding:4px 8px;font-size:11px;text-decoration:none">Generate token</a>
             <button class="tb-watch-remove" data-dh-user-remove="${u.name}" title="remove">\u2715</button>
           </div>
           <div class="tb-form-hint" id="dhTokenPanel-${u.name}" style="display:none;margin:4px 0 12px 4px">
             <div style="margin-bottom:4px">after logging in as ${u.name}, paste the request_token (or the full redirect URL) here:</div>
             <div class="tb-search-row">
               <input type="text" id="dhTokenInput-${u.name}" placeholder="request_token or redirect URL">
-              <button data-dh-token-exchange="${u.name}">exchange</button>
+              <button data-dh-token-exchange="${u.name}">Exchange</button>
             </div>
             <div id="dhTokenErr-${u.name}"></div>
           </div>`;
@@ -3317,12 +3317,12 @@ async function renderDualHedgeUsers() {
     }
 
     html += `
-      <div class="tb-form-hint" style="margin:14px 0 6px"><b>add a user</b></div>
-      <div class="tb-form-row"><div class="tb-form-label">name (a label, e.g. a family member's name)</div><input type="text" id="dhUserName"></div>
+      <div class="tb-form-hint" style="margin:14px 0 6px"><b>Add a user</b></div>
+      <div class="tb-form-row"><div class="tb-form-label">Name (a label, e.g. a family member's name)</div><input type="text" id="dhUserName"></div>
       <div class="tb-form-row"><div class="tb-form-label">Kite API key</div><input type="text" id="dhUserApiKey"></div>
       <div class="tb-form-row"><div class="tb-form-label">Kite API secret</div><input type="password" id="dhUserApiSecret"></div>
       <div id="dhUserAddErrBox"></div>
-      <button class="tb-submit-btn" id="dhUserAddSubmit">save user</button>
+      <button class="tb-submit-btn" id="dhUserAddSubmit">Save user</button>
     `;
 
     tbDualHedgeBody.innerHTML = html;
@@ -3366,11 +3366,11 @@ async function renderDualHedgeUsers() {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, requestToken: val }),
           });
           const data = await res.json();
-          if (!res.ok) { errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed"}</div>`; btn.disabled = false; btn.textContent = "exchange"; return; }
+          if (!res.ok) { errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed"}</div>`; btn.disabled = false; btn.textContent = "Exchange"; return; }
           renderDualHedgeUsers();
         } catch (err) {
           errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
-          btn.disabled = false; btn.textContent = "exchange";
+          btn.disabled = false; btn.textContent = "Exchange";
         }
       });
     });
@@ -3389,21 +3389,21 @@ async function renderDualHedgeUsers() {
         apiSecret: tbDualHedgeBody.querySelector("#dhUserApiSecret").value.trim(),
       };
       if (!body.name || !body.apiKey || !body.apiSecret) {
-        errBox.innerHTML = `<div class="tb-err-box">name, API key and API secret are all required</div>`;
+        errBox.innerHTML = `<div class="tb-err-box">Name, API key and API secret are all required</div>`;
         return;
       }
       const btn = tbDualHedgeBody.querySelector("#dhUserAddSubmit");
-      btn.disabled = true; btn.textContent = "saving...";
+      btn.disabled = true; btn.textContent = "Saving...";
       try {
         const res = await fetch("/api/toolbox/dualhedge/users", {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
         });
         const data = await res.json();
-        if (!res.ok) { errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed"}</div>`; btn.disabled = false; btn.textContent = "save user"; return; }
+        if (!res.ok) { errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed"}</div>`; btn.disabled = false; btn.textContent = "Save user"; return; }
         renderDualHedgeUsers();
       } catch (err) {
         errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
-        btn.disabled = false; btn.textContent = "save user";
+        btn.disabled = false; btn.textContent = "Save user";
       }
     });
   } catch (err) {
@@ -3417,10 +3417,10 @@ async function renderDualHedgeUsers() {
 function renderDualHedgeAddUnderlyingPicker() {
   tbDualHedgeBody.innerHTML = `
     <button class="tb-back-link" id="dhBack">\u2039 back</button>
-    <div class="tb-form-hint" style="margin:8px 0">underlying (both accounts trade this same instrument, opposite directions)</div>
+    <div class="tb-form-hint" style="margin:8px 0">Underlying (both accounts trade this same instrument, opposite directions)</div>
     <div class="tb-search-row">
       <input type="text" id="dhSearchInput" placeholder="search underlying...">
-      <button id="dhSearchBtn">search</button>
+      <button id="dhSearchBtn">Search</button>
     </div>
     <div id="dhSearchHint" class="tb-form-hint"></div>
     <div id="dhSearchPickList" class="tb-pick-list"></div>
@@ -3431,12 +3431,12 @@ function renderDualHedgeAddUnderlyingPicker() {
   const list  = tbDualHedgeBody.querySelector("#dhSearchPickList");
   async function runSearch() {
     const q = input.value.trim();
-    hint.textContent = "searching...";
+    hint.textContent = "Searching...";
     list.innerHTML = "";
     try {
       const data = await (await fetch(`/api/toolbox/instruments?exchange=MCX&q=${encodeURIComponent(q)}`)).json();
       const matches = data.matches || [];
-      if (matches.length === 0) { hint.textContent = "no matches"; return; }
+      if (matches.length === 0) { hint.textContent = "No matches"; return; }
       hint.textContent = `${matches.length} match(es)`;
       matches.slice(0, 30).forEach(u => {
         const btn = document.createElement("button");
@@ -3473,22 +3473,22 @@ async function renderDualHedgeAddForm() {
 
   tbDualHedgeBody.innerHTML = `
     <button class="tb-back-link" id="dhBack">\u2039 back</button>
-    <div class="tb-form-hint" style="margin:8px 0">underlying: <b>${dhAddState.underlying}</b><br>LONG account enters LONG only, SHORT account enters SHORT only \u2014 both carry overnight, SL only arms after that leg's own first adverse flip.</div>
+    <div class="tb-form-hint" style="margin:8px 0">Underlying: <b>${dhAddState.underlying}</b><br>LONG account enters LONG only, SHORT account enters SHORT only \u2014 both carry overnight, SL only arms after that leg's own first adverse flip.</div>
 
     <div class="tb-form-row"><div class="tb-form-label">LONG account</div><select id="dhLongUser">${userOptions}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">SHORT account (must differ from LONG)</div><select id="dhShortUser">${userOptions}</select></div>
-    <div class="tb-form-row"><div class="tb-form-label">lots per leg (default 1)</div><input type="number" id="dhLots" min="1" step="1" value="1"></div>
-    <div class="tb-form-row"><div class="tb-form-label">max-loss cut in rupees, armed only after a leg's own first adverse flip (default 3000)</div><input type="number" id="dhMaxLoss" min="1" step="1" value="3000"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Lots per leg (default 1)</div><input type="number" id="dhLots" min="1" step="1" value="1"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Max-loss cut in rupees, armed only after a leg's own first adverse flip (default 3000)</div><input type="number" id="dhMaxLoss" min="1" step="1" value="3000"></div>
     <div class="tb-form-row" style="display:${lm.lotMultRequired ? "" : "none"}">
       <div class="tb-form-label">lot multiplier \u2014 REQUIRED, no context.js override on file for ${dhAddState.underlying}. Real contract multiplier, not broker lot_size.</div>
       <input type="number" id="dhLotMult" min="1" step="any">
     </div>
-    <div class="tb-form-row"><div class="tb-form-label">band step override (blank = engine default)</div><input type="number" id="dhBandStep" min="0" step="any"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dhBandStep" min="0" step="any"></div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="dhLive"><span>go LIVE (real orders on BOTH accounts) \u2014 unchecked = paper</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="dhLive"><span>Go LIVE (real orders on BOTH accounts) \u2014 unchecked = paper</span></label>
     </div>
     <div id="dhAddErrBox"></div>
-    <button class="tb-submit-btn" id="dhAddSubmit">start dual hedge</button>
+    <button class="tb-submit-btn" id="dhAddSubmit">Start dual hedge</button>
   `;
 
   tbDualHedgeBody.querySelector("#dhBack").addEventListener("click", renderDualHedgeAddUnderlyingPicker);
@@ -3505,7 +3505,7 @@ async function renderDualHedgeAddForm() {
     let confirmLive;
     if (live) {
       confirmLive = prompt('This starts REAL orders on BOTH accounts. Type "LIVE" to confirm:');
-      if (confirmLive !== "LIVE") { errBox.innerHTML = `<div class="tb-err-box">not confirmed \u2014 not started</div>`; return; }
+      if (confirmLive !== "LIVE") { errBox.innerHTML = `<div class="tb-err-box">Not confirmed \u2014 not started</div>`; return; }
     }
     const body = {
       underlying: dhAddState.underlying, longUser, shortUser,
@@ -3516,22 +3516,22 @@ async function renderDualHedgeAddForm() {
       live, confirmLive,
     };
     const btn = tbDualHedgeBody.querySelector("#dhAddSubmit");
-    btn.disabled = true; btn.textContent = "starting...";
+    btn.disabled = true; btn.textContent = "Starting...";
     try {
       const res = await fetch("/api/toolbox/dualhedge", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) {
-        errBox.innerHTML = `<div class="tb-err-box">${data.error || "failed to start"}</div>`;
-        btn.disabled = false; btn.textContent = "start dual hedge";
+        errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed to start"}</div>`;
+        btn.disabled = false; btn.textContent = "Start dual hedge";
         return;
       }
       dhAddState = null;
       loadDualHedgeList();
     } catch (err) {
       errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
-      btn.disabled = false; btn.textContent = "start dual hedge";
+      btn.disabled = false; btn.textContent = "Start dual hedge";
     }
   });
 }

@@ -16,7 +16,7 @@
   <div class="lock-content">
     <div class="lock-icon">◆</div>
     <div class="lock-title">TALGO-X</div>
-    <div class="lock-subtitle" id="lockSubtitle">enter pin to continue</div>
+    <div class="lock-subtitle" id="lockSubtitle">Enter pin to continue</div>
     <div class="lock-dots" id="lockDots"></div>
     <div class="lock-error" id="lockError"></div>
     <div class="lock-keypad" id="lockKeypad">
@@ -40,7 +40,7 @@
           <svg viewBox="0 0 24 24" class="success-check"><path d="M4 12.5l5 5L20 6.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </div>
       </div>
-      <div class="success-label">access granted</div>
+      <div class="success-label">Access granted</div>
     </div>
   </div>
 </div>
@@ -54,28 +54,28 @@
   <div class="topbar-row">
     <div class="wordmark">
       <span class="wordmark-text">TALGO<span class="wordmark-x">-X</span></span>
-      <span class="wordmark-sub">live operator dashboard</span>
+      <span class="wordmark-sub">Live operator dashboard</span>
     </div>
     <div class="conn-status" id="connStatus">
       <span class="conn-dot"></span>
-      <span class="conn-label">connecting</span>
+      <span class="conn-label">Connecting</span>
     </div>
   </div>
 
   <div class="topbar-row topbar-row-secondary">
     <div class="session-strip">
       <div class="session-metric">
-        <span class="session-label">session pnl</span>
+        <span class="session-label">Session pnl</span>
         <span class="session-value" id="totalSessionPnl">+0</span>
       </div>
       <div class="session-metric">
-        <span class="session-label">engines</span>
+        <span class="session-label">Engines</span>
         <span class="session-value" id="engineCount">0</span>
       </div>
     </div>
     <a class="token-btn" id="tokenBtn" href="#">
       <span class="token-dot" id="tokenDot"></span>
-      <span id="tokenLabel">generate token</span>
+      <span id="tokenLabel">Generate token</span>
     </a>
   </div>
 
@@ -93,22 +93,22 @@
 </header>
 
 <div class="tabbar">
-  <button class="tab active" id="tabDashboard" data-tab="dashboard">dashboard</button>
-  <button class="tab" id="tabToolbox" data-tab="toolbox">toolbox</button>
-  <button class="tab" id="tabRisk" data-tab="risk">risk</button>
+  <button class="tab active" id="tabDashboard" data-tab="dashboard">Dashboard</button>
+  <button class="tab" id="tabToolbox" data-tab="toolbox">Toolbox</button>
+  <button class="tab" id="tabRisk" data-tab="risk">Risk</button>
   <div class="tabbar-spacer"></div>
-  <button class="btn btn-ghost tabbar-layout-btn" id="layoutEditToggle" title="drag panels by their header, resize from the bottom-right corner">⛶ layout</button>
-  <button class="btn btn-ghost tabbar-layout-btn" id="layoutResetBtn" style="display:none" title="restore the default arrangement">reset</button>
+  <button class="btn btn-ghost tabbar-layout-btn" id="layoutEditToggle" title="Drag panels by their header, resize from the bottom-right corner">⛶ Layout</button>
+  <button class="btn btn-ghost tabbar-layout-btn" id="layoutResetBtn" style="display:none" title="Restore the default arrangement">Reset</button>
 </div>
 
 <main class="layout" id="dashboardView">
   <section class="panel instruments-panel" id="instrumentsPanel">
     <div class="panel-head">
       <span class="panel-title">┌─ INSTRUMENTS ─┐</span>
-      <button class="btn btn-ghost" id="refreshBtn">refresh</button>
+      <button class="btn btn-ghost" id="refreshBtn">Refresh</button>
     </div>
     <div class="instrument-grid" id="instrumentGrid">
-      <div class="empty-state">no engines detected — waiting on PM2...</div>
+      <div class="empty-state">No engines detected — waiting on PM2...</div>
     </div>
   </section>
 
@@ -131,7 +131,7 @@
       <span class="panel-title">┌─ LIVE LOG ─┐</span>
       <label class="autoscroll-toggle">
         <input type="checkbox" id="autoscrollToggle" checked>
-        <span>auto-scroll</span>
+        <span>Auto-scroll</span>
       </label>
     </div>
     <div class="log-stream" id="logStream"></div>
@@ -142,39 +142,39 @@
   <section class="panel toolbox-panel">
     <div class="panel-head">
       <span class="panel-title">┌─ TOOLBOX ─┐</span>
-      <button class="btn btn-ghost" id="toolboxRefreshBtn">refresh</button>
+      <button class="btn btn-ghost" id="toolboxRefreshBtn">Refresh</button>
     </div>
 
     <div class="toolbox-bulkbar">
       <label class="tb-selectall">
         <input type="checkbox" id="tbSelectAll">
-        <span>select all</span>
+        <span>Select all</span>
       </label>
       <div class="tb-bulk-actions">
-        <button class="btn btn-start" id="tbStart">start</button>
-        <button class="btn btn-stop" id="tbStop">stop</button>
-        <button class="btn btn-restart" id="tbRestart">restart</button>
-        <button class="btn btn-mode" id="tbMode">mode</button>
-        <button class="btn btn-danger" id="tbDelete">delete</button>
+        <button class="btn btn-start" id="tbStart">Start</button>
+        <button class="btn btn-stop" id="tbStop">Stop</button>
+        <button class="btn btn-restart" id="tbRestart">Restart</button>
+        <button class="btn btn-mode" id="tbMode">Mode</button>
+        <button class="btn btn-danger" id="tbDelete">Delete</button>
       </div>
     </div>
 
     <div class="toolbox-list" id="toolboxList">
-      <div class="empty-state">no engines detected</div>
+      <div class="empty-state">No engines detected</div>
     </div>
 
     <div class="toolbox-cli-only">
-      <div class="tb-cli-title">toolbox actions</div>
+      <div class="tb-cli-title">Toolbox actions</div>
       <div class="tb-cli-grid">
-        <button class="tb-cli-action" id="tbOpenAddInstrument">+ add instrument</button>
-        <button class="tb-cli-action" id="tbOpenBacktest">▸ backtest</button>
-        <button class="tb-cli-action" id="tbOpenCredentials">⚙ setup credentials</button>
-        <button class="tb-cli-action" id="tbOpenTrending">↗ trending instruments</button>
-        <button class="tb-cli-action" id="tbOpenMarketStatus">◎ market status</button>
-        <button class="tb-cli-action" id="tbOpenRoll">↻ roll contract</button>
-        <button class="tb-cli-action" id="tbOpenCustomStrategy">⚒ custom strategy</button>
-        <button class="tb-cli-action" id="tbOpenHedgePairs">⇄ hedge pairs</button>
-        <button class="tb-cli-action" id="tbOpenDualHedge">⇅ dual hedge</button>
+        <button class="tb-cli-action" id="tbOpenAddInstrument">+ Add instrument</button>
+        <button class="tb-cli-action" id="tbOpenBacktest">▸ Backtest</button>
+        <button class="tb-cli-action" id="tbOpenCredentials">⚙ Setup credentials</button>
+        <button class="tb-cli-action" id="tbOpenTrending">↗ Trending instruments</button>
+        <button class="tb-cli-action" id="tbOpenMarketStatus">◎ Market status</button>
+        <button class="tb-cli-action" id="tbOpenRoll">↻ Roll contract</button>
+        <button class="tb-cli-action" id="tbOpenCustomStrategy">⚒ Custom strategy</button>
+        <button class="tb-cli-action" id="tbOpenHedgePairs">⇄ Hedge pairs</button>
+        <button class="tb-cli-action" id="tbOpenDualHedge">⇅ Dual hedge</button>
       </div>
     </div>
   </section>
@@ -184,7 +184,7 @@
   <section class="panel toolbox-panel" style="flex:1">
     <div class="panel-head">
       <span class="panel-title">┌─ RISK MANAGEMENT ─┐</span>
-      <button class="btn btn-ghost" id="riskRefreshBtn">refresh</button>
+      <button class="btn btn-ghost" id="riskRefreshBtn">Refresh</button>
     </div>
     <div class="tb-form-hint" style="padding:8px 16px 0">Per-instrument entry gates — chop filter, double-order cap, ATR SL, volume SMA, and the long-candle/volatility-shock filter. Tap an instrument to open its full risk settings.</div>
     <div class="toolbox-list" id="riskList"></div>
@@ -195,8 +195,8 @@
 <div class="tb-modal" id="tbLogsModal">
   <div class="tb-modal-content">
     <div class="tb-modal-head">
-      <span id="tbLogsTitle">logs</span>
-      <button class="btn btn-ghost" id="tbLogsClose">close</button>
+      <span id="tbLogsTitle">Logs</span>
+      <button class="btn btn-ghost" id="tbLogsClose">Close</button>
     </div>
     <div class="tb-modal-body" id="tbLogsBody"></div>
   </div>
@@ -206,8 +206,8 @@
 <div class="tb-modal" id="tbModeModal">
   <div class="tb-modal-content tb-modal-narrow">
     <div class="tb-modal-head">
-      <span>switch mode</span>
-      <button class="btn btn-ghost" id="tbModeClose">close</button>
+      <span>Switch mode</span>
+      <button class="btn btn-ghost" id="tbModeClose">Close</button>
     </div>
     <div class="tb-modal-body" id="tbModeBody"></div>
   </div>
@@ -217,8 +217,8 @@
 <div class="tb-modal" id="tbEditModal">
   <div class="tb-modal-content">
     <div class="tb-modal-head">
-      <span id="tbEditTitle">edit params</span>
-      <button class="btn btn-ghost" id="tbEditClose">close</button>
+      <span id="tbEditTitle">Edit params</span>
+      <button class="btn btn-ghost" id="tbEditClose">Close</button>
     </div>
     <div class="tb-modal-body" id="tbEditBody"></div>
   </div>
@@ -228,8 +228,8 @@
 <div class="tb-modal" id="tbAddModal">
   <div class="tb-modal-content">
     <div class="tb-modal-head">
-      <span>add instrument</span>
-      <button class="btn btn-ghost" id="tbAddClose">close</button>
+      <span>Add instrument</span>
+      <button class="btn btn-ghost" id="tbAddClose">Close</button>
     </div>
     <div class="tb-modal-body" id="tbAddBody"></div>
   </div>
@@ -239,8 +239,8 @@
 <div class="tb-modal" id="tbCustomModal">
   <div class="tb-modal-content">
     <div class="tb-modal-head">
-      <span>create your own strategy</span>
-      <button class="btn btn-ghost" id="tbCustomClose">close</button>
+      <span>Create your own strategy</span>
+      <button class="btn btn-ghost" id="tbCustomClose">Close</button>
     </div>
     <div class="tb-modal-body" id="tbCustomBody"></div>
   </div>
@@ -250,8 +250,8 @@
 <div class="tb-modal" id="tbHedgePairsModal">
   <div class="tb-modal-content">
     <div class="tb-modal-head">
-      <span>hedge pairs</span>
-      <button class="btn btn-ghost" id="tbHedgePairsClose">close</button>
+      <span>Hedge pairs</span>
+      <button class="btn btn-ghost" id="tbHedgePairsClose">Close</button>
     </div>
     <div class="tb-modal-body" id="tbHedgePairsBody"></div>
   </div>
@@ -261,8 +261,8 @@
 <div class="tb-modal" id="tbDualHedgeModal">
   <div class="tb-modal-content">
     <div class="tb-modal-head">
-      <span>dual hedge</span>
-      <button class="btn btn-ghost" id="tbDualHedgeClose">close</button>
+      <span>Dual hedge</span>
+      <button class="btn btn-ghost" id="tbDualHedgeClose">Close</button>
     </div>
     <div class="tb-modal-body" id="tbDualHedgeBody"></div>
   </div>
@@ -272,8 +272,8 @@
 <div class="tb-modal" id="tbBacktestModal">
   <div class="tb-modal-content">
     <div class="tb-modal-head">
-      <span>backtest</span>
-      <button class="btn btn-ghost" id="tbBacktestClose">close</button>
+      <span>Backtest</span>
+      <button class="btn btn-ghost" id="tbBacktestClose">Close</button>
     </div>
     <div class="tb-modal-body" id="tbBacktestBody"></div>
   </div>
@@ -283,8 +283,8 @@
 <div class="tb-modal" id="tbCredsModal">
   <div class="tb-modal-content tb-modal-narrow">
     <div class="tb-modal-head">
-      <span>setup credentials</span>
-      <button class="btn btn-ghost" id="tbCredsClose">close</button>
+      <span>Setup credentials</span>
+      <button class="btn btn-ghost" id="tbCredsClose">Close</button>
     </div>
     <div class="tb-modal-body" id="tbCredsBody"></div>
   </div>
@@ -294,8 +294,8 @@
 <div class="tb-modal" id="tbTrendingModal">
   <div class="tb-modal-content">
     <div class="tb-modal-head">
-      <span>trending instruments</span>
-      <button class="btn btn-ghost" id="tbTrendingClose">close</button>
+      <span>Trending instruments</span>
+      <button class="btn btn-ghost" id="tbTrendingClose">Close</button>
     </div>
     <div class="tb-modal-body" id="tbTrendingBody"></div>
   </div>
@@ -305,8 +305,8 @@
 <div class="tb-modal" id="tbMarketModal">
   <div class="tb-modal-content">
     <div class="tb-modal-head">
-      <span>market status</span>
-      <button class="btn btn-ghost" id="tbMarketClose">close</button>
+      <span>Market status</span>
+      <button class="btn btn-ghost" id="tbMarketClose">Close</button>
     </div>
     <div class="tb-modal-body" id="tbMarketBody"></div>
   </div>
@@ -316,8 +316,8 @@
 <div class="tb-modal" id="tbRollModal">
   <div class="tb-modal-content">
     <div class="tb-modal-head">
-      <span>roll contract</span>
-      <button class="btn btn-ghost" id="tbRollClose">close</button>
+      <span>Roll contract</span>
+      <button class="btn btn-ghost" id="tbRollClose">Close</button>
     </div>
     <div class="tb-modal-body" id="tbRollBody"></div>
   </div>
