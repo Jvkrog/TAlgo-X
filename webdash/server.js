@@ -1695,34 +1695,13 @@ async function getDualHedgeProcesses() {
             uptime:     p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
             lots:       p.pm2_env.env?.DH_LOTS_OVERRIDE || "1",
             maxLoss:    p.pm2_env.env?.DH_MAX_LOSS_RUPEES_OVERRIDE || "3000",
+            gapCapture: p.pm2_env.env?.DH_GAP_CAPTURE === "true",
+            gcEntry:    `${String(p.pm2_env.env?.DH_GC_ENTRY_HOUR_OVERRIDE ?? "11").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_ENTRY_MINUTE_OVERRIDE ?? "20").padStart(2, "0")}`,
+            gcExit:     `${String(p.pm2_env.env?.DH_GC_EXIT_HOUR_OVERRIDE ?? "11").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_EXIT_MINUTE_OVERRIDE ?? "25").padStart(2, "0")}`,
             live:       p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:   p.pm2_env.env?.DH_EXCHANGE_OVERRIDE || "MCX",
             outLogPath: p.pm2_env.pm_out_log_path,
             errLogPath: p.pm2_env.pm_err_log_path,
-        }));
-}
-
-// Same shape as getDualHedgeProcesses() above, for gapCaptureEngine.js's
-// GC_* env vars — see that file's header for the full spec (fixed-time
-// dual-account entry/exit, vs. Dual Hedge's band-signal trigger). No
-// webdash deploy screen for Gap Capture yet (toolbox.js's CLI "Y" menu is
-// the only way to start one right now) — this function exists ONLY so
-// the roll-contract routes below can see and protect these deployments
-// too; a contract expiring out from under a live Gap Capture leg is just
-// as real a risk as for Dual Hedge, deploy UI or not.
-async function getGapCaptureProcesses() {
-    const list = await pm2List();
-    return list
-        .filter(p => p.pm2_env.env?.GC_UNDERLYING)
-        .map(p => ({
-            name:       p.name,
-            underlying: p.pm2_env.env.GC_UNDERLYING,
-            longUser:   p.pm2_env.env.GC_LONG_USER,
-            shortUser:  p.pm2_env.env.GC_SHORT_USER,
-            status:     p.pm2_env.status,
-            uptime:     p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
-            live:       p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
-            exchange:   p.pm2_env.env?.GC_EXCHANGE_OVERRIDE || "MCX",
         }));
 }
 
@@ -1830,6 +1809,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     const {
         underlying, longUser, shortUser, lots, maxLossRupees,
         lotMultOverride, bandStepOverride, live, confirmLive,
+        gapCapture, gcEntry, gcExit,
     } = req.body || {};
 
     if (!underlying || !longUser || !shortUser) {
@@ -1857,6 +1837,22 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         return res.status(400).json({ error: `lotMultOverride is required for ${underlying} (no context.js override on file)` });
     }
 
+    // Gap capture is an option of this deployment (DH_GAP_CAPTURE), not a separate engine.
+    let gcE = null, gcX = null;
+    if (gapCapture) {
+        const parse = (v, dflt) => {
+            const m = String(v || dflt).trim().match(/^(\d{1,2}):(\d{2})$/);
+            if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+            return { hour: Number(m[1]), minute: Number(m[2]) };
+        };
+        gcE = parse(gcEntry, "11:20");
+        gcX = parse(gcExit, "11:25");
+        if (!gcE || !gcX) return res.status(400).json({ error: "gap capture times must be HH:MM (IST)" });
+        if (gcX.hour < gcE.hour || (gcX.hour === gcE.hour && gcX.minute <= gcE.minute)) {
+            return res.status(400).json({ error: "gap capture exit time must be after entry time" });
+        }
+    }
+
     const name = `${getShortName(underlying)}DualHedge`;
     const env = {
         DH_UNDERLYING: underlying, DH_LONG_USER: dualHedgeUsers.sanitizeName(longUser), DH_SHORT_USER: dualHedgeUsers.sanitizeName(shortUser),
@@ -1865,6 +1861,12 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     };
     if (lotMultOverride)  env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
     if (bandStepOverride) env.DH_BAND_STEP_OVERRIDE = String(bandStepOverride);
+    // Always written explicitly (PM2 restart merges env, never clears it).
+    env.DH_GAP_CAPTURE = String(!!gapCapture);
+    if (gapCapture) {
+        env.DH_GC_ENTRY_HOUR_OVERRIDE = String(gcE.hour); env.DH_GC_ENTRY_MINUTE_OVERRIDE = String(gcE.minute);
+        env.DH_GC_EXIT_HOUR_OVERRIDE  = String(gcX.hour); env.DH_GC_EXIT_MINUTE_OVERRIDE  = String(gcX.minute);
+    }
 
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: ROOT, env });
@@ -1940,8 +1942,7 @@ app.get("/api/toolbox/roll/candidates", async (req, res) => {
         const procs = (await getEngineProcesses()).filter(p => p.exchange !== "NSE");
         const hedgePairs = await getHedgePairProcesses();
         const dualHedges = await getDualHedgeProcesses();
-        const gapCaptures = await getGapCaptureProcesses();
-
+    
         const byUnderlying = new Map(); // underlying -> { underlying, exchange, labels: [] }
         const addRef = (underlying, exchange, label) => {
             if (!byUnderlying.has(underlying)) byUnderlying.set(underlying, { underlying, exchange, labels: [] });
@@ -1953,7 +1954,6 @@ app.get("/api/toolbox/roll/candidates", async (req, res) => {
             addRef(p.hedgeUnderlying, p.exchange, `${p.name} (hedge leg)`);
         });
         dualHedges.forEach(p => addRef(p.underlying, p.exchange, `${p.name} (dual hedge)`));
-        gapCaptures.forEach(p => addRef(p.underlying, p.exchange, `${p.name} (gap capture)`));
 
         res.json(Array.from(byUnderlying.values()));
     } catch (err) {
@@ -1967,14 +1967,12 @@ app.get("/api/toolbox/roll/preview/:underlying", async (req, res) => {
         const procs = await getEngineProcesses();
         const hedgePairs = await getHedgePairProcesses();
         const dualHedges = await getDualHedgeProcesses();
-        const gapCaptures = await getGapCaptureProcesses();
-        const siblings = procs.filter(sib => sib.underlying === underlying);
+            const siblings = procs.filter(sib => sib.underlying === underlying);
         const affectedPairs = hedgePairs.filter(hp => hp.coreUnderlying === underlying || hp.hedgeUnderlying === underlying);
         const affectedDuals = dualHedges.filter(dh => dh.underlying === underlying);
-        const affectedGaps  = gapCaptures.filter(gc => gc.underlying === underlying);
-        if (siblings.length === 0 && affectedPairs.length === 0 && affectedDuals.length === 0 && affectedGaps.length === 0) return res.status(404).json({ error: `no running processes for ${underlying}` });
+        if (siblings.length === 0 && affectedPairs.length === 0 && affectedDuals.length === 0) return res.status(404).json({ error: `no running processes for ${underlying}` });
 
-        const exchange = siblings[0]?.exchange || affectedPairs[0]?.exchange || affectedDuals[0]?.exchange || affectedGaps[0]?.exchange;
+        const exchange = siblings[0]?.exchange || affectedPairs[0]?.exchange || affectedDuals[0]?.exchange;
         const def = getDefinition(underlying, exchange);
         if (def.noRoll) {
             return res.status(400).json({
@@ -2004,7 +2002,6 @@ app.get("/api/toolbox/roll/preview/:underlying", async (req, res) => {
                 ...siblings.map(s => ({ name: s.name, strategy: s.strategy })),
                 ...affectedPairs.map(hp => ({ name: hp.name, strategy: `hedge pair (${hp.coreUnderlying === underlying ? "core" : "hedge"} leg)` })),
                 ...affectedDuals.map(dh => ({ name: dh.name, strategy: "dual hedge" })),
-                ...affectedGaps.map(gc => ({ name: gc.name, strategy: "gap capture" })),
             ],
         });
     } catch (err) {
@@ -2020,14 +2017,12 @@ app.post("/api/toolbox/roll/apply", async (req, res) => {
         const procs = await getEngineProcesses();
         const hedgePairs = await getHedgePairProcesses();
         const dualHedges = await getDualHedgeProcesses();
-        const gapCaptures = await getGapCaptureProcesses();
-        const siblings = procs.filter(sib => sib.underlying === underlying);
+            const siblings = procs.filter(sib => sib.underlying === underlying);
         const affectedPairs = hedgePairs.filter(hp => hp.coreUnderlying === underlying || hp.hedgeUnderlying === underlying);
         const affectedDuals = dualHedges.filter(dh => dh.underlying === underlying);
-        const affectedGaps  = gapCaptures.filter(gc => gc.underlying === underlying);
-        if (siblings.length === 0 && affectedPairs.length === 0 && affectedDuals.length === 0 && affectedGaps.length === 0) return res.status(404).json({ error: `no running processes for ${underlying}` });
+        if (siblings.length === 0 && affectedPairs.length === 0 && affectedDuals.length === 0) return res.status(404).json({ error: `no running processes for ${underlying}` });
 
-        const exchange = siblings[0]?.exchange || affectedPairs[0]?.exchange || affectedDuals[0]?.exchange || affectedGaps[0]?.exchange;
+        const exchange = siblings[0]?.exchange || affectedPairs[0]?.exchange || affectedDuals[0]?.exchange;
         const def = getDefinition(underlying, exchange);
         if (def.noRoll) return res.status(400).json({ error: `${underlying} is an NSE equity — nothing to roll` });
 
@@ -2085,20 +2080,8 @@ app.post("/api/toolbox/roll/apply", async (req, res) => {
                     result.restartFailed.push({ name: dh.name, error: err.message });
                 }
             }
-            for (const gc of affectedGaps) {
-                try {
-                    // Same reasoning as dual hedge above — pin lives in
-                    // pinStore, not PM2 env, so a plain restart is enough
-                    // (gapCaptureEngine.js resolves it fresh via
-                    // dualHedgeContext.js on boot, tag:"GC").
-                    await pm2RestartWithConfig({ ...PM2_BASE_OPTS, script: "gapCaptureEngine.js", name: gc.name, cwd: ROOT });
-                    result.restarted.push(gc.name);
-                } catch (err) {
-                    result.restartFailed.push({ name: gc.name, error: err.message });
-                }
-            }
         } else {
-            const stillOn = [...siblings.map(s => s.name), ...affectedPairs.map(hp => hp.name), ...affectedDuals.map(dh => dh.name), ...affectedGaps.map(gc => gc.name)];
+            const stillOn = [...siblings.map(s => s.name), ...affectedPairs.map(hp => hp.name), ...affectedDuals.map(dh => dh.name)];
             result.note = `pin saved but NOT applied yet — ${stillOn.join(", ")} still on ${current.symbol} until restarted`;
         }
 
