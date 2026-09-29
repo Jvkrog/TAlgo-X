@@ -3485,11 +3485,11 @@ async function renderDualHedgeAddForm() {
     </div>
     <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dhBandStep" min="0" step="any"></div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="dhGap"><span>Enable gap capture \u2014 at entry time today's trades are closed (realized), then LONG on the long account + SHORT on the short account; both exit at exit time and the engine quits</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="dhGap"><span>Enable gap capture \u2014 at the gap time today's trades are closed (realized), then LONG on the long account + SHORT on the short account, carried overnight; the engine quits afterwards with positions left open</span></label>
     </div>
     <div id="dhGapTimes" style="display:none">
-      <div class="tb-form-row"><div class="tb-form-label">Gap capture entry time IST</div><input type="time" id="dhGapEntry" value="11:20"></div>
-      <div class="tb-form-row"><div class="tb-form-label">Gap capture exit time IST (must be after entry)</div><input type="time" id="dhGapExit" value="11:25"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Gap capture time IST (realize + enter)</div><input type="time" id="dhGapEntry" value="23:20"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Quit time IST (must be after gap time; positions stay open)</div><input type="time" id="dhGapExit" value="23:25"></div>
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="dhLive"><span>Go LIVE (real orders on BOTH accounts) \u2014 unchecked = paper</span></label>
@@ -3525,8 +3525,8 @@ async function renderDualHedgeAddForm() {
       bandStepOverride: tbDualHedgeBody.querySelector("#dhBandStep")?.value || undefined,
       live, confirmLive,
       gapCapture: tbDualHedgeBody.querySelector("#dhGap").checked,
-      gcEntry: tbDualHedgeBody.querySelector("#dhGapEntry").value || "11:20",
-      gcExit:  tbDualHedgeBody.querySelector("#dhGapExit").value || "11:25",
+      gcEntry: tbDualHedgeBody.querySelector("#dhGapEntry").value || "23:20",
+      gcExit:  tbDualHedgeBody.querySelector("#dhGapExit").value || "23:25",
     };
     const btn = tbDualHedgeBody.querySelector("#dhAddSubmit");
     btn.disabled = true; btn.textContent = "Starting...";
