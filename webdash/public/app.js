@@ -291,7 +291,7 @@ function buildDualHedgeCard(d) {
     <div class="card-top">
       <div class="card-id">
         <span class="card-underlying">${d.underlying}</span>
-        <span class="card-strategy">dual hedge \u00b7 maxLoss:\u20b9${d.maxLoss} (armed only after a flip)</span>
+        <span class="card-strategy">dual hedge \u00b7 maxLoss:\u20b9${d.maxLoss} (armed only after a flip)${d.gapCapture ? ` \u00b7 gap capture ${d.gcEntry}\u2192${d.gcExit}` : ""}</span>
       </div>
       <div>
         <span class="status-pill ${d.status === "online" ? "online" : "offline"}" data-role="status">${d.status}</span>
@@ -461,7 +461,7 @@ refreshBtn.addEventListener("click", () => { loadInstruments(); loadHedgePairs()
 
 // ── kite access token ───────────────────────────────────────────────────
 // Unified panel: the app's own global account PLUS every Dual Hedge/Gap
-// Capture user (they share one registry — see gapCaptureEngine.js's
+// Capture user (they share one registry — see dualHedgeUsers.js's
 // header) rendered as one list, each row wired the same way — a real <a>
 // href set to Kite's real login URL (works as a normal link tap, no
 // popup-blocker issues on mobile) that ALSO reveals an inline paste-back
@@ -2812,7 +2812,7 @@ let rollPickFilter = "all"; // persists across re-renders within one modal open 
 // splitting into a 3rd tab for an engine that has no deploy UI here yet.
 function rollCandidateCategory(c) {
   const isPair = c.labels.some(l => /\(core leg\)|\(hedge leg\)/.test(l));
-  const isDual = c.labels.some(l => /\(dual hedge\)|\(gap capture\)/.test(l));
+  const isDual = c.labels.some(l => /\(dual hedge\)/.test(l));
   if (isPair) return "hedgepair";
   if (isDual) return "dualhedge";
   return "engine";
@@ -3222,7 +3222,7 @@ async function loadDualHedgeList() {
           <div class="tb-watch-row">
             <div class="tb-watch-main">
               <div class="tb-watch-inst">${d.name}</div>
-              <div class="tb-watch-meta">${d.underlying} \u00b7 LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot \u00b7 maxLoss:\u20b9${d.maxLoss} (armed only after a flip) \u00b7 ${modeTag} \u00b7 [${d.status}]</div>
+              <div class="tb-watch-meta">${d.underlying} \u00b7 LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot \u00b7 maxLoss:\u20b9${d.maxLoss} (armed only after a flip)${d.gapCapture ? ` \u00b7 gap capture ${d.gcEntry}\u2192${d.gcExit}` : ""} \u00b7 ${modeTag} \u00b7 [${d.status}]</div>
             </div>
             <button class="tb-cli-action" data-dh-logs="${d.name}" style="padding:4px 8px;font-size:11px">Logs</button>
             <button class="tb-cli-action" data-dh-toggle="${d.name}" data-dh-status="${d.status}" style="padding:4px 8px;font-size:11px">${d.status === "online" ? "stop" : "start"}</button>
@@ -3485,6 +3485,13 @@ async function renderDualHedgeAddForm() {
     </div>
     <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dhBandStep" min="0" step="any"></div>
     <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="dhGap"><span>Enable gap capture \u2014 at entry time today's trades are closed (realized), then LONG on the long account + SHORT on the short account; both exit at exit time and the engine quits</span></label>
+    </div>
+    <div id="dhGapTimes" style="display:none">
+      <div class="tb-form-row"><div class="tb-form-label">Gap capture entry time IST</div><input type="time" id="dhGapEntry" value="11:20"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Gap capture exit time IST (must be after entry)</div><input type="time" id="dhGapExit" value="11:25"></div>
+    </div>
+    <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="dhLive"><span>Go LIVE (real orders on BOTH accounts) \u2014 unchecked = paper</span></label>
     </div>
     <div id="dhAddErrBox"></div>
@@ -3492,6 +3499,9 @@ async function renderDualHedgeAddForm() {
   `;
 
   tbDualHedgeBody.querySelector("#dhBack").addEventListener("click", renderDualHedgeAddUnderlyingPicker);
+  tbDualHedgeBody.querySelector("#dhGap").addEventListener("change", e => {
+    tbDualHedgeBody.querySelector("#dhGapTimes").style.display = e.target.checked ? "" : "none";
+  });
 
   tbDualHedgeBody.querySelector("#dhAddSubmit").addEventListener("click", async () => {
     const errBox = tbDualHedgeBody.querySelector("#dhAddErrBox");
@@ -3514,6 +3524,9 @@ async function renderDualHedgeAddForm() {
       lotMultOverride: tbDualHedgeBody.querySelector("#dhLotMult")?.value || undefined,
       bandStepOverride: tbDualHedgeBody.querySelector("#dhBandStep")?.value || undefined,
       live, confirmLive,
+      gapCapture: tbDualHedgeBody.querySelector("#dhGap").checked,
+      gcEntry: tbDualHedgeBody.querySelector("#dhGapEntry").value || "11:20",
+      gcExit:  tbDualHedgeBody.querySelector("#dhGapExit").value || "11:25",
     };
     const btn = tbDualHedgeBody.querySelector("#dhAddSubmit");
     btn.disabled = true; btn.textContent = "Starting...";
