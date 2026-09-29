@@ -67,26 +67,28 @@
 // has no candle buffer of its own to hang a shared helper off of).
 //
 // GAP CAPTURE (optional feature of THIS engine — DH_GAP_CAPTURE=true; there
-// is no separate gap-capture engine/menu/process): once the day reaches the
-// gap-capture entry time (default 11:20 IST) the band logic above stops for
-// the day and this sequence runs instead —
+// is no separate gap-capture engine/menu/process). It is an END-OF-DAY step
+// (modeled on the user's short.js/long.js reference scripts: "PROFIT REALIZED"
+// at 23:20, fresh entry at 23:21, "Saving Position", shutdown at 23:25). At
+// the gap-capture time (default 23:20 IST) the band logic stops for the rest
+// of the day and this sequence runs instead —
 //   1. REALIZE: any position either leg is holding is force-closed (awaited
-//      until filled) so today's trades are booked as realized P&L. Entry
-//      does not proceed until BOTH legs are confirmed flat (retried each
-//      poll) — never stacks a fresh order on top of an open one.
+//      until filled) so today's trades are booked as realized P&L. Entry does
+//      not proceed until BOTH legs are confirmed flat (retried each poll) —
+//      never stacks a fresh order on top of an open one.
 //   2. ENTER: LONG on the long user's account, SHORT on the short user's
-//      account, back to back, once per day.
-//   3. EXIT: at the gap-capture exit time (default 11:25 IST) both legs are
-//      force-closed unconditionally (retried until flat), a Telegram alert
-//      goes out per leg plus one combined session report, and the process
-//      quits cleanly (needs a deliberate PM2 start on the next trading day).
-// A gap-capture position is tagged GAP_CAPTURE_<side> in the positions table
-// so a mid-window restart still force-closes it at the exit time. The
-// entry/exit clock checks run on their own DH_GC_POLL_MS poll (default 15s)
-// because 11:20/11:25 don't fall on the 15-minute band slots; that poll never
-// evaluates the band. If the process is started after the exit time the
-// window is treated as missed: gap capture is skipped for that day and the
-// normal band logic keeps running.
+//      account, right after, once per day. These positions are CARRIED
+//      OVERNIGHT (NRML) and saved like any other dual-hedge position — the
+//      point is to be positioned for the next session's gap.
+//   3. QUIT: at the quit time (default 23:25 IST) a Telegram report goes out
+//      (realized P&L today per leg, positions left open) and the process
+//      exits cleanly with the positions still open (needs a deliberate PM2
+//      start on the next trading day, where the normal band logic resumes
+//      with them). Nothing is closed at quit.
+// The clock checks run on their own DH_GC_POLL_MS poll (default 15s) because
+// 23:20/23:25 don't fall on the 15-minute band slots; that poll never
+// evaluates the band. If the process is started after the quit time, gap
+// capture is skipped for that day and the normal band logic keeps running.
 //
 // CREDENTIALS: dualHedgeUsers.js — separate from engineConfig.js's single
 // global API_KEY/ACCESS_TOKEN (see that file's header for why). Market
@@ -110,8 +112,8 @@
 //   DH_BAND_STEP_OVERRIDE     optional, else engineConfig.BAND_STEP_DEFAULT
 //   DH_MAX_LOSS_RUPEES_OVERRIDE   default 3000
 //   DH_GAP_CAPTURE            "true" enables gap capture (see above), default off
-//   DH_GC_ENTRY_HOUR_OVERRIDE / DH_GC_ENTRY_MINUTE_OVERRIDE   default 11 / 20
-//   DH_GC_EXIT_HOUR_OVERRIDE  / DH_GC_EXIT_MINUTE_OVERRIDE    default 11 / 25
+//   DH_GC_HOUR_OVERRIDE       / DH_GC_MINUTE_OVERRIDE         realize + enter, default 23 / 20 (IST)
+//   DH_GC_QUIT_HOUR_OVERRIDE  / DH_GC_QUIT_MINUTE_OVERRIDE    quit (positions stay open), default 23 / 25
 //   DH_GC_POLL_MS             default 15000
 //   LIVE_ORDERS_OVERRIDE      "true" | "false" — same convention as engine.js
 //
@@ -141,10 +143,10 @@ const { createDynamicBandReader } = require("./dynamicBandReader");
 const MAX_LOSS_RUPEES = Number(process.env.DH_MAX_LOSS_RUPEES_OVERRIDE) || 3000;
 const GAP_CAPTURE = process.env.DH_GAP_CAPTURE === "true";
 const envNum = (v, d) => (v !== undefined && v !== "" && Number.isFinite(Number(v))) ? Number(v) : d;
-const GC_ENTRY_HOUR   = envNum(process.env.DH_GC_ENTRY_HOUR_OVERRIDE, 11);
-const GC_ENTRY_MINUTE = envNum(process.env.DH_GC_ENTRY_MINUTE_OVERRIDE, 20);
-const GC_EXIT_HOUR    = envNum(process.env.DH_GC_EXIT_HOUR_OVERRIDE, 11);
-const GC_EXIT_MINUTE  = envNum(process.env.DH_GC_EXIT_MINUTE_OVERRIDE, 25);
+const GC_HOUR         = envNum(process.env.DH_GC_HOUR_OVERRIDE, 23);
+const GC_MINUTE       = envNum(process.env.DH_GC_MINUTE_OVERRIDE, 20);
+const GC_QUIT_HOUR    = envNum(process.env.DH_GC_QUIT_HOUR_OVERRIDE, 23);
+const GC_QUIT_MINUTE  = envNum(process.env.DH_GC_QUIT_MINUTE_OVERRIDE, 25);
 const GC_POLL_MS      = envNum(process.env.DH_GC_POLL_MS, 15 * 1000);
 const hhmm = (h, m) => `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 function pastClock(hour, minute) {
@@ -162,8 +164,8 @@ async function main() {
         process.exit(1);
     }
     const EXCHANGE_OVERRIDE = process.env.DH_EXCHANGE_OVERRIDE || "MCX";
-    if (GAP_CAPTURE && !(GC_EXIT_HOUR > GC_ENTRY_HOUR || (GC_EXIT_HOUR === GC_ENTRY_HOUR && GC_EXIT_MINUTE > GC_ENTRY_MINUTE))) {
-        console.error(c.red(`Gap capture exit time (${hhmm(GC_EXIT_HOUR, GC_EXIT_MINUTE)}) must be after entry time (${hhmm(GC_ENTRY_HOUR, GC_ENTRY_MINUTE)}) — refusing to boot.`));
+    if (GAP_CAPTURE && !(GC_QUIT_HOUR > GC_HOUR || (GC_QUIT_HOUR === GC_HOUR && GC_QUIT_MINUTE > GC_MINUTE))) {
+        console.error(c.red(`Gap capture quit time (${hhmm(GC_QUIT_HOUR, GC_QUIT_MINUTE)}) must be after gap capture time (${hhmm(GC_HOUR, GC_MINUTE)}) — refusing to boot.`));
         process.exit(1);
     }
 
@@ -224,7 +226,6 @@ async function main() {
         const db     = createDb(context);
         db.initDB();
         const state  = createState();
-        state.gcTrade = false; // true only for a position opened by the gap-capture step
         state.flipped = false; // extra field on top of createState()'s usual shape — see checkLeg() below
         const orders = createOrders(context, tg, kc); // kcOverride — THIS leg's own account, not the global one
 
@@ -233,9 +234,6 @@ async function main() {
             if (saved?.position === side) {
                 state.position   = saved.position;
                 state.entryPrice = saved.entry_price;
-                // A position opened by gap capture today must still be
-                // force-closed at the gap-capture exit time after a restart.
-                state.gcTrade    = GAP_CAPTURE && String(saved.position_source || "").startsWith("GAP_CAPTURE") && saved.entry_date === todayIST();
                 const openTrade  = await db.getOpenTrade(context.tgPrefix);
                 state.openTradeId = openTrade ? openTrade.id : null;
                 // state.flipped is NOT persisted (see file header's
@@ -289,7 +287,7 @@ async function main() {
         return data[ltpKey]?.last_price ?? null;
     }
 
-    async function enterLeg(leg, reason, { gap = false } = {}) {
+    async function enterLeg(leg, reason) {
         const orderId = await leg.orders.enter(leg.side);
         if (engineConfig.LIVE_ORDERS && orderId === null) {
             console.error(c.red(`[${leg.context.tgPrefix}] ${leg.side} entry FAILED (${reason})`));
@@ -300,9 +298,8 @@ async function main() {
         leg.state.position    = leg.side;
         leg.state.entryPrice  = price;
         leg.state.flipped     = false;
-        leg.state.gcTrade     = gap;
         leg.state.openTradeId = await leg.db.insertOpenTrade(leg.context.tgPrefix, leg.context.symbol, leg.side, leg.context.lots, price);
-        leg.db.savePosition(leg.context.tgPrefix, leg.context.token, leg.context.symbol, leg.side, price, gap ? `GAP_CAPTURE_${leg.side}` : `DUAL_HEDGE_${leg.side}`);
+        leg.db.savePosition(leg.context.tgPrefix, leg.context.token, leg.context.symbol, leg.side, price, `DUAL_HEDGE_${leg.side}`);
         console.log(c.bold(`**${leg.side} ENTRY**`));
         console.log(c.green(`[${leg.context.tgPrefix}] ${leg.side} @ price ${price.toFixed(2)}  |  ${reason}`));
         leg.tg(`${leg.side} ENTER (${reason}) @ \u20b9${price.toFixed(2)}`);
@@ -326,7 +323,6 @@ async function main() {
         await positions.close(leg.context, leg.state, leg.db, leg.tg, price, reason);
         leg.db.savePosition(leg.context.tgPrefix, leg.context.token, leg.context.symbol, null, 0);
         leg.state.flipped = false;
-        leg.state.gcTrade = false;
         return true;
     }
 
@@ -388,38 +384,32 @@ async function main() {
         }
     }
 
-    // ─── GAP CAPTURE (DH_GAP_CAPTURE=true) — see file header. Once the
-    // gap-capture window has been reached today, the band logic is off for
-    // the rest of the day.
-    let gcEnteredForDate = null;  // set once both entries have been attempted today
-    let gcSkippedForDate = null;  // started after the exit time -> window missed, band logic carries on
+    // ─── GAP CAPTURE (DH_GAP_CAPTURE=true) — see file header. From the
+    // gap-capture time on, the band logic is off until the process quits.
+    let gcDoneForDate    = null;  // realize+enter finished (or attempted) today
+    let gcSkippedForDate = null;  // started after the quit time -> missed, band logic carries on
     let gcReportedForDate = null;
-    if (long.state.gcTrade || short.state.gcTrade) {
-        gcEnteredForDate = todayIST();
-        console.log(c.yellow(`GAP CAPTURE  resumed same-day gap positions (long:${long.state.position || "flat"} short:${short.state.position || "flat"}) — will force-close at ${hhmm(GC_EXIT_HOUR, GC_EXIT_MINUTE)} IST`));
-    }
     if (GAP_CAPTURE) {
-        console.log(c.dim(`gap capture ON  realize + enter ${hhmm(GC_ENTRY_HOUR, GC_ENTRY_MINUTE)} IST  →  exit ${hhmm(GC_EXIT_HOUR, GC_EXIT_MINUTE)} IST, then quit`));
+        console.log(c.dim(`gap capture ON  realize + enter ${hhmm(GC_HOUR, GC_MINUTE)} IST (positions carry overnight)  →  quit ${hhmm(GC_QUIT_HOUR, GC_QUIT_MINUTE)} IST`));
     }
 
     function gapWindowActive() {
         if (!GAP_CAPTURE) return false;
-        const today = todayIST();
-        if (gcSkippedForDate === today) return false;
-        return pastClock(GC_ENTRY_HOUR, GC_ENTRY_MINUTE);
+        if (gcSkippedForDate === todayIST()) return false;
+        return pastClock(GC_HOUR, GC_MINUTE);
     }
 
     async function gapEnter() {
         const today = todayIST();
-        if (gcEnteredForDate === today) return;
-        if (pastClock(GC_EXIT_HOUR, GC_EXIT_MINUTE)) {
+        if (gcDoneForDate === today) return;
+        if (pastClock(GC_QUIT_HOUR, GC_QUIT_MINUTE)) {
             gcSkippedForDate = today;
-            console.error(c.red(`GAP CAPTURE  window (${hhmm(GC_ENTRY_HOUR, GC_ENTRY_MINUTE)}–${hhmm(GC_EXIT_HOUR, GC_EXIT_MINUTE)} IST) already passed — skipping gap capture today, band logic continues`));
+            console.error(c.red(`GAP CAPTURE  window (${hhmm(GC_HOUR, GC_MINUTE)}–${hhmm(GC_QUIT_HOUR, GC_QUIT_MINUTE)} IST) already passed — skipping gap capture today, band logic continues`));
             long.tg(`⚠ [GAP CAPTURE] Window already passed when the engine started — skipped today.`);
             return;
         }
 
-        // 1. Realize whatever the legs are holding — never stack a new order on an open one.
+        // 1. Realize today's trades — never stack a new order on an open one.
         if (long.state.position || short.state.position) {
             console.log();
             console.log(c.bold("**GAP CAPTURE — REALIZING TODAY'S TRADES**"));
@@ -431,45 +421,37 @@ async function main() {
             }
         }
 
-        // 2. Enter — locked in before either order fires, so a failed entry means no position today, not a retry loop.
-        gcEnteredForDate = today;
+        // 2. Enter — locked in before either order fires, so a failed entry
+        // means no position tonight, not a retry loop.
+        gcDoneForDate = today;
         console.log();
         console.log(c.bold("**GAP CAPTURE ENTRY**"));
-        const reason = `gap capture ${hhmm(GC_ENTRY_HOUR, GC_ENTRY_MINUTE)} IST`;
-        await enterLeg(long,  reason, { gap: true });
-        await enterLeg(short, reason, { gap: true });
+        const reason = `gap capture ${hhmm(GC_HOUR, GC_MINUTE)} IST (carry overnight)`;
+        await enterLeg(long,  reason);
+        await enterLeg(short, reason);
     }
 
-    async function gapExit() {
+    async function gapQuit() {
         const today = todayIST();
-        if (gcEnteredForDate !== today) return;
-        if (!pastClock(GC_EXIT_HOUR, GC_EXIT_MINUTE)) return;
-
-        if (long.state.position || short.state.position) {
-            console.log();
-            console.log(c.bold("**GAP CAPTURE EXIT**"));
-            if (long.state.position)  await exitLeg(long,  "GAP_CAPTURE_EXIT", { awaitFill: true });
-            if (short.state.position) await exitLeg(short, "GAP_CAPTURE_EXIT", { awaitFill: true });
-            if (long.state.position || short.state.position) {
-                console.error(c.red(`GAP CAPTURE  exit did not fully flatten (long:${long.state.position || "flat"} short:${short.state.position || "flat"}) — retrying next poll`));
-                return;
-            }
-        }
-
+        if (gcDoneForDate !== today) return;                       // realize/enter hasn't completed yet
+        if (!pastClock(GC_QUIT_HOUR, GC_QUIT_MINUTE)) return;
         if (gcReportedForDate === today) return;
         gcReportedForDate = today;
 
         const longRealized  = await long.db.getRealizedPnlToday(long.context.tgPrefix);
         const shortRealized = await short.db.getRealizedPnlToday(short.context.tgPrefix);
         const total = longRealized + shortRealized;
-        const report = `Dual Hedge (gap capture) EOD — ${today}\nlong   ${long.context.symbol} (${long.user.name}): ${positions.pnlStr(longRealized)}\nshort  ${short.context.symbol} (${short.user.name}): ${positions.pnlStr(shortRealized)}\ntotal: ${positions.pnlStr(total)}`;
+        const open  = `long:${long.state.position ? `${long.state.position}@${long.state.entryPrice}` : "flat"}  short:${short.state.position ? `${short.state.position}@${short.state.entryPrice}` : "flat"}`;
+        const report = `Dual Hedge (gap capture) EOD — ${today}\nlong   ${long.context.symbol} (${long.user.name}): realized ${positions.pnlStr(longRealized)}\nshort  ${short.context.symbol} (${short.user.name}): realized ${positions.pnlStr(shortRealized)}\ntotal realized: ${positions.pnlStr(total)}\nleft open overnight — ${open}`;
         console.log(c.bold(report.replace(/\n/g, "   ")));
         console.log();
         await long.tg(report);
 
-        console.log(c.bold("*** SHUTDOWN ***"));
+        console.log(c.bold("Saving Position."));
+        console.log(c.bold("*** NORMAL SHUTDOWN ***"));
         emitEvent(long.context.tgPrefix, "SHUTDOWN", {
-            pnl: total, trades: long.state.trades + short.state.trades, positionLeftOpen: false,
+            pnl: total, trades: long.state.trades + short.state.trades,
+            positionLeftOpen: !!(long.state.position || short.state.position),
         });
         setTimeout(() => process.exit(0), 2000);
     }
@@ -478,7 +460,7 @@ async function main() {
         try {
             if (!gapWindowActive()) return;
             await gapEnter();
-            await gapExit();
+            await gapQuit();
         } catch (err) {
             console.error(c.red(`GAP CAPTURE loop error: ${err.message}`));
         }

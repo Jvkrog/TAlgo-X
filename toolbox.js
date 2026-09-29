@@ -103,14 +103,6 @@ function askHidden(prompt) {
 function pauseForReview() {
     return ask(c.dim("  Press enter to continue..."));
 }
-// Sub-screens (Hedge Pairs, Dual Hedge, Users) loop on their own and never
-// return to renderMenu(), so nothing cleared the terminal between redraws —
-// each pass just stacked below the last. Same TALGOX_PLAIN opt-out as the
-// main menu: plain mode never clears, it scrolls.
-function clearForScreen() {
-    if (!PLAIN_MODE) console.clear();
-}
-
 // ─── PM2 HELPERS — callback API wrapped as promises ──────────────────────────
 function pm2Connect() {
     return new Promise((resolve, reject) => pm2.connect(err => err ? reject(err) : resolve()));
@@ -2413,24 +2405,25 @@ async function backtestHedgePairFlow() {
 async function hedgePairScreen() {
     let running = true;
     while (running) {
-        clearForScreen();
         const pairs = await getHedgePairProcesses();
 
-        console.log();
-        console.log(c.bold("  \u2500\u2500 Hedge Pairs \u2500\u2500"));
+        const body = [];
         if (pairs.length === 0) {
-            console.log(c.dim("  None running — press A to add one"));
+            body.push(c.dim("  None running — press A to add one"));
         } else {
             pairs.forEach((p, i) => {
                 const modeTag = p.live ? c.red("LIVE") : c.cyan("PAPER");
                 let statusStr;
                 if (p.status === "online") statusStr = c.green(`● ${fmtUptime(p.uptime)}`);
                 else                        statusStr = c.red(`● ${p.status.toUpperCase()}`);
-                console.log(`  ${String(i + 1).padStart(2)}. ${p.name.padEnd(24)} core:${p.coreUnderlying.padEnd(14)} hedge:${p.hedgeUnderlying.padEnd(14)} ${p.coreLots}/${p.hedgeLots} lots  unwind:${p.unwindMode.padEnd(9)} ${modeTag}  ${statusStr}`);
+                body.push(`  ${String(i + 1).padStart(2)}. ${p.name.padEnd(24)} ${modeTag}  ${statusStr}`);
+                body.push(c.dim(`      core:${p.coreUnderlying}  hedge:${p.hedgeUnderlying}  ${p.coreLots}/${p.hedgeLots} lots  unwind:${p.unwindMode}`));
             });
         }
-        console.log();
-        console.log(c.dim("  [A] add   [X] stop   [S] start   [D] remove   [L] logs   [T] backtest   [B] back"));
+        renderScreenBox("H E D G E   P A I R S", body, [
+            [["A", "Add"], ["S", "Start"], ["X", "Stop"], ["D", "Remove"]],
+            [["L", "Logs"], ["T", "Backtest"], ["B", "Back"], null],
+        ]);
         const input = (await ask("  > ")).trim().toUpperCase();
 
         if (input === "A")      await addHedgePair();
@@ -2449,7 +2442,7 @@ async function hedgePairScreen() {
             }
         }
         else if (input === "B" || input === "") running = false;
-        else { console.log(c.yellow("  Unrecognized option")); }
+        else { console.log(c.yellow("  Unrecognized option")); await pauseForReview(); }
     }
 }
 
@@ -2476,8 +2469,8 @@ async function getDualHedgeProcesses() {
             lots:       p.pm2_env.env?.DH_LOTS_OVERRIDE || "1",
             maxLoss:    p.pm2_env.env?.DH_MAX_LOSS_RUPEES_OVERRIDE || "3000",
             gapCapture: p.pm2_env.env?.DH_GAP_CAPTURE === "true",
-            gcEntry:    `${String(p.pm2_env.env?.DH_GC_ENTRY_HOUR_OVERRIDE ?? "11").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_ENTRY_MINUTE_OVERRIDE ?? "20").padStart(2, "0")}`,
-            gcExit:     `${String(p.pm2_env.env?.DH_GC_EXIT_HOUR_OVERRIDE ?? "11").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_EXIT_MINUTE_OVERRIDE ?? "25").padStart(2, "0")}`,
+            gcEntry:    `${String(p.pm2_env.env?.DH_GC_HOUR_OVERRIDE ?? "23").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_MINUTE_OVERRIDE ?? "20").padStart(2, "0")}`,
+            gcExit:     `${String(p.pm2_env.env?.DH_GC_QUIT_HOUR_OVERRIDE ?? "23").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_QUIT_MINUTE_OVERRIDE ?? "25").padStart(2, "0")}`,
             live:       p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:   p.pm2_env.env?.DH_EXCHANGE_OVERRIDE || "MCX",
             outLogPath: p.pm2_env.pm_out_log_path,
@@ -2573,7 +2566,7 @@ async function addDualHedge() {
     console.log(c.dim("  LONG account: enters LONG on a green band signal, never shorts"));
     console.log(c.dim("  SHORT account: enters SHORT on a red band signal, never longs"));
     console.log(c.dim("  Both carry overnight (NRML); SL only arms after that leg's own first adverse flip"));
-    console.log(c.dim("  Optional gap capture: close today's trades, enter LONG/SHORT on the two accounts, exit, quit"));
+    console.log(c.dim("  Optional gap capture (EOD): realize today's trades, enter LONG/SHORT on the two accounts (carried overnight), quit"));
     console.log();
 
     const repo = await ensureCsvLoaded();
@@ -2627,7 +2620,7 @@ async function addDualHedge() {
 
     // Gap capture — an option of THIS deployment, not a separate engine.
     let gap = null;
-    const gapInput = (await ask("  Enable gap capture? At entry time today's trades are closed (realized), then LONG on the long account + SHORT on the short account; both exit at exit time and the engine quits [Y/N, default N]: ")).trim().toUpperCase();
+    const gapInput = (await ask("  Enable gap capture? At the gap time today's trades are closed (realized), then LONG on the long account + SHORT on the short account, carried overnight; the engine quits afterwards, positions left open [Y/N, default N]: ")).trim().toUpperCase();
     if (gapInput === "Y") {
         const parseTime = (input, dh, dm) => {
             if (!input) return { hour: dh, minute: dm };
@@ -2638,15 +2631,15 @@ async function addDualHedge() {
         };
         let entry = null;
         do {
-            entry = parseTime(await ask("  Gap capture entry time IST (HH:MM, default 11:20): "), 11, 20);
-            if (!entry) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 11:20"));
+            entry = parseTime(await ask("  Gap capture time IST — realize + enter (HH:MM, default 23:20): "), 23, 20);
+            if (!entry) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 23:20"));
         } while (!entry);
         let exit = null;
         do {
-            exit = parseTime(await ask("  Gap capture exit time IST (HH:MM, default 11:25): "), 11, 25);
-            if (!exit) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 11:25"));
+            exit = parseTime(await ask("  Quit time IST — engine exits, positions stay open (HH:MM, default 23:25): "), 23, 25);
+            if (!exit) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 23:25"));
             else if (exit.hour < entry.hour || (exit.hour === entry.hour && exit.minute <= entry.minute)) {
-                console.log(c.yellow("  Exit time must be after entry time"));
+                console.log(c.yellow("  Quit time must be after the gap capture time"));
                 exit = null;
             }
         } while (!exit);
@@ -2674,8 +2667,8 @@ async function addDualHedge() {
     // Always written explicitly (PM2 restart merges env, never clears it).
     env.DH_GAP_CAPTURE = String(!!gap);
     if (gap) {
-        env.DH_GC_ENTRY_HOUR_OVERRIDE = String(gap.entry.hour); env.DH_GC_ENTRY_MINUTE_OVERRIDE = String(gap.entry.minute);
-        env.DH_GC_EXIT_HOUR_OVERRIDE  = String(gap.exit.hour);  env.DH_GC_EXIT_MINUTE_OVERRIDE  = String(gap.exit.minute);
+        env.DH_GC_HOUR_OVERRIDE = String(gap.entry.hour); env.DH_GC_MINUTE_OVERRIDE = String(gap.entry.minute);
+        env.DH_GC_QUIT_HOUR_OVERRIDE  = String(gap.exit.hour);  env.DH_GC_QUIT_MINUTE_OVERRIDE  = String(gap.exit.minute);
     }
 
     try {
