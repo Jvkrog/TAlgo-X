@@ -1695,6 +1695,8 @@ async function getDualHedgeProcesses() {
             uptime:     p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
             lots:       p.pm2_env.env?.DH_LOTS_OVERRIDE || "1",
             maxLoss:    p.pm2_env.env?.DH_MAX_LOSS_RUPEES_OVERRIDE || "3000",
+            takeProfit: p.pm2_env.env?.DH_TAKE_PROFIT_RUPEES_OVERRIDE || "3000",
+            rangeSize:  p.pm2_env.env?.DH_RANGE_SIZE_OVERRIDE || "",
             gapCapture: p.pm2_env.env?.DH_GAP_CAPTURE === "true",
             gcEntry:    `${String(p.pm2_env.env?.DH_GC_HOUR_OVERRIDE ?? "23").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_MINUTE_OVERRIDE ?? "20").padStart(2, "0")}`,
             gcExit:     `${String(p.pm2_env.env?.DH_GC_QUIT_HOUR_OVERRIDE ?? "23").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_QUIT_MINUTE_OVERRIDE ?? "25").padStart(2, "0")}`,
@@ -1807,7 +1809,7 @@ app.post("/api/toolbox/dualhedge/users/token", async (req, res) => {
 
 app.post("/api/toolbox/dualhedge", async (req, res) => {
     const {
-        underlying, longUser, shortUser, lots, maxLossRupees,
+        underlying, longUser, shortUser, lots, maxLossRupees, takeProfitRupees, rangeSize,
         lotMultOverride, bandStepOverride, live, confirmLive,
         gapCapture, gcEntry, gcExit,
     } = req.body || {};
@@ -1837,6 +1839,10 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         return res.status(400).json({ error: `lotMultOverride is required for ${underlying} (no context.js override on file)` });
     }
 
+    for (const [label, v] of [["takeProfitRupees", takeProfitRupees], ["rangeSize", rangeSize], ["bandStepOverride", bandStepOverride]]) {
+        if (v !== undefined && v !== null && v !== "" && !(Number(v) > 0)) return res.status(400).json({ error: `${label} must be a positive number` });
+    }
+
     // Gap capture is an option of this deployment (DH_GAP_CAPTURE), not a separate engine.
     let gcE = null, gcX = null;
     if (gapCapture) {
@@ -1858,6 +1864,9 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         DH_UNDERLYING: underlying, DH_LONG_USER: dualHedgeUsers.sanitizeName(longUser), DH_SHORT_USER: dualHedgeUsers.sanitizeName(shortUser),
         DH_EXCHANGE_OVERRIDE: "MCX", DH_LOTS_OVERRIDE: String(lots || 1),
         DH_MAX_LOSS_RUPEES_OVERRIDE: String(maxLossRupees || 3000), LIVE_ORDERS_OVERRIDE: String(!!live),
+        // Always written explicitly (PM2 restart merges env, never clears it).
+        DH_TAKE_PROFIT_RUPEES_OVERRIDE: String(takeProfitRupees || 3000),
+        DH_RANGE_SIZE_OVERRIDE: rangeSize ? String(rangeSize) : "",
     };
     if (lotMultOverride)  env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
     if (bandStepOverride) env.DH_BAND_STEP_OVERRIDE = String(bandStepOverride);
