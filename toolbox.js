@@ -52,6 +52,8 @@ const pinStore        = createContractPinStore();
 // tells PM2 "exit code 0 means deliberate stop, don't restart" while still
 // auto-restarting on any OTHER (nonzero/crash) exit code.
 const PM2_BASE_OPTS = { stop_exit_codes: [0] };
+// Past tense for the [X]/[S]/[D] action confirmations (naive verb+"ed" gave "removeed"/"stoped").
+const PAST_TENSE = { stop: "Stopped", start: "Started", remove: "Removed", restart: "Restarted" };
 
 // ─── STATE ──────────────────────────────────────────────────────────────────
 const selected = new Set();     // underlying names currently checked, from the PM2-derived list
@@ -100,6 +102,13 @@ function askHidden(prompt) {
 // readable — exactly what happened with the token screen.
 function pauseForReview() {
     return ask(c.dim("  Press enter to continue..."));
+}
+// Sub-screens (Hedge Pairs, Dual Hedge, Users) loop on their own and never
+// return to renderMenu(), so nothing cleared the terminal between redraws —
+// each pass just stacked below the last. Same TALGOX_PLAIN opt-out as the
+// main menu: plain mode never clears, it scrolls.
+function clearForScreen() {
+    if (!PLAIN_MODE) console.clear();
 }
 
 // ─── PM2 HELPERS — callback API wrapped as promises ──────────────────────────
@@ -357,7 +366,7 @@ const HELP_ROWS = [
     [["L", "Logs"], ["T", "Token"], ["B", "Backtest"], ["N", "Trending"]],
     [["Q", "Quit"], ["E", "Creds"], ["K", "Market"], ["P", "Edit Params"]],
     [["U", "Custom Strategy"], ["V", "Risk Mgmt"], ["H", "Hedge Pairs"], ["O", "Options"]],
-    [["G", "Dual Hedge"], ["Y", "Gap Capture"], null, null],
+    [["G", "Dual Hedge"], null, null, null],
 ];
 function renderMenuHelpLines() {
     return HELP_ROWS.map(row => {
@@ -377,7 +386,6 @@ async function renderMenu() {
     const procs = await getEngineProcesses();
     const hedgePairs = await getHedgePairProcesses();
     const dualHedges = await getDualHedgeProcesses();
-    const gapCaptures = await getGapCaptureProcesses();
 
     const lines = [];
     lines.push(boxTop());
@@ -447,11 +455,6 @@ async function renderMenu() {
     if (dualHedges.length > 0) {
         const online = dualHedges.filter(p => p.status === "online").length;
         lines.push(boxLine(c.dim(`  Dual Hedge: ${online}/${dualHedges.length} running — press G for details`)));
-        lines.push(boxDivider("═"));
-    }
-    if (gapCaptures.length > 0) {
-        const online = gapCaptures.filter(p => p.status === "online").length;
-        lines.push(boxLine(c.dim(`  Gap Capture: ${online}/${gapCaptures.length} running — press Y for details`)));
         lines.push(boxDivider("═"));
     }
     lines.push(...renderMenuHelpLines());
@@ -2301,7 +2304,7 @@ async function hedgePairActionByNumber(pairs, verb, fn) {
     if (!pair) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
     try {
         await fn(pair.name);
-        console.log(c.green(`  ${verb}ed ${pair.name}`));
+        console.log(c.green(`  ${PAST_TENSE[verb] || verb} ${pair.name}`));
     } catch (err) {
         console.log(c.red(`  Failed to ${verb}: ${err.message}`));
     }
@@ -2388,6 +2391,7 @@ async function backtestHedgePairFlow() {
 async function hedgePairScreen() {
     let running = true;
     while (running) {
+        clearForScreen();
         const pairs = await getHedgePairProcesses();
 
         console.log();
@@ -2449,6 +2453,9 @@ async function getDualHedgeProcesses() {
             uptime:     p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
             lots:       p.pm2_env.env?.DH_LOTS_OVERRIDE || "1",
             maxLoss:    p.pm2_env.env?.DH_MAX_LOSS_RUPEES_OVERRIDE || "3000",
+            gapCapture: p.pm2_env.env?.DH_GAP_CAPTURE === "true",
+            gcEntry:    `${String(p.pm2_env.env?.DH_GC_ENTRY_HOUR_OVERRIDE ?? "11").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_ENTRY_MINUTE_OVERRIDE ?? "20").padStart(2, "0")}`,
+            gcExit:     `${String(p.pm2_env.env?.DH_GC_EXIT_HOUR_OVERRIDE ?? "11").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_EXIT_MINUTE_OVERRIDE ?? "25").padStart(2, "0")}`,
             live:       p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:   p.pm2_env.env?.DH_EXCHANGE_OVERRIDE || "MCX",
             outLogPath: p.pm2_env.pm_out_log_path,
@@ -2515,6 +2522,7 @@ async function removeDualHedgeUserFlow() {
 async function manageDualHedgeUsersScreen() {
     let running = true;
     while (running) {
+        clearForScreen();
         const users = dualHedgeUsers.listUsers();
         console.log();
         console.log(c.bold("  \u2500\u2500 Dual Hedge Users \u2500\u2500"));
@@ -2544,6 +2552,7 @@ async function addDualHedge() {
     console.log(c.dim("  LONG account: enters LONG on a green band signal, never shorts"));
     console.log(c.dim("  SHORT account: enters SHORT on a red band signal, never longs"));
     console.log(c.dim("  Both carry overnight (NRML); SL only arms after that leg's own first adverse flip"));
+    console.log(c.dim("  Optional gap capture: close today's trades, enter LONG/SHORT on the two accounts, exit, quit"));
     console.log();
 
     const repo = await ensureCsvLoaded();
@@ -2595,6 +2604,34 @@ async function addDualHedge() {
     const bandStepInput = await ask("  Band step override (blank = engine default): ");
     const bandStep = bandStepInput ? Number(bandStepInput) : null;
 
+    // Gap capture — an option of THIS deployment, not a separate engine.
+    let gap = null;
+    const gapInput = (await ask("  Enable gap capture? At entry time today's trades are closed (realized), then LONG on the long account + SHORT on the short account; both exit at exit time and the engine quits [Y/N, default N]: ")).trim().toUpperCase();
+    if (gapInput === "Y") {
+        const parseTime = (input, dh, dm) => {
+            if (!input) return { hour: dh, minute: dm };
+            const m = input.trim().match(/^(\d{1,2}):(\d{2})$/);
+            if (!m) return null;
+            const hour = Number(m[1]), minute = Number(m[2]);
+            return (hour > 23 || minute > 59) ? null : { hour, minute };
+        };
+        let entry = null;
+        do {
+            entry = parseTime(await ask("  Gap capture entry time IST (HH:MM, default 11:20): "), 11, 20);
+            if (!entry) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 11:20"));
+        } while (!entry);
+        let exit = null;
+        do {
+            exit = parseTime(await ask("  Gap capture exit time IST (HH:MM, default 11:25): "), 11, 25);
+            if (!exit) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 11:25"));
+            else if (exit.hour < entry.hour || (exit.hour === entry.hour && exit.minute <= entry.minute)) {
+                console.log(c.yellow("  Exit time must be after entry time"));
+                exit = null;
+            }
+        } while (!exit);
+        gap = { entry, exit };
+    }
+
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
@@ -2613,10 +2650,16 @@ async function addDualHedge() {
     };
     if (lotMultOverride) env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
     if (bandStep)        env.DH_BAND_STEP_OVERRIDE = String(bandStep);
+    // Always written explicitly (PM2 restart merges env, never clears it).
+    env.DH_GAP_CAPTURE = String(!!gap);
+    if (gap) {
+        env.DH_GC_ENTRY_HOUR_OVERRIDE = String(gap.entry.hour); env.DH_GC_ENTRY_MINUTE_OVERRIDE = String(gap.entry.minute);
+        env.DH_GC_EXIT_HOUR_OVERRIDE  = String(gap.exit.hour);  env.DH_GC_EXIT_MINUTE_OVERRIDE  = String(gap.exit.minute);
+    }
 
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: __dirname, env });
-        console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  maxLoss:\u20b9${maxLoss}  ${isLive ? "LIVE" : "PAPER"})`));
+        console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  maxLoss:\u20b9${maxLoss}${gap ? `  gap capture ${String(gap.entry.hour).padStart(2, "0")}:${String(gap.entry.minute).padStart(2, "0")}\u2192${String(gap.exit.hour).padStart(2, "0")}:${String(gap.exit.minute).padStart(2, "0")}` : ""}  ${isLive ? "LIVE" : "PAPER"})`));
     } catch (err) {
         console.log(c.red(`  Failed to start: ${err.message}`));
     }
@@ -2629,7 +2672,7 @@ async function dualHedgeActionByNumber(deployments, verb, fn) {
     if (!dep) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
     try {
         await fn(dep.name);
-        console.log(c.green(`  ${verb}ed ${dep.name}`));
+        console.log(c.green(`  ${PAST_TENSE[verb] || verb} ${dep.name}`));
     } catch (err) {
         console.log(c.red(`  Failed to ${verb}: ${err.message}`));
     }
@@ -2639,6 +2682,7 @@ async function dualHedgeActionByNumber(deployments, verb, fn) {
 async function dualHedgeScreen() {
     let running = true;
     while (running) {
+        clearForScreen();
         const deployments = await getDualHedgeProcesses();
 
         console.log();
@@ -2651,7 +2695,7 @@ async function dualHedgeScreen() {
                 let statusStr;
                 if (d.status === "online") statusStr = c.green(`\u25cf ${fmtUptime(d.uptime)}`);
                 else                        statusStr = c.red(`\u25cf ${d.status.toUpperCase()}`);
-                console.log(`  ${String(i + 1).padStart(2)}. ${d.name.padEnd(20)} ${d.underlying.padEnd(14)} LONG:${d.longUser.padEnd(10)} SHORT:${d.shortUser.padEnd(10)} ${d.lots} lot  maxLoss:\u20b9${d.maxLoss}  ${modeTag}  ${statusStr}`);
+                console.log(`  ${String(i + 1).padStart(2)}. ${d.name.padEnd(20)} ${d.underlying.padEnd(14)} LONG:${d.longUser.padEnd(10)} SHORT:${d.shortUser.padEnd(10)} ${d.lots} lot  maxLoss:\u20b9${d.maxLoss}${d.gapCapture ? `  GAP ${d.gcEntry}\u2192${d.gcExit}` : ""}  ${modeTag}  ${statusStr}`);
             });
         }
         console.log();
@@ -2663,207 +2707,6 @@ async function dualHedgeScreen() {
         else if (input === "S") await dualHedgeActionByNumber(deployments, "start", n => pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name: n, cwd: __dirname }));
         else if (input === "D") await dualHedgeActionByNumber(deployments, "remove", n => pm2Delete(n));
         else if (input === "U") await manageDualHedgeUsersScreen();
-        else if (input === "L") {
-            const idx = await ask("  View logs for which number: ");
-            const dep = deployments[Number(idx) - 1];
-            if (!dep) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); }
-            else {
-                console.log(c.dim(`  Out: ${dep.outLogPath}`));
-                console.log(c.dim(`  Err: ${dep.errLogPath}`));
-                await pauseForReview();
-            }
-        }
-        else if (input === "B" || input === "") running = false;
-        else { console.log(c.yellow("  Unrecognized option")); }
-    }
-}
-
-// ─── GAP CAPTURE — deploy screen for gapCaptureEngine.js (see that file's
-// own header for the full spec). Reuses the SAME dualHedgeUsers.js account
-// registry as Dual Hedge above (Users submenu below just opens the same
-// manageDualHedgeUsersScreen()) — deliberately NOT a separate user store,
-// since it's the same two-Kite-login idea, just a different trigger
-// (fixed clock time, not a band signal). Own small screen for the same
-// reason dualHedgeScreen() is separate from the main instrument table:
-// getEngineProcesses() filters on a single UNDERLYING env var, and a gap-
-// capture process sets GC_UNDERLYING/GC_LONG_USER/GC_SHORT_USER instead.
-async function getGapCaptureProcesses() {
-    const list = await pm2List();
-    return list
-        .filter(p => p.pm2_env.env?.GC_UNDERLYING)
-        .map(p => ({
-            name:        p.name,
-            underlying:  p.pm2_env.env.GC_UNDERLYING,
-            longUser:    p.pm2_env.env.GC_LONG_USER,
-            shortUser:   p.pm2_env.env.GC_SHORT_USER,
-            status:      p.pm2_env.status,
-            uptime:      p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
-            lots:        p.pm2_env.env?.GC_LOTS_OVERRIDE || "1",
-            entryHour:   p.pm2_env.env?.GC_ENTRY_HOUR_OVERRIDE || "11",
-            entryMinute: p.pm2_env.env?.GC_ENTRY_MINUTE_OVERRIDE ?? "20",
-            exitHour:    p.pm2_env.env?.GC_EXIT_HOUR_OVERRIDE || "11",
-            exitMinute:  p.pm2_env.env?.GC_EXIT_MINUTE_OVERRIDE ?? "25",
-            live:        p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
-            exchange:    p.pm2_env.env?.GC_EXCHANGE_OVERRIDE || "MCX",
-            outLogPath:  p.pm2_env.pm_out_log_path,
-            errLogPath:  p.pm2_env.pm_err_log_path,
-        }));
-}
-
-async function addGapCapture() {
-    const users = dualHedgeUsers.listUsers().filter(u => u.apiKey && u.accessToken);
-    if (users.length < 2) {
-        console.log(c.yellow(`  Need at least 2 fully-configured users (API key + access token) — currently ${users.length}. Use the Users submenu first.`));
-        await pauseForReview();
-        return;
-    }
-    console.log(c.dim("  LONG account and SHORT account enter simultaneously at a fixed time, both unconditionally —"));
-    console.log(c.dim("  No band signal, no per-leg P&L monitoring. Both force-close at a fixed time later, unconditionally."));
-    console.log(c.dim("  Intraday only (MIS) — neither leg carries overnight."));
-    console.log();
-
-    const repo = await ensureCsvLoaded();
-    const all  = repo.listUnderlyings();
-    const underlying = await pickUnderlying(all, "Gap Capture");
-    if (!underlying) { await pauseForReview(); return; }
-
-    function pickUser(label, excludeName) {
-        const options = users.filter(u => u.name !== excludeName);
-        options.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u.name}`));
-        return options;
-    }
-    console.log(c.bold(`  ${underlying} — LONG account:`));
-    let opts = pickUser("LONG");
-    let idx = await ask("  Select number: ");
-    const longUser = opts[Number(idx) - 1];
-    if (!longUser) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
-
-    console.log(c.bold(`  ${underlying} — SHORT account (must differ from ${longUser.name}):`));
-    opts = pickUser("SHORT", longUser.name);
-    idx = await ask("  Select number: ");
-    const shortUser = opts[Number(idx) - 1];
-    if (!shortUser) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
-
-    // Same lotMult reality-check every other deploy flow in this file uses.
-    const def = getDefinition(underlying, "MCX");
-    let lotMultOverride = null;
-    if (def.lotMult === null) {
-        console.log(c.yellow(`  \u26a0 Lot multiplier required for ${underlying} — broker lot_size can't be trusted, see context.js's header.`));
-        let val = null;
-        do {
-            const input = await ask("  Lot multiplier — price move x this = PnL per lot (required): ");
-            if (!input) { console.log(c.yellow("  Required — no safe default")); continue; }
-            const parsed = Number(input);
-            if (!Number.isFinite(parsed) || parsed <= 0) { console.log(c.yellow(`  "${input}" isn't a valid positive number`)); continue; }
-            val = parsed;
-        } while (val === null);
-        lotMultOverride = val;
-    }
-
-    const lotsInput = await ask("  Lots per leg (default 1, applies to both accounts unless you set per-leg overrides later via PM2 env): ");
-    const lots = lotsInput ? Number(lotsInput) : 1;
-    if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  Invalid lots value")); await pauseForReview(); return; }
-
-    function askTimeOfDay(label, defaultHour, defaultMinute) {
-        return ask(`  ${label} IST (HH:MM, default ${String(defaultHour).padStart(2, "0")}:${String(defaultMinute).padStart(2, "0")}): `);
-    }
-    function parseTimeOfDay(input, defaultHour, defaultMinute) {
-        if (!input) return { hour: defaultHour, minute: defaultMinute };
-        const m = input.trim().match(/^(\d{1,2}):(\d{2})$/);
-        if (!m) return null;
-        const hour = Number(m[1]), minute = Number(m[2]);
-        if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
-        return { hour, minute };
-    }
-
-    let entry = null;
-    do {
-        const input = await askTimeOfDay("entry time", 11, 20);
-        entry = parseTimeOfDay(input, 11, 20);
-        if (!entry) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 11:20"));
-    } while (!entry);
-
-    let exit = null;
-    do {
-        const input = await askTimeOfDay("exit time (force-close both legs, unconditionally)", 11, 25);
-        exit = parseTimeOfDay(input, 11, 25);
-        if (!exit) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 11:25"));
-        else if (exit.hour < entry.hour || (exit.hour === entry.hour && exit.minute <= entry.minute)) {
-            console.log(c.yellow(`  Exit time must be after entry time (${String(entry.hour).padStart(2, "0")}:${String(entry.minute).padStart(2, "0")})`));
-            exit = null;
-        }
-    } while (!exit);
-
-    const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
-    let isLive = modeInput === "L";
-    if (isLive) {
-        const confirmLive = (await ask(c.red('  This will place REAL orders on BOTH accounts. type "LIVE" to confirm: '))).trim();
-        if (confirmLive !== "LIVE") {
-            console.log(c.dim("  Not confirmed — starting in paper mode instead"));
-            isLive = false;
-        }
-    }
-
-    const name = `${getShortName(underlying)}GapCapture`;
-    const env = {
-        GC_UNDERLYING: underlying, GC_LONG_USER: longUser.name, GC_SHORT_USER: shortUser.name,
-        GC_EXCHANGE_OVERRIDE: "MCX", GC_LOTS_OVERRIDE: String(lots),
-        GC_ENTRY_HOUR_OVERRIDE: String(entry.hour), GC_ENTRY_MINUTE_OVERRIDE: String(entry.minute),
-        GC_EXIT_HOUR_OVERRIDE: String(exit.hour), GC_EXIT_MINUTE_OVERRIDE: String(exit.minute),
-        LIVE_ORDERS_OVERRIDE: String(isLive),
-    };
-    if (lotMultOverride) env.GC_LOTMULT_OVERRIDE = String(lotMultOverride);
-
-    try {
-        await pm2Start({ ...PM2_BASE_OPTS, script: "gapCaptureEngine.js", name, cwd: __dirname, env });
-        console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  entry ${String(entry.hour).padStart(2, "0")}:${String(entry.minute).padStart(2, "0")} \u2192 exit ${String(exit.hour).padStart(2, "0")}:${String(exit.minute).padStart(2, "0")}  ${isLive ? "LIVE" : "PAPER"})`));
-    } catch (err) {
-        console.log(c.red(`  Failed to start: ${err.message}`));
-    }
-    await pauseForReview();
-}
-
-async function gapCaptureActionByNumber(deployments, verb, fn) {
-    const input = await ask(`  ${verb} which number: `);
-    const dep = deployments[Number(input) - 1];
-    if (!dep) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
-    try {
-        await fn(dep.name);
-        console.log(c.green(`  ${verb}ed ${dep.name}`));
-    } catch (err) {
-        console.log(c.red(`  Failed to ${verb}: ${err.message}`));
-    }
-    await pauseForReview();
-}
-
-async function gapCaptureScreen() {
-    let running = true;
-    while (running) {
-        const deployments = await getGapCaptureProcesses();
-
-        console.log();
-        console.log(c.bold("  \u2500\u2500 Gap Capture \u2500\u2500"));
-        if (deployments.length === 0) {
-            console.log(c.dim("  None running — press U to add accounts first, then A to add a deployment"));
-        } else {
-            deployments.forEach((d, i) => {
-                const modeTag = d.live ? c.red("LIVE") : c.cyan("PAPER");
-                let statusStr;
-                if (d.status === "online") statusStr = c.green(`\u25cf ${fmtUptime(d.uptime)}`);
-                else                        statusStr = c.red(`\u25cf ${d.status.toUpperCase()}`);
-                const window = `${String(d.entryHour).padStart(2, "0")}:${String(d.entryMinute).padStart(2, "0")}\u2192${String(d.exitHour).padStart(2, "0")}:${String(d.exitMinute).padStart(2, "0")}`;
-                console.log(`  ${String(i + 1).padStart(2)}. ${d.name.padEnd(20)} ${d.underlying.padEnd(14)} LONG:${d.longUser.padEnd(10)} SHORT:${d.shortUser.padEnd(10)} ${d.lots} lot  ${window}  ${modeTag}  ${statusStr}`);
-            });
-        }
-        console.log();
-        console.log(c.dim("  [A] add   [X] stop   [S] start   [D] remove   [L] logs   [U] users   [B] back"));
-        const input = (await ask("  > ")).trim().toUpperCase();
-
-        if (input === "A")      await addGapCapture();
-        else if (input === "X") await gapCaptureActionByNumber(deployments, "stop", n => pm2Stop(n));
-        else if (input === "S") await gapCaptureActionByNumber(deployments, "start", n => pm2Start({ ...PM2_BASE_OPTS, script: "gapCaptureEngine.js", name: n, cwd: __dirname }));
-        else if (input === "D") await gapCaptureActionByNumber(deployments, "remove", n => pm2Delete(n));
-        else if (input === "U") await manageDualHedgeUsersScreen(); // same account registry as Dual Hedge — see file header
         else if (input === "L") {
             const idx = await ask("  View logs for which number: ");
             const dep = deployments[Number(idx) - 1];
@@ -3376,7 +3219,6 @@ async function viewLogs(procs) {
 async function rollContract(procs) {
     const hedgePairs = await getHedgePairProcesses();
     const dualHedges = await getDualHedgeProcesses();
-    const gapCaptures = await getGapCaptureProcesses();
 
     // One entry per distinct underlying, whichever process(es) reference it
     // — a hedge pair leg and a standalone engine on the same underlying
@@ -3385,9 +3227,7 @@ async function rollContract(procs) {
     // join the same collapsing: unlike a hedge pair (two DIFFERENT
     // underlyings, core+hedge), a dual-hedge deployment's LONG and SHORT
     // legs trade the SAME underlying (see dualHedgeEngine.js's header), so
-    // it only ever contributes ONE addRef call, not two. Gap-capture
-    // deployments are the exact same shape (same underlying, two accounts,
-    // see gapCaptureEngine.js's header) — one addRef each, same reasoning.
+    // it only ever contributes ONE addRef call, not two.
     const byUnderlying = new Map(); // underlying -> { underlying, exchange, labels: [] }
     const addRef = (underlying, exchange, label) => {
         if (!byUnderlying.has(underlying)) byUnderlying.set(underlying, { underlying, exchange, labels: [] });
@@ -3399,7 +3239,6 @@ async function rollContract(procs) {
         addRef(p.hedgeUnderlying, p.exchange, `${p.name} (hedge leg)`);
     });
     dualHedges.forEach(p => addRef(p.underlying, p.exchange, `${p.name} (dual hedge)`));
-    gapCaptures.forEach(p => addRef(p.underlying, p.exchange, `${p.name} (gap capture)`));
     const candidates = Array.from(byUnderlying.values());
 
     if (candidates.length === 0) { console.log(c.yellow("  No instruments running to roll")); await pauseForReview(); return; }
@@ -3511,17 +3350,15 @@ async function rollContract(procs) {
     const siblings = procs.filter(sib => sib.underlying === p.underlying);
     const affectedPairs  = hedgePairs.filter(hp => hp.coreUnderlying === p.underlying || hp.hedgeUnderlying === p.underlying);
     const affectedDuals  = dualHedges.filter(dh => dh.underlying === p.underlying);
-    const affectedGaps   = gapCaptures.filter(gc => gc.underlying === p.underlying);
-    if (siblings.length > 1 || affectedPairs.length > 0 || affectedDuals.length > 0 || affectedGaps.length > 0) {
+    if (siblings.length > 1 || affectedPairs.length > 0 || affectedDuals.length > 0) {
         const parts = [];
         if (siblings.length > 0)      parts.push(siblings.map(s => (STRATEGY_INFO[s.strategy] || { short: s.strategy }).short).join(", "));
         if (affectedPairs.length > 0) parts.push(affectedPairs.map(hp => `${hp.name} (${hp.coreUnderlying === p.underlying ? "core" : "hedge"} leg)`).join(", "));
         if (affectedDuals.length > 0) parts.push(affectedDuals.map(dh => `${dh.name} (dual hedge)`).join(", "));
-        if (affectedGaps.length > 0)  parts.push(affectedGaps.map(gc => `${gc.name} (gap capture)`).join(", "));
-        console.log(c.yellow(`  ⚠ ${siblings.length + affectedPairs.length + affectedDuals.length + affectedGaps.length} process(es) run ${p.underlying} (${parts.join(", ")}) — all of them need this restart, not just the one picked, or they'll end up split across two different contracts.`));
+        console.log(c.yellow(`  ⚠ ${siblings.length + affectedPairs.length + affectedDuals.length} process(es) run ${p.underlying} (${parts.join(", ")}) — all of them need this restart, not just the one picked, or they'll end up split across two different contracts.`));
     }
 
-    const restart = (await ask(`  Restart engine${(siblings.length + affectedPairs.length + affectedDuals.length + affectedGaps.length) > 1 ? "s" : ""}? [Y/N]: `)).trim().toUpperCase();
+    const restart = (await ask(`  Restart engine${(siblings.length + affectedPairs.length + affectedDuals.length) > 1 ? "s" : ""}? [Y/N]: `)).trim().toUpperCase();
     if (restart === "Y") {
         for (const target of siblings) {
             try {
@@ -3557,20 +3394,8 @@ async function rollContract(procs) {
                 console.log(c.red(`  Restart failed for ${dh.name}: ${err.message} — pin is saved, restart manually when ready`));
             }
         }
-        for (const gc of affectedGaps) {
-            try {
-                // Same reasoning as dual hedge above — pin lives in
-                // pinStore, not PM2 env, so a plain restart is enough for
-                // dualHedgeContext.js (gapCaptureEngine.js's own resolver
-                // call, tag:"GC") to pick it up for both legs.
-                await pm2Restart({ ...PM2_BASE_OPTS, script: "gapCaptureEngine.js", name: gc.name, cwd: __dirname });
-                console.log(c.green(`  Restarted ${gc.name} — now running ${p.underlying} on ${next.symbol}`));
-            } catch (err) {
-                console.log(c.red(`  Restart failed for ${gc.name}: ${err.message} — pin is saved, restart manually when ready`));
-            }
-        }
     } else {
-        const stillOn = [...siblings.map(s => s.name), ...affectedPairs.map(hp => hp.name), ...affectedDuals.map(dh => dh.name), ...affectedGaps.map(gc => gc.name)];
+        const stillOn = [...siblings.map(s => s.name), ...affectedPairs.map(hp => hp.name), ...affectedDuals.map(dh => dh.name)];
         console.log(c.yellow(`  Pin saved but NOT applied yet — ${stillOn.join(", ")} still on ${current.symbol} until restarted`));
     }
     await pauseForReview();
@@ -4026,7 +3851,6 @@ async function main() {
         else if (input === "V")           await riskManagement(procs);
         else if (input === "H")           await hedgePairScreen();
         else if (input === "G")           await dualHedgeScreen();
-        else if (input === "Y")           await gapCaptureScreen();
         else if (input === "O")           await optionsScreen();
         else if (input === "Q")           { running = false; redraw = false; }
         else                               { console.log(c.yellow("  Unrecognized option")); redraw = false; }

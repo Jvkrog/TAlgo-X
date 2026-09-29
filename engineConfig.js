@@ -53,7 +53,7 @@ function getAccessToken() {
 // on, so a token from three days ago reads as "set" but is dead the moment
 // any engine actually tries to use it. isAccessTokenFresh() is the fix:
 // "set AND generated on today's IST date" — the same day-boundary
-// reasoning hedgePairEngine.js/gapCaptureEngine.js already use for their
+// reasoning hedgePairEngine.js already uses for their
 // own same-day-only position resume, just applied to the token itself.
 // This naturally flips stale at the IST midnight rollover (well after any
 // trading day's EOD, well before the next morning's session) rather than

@@ -30,7 +30,7 @@ function istParts(date = new Date()) {
 // IST calendar date as "YYYY-MM-DD" — same conversion as istParts(), just
 // asking for the date part instead of the time-of-day part. Was already
 // duplicated privately as its own todayIST() in hedgePairEngine.js and
-// gapCaptureEngine.js (both needed it for "resume only if this saved
+// gapCaptureEngine.js was one of the two that needed it for "resume only if this saved
 // position/decision is from TODAY, not a stale earlier day" checks) — those
 // two keep their own copies untouched (already working, no need to touch
 // them), but any NEW same-day-freshness check (e.g. engineConfig.js's
