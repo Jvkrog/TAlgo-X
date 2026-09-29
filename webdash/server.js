@@ -1696,8 +1696,8 @@ async function getDualHedgeProcesses() {
             lots:       p.pm2_env.env?.DH_LOTS_OVERRIDE || "1",
             maxLoss:    p.pm2_env.env?.DH_MAX_LOSS_RUPEES_OVERRIDE || "3000",
             gapCapture: p.pm2_env.env?.DH_GAP_CAPTURE === "true",
-            gcEntry:    `${String(p.pm2_env.env?.DH_GC_ENTRY_HOUR_OVERRIDE ?? "11").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_ENTRY_MINUTE_OVERRIDE ?? "20").padStart(2, "0")}`,
-            gcExit:     `${String(p.pm2_env.env?.DH_GC_EXIT_HOUR_OVERRIDE ?? "11").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_EXIT_MINUTE_OVERRIDE ?? "25").padStart(2, "0")}`,
+            gcEntry:    `${String(p.pm2_env.env?.DH_GC_HOUR_OVERRIDE ?? "23").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_MINUTE_OVERRIDE ?? "20").padStart(2, "0")}`,
+            gcExit:     `${String(p.pm2_env.env?.DH_GC_QUIT_HOUR_OVERRIDE ?? "23").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_QUIT_MINUTE_OVERRIDE ?? "25").padStart(2, "0")}`,
             live:       p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:   p.pm2_env.env?.DH_EXCHANGE_OVERRIDE || "MCX",
             outLogPath: p.pm2_env.pm_out_log_path,
@@ -1845,11 +1845,11 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
             if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
             return { hour: Number(m[1]), minute: Number(m[2]) };
         };
-        gcE = parse(gcEntry, "11:20");
-        gcX = parse(gcExit, "11:25");
+        gcE = parse(gcEntry, "23:20");
+        gcX = parse(gcExit, "23:25");
         if (!gcE || !gcX) return res.status(400).json({ error: "gap capture times must be HH:MM (IST)" });
         if (gcX.hour < gcE.hour || (gcX.hour === gcE.hour && gcX.minute <= gcE.minute)) {
-            return res.status(400).json({ error: "gap capture exit time must be after entry time" });
+            return res.status(400).json({ error: "gap capture quit time must be after the gap capture time" });
         }
     }
 
@@ -1864,8 +1864,8 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     // Always written explicitly (PM2 restart merges env, never clears it).
     env.DH_GAP_CAPTURE = String(!!gapCapture);
     if (gapCapture) {
-        env.DH_GC_ENTRY_HOUR_OVERRIDE = String(gcE.hour); env.DH_GC_ENTRY_MINUTE_OVERRIDE = String(gcE.minute);
-        env.DH_GC_EXIT_HOUR_OVERRIDE  = String(gcX.hour); env.DH_GC_EXIT_MINUTE_OVERRIDE  = String(gcX.minute);
+        env.DH_GC_HOUR_OVERRIDE = String(gcE.hour); env.DH_GC_MINUTE_OVERRIDE = String(gcE.minute);
+        env.DH_GC_QUIT_HOUR_OVERRIDE  = String(gcX.hour); env.DH_GC_QUIT_MINUTE_OVERRIDE  = String(gcX.minute);
     }
 
     try {
