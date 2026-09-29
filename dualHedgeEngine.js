@@ -13,58 +13,39 @@
 // once the actual requirement turned out to be genuinely cross-account,
 // not a single-account strategy variant.
 //
-// PER-LEG SPEC (mirrors short.js/long.js's own hedged_position logic):
-//   - LONG leg: enters LONG the moment the shared band color turns green
-//     while flat. Never opens or reverses into SHORT — this account only
-//     ever holds LONG or flat.
-//   - SHORT leg: mirror — enters SHORT on red while flat, never LONG.
-//   - Once a leg is holding a position and the band flips AGAINST it
-//     (LONG + color turns red, or SHORT + color turns green): that leg's
-//     max-loss cut arms FOR THE FIRST TIME right at that moment (see
-//     MAX_LOSS_RUPEES below) — NOT from entry. Before any flip, there is
-//     NO exit condition at all besides the take-profit rule below; this
-//     was an explicit correction from the user after an earlier version
-//     of this logic (single-account DYNAMIC_MID_COLOR_SHORT_HOLD) armed
-//     it unconditionally from entry — reasoning given directly: "sl
-//     should only be only when flipped cause we dont close position
-//     (closing makes it losing trade)" — i.e. don't cut a position that's
-//     merely pulled back but hasn't actually reversed against the band;
-//     only once it has, is a loss-cap warranted.
-//   - From the moment a leg has flipped at least once (stays true for the
-//     rest of that position's life, even if price later moves back
-//     favorable and un-flips): every tick, if currently in profit ->
-//     EXIT (take profit); if loss has reached MAX_LOSS_RUPEES -> EXIT
-//     (cut loss); otherwise -> HOLD. Matches turn-1's original spec
-//     ("check whether position is in profit or loss if not in profit
-//     hold... when in profit and flips then you can exit") plus the
-//     max-loss addition on top.
-//   - No chop/volume/long-candle/HTF/daily-HA gates on either leg (same
-//     reasoning the removed strategy had — see dualHedgeContext.js: a
-//     single-direction leg could otherwise be blocked from ever trading
-//     its own side by a gate meant for a strategy that trades both ways).
+// LOGIC — a direct port of long.js/short.js (uploaded reference scripts):
+//   SIGNAL: the Dynamic Step Band on RANGE BARS built from 1-minute history
+//   (rangeBandReader.js — read ONCE and shared by both legs, so the two
+//   accounts can never disagree about a flip). Evaluated at :20 seconds past
+//   every 15-minute mark from 09:15 IST on (09:15:20, 09:30:20, ... exactly
+//   the reference's trade_timer schedule); nothing is evaluated before 09:15
+//   and NOT at boot — a fresh start waits for the next slot, as the scripts do.
+//   LONG leg (long.js): flat + band green at an evaluation -> enter LONG at
+//     the next second. Never opens SHORT — this account only holds LONG/flat.
+//   SHORT leg (short.js): flat + band red -> enter SHORT. Never LONG.
+//   FLIP: holding + the band turns AGAINST the position at an evaluation ->
+//     the leg is "flipped" (hedged_position=1 / sma_signal flip in the
+//     scripts). Sticky for the rest of that position's life. Before any flip
+//     there is NO exit at all ("closing makes it losing trade").
+//   EXITS, checked EVERY SECOND on the live price (the scripts' trade_manager
+//     runs on a 1s timer against the websocket tick), flipped legs only:
+//       unrealised P&L  >  +TAKE_PROFIT  -> exit  ("Long Exit" / "Short Exit")
+//       unrealised P&L  <  -MAX_LOSS     -> exit  ("... Exit SL")
+//     otherwise hold. After an exit the leg is flat and waits for its own
+//     favorable color at a later evaluation (sma_signal reset to 0).
+//   Positions carry overnight (NRML). Optional gap capture below is the
+//   reference's 23:20/23:21/23:22/23:25 sequence.
+//   No chop/volume/long-candle/HTF/daily-HA gates on either leg (see
+//   dualHedgeContext.js).
 //
-// ARCHITECTURE — why this is its own process, not two engine.js runs:
-// the SAME band signal drives both legs and must never be computed twice
-// (a tiny timing skew between two independent replays could make the two
-// legs disagree about whether a flip has happened) — so it's read ONCE
-// per tick from a single shared dynamicBandReader.js instance and applied
-// to both legs' own independent position state. This is the same
-// "shared reader, per-leg state" shape hedgePairEngine.js already
-// established for its own core/hedge legs — see that file's header.
+// LIVE PRICE: one KiteTicker websocket on the LONG user's credentials (market
+// data is account-agnostic), subscribed to the shared contract token. REST
+// LTP is only a throttled fallback while the ticker is stale/down.
 //
-// NO LIVE WEBSOCKET TICKER, and NO frequent REST polling either — this
-// engine runs strictly on the band signal's own 15-minute cadence, same
-// as the removed single-account DYNAMIC_MID_COLOR_SHORT_HOLD strategy did
-// via processCandle: one check per completed 15m candle, nothing faster.
-// An earlier version of this file polled every 15s "for responsiveness"
-// (reusing hedgePairEngine.js's own no-ticker rationale) — that was an
-// unrequested deviation and has been removed: entries, the take-profit/
-// max-loss evaluation once flipped, AND the heartbeat log line below all
-// happen exactly once per 15-minute slot, scheduled the same way
-// candlePoll.js schedules a live engine.js strategy's own candle-close
-// check (msUntilNextSlot15Plus10() below is that same slot-boundary-plus-
-// buffer math, just inlined here rather than shared, since this engine
-// has no candle buffer of its own to hang a shared helper off of).
+// ARCHITECTURE — why this is its own process, not two engine.js runs: the
+// SAME band signal drives both legs and must never be computed twice; it is
+// read once per evaluation and applied to both legs' own independent state
+// (same "shared reader, per-leg state" shape as hedgePairEngine.js).
 //
 // GAP CAPTURE (optional feature of THIS engine — DH_GAP_CAPTURE=true; there
 // is no separate gap-capture engine/menu/process). It is an END-OF-DAY step
@@ -109,8 +90,13 @@
 //   DH_LONG_LOTS_OVERRIDE / DH_SHORT_LOTS_OVERRIDE   per-leg, else DH_LOTS_OVERRIDE
 //   DH_LOTMULT_OVERRIDE       required unless the underlying already has a
 //                             lotMult override in context.js
-//   DH_BAND_STEP_OVERRIDE     optional, else engineConfig.BAND_STEP_DEFAULT
-//   DH_MAX_LOSS_RUPEES_OVERRIDE   default 3000
+//   DH_BAND_STEP_OVERRIDE     optional, else engineConfig.BAND_STEP_DEFAULT (DSB step)
+//   DH_RANGE_SIZE_OVERRIDE    range bar size in price units, default = the band step
+//   DH_RANGE_START_OVERRIDE   fixed range-bar anchor, IST "YYYY-MM-DD HH:mm:ss",
+//                             default "2026-06-01 09:00:00" (bars are path-
+//                             dependent — never change it casually)
+//   DH_MAX_LOSS_RUPEES_OVERRIDE     default 3000 (flipped legs exit below -this)
+//   DH_TAKE_PROFIT_RUPEES_OVERRIDE  default 3000 (flipped legs exit above +this)
 //   DH_GAP_CAPTURE            "true" enables gap capture (see above), default off
 //   DH_GC_HOUR_OVERRIDE       / DH_GC_MINUTE_OVERRIDE         realize + enter, default 23 / 20 (IST)
 //   DH_GC_QUIT_HOUR_OVERRIDE  / DH_GC_QUIT_MINUTE_OVERRIDE    quit (positions stay open), default 23 / 25
@@ -123,7 +109,7 @@
 // toolbox/webdash gap.
 "use strict";
 
-const { KiteConnect } = require("kiteconnect");
+const { KiteConnect, KiteTicker } = require("kiteconnect");
 const engineConfig = require("./engineConfig");
 const c = require("./c");
 const { createCsvRepository } = require("./csvRepository");
@@ -138,9 +124,14 @@ const { createOrders } = require("./orders");
 const positions = require("./positions");
 const { emitEvent } = require("./eventBridge");
 const { istParts, todayIST } = require("./istTime");
-const { createDynamicBandReader } = require("./dynamicBandReader");
+const { createRangeBandReader } = require("./rangeBandReader");
 
-const MAX_LOSS_RUPEES = Number(process.env.DH_MAX_LOSS_RUPEES_OVERRIDE) || 3000;
+const MAX_LOSS_RUPEES    = Number(process.env.DH_MAX_LOSS_RUPEES_OVERRIDE) || 3000;
+const TAKE_PROFIT_RUPEES = Number(process.env.DH_TAKE_PROFIT_RUPEES_OVERRIDE) || 3000;
+const RANGE_START = process.env.DH_RANGE_START_OVERRIDE || "2026-06-01 09:00:00";
+const EVAL_OFFSET_SEC = 20;      // evaluate at :20 past each 15-minute mark (reference trade_timer)
+const EXIT_COOLDOWN_MS = 30 * 1000;   // after a FAILED exit, don't re-fire every second
+const PRICE_STALE_MS = 15 * 1000;
 const GAP_CAPTURE = process.env.DH_GAP_CAPTURE === "true";
 const envNum = (v, d) => (v !== undefined && v !== "" && Number.isFinite(Number(v))) ? Number(v) : d;
 const GC_HOUR         = envNum(process.env.DH_GC_HOUR_OVERRIDE, 23);
@@ -226,7 +217,7 @@ async function main() {
         const db     = createDb(context);
         db.initDB();
         const state  = createState();
-        state.flipped = false; // extra field on top of createState()'s usual shape — see checkLeg() below
+        state.flipped = false; // extra field on top of createState()'s usual shape — see evaluateBand()/manageLeg() below
         const orders = createOrders(context, tg, kc); // kcOverride — THIS leg's own account, not the global one
 
         try {
@@ -236,12 +227,10 @@ async function main() {
                 state.entryPrice = saved.entry_price;
                 const openTrade  = await db.getOpenTrade(context.tgPrefix);
                 state.openTradeId = openTrade ? openTrade.id : null;
-                // state.flipped is NOT persisted (see file header's
-                // NO LIVE WEBSOCKET TICKER section / known tradeoff) — a
-                // restart while already past the flip point re-arms the
-                // max-loss cut from scratch rather than immediately, same
-                // accepted risk profile hedgePairEngine.js's own resume
-                // logic has for anything it doesn't explicitly persist.
+                // state.flipped is NOT persisted (the reference scripts don't
+                // either — hedged_position restarts at 0) — a restart while
+                // already past the flip point re-arms the exit rules only at
+                // the next real flip.
                 console.log(c.yellow(`[${context.tgPrefix}] resumed ${state.position}@${state.entryPrice} (flip-state not restored — will re-arm on the next real flip)`));
             } else if (saved?.position) {
                 console.error(c.red(`[${context.tgPrefix}] stale saved position (${saved.position}@${saved.entry_price}) doesn't match this leg's own side (${side}) — NOT auto-resumed, verify against the broker manually`));
@@ -253,7 +242,7 @@ async function main() {
         }
         await orders.reconcile(state);
 
-        return { side, user, context, tg, db, state, orders, ltpKey: `${context.exchange}:${context.symbol}` };
+        return { side, user, context, tg, db, state, orders, ltpKey: `${context.exchange}:${context.symbol}`, wantEntry: false, nextExitAt: 0 };
     }
 
     const bandStepOverride = process.env.DH_BAND_STEP_OVERRIDE ? Number(process.env.DH_BAND_STEP_OVERRIDE) : null;
@@ -269,14 +258,40 @@ async function main() {
         lotMultOverride, bandStepOverride,
     });
 
-    console.log(c.bold(`DUAL HEDGE  ${long.context.symbol}  LONG:${long.user.name} (${long.context.lots} lot)  SHORT:${short.user.name} (${short.context.lots} lot)  maxLoss:₹${MAX_LOSS_RUPEES} (armed only once flipped)`));
+    console.log(c.bold(`DUAL HEDGE  ${long.context.symbol}  LONG:${long.user.name} (${long.context.lots} lot)  SHORT:${short.user.name} (${short.context.lots} lot)  maxLoss:₹${MAX_LOSS_RUPEES} takeProfit:₹${TAKE_PROFIT_RUPEES} (exits armed only once flipped)`));
     console.log();
 
-    // Shared band signal — read ONCE per tick, applied to both legs. See
-    // file header for why this must not be computed independently twice.
-    const bandReader = createDynamicBandReader({
-        token: long.context.token, timeframe: "15m", bandStep: long.context.bandStep, engineConfig, label: "DUAL_HEDGE",
+    // Shared band signal — read ONCE per evaluation, applied to both legs.
+    // See file header for why this must not be computed independently twice.
+    const bandStep  = long.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
+    const rangeSize = process.env.DH_RANGE_SIZE_OVERRIDE ? Number(process.env.DH_RANGE_SIZE_OVERRIDE) : bandStep;
+    if (!(rangeSize > 0) || !(bandStep > 0)) {
+        console.error(c.red(`invalid band step (${bandStep}) / range size (${rangeSize}) — refusing to boot.`));
+        process.exit(1);
+    }
+    console.log(c.dim(`signal: Dynamic Step Band on range bars  step ${bandStep}  range ${rangeSize}  from ${RANGE_START} IST`));
+    const bandReader = createRangeBandReader({
+        getKc: () => longKc, token: long.context.token, step: bandStep, rangeSize, startDate: RANGE_START, label: "DUAL_HEDGE",
     });
+
+    // ─── Live price — one websocket on the LONG user's credentials (market
+    // data is account-agnostic). See file header.
+    let tickPrice = null, tickAt = 0;
+    const ticker = new KiteTicker({ api_key: longUser.apiKey, access_token: longUser.accessToken });
+    ticker.connect();
+    ticker.on("connect", () => {
+        ticker.subscribe([long.context.token]);
+        ticker.setMode(ticker.modeLTP, [long.context.token]);
+    });
+    ticker.on("ticks", ticks => {
+        for (const t of ticks) {
+            if (t.instrument_token === long.context.token && t.last_price) { tickPrice = t.last_price; tickAt = Date.now(); }
+        }
+    });
+    ticker.on("error",       err => console.error(c.red(`WS  error: ${err && err.message ? err.message : err}`)));
+    ticker.on("close",       ()  => console.log(c.dim("WS  closed")));
+    ticker.on("reconnect",   n   => console.log(c.dim(`WS  reconnect #${n}`)));
+    ticker.on("noreconnect", ()  => { console.error(c.red("WS  max reconnects — exiting so PM2 restarts")); process.exit(1); });
 
     // Read-only client for LTP lookups (uPnL checks + entry/exit
     // bookkeeping prices) — same reasoning as hedgePairEngine.js's own
@@ -326,51 +341,91 @@ async function main() {
         return true;
     }
 
-    // ─── Per-leg decision — see file header's PER-LEG SPEC for the full
-    // rationale. `color` is this tick's shared band read ("green"|"red").
-    async function checkLeg(leg, color) {
-        const favorable = leg.side === "LONG" ? "green" : "red";
-        const adverse    = leg.side === "LONG" ? "red"   : "green";
+    // Latest price: the live tick when fresh; otherwise REST LTP, throttled
+    // (the ticker is down or quiet — don't hammer the REST endpoint at 1/s).
+    let lastRestAt = 0;
+    async function livePrice() {
+        if (tickPrice !== null && Date.now() - tickAt <= PRICE_STALE_MS) return tickPrice;
+        if (Date.now() - lastRestAt < 5000) return null;
+        lastRestAt = Date.now();
+        return getLtp(long.ltpKey).catch(() => null);
+    }
 
-        if (!leg.state.position) {
-            if (color === favorable) await enterLeg(leg, `band ${color}`);
-            // color === adverse while flat -> no action, this leg only ever trades its own side
+    // ─── BAND EVALUATION — runs at :20 past each 15-minute mark from 09:15
+    // (reference candle_trade/screener). Only ever ARMS things: a favorable
+    // color while flat sets the entry signal, an adverse color while holding
+    // sets the sticky flip. The 1-second manager below acts on them.
+    async function evaluateBand() {
+        const { hours, minutes } = istParts();
+        if (hours < 9 || (hours === 9 && minutes < 15)) return;   // reference never evaluates before 09:15
+        if (gapWindowActive()) {
+            // Band logic is off for the rest of the day (see GAP CAPTURE in the header).
+            await emitLivePnl();
             return;
         }
+        const band = await bandReader.getLatest();
+        if (!band) { console.log(c.dim("DUAL HEDGE  no band read yet — will retry next slot")); return; }
 
-        if (!leg.state.flipped) {
-            if (color !== adverse) return; // still normal continuation — nothing to evaluate yet
-            leg.state.flipped = true;
-            console.log(c.yellow(`[${leg.context.tgPrefix}] ${leg.side} FLIPPED (band turned ${color}) — max-loss cut (₹${MAX_LOSS_RUPEES}) now armed; was unprotected before this, by design`));
+        for (const leg of [long, short]) {
+            const favorable = leg.side === "LONG" ? "green" : "red";
+            const adverse   = leg.side === "LONG" ? "red"   : "green";
+            if (!leg.state.position) {
+                if (band.color === favorable) leg.wantEntry = true;   // white/adverse while flat: nothing
+            } else if (!leg.state.flipped && band.color === adverse) {
+                leg.state.flipped = true;
+                console.log(c.yellow(`[${leg.context.tgPrefix}] ${leg.side} FLIPPED (band ${band.color}) — exits now armed: take-profit > +₹${TAKE_PROFIT_RUPEES}, stop < -₹${MAX_LOSS_RUPEES}`));
+            }
         }
+        await emitLivePnl();
+    }
 
-        // Once flipped=true it STAYS true for the rest of this position's
-        // life (see header) — every tick from here on gets evaluated for
-        // profit/loss REGARDLESS of what color does next (a later
-        // favorable/un-flip tick must still be checked for take-profit,
-        // not just adverse-color ticks — this was a real bug caught on
-        // review: an early `if (color !== adverse) return` here would have
-        // silently skipped the profit check on exactly the ticks where a
-        // take-profit exit is most likely to actually fire).
-        const price = await getLtp(leg.ltpKey).catch(() => null);
-        if (price === null) return; // couldn't price it this tick — re-check next poll, don't guess
+    // ─── 1-SECOND MANAGER (reference trade_manager) — entries armed by the
+    // evaluation, and the exit rules for flipped legs, against the live price.
+    async function manageLeg(leg, price) {
+        if (!leg.state.position) {
+            if (leg.wantEntry) {
+                leg.wantEntry = false;   // one attempt per signal — a failed entry waits for the next evaluation
+                await enterLeg(leg, `band ${leg.side === "LONG" ? "green" : "red"}`);
+            }
+            return;
+        }
+        if (!leg.state.flipped) return;   // no exit of any kind before a flip, by design
+        if (Date.now() < leg.nextExitAt) return;
+
         const uPnl = positions.unrealised(leg.context, leg.state, price);
+        let reason = null;
+        if (uPnl > TAKE_PROFIT_RUPEES)      reason = `${leg.side} EXIT (take profit > ₹${TAKE_PROFIT_RUPEES})`;
+        else if (uPnl < -MAX_LOSS_RUPEES)   reason = `${leg.side} EXIT SL (loss > ₹${MAX_LOSS_RUPEES})`;
+        if (!reason) return;
 
-        if (uPnl > 0) {
-            await exitLeg(leg, "PROFITABLE FLIP EXIT");
-        } else if (uPnl <= -MAX_LOSS_RUPEES) {
-            await exitLeg(leg, `MAX LOSS EXIT (₹${MAX_LOSS_RUPEES})`);
+        const ok = await exitLeg(leg, reason);
+        if (ok) leg.wantEntry = false;   // sma_signal=0 after an exit
+        else    leg.nextExitAt = Date.now() + EXIT_COOLDOWN_MS;
+    }
+
+    let managing = false;
+    async function manage() {
+        if (managing) return;
+        managing = true;
+        try {
+            if (gapWindowActive()) return;
+            const price = await livePrice();
+            if (price === null) return;
+            await manageLeg(long, price);
+            await manageLeg(short, price);
+        } catch (err) {
+            console.error(c.red(`DUAL HEDGE manager error: ${err.message}`));
+        } finally {
+            managing = false;
         }
-        // else: hold — "we dont close position (closing makes it losing trade)"
     }
 
     // ─── Web dashboard live pane + console heartbeat — one line per leg,
-    // once per 15-minute tick (see msUntilNextSlot15Plus10() below for why
-    // that's the cadence, not a faster poll).
+    // once per 15-minute evaluation.
     async function emitLivePnl() {
         const ts = new Date().toLocaleTimeString("en-IN", { hour12: false });
         for (const leg of [long, short]) {
-            const price = await getLtp(leg.ltpKey).catch(() => null);
+            const price = (tickPrice !== null && Date.now() - tickAt <= PRICE_STALE_MS) ? tickPrice : await getLtp(leg.ltpKey).catch(() => null);
             if (price === null) continue;
             const uPnl = leg.state.position ? positions.unrealised(leg.context, leg.state, price) : 0;
             const session = (leg.state.pnl || 0) + uPnl;
@@ -466,47 +521,35 @@ async function main() {
         }
     }
 
-    async function tick() {
-        try {
-            if (gapWindowActive()) {
-                // Band logic is off for the rest of the day (see GAP CAPTURE in the header).
-                await emitLivePnl();
-                return;
-            }
-            const band = await bandReader.getLatest();
-            if (!band || !band.color) { console.log(c.dim("DUAL HEDGE  no band read yet — will retry next 15m slot")); return; }
-            await checkLeg(long, band.color);
-            await checkLeg(short, band.color);
-            await emitLivePnl();
-        } catch (err) {
-            console.error(c.red(`DUAL HEDGE loop error: ${err.message}`));
-        }
-    }
-
-    // ─── 15-minute slot-boundary scheduling — same shape and same +10s
-    // publish-lag buffer as candlePoll.js's own msUntilNextSlotPlus10()/
-    // scheduleNext() (see that file), just inlined here rather than
-    // imported, since this engine has no candle buffer of its own to hang
-    // a shared helper off. Runs exactly once per completed 15m candle —
-    // not a faster poll — because the band signal (and therefore every
-    // decision a leg makes) only actually changes on that cadence; polling
-    // faster would just re-evaluate the same unchanged signal.
-    function msUntilNextSlot15Plus10() {
+    // ─── 15-minute slot scheduling, +20s like the reference's trade_timer
+    // (seconds == 20 at minute % 15 == 0).
+    function msUntilNextSlot() {
         const now   = new Date();
         const istMs = now.getTime() + (5.5 * 60 * 60 * 1000);
         const ist   = new Date(istMs);
         const secInSlot = (ist.getUTCMinutes() % SLOT_MINUTES) * 60 + ist.getUTCSeconds();
-        const msToNextClose = (SLOT_MINUTES * 60 - secInSlot) * 1000 - ist.getUTCMilliseconds();
-        return msToNextClose + 10 * 1000;
+        // Time until :20 past the mark — this slot's if we haven't reached it
+        // yet, else the next slot's. The 250ms floor stops a slightly-early
+        // timer from scheduling a second evaluation for the same slot.
+        let ms = (EVAL_OFFSET_SEC - secInSlot) * 1000 - ist.getUTCMilliseconds();
+        if (ms <= 250) ms += SLOT_MINUTES * 60 * 1000;
+        return ms;
     }
 
-    function scheduleNextTick() {
-        setTimeout(async () => { await tick(); scheduleNextTick(); }, msUntilNextSlot15Plus10());
+    async function evaluateSafe() {
+        try { await evaluateBand(); }
+        catch (err) { console.error(c.red(`DUAL HEDGE evaluation error: ${err.message}`)); }
     }
 
+    function scheduleNextEval() {
+        setTimeout(async () => { await evaluateSafe(); scheduleNextEval(); }, msUntilNextSlot());
+    }
+
+    // No evaluation at boot — the reference scripts only act at their :20
+    // slots. Warm the minute-candle cache now so the first slot is instant.
     bandReader.prewarm();
-    await tick();
-    scheduleNextTick();
+    scheduleNextEval();
+    setInterval(manage, 1000);
     if (GAP_CAPTURE) {
         await gapTick();
         setInterval(gapTick, GC_POLL_MS);

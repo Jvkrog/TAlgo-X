@@ -2468,6 +2468,8 @@ async function getDualHedgeProcesses() {
             uptime:     p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
             lots:       p.pm2_env.env?.DH_LOTS_OVERRIDE || "1",
             maxLoss:    p.pm2_env.env?.DH_MAX_LOSS_RUPEES_OVERRIDE || "3000",
+            takeProfit: p.pm2_env.env?.DH_TAKE_PROFIT_RUPEES_OVERRIDE || "3000",
+            rangeSize:  p.pm2_env.env?.DH_RANGE_SIZE_OVERRIDE || "",
             gapCapture: p.pm2_env.env?.DH_GAP_CAPTURE === "true",
             gcEntry:    `${String(p.pm2_env.env?.DH_GC_HOUR_OVERRIDE ?? "23").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_MINUTE_OVERRIDE ?? "20").padStart(2, "0")}`,
             gcExit:     `${String(p.pm2_env.env?.DH_GC_QUIT_HOUR_OVERRIDE ?? "23").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_QUIT_MINUTE_OVERRIDE ?? "25").padStart(2, "0")}`,
@@ -2565,7 +2567,7 @@ async function addDualHedge() {
     }
     console.log(c.dim("  LONG account: enters LONG on a green band signal, never shorts"));
     console.log(c.dim("  SHORT account: enters SHORT on a red band signal, never longs"));
-    console.log(c.dim("  Both carry overnight (NRML); SL only arms after that leg's own first adverse flip"));
+    console.log(c.dim("  Signal: Dynamic Step Band on range bars. Both legs carry overnight (NRML); exits only arm after that leg's own first adverse flip"));
     console.log(c.dim("  Optional gap capture (EOD): realize today's trades, enter LONG/SHORT on the two accounts (carried overnight), quit"));
     console.log();
 
@@ -2611,12 +2613,21 @@ async function addDualHedge() {
     const lots = lotsInput ? Number(lotsInput) : 1;
     if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  Invalid lots value")); await pauseForReview(); return; }
 
-    const maxLossInput = await ask("  Max-loss cut in rupees, armed only after a leg's own first adverse flip (default 3000): ");
+    const maxLossInput = await ask("  Stop: exit a flipped leg when loss exceeds ₹ (default 3000): ");
     const maxLoss = maxLossInput ? Number(maxLossInput) : 3000;
     if (!Number.isFinite(maxLoss) || maxLoss <= 0) { console.log(c.yellow("  Invalid max-loss value")); await pauseForReview(); return; }
 
+    const takeProfitInput = await ask("  Take profit: exit a flipped leg when profit exceeds ₹ (default 3000): ");
+    const takeProfit = takeProfitInput ? Number(takeProfitInput) : 3000;
+    if (!Number.isFinite(takeProfit) || takeProfit <= 0) { console.log(c.yellow("  Invalid take-profit value")); await pauseForReview(); return; }
+
     const bandStepInput = await ask("  Band step override (blank = engine default): ");
     const bandStep = bandStepInput ? Number(bandStepInput) : null;
+    if (bandStep !== null && (!Number.isFinite(bandStep) || bandStep <= 0)) { console.log(c.yellow("  Invalid band step")); await pauseForReview(); return; }
+
+    const rangeInput = await ask("  Range bar size in price points (blank = same as the band step): ");
+    const rangeSize = rangeInput ? Number(rangeInput) : null;
+    if (rangeSize !== null && (!Number.isFinite(rangeSize) || rangeSize <= 0)) { console.log(c.yellow("  Invalid range bar size")); await pauseForReview(); return; }
 
     // Gap capture — an option of THIS deployment, not a separate engine.
     let gap = null;
@@ -2665,6 +2676,9 @@ async function addDualHedge() {
     if (lotMultOverride) env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
     if (bandStep)        env.DH_BAND_STEP_OVERRIDE = String(bandStep);
     // Always written explicitly (PM2 restart merges env, never clears it).
+    env.DH_TAKE_PROFIT_RUPEES_OVERRIDE = String(takeProfit);
+    env.DH_RANGE_SIZE_OVERRIDE = rangeSize ? String(rangeSize) : "";
+    // Always written explicitly (PM2 restart merges env, never clears it).
     env.DH_GAP_CAPTURE = String(!!gap);
     if (gap) {
         env.DH_GC_HOUR_OVERRIDE = String(gap.entry.hour); env.DH_GC_MINUTE_OVERRIDE = String(gap.entry.minute);
@@ -2673,7 +2687,7 @@ async function addDualHedge() {
 
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: __dirname, env });
-        console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  maxLoss:\u20b9${maxLoss}${gap ? `  gap capture ${String(gap.entry.hour).padStart(2, "0")}:${String(gap.entry.minute).padStart(2, "0")}\u2192${String(gap.exit.hour).padStart(2, "0")}:${String(gap.exit.minute).padStart(2, "0")}` : ""}  ${isLive ? "LIVE" : "PAPER"})`));
+        console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  maxLoss:\u20b9${maxLoss}  takeProfit:\u20b9${takeProfit}${rangeSize ? `  range:${rangeSize}` : ""}${gap ? `  gap capture ${String(gap.entry.hour).padStart(2, "0")}:${String(gap.entry.minute).padStart(2, "0")}\u2192${String(gap.exit.hour).padStart(2, "0")}:${String(gap.exit.minute).padStart(2, "0")}` : ""}  ${isLive ? "LIVE" : "PAPER"})`));
     } catch (err) {
         console.log(c.red(`  Failed to start: ${err.message}`));
     }
@@ -2708,7 +2722,7 @@ async function dualHedgeScreen() {
                 if (d.status === "online") statusStr = c.green(`\u25cf ${fmtUptime(d.uptime)}`);
                 else                        statusStr = c.red(`\u25cf ${d.status.toUpperCase()}`);
                 body.push(`  ${String(i + 1).padStart(2)}. ${d.name.padEnd(20)} ${d.underlying.padEnd(14)} ${modeTag}  ${statusStr}`);
-                body.push(c.dim(`      LONG:${d.longUser}  SHORT:${d.shortUser}  ${d.lots} lot  maxLoss:\u20b9${d.maxLoss}${d.gapCapture ? `  GAP ${d.gcEntry}\u2192${d.gcExit}` : ""}`));
+                body.push(c.dim(`      LONG:${d.longUser}  SHORT:${d.shortUser}  ${d.lots} lot  maxLoss:\u20b9${d.maxLoss}  takeProfit:\u20b9${d.takeProfit}${d.rangeSize ? `  range:${d.rangeSize}` : ""}${d.gapCapture ? `  GAP ${d.gcEntry}\u2192${d.gcExit}` : ""}`));
             });
         }
         renderScreenBox("D U A L   H E D G E", body, [
