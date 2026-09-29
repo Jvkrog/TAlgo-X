@@ -291,7 +291,7 @@ function buildDualHedgeCard(d) {
     <div class="card-top">
       <div class="card-id">
         <span class="card-underlying">${d.underlying}</span>
-        <span class="card-strategy">dual hedge \u00b7 maxLoss:\u20b9${d.maxLoss} (armed only after a flip)${d.gapCapture ? ` \u00b7 gap capture ${d.gcEntry}\u2192${d.gcExit}` : ""}</span>
+        <span class="card-strategy">dual hedge \u00b7 stop:\u20b9${d.maxLoss} \u00b7 tp:\u20b9${d.takeProfit}${d.rangeSize ? ` \u00b7 range:${d.rangeSize}` : ""} (armed only after a flip)${d.gapCapture ? ` \u00b7 gap capture ${d.gcEntry}\u2192${d.gcExit}` : ""}</span>
       </div>
       <div>
         <span class="status-pill ${d.status === "online" ? "online" : "offline"}" data-role="status">${d.status}</span>
@@ -3222,7 +3222,7 @@ async function loadDualHedgeList() {
           <div class="tb-watch-row">
             <div class="tb-watch-main">
               <div class="tb-watch-inst">${d.name}</div>
-              <div class="tb-watch-meta">${d.underlying} \u00b7 LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot \u00b7 maxLoss:\u20b9${d.maxLoss} (armed only after a flip)${d.gapCapture ? ` \u00b7 gap capture ${d.gcEntry}\u2192${d.gcExit}` : ""} \u00b7 ${modeTag} \u00b7 [${d.status}]</div>
+              <div class="tb-watch-meta">${d.underlying} \u00b7 LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot \u00b7 stop:\u20b9${d.maxLoss} \u00b7 tp:\u20b9${d.takeProfit}${d.rangeSize ? ` \u00b7 range:${d.rangeSize}` : ""} (armed only after a flip)${d.gapCapture ? ` \u00b7 gap capture ${d.gcEntry}\u2192${d.gcExit}` : ""} \u00b7 ${modeTag} \u00b7 [${d.status}]</div>
             </div>
             <button class="tb-cli-action" data-dh-logs="${d.name}" style="padding:4px 8px;font-size:11px">Logs</button>
             <button class="tb-cli-action" data-dh-toggle="${d.name}" data-dh-status="${d.status}" style="padding:4px 8px;font-size:11px">${d.status === "online" ? "stop" : "start"}</button>
@@ -3478,12 +3478,14 @@ async function renderDualHedgeAddForm() {
     <div class="tb-form-row"><div class="tb-form-label">LONG account</div><select id="dhLongUser">${userOptions}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">SHORT account (must differ from LONG)</div><select id="dhShortUser">${userOptions}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">Lots per leg (default 1)</div><input type="number" id="dhLots" min="1" step="1" value="1"></div>
-    <div class="tb-form-row"><div class="tb-form-label">Max-loss cut in rupees, armed only after a leg's own first adverse flip (default 3000)</div><input type="number" id="dhMaxLoss" min="1" step="1" value="3000"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Stop: exit a flipped leg when loss exceeds \u20b9 (default 3000)</div><input type="number" id="dhMaxLoss" min="1" step="1" value="3000"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Take profit: exit a flipped leg when profit exceeds \u20b9 (default 3000)</div><input type="number" id="dhTakeProfit" min="1" step="1" value="3000"></div>
     <div class="tb-form-row" style="display:${lm.lotMultRequired ? "" : "none"}">
       <div class="tb-form-label">lot multiplier \u2014 REQUIRED, no context.js override on file for ${dhAddState.underlying}. Real contract multiplier, not broker lot_size.</div>
       <input type="number" id="dhLotMult" min="1" step="any">
     </div>
     <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dhBandStep" min="0" step="any"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Range bar size in price points (blank = same as the band step)</div><input type="number" id="dhRangeSize" min="0" step="any"></div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="dhGap"><span>Enable gap capture \u2014 at the gap time today's trades are closed (realized), then LONG on the long account + SHORT on the short account, carried overnight; the engine quits afterwards with positions left open</span></label>
     </div>
@@ -3521,6 +3523,8 @@ async function renderDualHedgeAddForm() {
       underlying: dhAddState.underlying, longUser, shortUser,
       lots: tbDualHedgeBody.querySelector("#dhLots").value || 1,
       maxLossRupees: tbDualHedgeBody.querySelector("#dhMaxLoss").value || 3000,
+      takeProfitRupees: tbDualHedgeBody.querySelector("#dhTakeProfit").value || 3000,
+      rangeSize: tbDualHedgeBody.querySelector("#dhRangeSize")?.value || undefined,
       lotMultOverride: tbDualHedgeBody.querySelector("#dhLotMult")?.value || undefined,
       bandStepOverride: tbDualHedgeBody.querySelector("#dhBandStep")?.value || undefined,
       live, confirmLive,
