@@ -375,6 +375,28 @@ function renderMenuHelpLines() {
     });
 }
 
+// Sub-screen shell — same look as renderMenu(): clear, banner, boxed body,
+// boxed key legend, prompt underneath (so any prompts/output an action prints
+// land BELOW the box and the next pass wipes them). Used by the Dual Hedge
+// screens. TALGOX_PLAIN=1 keeps the never-clear behavior.
+function renderScreenBox(title, bodyLines, helpRows) {
+    const lines = [];
+    lines.push(boxTop());
+    lines.push(boxLine(c.bold(`  ${title}`)));
+    lines.push(boxDivider("═"));
+    bodyLines.forEach(l => lines.push(boxLine(l)));
+    lines.push(boxDivider("═"));
+    helpRows.forEach(row => {
+        const line = row.map(cell => cell ? helpCell(cell[0], cell[1]) : helpCell(null)).join("");
+        lines.push(boxLine(c.dim(`  ${line}`)));
+    });
+    lines.push(boxBottom());
+    if (!PLAIN_MODE) console.clear();
+    renderStaticBanner({ topMargin: 2, bottomMargin: 1 });
+    lines.forEach(line => console.log(line));
+    console.log();
+}
+
 // True only for the very first call after boot — reset is never needed
 // since the process lives for one toolbox session.
 let firstMenuRender = true;
@@ -2522,23 +2544,22 @@ async function removeDualHedgeUserFlow() {
 async function manageDualHedgeUsersScreen() {
     let running = true;
     while (running) {
-        clearForScreen();
         const users = dualHedgeUsers.listUsers();
-        console.log();
-        console.log(c.bold("  \u2500\u2500 Dual Hedge Users \u2500\u2500"));
+        const body = [];
         if (users.length === 0) {
-            console.log(c.dim("  None yet — press A to add one"));
+            body.push(c.dim("  None yet — press A to add one"));
         } else {
-            users.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u.name}  key:${u.apiKey ? "set" : c.red("MISSING")}  token:${u.accessToken ? "set" : c.yellow("none")}`));
+            users.forEach((u, i) => body.push(`  ${String(i + 1).padStart(2)}. ${u.name.padEnd(20)} key:${u.apiKey ? "set" : c.red("MISSING")}  token:${u.accessToken ? "set" : c.yellow("none")}`));
         }
-        console.log();
-        console.log(c.dim("  [A] add user   [T] generate/update token   [D] remove   [B] back"));
+        renderScreenBox("D U A L   H E D G E   U S E R S", body, [
+            [["A", "Add user"], ["T", "Token"], ["D", "Remove"], ["B", "Back"]],
+        ]);
         const input = (await ask("  > ")).trim().toUpperCase();
         if (input === "A")      await addDualHedgeUser();
         else if (input === "T") await updateDualHedgeUserToken();
         else if (input === "D") await removeDualHedgeUserFlow();
         else if (input === "B" || input === "") running = false;
-        else { console.log(c.yellow("  Unrecognized option")); }
+        else { console.log(c.yellow("  Unrecognized option")); await pauseForReview(); }
     }
 }
 
@@ -2682,24 +2703,25 @@ async function dualHedgeActionByNumber(deployments, verb, fn) {
 async function dualHedgeScreen() {
     let running = true;
     while (running) {
-        clearForScreen();
         const deployments = await getDualHedgeProcesses();
 
-        console.log();
-        console.log(c.bold("  \u2500\u2500 Dual Hedge \u2500\u2500"));
+        const body = [];
         if (deployments.length === 0) {
-            console.log(c.dim("  None running — press U to add accounts first, then A to add a deployment"));
+            body.push(c.dim("  None running — press U to add accounts first, then A to add a deployment"));
         } else {
             deployments.forEach((d, i) => {
                 const modeTag = d.live ? c.red("LIVE") : c.cyan("PAPER");
                 let statusStr;
                 if (d.status === "online") statusStr = c.green(`\u25cf ${fmtUptime(d.uptime)}`);
                 else                        statusStr = c.red(`\u25cf ${d.status.toUpperCase()}`);
-                console.log(`  ${String(i + 1).padStart(2)}. ${d.name.padEnd(20)} ${d.underlying.padEnd(14)} LONG:${d.longUser.padEnd(10)} SHORT:${d.shortUser.padEnd(10)} ${d.lots} lot  maxLoss:\u20b9${d.maxLoss}${d.gapCapture ? `  GAP ${d.gcEntry}\u2192${d.gcExit}` : ""}  ${modeTag}  ${statusStr}`);
+                body.push(`  ${String(i + 1).padStart(2)}. ${d.name.padEnd(20)} ${d.underlying.padEnd(14)} ${modeTag}  ${statusStr}`);
+                body.push(c.dim(`      LONG:${d.longUser}  SHORT:${d.shortUser}  ${d.lots} lot  maxLoss:\u20b9${d.maxLoss}${d.gapCapture ? `  GAP ${d.gcEntry}\u2192${d.gcExit}` : ""}`));
             });
         }
-        console.log();
-        console.log(c.dim("  [A] add   [X] stop   [S] start   [D] remove   [L] logs   [U] users   [B] back"));
+        renderScreenBox("D U A L   H E D G E", body, [
+            [["A", "Add"], ["S", "Start"], ["X", "Stop"], ["D", "Remove"]],
+            [["L", "Logs"], ["U", "Users"], ["B", "Back"], null],
+        ]);
         const input = (await ask("  > ")).trim().toUpperCase();
 
         if (input === "A")      await addDualHedge();
@@ -2718,7 +2740,7 @@ async function dualHedgeScreen() {
             }
         }
         else if (input === "B" || input === "") running = false;
-        else { console.log(c.yellow("  Unrecognized option")); }
+        else { console.log(c.yellow("  Unrecognized option")); await pauseForReview(); }
     }
 }
 
