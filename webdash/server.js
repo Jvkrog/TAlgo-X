@@ -360,6 +360,29 @@ function extractRequestToken(input) {
     return input; // assume raw token was pasted
 }
 
+// Kite sends `redirect_params` back as extra query params on the redirect URL,
+// so the return trip carries WHICH account this login was for (account=NAME).
+// Without it every redirect looked identical and could only ever be treated as
+// the global account's — a second user's request_token was exchanged with the
+// wrong API key/secret (or just ignored, landing on the dashboard).
+function withAccountParam(loginUrl, account) {
+    return `${loginUrl}${loginUrl.includes("?") ? "&" : "?"}redirect_params=${encodeURIComponent("account=" + account)}`;
+}
+
+// request_token -> access_token for one named dual-hedge user, with that
+// user's own API key/secret. Shared by the paste-back route and the callback.
+async function exchangeUserToken(name, rawInput) {
+    const user = dualHedgeUsers.getUser(name);
+    if (!user.apiKey || !user.apiSecret) {
+        throw new Error(`${name} is missing an API key/secret — add credentials first`);
+    }
+    const requestToken = extractRequestToken(rawInput);
+    const kc = new KiteConnect({ api_key: user.apiKey });
+    const session = await kc.generateSession(requestToken, user.apiSecret);
+    dualHedgeUsers.saveUserToken(user.name, session.access_token);
+    return user.name;
+}
+
 async function exchangeToken(requestToken) {
     if (!engineConfig.API_SECRET) {
         throw new Error("Kite API secret not configured yet — set it from Settings before exchanging a request_token");
@@ -1757,7 +1780,7 @@ app.get("/api/toolbox/dualhedge/users/:name/login-url", (req, res) => {
         const user = dualHedgeUsers.getUser(req.params.name);
         if (!user.apiKey) return res.status(400).json({ error: `${req.params.name} has no API key set` });
         const kc = new KiteConnect({ api_key: user.apiKey });
-        res.json({ url: kc.getLoginURL() });
+        res.json({ url: withAccountParam(kc.getLoginURL(), user.name) });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1793,17 +1816,10 @@ app.post("/api/toolbox/dualhedge/users/token", async (req, res) => {
     const { name, requestToken: rawInput } = req.body || {};
     if (!name || !rawInput) return res.status(400).json({ error: "name and requestToken are both required" });
     try {
-        const user = dualHedgeUsers.getUser(name);
-        if (!user.apiKey || !user.apiSecret) {
-            return res.status(400).json({ error: `${name} is missing an API key/secret — add credentials first` });
-        }
-        const requestToken = extractRequestToken(rawInput);
-        const kc = new KiteConnect({ api_key: user.apiKey });
-        const session = await kc.generateSession(requestToken, user.apiSecret);
-        dualHedgeUsers.saveUserToken(user.name, session.access_token);
+        await exchangeUserToken(name, rawInput);
         res.json({ ok: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(err.message.includes("missing an API key") ? 400 : 500).json({ error: err.message });
     }
 });
 
@@ -2156,7 +2172,7 @@ app.get("/api/token/status", (req, res) => {
 app.get("/api/token/login-url", (req, res) => {
     if (!engineConfig.API_KEY) return res.status(400).json({ error: "Kite API key not configured yet — set it from Settings" });
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
-    res.json({ url: kc.getLoginURL() });
+    res.json({ url: withAccountParam(kc.getLoginURL(), "global") });
 });
 
 app.post("/api/token/exchange", async (req, res) => {
@@ -2178,14 +2194,16 @@ app.post("/api/token/exchange", async (req, res) => {
 // webdash/README.md for exact setup steps.
 app.get("/api/token/callback", async (req, res) => {
     const requestToken = req.query.request_token;
+    const account = String(req.query.account || "global");
     if (!requestToken) {
         return res.redirect("/?token=error&msg=" + encodeURIComponent("no request_token in callback"));
     }
     try {
-        await exchangeToken(requestToken);
-        res.redirect("/?token=ok");
+        if (account === "global") await exchangeToken(requestToken);
+        else                      await exchangeUserToken(account, requestToken);
+        res.redirect("/?token=ok&account=" + encodeURIComponent(account));
     } catch (err) {
-        res.redirect("/?token=error&msg=" + encodeURIComponent(err.message));
+        res.redirect("/?token=error&account=" + encodeURIComponent(account) + "&msg=" + encodeURIComponent(err.message));
     }
 });
 
