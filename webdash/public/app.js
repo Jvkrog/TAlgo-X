@@ -602,13 +602,45 @@ tokenBtn.addEventListener("click", e => {
   tokenPanel.classList.toggle("open");
 });
 
-function handleTokenRedirectParams() {
+// Two ways a Kite login can land back here:
+//  (a) Redirect URL = /api/token/callback — the server already exchanged the
+//      token and bounced to /?token=ok|error&account=NAME.
+//  (b) Redirect URL = the dashboard root (http://localhost:4790/) — the URL
+//      arrives with request_token in it and nothing has been exchanged yet, so
+//      it's done here (this page is already logged in, so the /api routes are
+//      reachable). `account` comes from the login link's redirect_params;
+//      without it (an old bookmark) the token is treated as the global account's.
+async function handleTokenRedirectParams() {
   const params = new URLSearchParams(location.search);
+
+  if (params.has("request_token")) {
+    const rt      = params.get("request_token");
+    const account = params.get("account") || "global";
+    history.replaceState({}, "", location.pathname);   // never leave the one-time token in the address bar
+    try {
+      const res = await fetch(
+        account === "global" ? "/api/token/exchange" : "/api/toolbox/dualhedge/users/token",
+        {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(account === "global" ? { input: rt } : { name: account, requestToken: rt }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "exchange failed");
+      appendLog({ type: "SYS", text: `[token] ${account === "global" ? "global account" : account} access token captured and updated — restart engines to pick it up` });
+    } catch (err) {
+      appendLog({ type: "ERROR", text: `[token] ${account === "global" ? "global account" : account} auto-capture failed: ${err.message} — paste the redirect URL into that account's row instead` });
+    }
+    refreshTokenStatus();
+    return;
+  }
+
   if (!params.has("token")) return;
+  const who = params.get("account") && params.get("account") !== "global" ? `${params.get("account")} ` : "";
   if (params.get("token") === "ok") {
-    appendLog({ type: "SYS", text: "[token] access token captured and updated automatically — restart engines to pick it up" });
+    appendLog({ type: "SYS", text: `[token] ${who}access token captured and updated automatically — restart engines to pick it up` });
   } else {
-    appendLog({ type: "ERROR", text: `[token] auto-capture failed: ${params.get("msg") || "Unknown error"}` });
+    appendLog({ type: "ERROR", text: `[token] ${who}auto-capture failed: ${params.get("msg") || "Unknown error"}` });
   }
   history.replaceState({}, "", location.pathname);
   refreshTokenStatus();
