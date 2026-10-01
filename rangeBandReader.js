@@ -48,9 +48,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const fmtIST = ms => new Date(ms + IST_MS).toISOString().replace("T", " ").slice(0, 19);
 const parseIST = str => Date.parse(String(str).trim().replace(" ", "T") + "+05:30");
 
-function dsbFromBars(bars, step) {
+// createDsb(step) — the DSB state machine as an incremental stepper, so a
+// backtest can read the band colour after EVERY bar in one pass instead of
+// re-running the whole history per bar. dsbFromBars() below is just this
+// stepper run over a full bar list — ONE implementation, so live and backtest
+// can never disagree about what a bar sequence means.
+function createDsb(step) {
     let mid = null, high = null, low = null, position = 0;
-    for (const b of bars) {
+
+    function push(b) {
         if (mid === null) { mid = b.open; high = mid + step; low = mid - step; }
         const breakHigh = b.close > high + EPS;
         const breakLow  = b.close < low  - EPS;
@@ -68,9 +74,21 @@ function dsbFromBars(bars, step) {
         high = mid + step;
         low  = mid - step;
     }
-    if (mid === null) return null;
-    const color = position === 1 ? "green" : position === -1 ? "red" : "white";
-    return { color, position, mid, high, low };
+
+    // null until the first bar has been pushed
+    function state() {
+        if (mid === null) return null;
+        const color = position === 1 ? "green" : position === -1 ? "red" : "white";
+        return { color, position, mid, high, low };
+    }
+
+    return { push, state };
+}
+
+function dsbFromBars(bars, step) {
+    const dsb = createDsb(step);
+    for (const b of bars) dsb.push(b);
+    return dsb.state();
 }
 
 // Points for makeRangeBars from 1-minute candles (see PIPELINE above).
@@ -153,4 +171,4 @@ function createRangeBandReader({ getKc, token, step, rangeSize, startDate, label
     return { getLatest, prewarm: () => getLatest().catch(() => {}) };
 }
 
-module.exports = { createRangeBandReader, dsbFromBars, candlesToPoints };
+module.exports = { createRangeBandReader, dsbFromBars, createDsb, candlesToPoints };

@@ -37,6 +37,7 @@ const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("./historicalFetch"
 const { adx } = require("./indicators");
 const { backtestFlow } = require("./backtestFlow");
 const { runHedgePairBacktest } = require("./backtestHedgePair");
+const { runDualHedgeBacktest } = require("./backtestDualHedge");
 const { playBootAnimation, renderStaticBanner, animateBoxUpward } = require("./bootAnimation");
 
 const { getShortName } = require("./shortNames");
@@ -2707,6 +2708,113 @@ async function dualHedgeActionByNumber(deployments, verb, fn) {
     await pauseForReview();
 }
 
+async function backtestDualHedgeFlow() {
+    console.log();
+    console.log(c.bold("  Backtest — Dual Hedge"));
+    console.log(c.dim("  One instrument: LONG-only account + SHORT-only account, Dynamic Step Band on range bars"));
+    console.log(c.dim("  Carries overnight; exits arm only after a leg's own first flip. Uses 1-minute history (market data, no Dual Hedge users needed)"));
+    console.log();
+
+    const repo = await ensureCsvLoaded();
+    const all  = repo.listUnderlyings();
+    const underlying = await pickUnderlying(all, "Dual Hedge");
+    if (!underlying) { await pauseForReview(); return; }
+
+    const def = getDefinition(underlying, "MCX");
+    let lotMultOverride = null;
+    if (def.lotMult === null) {
+        console.log(c.yellow(`  \u26a0 Lot multiplier required for ${underlying} — broker lot_size can't be trusted, see context.js's header.`));
+        let val = null;
+        do {
+            const input = await ask("  Lot multiplier — price move x this = PnL per lot (required): ");
+            if (!input) { console.log(c.yellow("  Required — no safe default")); continue; }
+            const parsed = Number(input);
+            if (!Number.isFinite(parsed) || parsed <= 0) { console.log(c.yellow(`  "${input}" isn't a valid positive number`)); continue; }
+            val = parsed;
+        } while (val === null);
+        lotMultOverride = val;
+    }
+
+    async function askNum(label, def, { positive = true, optional = false } = {}) {
+        while (true) {
+            const input = (await ask(`  ${label}: `)).trim();
+            if (input === "") return optional ? null : def;
+            const n = Number(input);
+            if (Number.isFinite(n) && (positive ? n > 0 : n >= 0)) return n;
+            console.log(c.yellow(`  "${input}" isn't valid`));
+        }
+    }
+    const lots       = await askNum("Lots per leg (default 1)", 1);
+    const maxLoss    = await askNum("Stop: exit a flipped leg when loss exceeds ₹ (default 3000)", 3000);
+    const takeProfit = await askNum("Take profit: exit a flipped leg when profit exceeds ₹ (default 3000)", 3000);
+    const bandStepOverride  = await askNum("Band step override (blank = engine default)", null, { optional: true });
+    const rangeSizeOverride = await askNum("Range bar size in price points (blank = same as the band step)", null, { optional: true });
+    const slippagePoints    = await askNum("Slippage per order in price points (default 0)", 0, { positive: false });
+
+    let gapCapture = false, gcHour = 23, gcMinute = 20, gcQuitHour = 23, gcQuitMinute = 25;
+    const gapInput = (await ask("  Model gap capture? Closes both legs at the gap time, then LONG + SHORT carried overnight [Y/N, default N]: ")).trim().toUpperCase();
+    if (gapInput === "Y") {
+        const parseTime = (input, dh, dm) => {
+            if (!input) return { hour: dh, minute: dm };
+            const m = input.trim().match(/^(\d{1,2}):(\d{2})$/);
+            if (!m) return null;
+            const hour = Number(m[1]), minute = Number(m[2]);
+            return (hour > 23 || minute > 59) ? null : { hour, minute };
+        };
+        let entry = null;
+        do {
+            entry = parseTime(await ask("  Gap capture time IST (HH:MM, default 23:20): "), 23, 20);
+            if (!entry) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 23:20"));
+        } while (!entry);
+        let quit = null;
+        do {
+            quit = parseTime(await ask("  Quit time IST (HH:MM, default 23:25): "), 23, 25);
+            if (!quit) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 23:25"));
+            else if (quit.hour < entry.hour || (quit.hour === entry.hour && quit.minute <= entry.minute)) {
+                console.log(c.yellow("  Quit time must be after the gap capture time"));
+                quit = null;
+            }
+        } while (!quit);
+        gapCapture = true;
+        gcHour = entry.hour; gcMinute = entry.minute; gcQuitHour = quit.hour; gcQuitMinute = quit.minute;
+    }
+
+    const fromIn = await ask("  From (YYYY-MM-DD): ");
+    const toIn   = await ask("  To   (YYYY-MM-DD): ");
+    const from = new Date(fromIn);
+    const to   = new Date(toIn);
+    if (isNaN(from.getTime()) || isNaN(to.getTime())) {
+        console.log(c.yellow("  Invalid date — use YYYY-MM-DD")); await pauseForReview(); return;
+    }
+
+    const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
+    kc.setAccessToken(engineConfig.getAccessToken());
+
+    console.log();
+    console.log(c.dim("  Fetching 1-minute history + running replay..."));
+    try {
+        const { report, paths } = await runDualHedgeBacktest({
+            underlying, exchange: "MCX", lots, lotMultOverride, bandStepOverride, rangeSizeOverride,
+            takeProfit, maxLoss, gapCapture, gcHour, gcMinute, gcQuitHour, gcQuitMinute,
+            slippagePoints, from, to, kc,
+            progress: (a, b) => process.stdout.write(typeof a === "string" ? `\r  ${a}   ` : `\r  ${a}/${b} candles...`),
+        });
+        const m = report.metrics, t = report.mtm;
+        console.log();
+        console.log();
+        console.log(c.bold(`  Combined: ${m.combined.trades} trades, ${(m.combined.winRate * 100).toFixed(1)}% win rate, net ${m.combined.netPnL.toFixed(2)}`));
+        console.log(c.dim(`    Long  account: ${m.long.trades} trades, net ${m.long.netPnL.toFixed(2)}`));
+        console.log(c.dim(`    Short account: ${m.short.trades} trades, net ${m.short.netPnL.toFixed(2)}`));
+        console.log(c.bold(`  MTM max drawdown: ${t.maxDrawdown.toFixed(2)}   worst unrealized  long ${t.worstUnrealized.LONG.toFixed(0)}  short ${t.worstUnrealized.SHORT.toFixed(0)}`));
+        console.log();
+        console.log(c.dim(`  Report: ${paths.htmlPath}`));
+        console.log(c.dim(`  Json:   ${paths.jsonPath}`));
+    } catch (err) {
+        console.log(c.red(`  Backtest failed: ${err.message}`));
+    }
+    await pauseForReview();
+}
+
 async function dualHedgeScreen() {
     let running = true;
     while (running) {
@@ -2727,7 +2835,7 @@ async function dualHedgeScreen() {
         }
         renderScreenBox("D U A L   H E D G E", body, [
             [["A", "Add"], ["S", "Start"], ["X", "Stop"], ["D", "Remove"]],
-            [["L", "Logs"], ["U", "Users"], ["B", "Back"], null],
+            [["L", "Logs"], ["U", "Users"], ["T", "Backtest"], ["B", "Back"]],
         ]);
         const input = (await ask("  > ")).trim().toUpperCase();
 
@@ -2736,6 +2844,7 @@ async function dualHedgeScreen() {
         else if (input === "S") await dualHedgeActionByNumber(deployments, "start", n => pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name: n, cwd: __dirname }));
         else if (input === "D") await dualHedgeActionByNumber(deployments, "remove", n => pm2Delete(n));
         else if (input === "U") await manageDualHedgeUsersScreen();
+        else if (input === "T") await backtestDualHedgeFlow();
         else if (input === "L") {
             const idx = await ask("  View logs for which number: ");
             const dep = deployments[Number(idx) - 1];
