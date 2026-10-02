@@ -32,16 +32,21 @@ const { fetchHistoricalCandles } = require("./historicalFetch");
 // copy needs the same change made here too, or the two will drift apart
 // and this reader's "confirmation" stops actually matching what
 // DYNAMIC_MID_COLOR would show on a live chart for the same instrument.
-function replayBandColor(rawCandles, bandStep) {
-    if (!rawCandles || rawCandles.length === 0) return null;
+// createBandStepper(step) — the same state machine as an incremental stepper,
+// so a backtest can read the band colour after EVERY bar in one pass instead of
+// replaying the whole history per bar (backtestDualHedge.js's bias-hedge
+// mode). replayBandColor() below is just this stepper run over a full bar
+// list — ONE implementation, so the live reader and the backtest can never
+// disagree about what a bar sequence means.
+function createBandStepper(bandStep) {
+    let mid = null, high = null, low = null, position = null;
 
-    let mid = rawCandles[0].close;
-    let high = mid + bandStep;
-    let low = mid - bandStep;
-    let position = null;
-
-    for (let i = 1; i < rawCandles.length; i++) {
-        const close = rawCandles[i].close;
+    function push(bar) {
+        const close = bar.close;
+        if (mid === null) {   // seed bar — no breakout is evaluated on it
+            mid = close; high = mid + bandStep; low = mid - bandStep;
+            return;
+        }
         const breakHigh = close > high;
         const breakLow = close < low;
 
@@ -59,11 +64,24 @@ function replayBandColor(rawCandles, bandStep) {
         low = mid - bandStep;
     }
 
-    // No white: same convention as createDynamicMidColorStrategy's
-    // directionColor() — defaults green until the first real breakout,
-    // then tracks whichever side the replay last flipped to.
-    const color = position === "SHORT" ? "red" : "green";
-    return { color, bandMid: mid, bandHigh: high, bandLow: low, position };
+    // null until the seed bar has been pushed. No white: same convention as
+    // createDynamicMidColorStrategy's directionColor() — defaults green until
+    // the first real breakout, then tracks whichever side the replay last
+    // flipped to.
+    function state() {
+        if (mid === null) return null;
+        const color = position === "SHORT" ? "red" : "green";
+        return { color, bandMid: mid, bandHigh: high, bandLow: low, position };
+    }
+
+    return { push, state };
+}
+
+function replayBandColor(rawCandles, bandStep) {
+    if (!rawCandles || rawCandles.length === 0) return null;
+    const stepper = createBandStepper(bandStep);
+    for (const bar of rawCandles) stepper.push(bar);
+    return stepper.state();
 }
 
 // Refresh cadence / lookback — identical to haCandleReader.js's own
@@ -141,4 +159,4 @@ function createDynamicBandReader({ token, timeframe, bandStep, engineConfig, lab
     return { getLatest, prewarm: () => getLatest().catch(() => {}) };
 }
 
-module.exports = { createDynamicBandReader };
+module.exports = { createDynamicBandReader, createBandStepper, replayBandColor };

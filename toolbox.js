@@ -2711,8 +2711,7 @@ async function dualHedgeActionByNumber(deployments, verb, fn) {
 async function backtestDualHedgeFlow() {
     console.log();
     console.log(c.bold("  Backtest — Dual Hedge"));
-    console.log(c.dim("  One instrument: LONG-only account + SHORT-only account, Dynamic Step Band on range bars"));
-    console.log(c.dim("  Carries overnight; exits arm only after a leg's own first flip. Uses 1-minute history (market data, no Dual Hedge users needed)"));
+    console.log(c.dim("  One instrument, a LONG-only account + a SHORT-only account. Market data only — no Dual Hedge users needed."));
     console.log();
 
     const repo = await ensureCsvLoaded();
@@ -2744,40 +2743,78 @@ async function backtestDualHedgeFlow() {
             console.log(c.yellow(`  "${input}" isn't valid`));
         }
     }
-    const lots       = await askNum("Lots per leg (default 1)", 1);
-    const maxLoss    = await askNum("Stop: exit a flipped leg when loss exceeds ₹ (default 3000)", 3000);
-    const takeProfit = await askNum("Take profit: exit a flipped leg when profit exceeds ₹ (default 3000)", 3000);
-    const bandStepOverride  = await askNum("Band step override (blank = engine default)", null, { optional: true });
-    const rangeSizeOverride = await askNum("Range bar size in price points (blank = same as the band step)", null, { optional: true });
-    const slippagePoints    = await askNum("Slippage per order in price points (default 0)", 0, { positive: false });
-
-    let gapCapture = false, gcHour = 23, gcMinute = 20, gcQuitHour = 23, gcQuitMinute = 25;
-    const gapInput = (await ask("  Model gap capture? Closes both legs at the gap time, then LONG + SHORT carried overnight [Y/N, default N]: ")).trim().toUpperCase();
-    if (gapInput === "Y") {
-        const parseTime = (input, dh, dm) => {
-            if (!input) return { hour: dh, minute: dm };
-            const m = input.trim().match(/^(\d{1,2}):(\d{2})$/);
-            if (!m) return null;
-            const hour = Number(m[1]), minute = Number(m[2]);
-            return (hour > 23 || minute > 59) ? null : { hour, minute };
-        };
-        let entry = null;
-        do {
-            entry = parseTime(await ask("  Gap capture time IST (HH:MM, default 23:20): "), 23, 20);
-            if (!entry) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 23:20"));
-        } while (!entry);
-        let quit = null;
-        do {
-            quit = parseTime(await ask("  Quit time IST (HH:MM, default 23:25): "), 23, 25);
-            if (!quit) console.log(c.yellow("  Invalid time — use HH:MM, e.g. 23:25"));
-            else if (quit.hour < entry.hour || (quit.hour === entry.hour && quit.minute <= entry.minute)) {
-                console.log(c.yellow("  Quit time must be after the gap capture time"));
-                quit = null;
-            }
-        } while (!quit);
-        gapCapture = true;
-        gcHour = entry.hour; gcMinute = entry.minute; gcQuitHour = quit.hour; gcQuitMinute = quit.minute;
+    async function askChoice(label, choices, def) {   // choices: { KEY: value }
+        while (true) {
+            const input = (await ask(`  ${label}: `)).trim().toUpperCase();
+            if (input === "") return def;
+            if (input in choices) return choices[input];
+            console.log(c.yellow(`  "${input}" isn't valid — ${Object.keys(choices).join(" / ")}`));
+        }
     }
+    async function askTf(label, tfs, def) {
+        while (true) {
+            const input = (await ask(`  ${label} (${tfs.join("/")}, default ${def}): `)).trim().toLowerCase();
+            if (input === "") return def;
+            if (tfs.includes(input)) return input;
+            console.log(c.yellow(`  "${input}" isn't valid`));
+        }
+    }
+    function parseTime(input, dh, dm) {
+        if (!input) return { hour: dh, minute: dm };
+        const m = input.trim().match(/^(\d{1,2}):(\d{2})$/);
+        if (!m) return null;
+        const hour = Number(m[1]), minute = Number(m[2]);
+        return (hour > 23 || minute > 59) ? null : { hour, minute };
+    }
+    async function askTime(label, dh, dm) {
+        while (true) {
+            const t = parseTime(await ask(`  ${label} (HH:MM, default ${String(dh).padStart(2, "0")}:${String(dm).padStart(2, "0")}): `), dh, dm);
+            if (t) return t;
+            console.log(c.yellow("  Invalid time — use HH:MM"));
+        }
+    }
+
+    const lots = await askNum("Lots per leg (default 1)", 1);
+    console.log();
+    console.log(c.dim("  Strategy:"));
+    console.log(c.dim("    D = Dual — each account trades its own side off ONE signal; carries overnight; exits arm after a leg's first flip"));
+    console.log(c.dim("    B = Bias hedge — previous daily HA candle sets the core account (green = LONG acct, red = SHORT acct); the OTHER account"));
+    console.log(c.dim("        hedges when the Dynamic Band turns against the core; both flat at EOD (hedge-pair style)"));
+    const strategy = await askChoice("Strategy [D/B, default D]", { D: "DUAL", B: "BIAS" }, "DUAL");
+
+    const opts = { strategy };
+    if (strategy === "BIAS") {
+        opts.unwindMode = await askChoice("Unwind: B = band back in the core's favour closes the hedge, E = hold the hedge to EOD [B/E, default B]", { B: "BAND_FLIP", E: "EOD_ONLY" }, "BAND_FLIP");
+        opts.bandTimeframe = await askTf("Dynamic Band timeframe (Kite historical bars)", ["5m", "15m", "30m", "1h"], "15m");
+        opts.bandStepOverride = await askNum("Band step override (blank = engine default)", null, { optional: true });
+        const t = await askTime("Core entry time IST (decided once a day)", 10, 0);
+        opts.entryHour = t.hour; opts.entryMinute = t.minute;
+        console.log(c.dim("  EOD close: automatic for this band timeframe (23:15 for 15m, 23:00 for 30m/1h). Core/hedge have no target or stop."));
+    } else {
+        opts.maxLoss    = await askNum("Stop: exit a flipped leg when loss exceeds ₹ (default 3000)", 3000);
+        opts.takeProfit = await askNum("Take profit: exit a flipped leg when profit exceeds ₹ (default 3000)", 3000);
+        console.log(c.dim("  Signal: R = range bars + Dynamic Step Band (what the live engine uses), H = Heikin-Ashi candle colour from Kite's own bars (backtest-only comparison)"));
+        opts.signalSource = await askChoice("Signal source [R/H, default R]", { R: "RANGE", H: "HA" }, "RANGE");
+        if (opts.signalSource === "HA") {
+            opts.haTimeframe = await askTf("HA timeframe", ["5m", "15m", "30m", "1h", "1d"], "1h");
+        } else {
+            opts.bandStepOverride  = await askNum("Band step override (blank = engine default)", null, { optional: true });
+            opts.rangeSizeOverride = await askNum("Range bar size in price points (blank = same as the band step)", null, { optional: true });
+        }
+        const gapInput = (await ask("  Model gap capture? Closes both legs at the gap time, then LONG + SHORT carried overnight [Y/N, default N]: ")).trim().toUpperCase();
+        if (gapInput === "Y") {
+            const entry = await askTime("Gap capture time IST", 23, 20);
+            let quit;
+            while (true) {
+                quit = await askTime("Quit time IST", 23, 25);
+                if (quit.hour * 60 + quit.minute > entry.hour * 60 + entry.minute) break;
+                console.log(c.yellow("  Quit time must be after the gap capture time"));
+            }
+            opts.gapCapture = true;
+            opts.gcHour = entry.hour; opts.gcMinute = entry.minute; opts.gcQuitHour = quit.hour; opts.gcQuitMinute = quit.minute;
+        }
+    }
+    const slippagePoints = await askNum("Slippage per order in price points (default 0)", 0, { positive: false });
 
     const fromIn = await ask("  From (YYYY-MM-DD): ");
     const toIn   = await ask("  To   (YYYY-MM-DD): ");
@@ -2791,12 +2828,10 @@ async function backtestDualHedgeFlow() {
     kc.setAccessToken(engineConfig.getAccessToken());
 
     console.log();
-    console.log(c.dim("  Fetching 1-minute history + running replay..."));
+    console.log(c.dim("  Fetching history + running replay..."));
     try {
         const { report, paths } = await runDualHedgeBacktest({
-            underlying, exchange: "MCX", lots, lotMultOverride, bandStepOverride, rangeSizeOverride,
-            takeProfit, maxLoss, gapCapture, gcHour, gcMinute, gcQuitHour, gcQuitMinute,
-            slippagePoints, from, to, kc,
+            underlying, exchange: "MCX", lots, lotMultOverride, slippagePoints, from, to, kc, ...opts,
             progress: (a, b) => process.stdout.write(typeof a === "string" ? `\r  ${a}   ` : `\r  ${a}/${b} candles...`),
         });
         const m = report.metrics, t = report.mtm;

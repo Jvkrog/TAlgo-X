@@ -35,11 +35,25 @@ function parseTime(input, dh, dm) {
     if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) throw new Error(`invalid time "${input}" (use HH:MM)`);
     return { hour: Number(m[1]), minute: Number(m[2]) };
 }
+function choice(input, choices, def, label) {
+    const k = input.trim().toUpperCase();
+    if (k === "") return def;
+    if (!(k in choices)) throw new Error(`invalid ${label} "${input}" (${Object.keys(choices).join(" / ")})`);
+    return choices[k];
+}
+function tf(input, tfs, def, label) {
+    const v = input.trim().toLowerCase();
+    if (v === "") return def;
+    if (!tfs.includes(v)) throw new Error(`invalid ${label} "${input}" (${tfs.join("/")})`);
+    return v;
+}
 
 async function main() {
     console.log(c.bold("Dual Hedge Backtest"));
-    console.log(c.dim("one instrument, LONG-only account + SHORT-only account, Dynamic Step Band on range bars"));
-    console.log(c.dim("positions carry overnight; exits arm only after a leg's own first adverse flip"));
+    console.log(c.dim("one instrument, LONG-only account + SHORT-only account"));
+    console.log(c.dim("  D = Dual: each account trades its own side off ONE signal (range-bar band or HA); carries overnight; exits arm after a flip"));
+    console.log(c.dim("  B = Bias hedge: previous daily HA candle sets the core account (green = LONG acct, red = SHORT acct); the OTHER account hedges"));
+    console.log(c.dim("      when the Dynamic Band (default 15m) turns against the core; both flat at EOD (hedge-pair style)"));
     console.log();
 
     const underlying = (await ask("  underlying (e.g. NATGASMINI, ZINCMINI): ")).trim().toUpperCase();
@@ -47,21 +61,36 @@ async function main() {
     const lots       = num((await ask("  lots per leg [1]: ")).trim(), 1, "lots");
     const lmIn       = (await ask(`  lotMult (blank = context.js's override for ${underlying}, if any): `)).trim();
     const lotMultOverride = lmIn ? num(lmIn, null, "lotMult") : null;
-    const maxLoss    = num((await ask("  stop: exit a flipped leg when loss exceeds ₹ [3000]: ")).trim(), 3000, "max loss");
-    const takeProfit = num((await ask("  take profit: exit a flipped leg when profit exceeds ₹ [3000]: ")).trim(), 3000, "take profit");
-    const bsIn       = (await ask("  band step override (blank = engine default): ")).trim();
-    const rsIn       = (await ask("  range bar size (blank = same as band step): ")).trim();
-    const bandStepOverride  = bsIn ? num(bsIn, null, "band step") : null;
-    const rangeSizeOverride = rsIn ? num(rsIn, null, "range size") : null;
-    const slippagePoints = num((await ask("  slippage per order, in price points [0]: ")).trim(), 0, "slippage", { positive: false });
+    const strategy   = choice(await ask("  strategy [D/B, default D]: "), { D: "DUAL", B: "BIAS" }, "DUAL", "strategy");
 
-    let gapCapture = false, gcHour = 23, gcMinute = 20, gcQuitHour = 23, gcQuitMinute = 25;
-    if ((await ask("  model gap capture? [Y/N, default N]: ")).trim().toUpperCase() === "Y") {
-        gapCapture = true;
-        ({ hour: gcHour, minute: gcMinute } = parseTime((await ask("  gap capture time IST [23:20]: ")).trim(), 23, 20));
-        ({ hour: gcQuitHour, minute: gcQuitMinute } = parseTime((await ask("  quit time IST [23:25]: ")).trim(), 23, 25));
+    const opts = { strategy };
+    if (strategy === "BIAS") {
+        opts.unwindMode    = choice(await ask("  unwind: B = band back in the core's favour closes the hedge, E = hold to EOD [B]: "), { B: "BAND_FLIP", E: "EOD_ONLY" }, "BAND_FLIP", "unwind");
+        opts.bandTimeframe = tf(await ask("  Dynamic Band timeframe (5m/15m/30m/1h) [15m]: "), ["5m", "15m", "30m", "1h"], "15m", "band timeframe");
+        const bsIn = (await ask("  band step override (blank = engine default): ")).trim();
+        opts.bandStepOverride = bsIn ? num(bsIn, null, "band step") : null;
+        const t = parseTime((await ask("  core entry time IST, decided once a day [10:00]: ")).trim(), 10, 0);
+        opts.entryHour = t.hour; opts.entryMinute = t.minute;
+    } else {
+        opts.maxLoss    = num((await ask("  stop: exit a flipped leg when loss exceeds ₹ [3000]: ")).trim(), 3000, "max loss");
+        opts.takeProfit = num((await ask("  take profit: exit a flipped leg when profit exceeds ₹ [3000]: ")).trim(), 3000, "take profit");
+        opts.signalSource = choice(await ask("  signal source: R = range bars + Dynamic Step Band (live engine), H = Heikin-Ashi from Kite's own bars [R]: "), { R: "RANGE", H: "HA" }, "RANGE", "signal source");
+        if (opts.signalSource === "HA") {
+            opts.haTimeframe = tf(await ask("  HA timeframe (5m/15m/30m/1h/1d) [1h]: "), ["5m", "15m", "30m", "1h", "1d"], "1h", "HA timeframe");
+        } else {
+            const bsIn = (await ask("  band step override (blank = engine default): ")).trim();
+            const rsIn = (await ask("  range bar size (blank = same as band step): ")).trim();
+            opts.bandStepOverride  = bsIn ? num(bsIn, null, "band step") : null;
+            opts.rangeSizeOverride = rsIn ? num(rsIn, null, "range size") : null;
+        }
+        if ((await ask("  model gap capture? [Y/N, default N]: ")).trim().toUpperCase() === "Y") {
+            opts.gapCapture = true;
+            const g = parseTime((await ask("  gap capture time IST [23:20]: ")).trim(), 23, 20);
+            const q = parseTime((await ask("  quit time IST [23:25]: ")).trim(), 23, 25);
+            opts.gcHour = g.hour; opts.gcMinute = g.minute; opts.gcQuitHour = q.hour; opts.gcQuitMinute = q.minute;
+        }
     }
-
+    const slippagePoints = num((await ask("  slippage per order, in price points [0]: ")).trim(), 0, "slippage", { positive: false });
     const from = parseDate(await ask("  from (YYYY-MM-DD): "), "from");
     const to   = parseDate(await ask("  to   (YYYY-MM-DD): "), "to");
     rl.close();
@@ -70,11 +99,9 @@ async function main() {
     kc.setAccessToken(engineConfig.getAccessToken());
 
     console.log();
-    console.log(c.dim("  fetching 1-minute history + running replay..."));
+    console.log(c.dim("  fetching history + running replay..."));
     const { report, paths } = await runDualHedgeBacktest({
-        underlying, exchange, lots, lotMultOverride, bandStepOverride, rangeSizeOverride,
-        takeProfit, maxLoss, gapCapture, gcHour, gcMinute, gcQuitHour, gcQuitMinute,
-        slippagePoints, from, to, kc,
+        underlying, exchange, lots, lotMultOverride, slippagePoints, from, to, kc, ...opts,
         progress: (a, b) => process.stdout.write(typeof a === "string" ? `\r  ${a}   ` : `\r  ${a}/${b} candles...`),
     });
 

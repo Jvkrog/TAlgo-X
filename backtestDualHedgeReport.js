@@ -9,6 +9,9 @@
 //     unrealized loss each leg ever sat through;
 //   - per-trade MAE (worst unrealized during the trade) and whether the trade
 //     ever flipped (i.e. ever had an exit rule armed) are shown.
+// Handles both strategies of backtestDualHedge.js: "DUAL" and "BIAS" (daily-HA
+// bias core + Dynamic Band hedge) — BIAS adds a Role column (CORE/HEDGE) and its
+// own settings/activity text; everything else is shared.
 // Deliberately a separate file for the same reason backtestHedgePairReport.js is.
 "use strict";
 
@@ -23,7 +26,7 @@ function buildDualHedgeReport({ underlying, symbol, lotMult, longLots, shortLots
     return {
         strategy: "DUAL_HEDGE",
         underlying, symbol, lotMult, longLots, shortLots,
-        params,   // { takeProfit, maxLoss, bandStep, rangeSize, rangeStart, anchor, slippagePoints, gapCapture }
+        params,   // { strategy: "DUAL"|"BIAS", signal, bandStep, rangeStart, anchor, slippagePoints, + DUAL: takeProfit/maxLoss/rangeSize/gapCapture, + BIAS: bandTimeframe/unwindMode/entry/eod }
         range: {
             from: range.from instanceof Date ? range.from.toISOString().split("T")[0] : String(range.from),
             to:   range.to   instanceof Date ? range.to.toISOString().split("T")[0]   : String(range.to),
@@ -32,7 +35,7 @@ function buildDualHedgeReport({ underlying, symbol, lotMult, longLots, shortLots
         metrics,  // { long, short, combined } — each shaped like backtestMetrics.computeMetrics()'s output
         mtm,      // { finalEquity, peak, trough, maxDrawdown, maxDrawdownAt, worstUnrealized:{LONG,SHORT}, daily:[...] }
         stats,    // evaluation/entry/flip/exit-reason counters
-        meta,     // { candles, rangeBars }
+        meta,     // { candles, signalBars, signalKind }
         trades,   // merged LONG+SHORT trades sorted by exit_time, each with leg/mae/flipped/flip_time
     };
 }
@@ -88,6 +91,7 @@ function equityChart(daily) {
 
 function renderDualHedgeHtml(report) {
     let running = 0;
+    const isBias = report.params.strategy === "BIAS";
     const rows = report.trades
         .filter(t => t.status === "CLOSED")
         .map(t => {
@@ -97,7 +101,7 @@ function renderDualHedgeHtml(report) {
             const sideClass = t.side === "LONG" ? "pos" : "neg";
             const sideArrow = t.side === "LONG" ? "\u25b2" : "\u25bc";
             return `<tr class="${t.leg === "SHORT" ? "short-leg" : ""}">
-                <td>${t.leg}</td>
+                <td>${t.leg}</td>${isBias ? `<td>${esc(t.role || "")}</td>` : ""}
                 <td>${t.entry_time}</td><td class="${sideClass}">${sideArrow} ${t.side}</td><td>${(+t.entry_price).toFixed(2)}</td>
                 <td>${t.exit_time}</td><td>${(+t.exit_price).toFixed(2)}</td>
                 <td class="${pnlClass}">${(t.pnl || 0).toFixed(2)}</td>
@@ -111,9 +115,21 @@ function renderDualHedgeHtml(report) {
 
     const p = report.params, s = report.stats;
     const gap = p.gapCapture ? `gap capture ${p.gapCapture.time}\u2192${p.gapCapture.quit}` : "no gap capture";
+    const title = isBias
+        ? `Dual Hedge \u2014 ${esc(report.symbol)} (daily HA bias core + ${esc(p.bandTimeframe)} band hedge)`
+        : `Dual Hedge \u2014 ${esc(report.symbol)} (LONG acct / SHORT acct)`;
+    const settings = isBias
+        ? `core decided once a day at ${esc(p.entry)} IST from the previous daily HA candle (green \u2192 LONG acct, red \u2192 SHORT acct) \u00b7 hedge = the OTHER account when the ${esc(p.bandTimeframe)} Dynamic Band (step ${p.bandStep}) turns against the core \u00b7 unwind ${esc(p.unwindMode)} \u00b7 both flat at EOD ${esc(p.eod)} IST \u00b7 slippage ${p.slippagePoints} pts`
+        : `take-profit \u20b9${p.takeProfit} \u00b7 stop \u20b9${p.maxLoss} (armed only after a leg flips) \u00b7 signal ${esc(p.signal)}${p.bandStep ? ` (band step ${p.bandStep}, range ${p.rangeSize})` : ""} \u00b7 ${gap} \u00b7 slippage ${p.slippagePoints} pts`;
+    const activity = isBias
+        ? `core days LONG ${s.coreDays.LONG} / SHORT ${s.coreDays.SHORT} \u00b7 days with no usable daily read ${s.noBiasDays} \u00b7 hedge entries ${s.hedgeEntries} \u00b7 band unwinds ${s.hedgeUnwinds} \u00b7 exits: EOD ${s.exits.eod}, band unwind ${s.exits.bandUnwind}, backtest-end ${s.exits.backtestEnd}`
+        : `${s.evaluations} evaluations (${s.missedSlotEvals} on a slot with no candle) \u00b7 entries LONG ${s.entries.LONG} / SHORT ${s.entries.SHORT} \u00b7 flips LONG ${s.flips.LONG} / SHORT ${s.flips.SHORT} \u00b7 exits: take-profit ${s.exits.takeProfit}, stop ${s.exits.stopLoss}, gap-realize ${s.exits.gapRealize}, backtest-end ${s.exits.backtestEnd}${p.gapCapture ? ` \u00b7 gap-capture days ${s.gapCaptureDays} (skipped ${s.gapCaptureSkippedDays})` : ""}`;
+    const carryNote = isBias
+        ? "Flat at EOD every day, so the MTM and closed-trade drawdowns are close; the equity curve still shows the intraday swings the closed trades hide."
+        : "Closed-trade drawdown below can be far smaller because an unflipped leg has no exit rule while it sits underwater.";
     return `<!DOCTYPE html>
 <html><head><meta charset="utf-8">
-<title>Dual Hedge \u2014 ${esc(report.symbol)} backtest</title>
+<title>${title.replace(/&amp;/g, "&")}</title>
 <style>
 body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0b0d12;color:#e6e6e6;padding:24px;max-width:1200px;margin:0 auto}
 h1{font-size:20px;margin-bottom:4px} .meta{color:#9aa0ab;font-size:13px;margin-bottom:20px}
@@ -128,14 +144,14 @@ th{background:#161a22} td:first-child,th:first-child{text-align:left}
 .short-leg td{color:#c9a86a}
 .note{color:#9aa0ab;font-size:12px;margin-top:6px}
 </style></head><body>
-<h1>Dual Hedge \u2014 ${esc(report.symbol)} (LONG acct / SHORT acct)</h1>
-<div class="meta">LONG ${report.longLots} lot \u00b7 SHORT ${report.shortLots} lot \u00b7 take-profit \u20b9${p.takeProfit} \u00b7 stop \u20b9${p.maxLoss} (armed only after a leg flips) \u00b7 band step ${p.bandStep}, range ${p.rangeSize} \u00b7 ${gap} \u00b7 slippage ${p.slippagePoints} pts<br>
-${report.range.from} \u2192 ${report.range.to} \u00b7 range bars anchored ${esc(p.rangeStart)} IST (${esc(p.anchor)}) \u00b7 ${report.meta.candles} 1m candles \u2192 ${report.meta.rangeBars} range bars \u00b7 run ${report.runAt}</div>
+<h1>${title}</h1>
+<div class="meta">LONG ${report.longLots} lot \u00b7 SHORT ${report.shortLots} lot \u00b7 ${settings}<br>
+${report.range.from} \u2192 ${report.range.to} \u00b7 signal built from ${esc(p.rangeStart)} IST (${esc(p.anchor)}) \u00b7 ${report.meta.candles} 1m candles \u2192 ${report.meta.signalBars} ${esc(report.meta.signalKind)} \u00b7 run ${report.runAt}</div>
 
 <h2>Mark-to-market equity (realized + unrealized) \u2014 the risk number for a strategy that carries overnight</h2>
 ${mtmCards(report.mtm)}
 <div style="margin-top:12px">${equityChart(report.mtm.daily)}</div>
-<div class="note">Max MTM drawdown ${fmtMoney(report.mtm.maxDrawdown)}${report.mtm.maxDrawdownAt ? ` (bottomed ${esc(report.mtm.maxDrawdownAt)})` : ""}. Closed-trade drawdown below can be far smaller because an unflipped leg has no exit rule while it sits underwater.</div>
+<div class="note">Max MTM drawdown ${fmtMoney(report.mtm.maxDrawdown)}${report.mtm.maxDrawdownAt ? ` (bottomed ${esc(report.mtm.maxDrawdownAt)})` : ""}. ${carryNote}</div>
 
 <h2>Combined (LONG + SHORT, closed trades)</h2>
 ${metricsCards(report.metrics.combined)}
@@ -147,12 +163,12 @@ ${metricsCards(report.metrics.long)}
 ${metricsCards(report.metrics.short)}
 
 <h2>Activity</h2>
-<div class="meta">${s.evaluations} evaluations (${s.missedSlotEvals} on a slot with no candle) \u00b7 entries LONG ${s.entries.LONG} / SHORT ${s.entries.SHORT} \u00b7 flips LONG ${s.flips.LONG} / SHORT ${s.flips.SHORT} \u00b7 exits: take-profit ${s.exits.takeProfit}, stop ${s.exits.stopLoss}, gap-realize ${s.exits.gapRealize}, backtest-end ${s.exits.backtestEnd}${p.gapCapture ? ` \u00b7 gap-capture days ${s.gapCaptureDays} (skipped ${s.gapCaptureSkippedDays})` : ""}</div>
+<div class="meta">${activity}</div>
 
-<h2>Trades (${report.metrics.combined.trades}) \u2014 gold rows are the SHORT account</h2>
+<h2>Trades (${report.metrics.combined.trades}) \u2014 gold rows are the SHORT account${isBias ? "; Role = CORE (daily-bias leg) or HEDGE" : ""}</h2>
 <table><thead><tr>
-  <th>Acct</th><th>Entry Time</th><th>Side</th><th>Entry</th><th>Exit Time</th><th>Exit</th><th>PnL</th><th>MAE</th><th>Flipped</th><th>Combined PnL</th><th>Reason</th>
-</tr></thead><tbody>${rows || `<tr><td colspan="11">no closed trades in this range</td></tr>`}</tbody></table>
+  <th>Acct</th>${isBias ? "<th>Role</th>" : ""}<th>Entry Time</th><th>Side</th><th>Entry</th><th>Exit Time</th><th>Exit</th><th>PnL</th><th>MAE</th><th>Flipped</th><th>Combined PnL</th><th>Reason</th>
+</tr></thead><tbody>${rows || `<tr><td colspan="12">no closed trades in this range</td></tr>`}</tbody></table>
 <div class="note">MAE = worst unrealized PnL during the trade. Times are UTC ISO (IST = +5:30). Fills are modeled from 1-minute OHLC \u2014 see backtestDualHedge.js's header for the assumptions.</div>
 </body></html>`;
 }
