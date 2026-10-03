@@ -2029,7 +2029,9 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
             logLines: lines.slice(-5000),
         });
     } catch (err) {
-        res.status(err.status || 500).json({ error: err.message });
+        // Kite exceptions carry status:"error" (a string) — only trust a real HTTP code.
+        const code = Number.isInteger(err.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
+        res.status(code).json({ error: err.message });
     }
 });
 
