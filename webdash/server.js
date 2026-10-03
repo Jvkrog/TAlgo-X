@@ -43,6 +43,7 @@ const { INDICATOR_CATALOG } = require("../indicatorCatalog");
 const customStrategyDb = require("../customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("../historicalFetch");
 const { runBacktest } = require("../backtestRun");
+const { runDualHedgeBacktest } = require("../backtestDualHedge");
 const { STRATEGY_PARAMS } = require("../backtestFlow");
 const { setEmitSuppressed } = require("../eventBridge");
 const { getShortName } = require("../shortNames");
@@ -1705,6 +1706,29 @@ app.get("/api/toolbox/hedgepairs/logs/:name", async (req, res) => {
 // accounts, one instrument, one LONG-only, the other SHORT-only. Mirrors
 // toolbox.js's own dualHedgeScreen()/addDualHedge()/manageDualHedgeUsersScreen()
 // — see that file's comments for the full reasoning behind each field.
+const hhmmPad = (h, m) => `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+function parseHHMM(v, dflt) {
+    const m = String(v || dflt).trim().match(/^(\d{1,2}):(\d{2})$/);
+    if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
+    return { hour: Number(m[1]), minute: Number(m[2]) };
+}
+const BIAS_BAND_TIMEFRAMES = ["5m", "15m", "30m", "1h"];
+
+// Two ONLINE dual-hedge deployments must not share an account on the same
+// underlying + exchange (they would fight over one broker position).
+async function findAccountConflict(underlying, accounts, selfName) {
+    const mine = new Set(accounts.map(a => dualHedgeUsers.sanitizeName(a)));
+    const list = await getDualHedgeProcesses();
+    for (const d of list) {
+        if (d.name === selfName || d.status !== "online") continue;
+        if (String(d.underlying).toUpperCase() !== String(underlying).toUpperCase()) continue;
+        const used = [d.longUser, d.shortUser].filter(Boolean).map(a => dualHedgeUsers.sanitizeName(a));
+        const hit = used.find(a => mine.has(a));
+        if (hit) return `account "${hit}" is already running ${underlying} in ${d.name} \u2014 stop it first`;
+    }
+    return null;
+}
+
 async function getDualHedgeProcesses() {
     const list = await pm2List();
     return list
@@ -1725,6 +1749,12 @@ async function getDualHedgeProcesses() {
             gcExit:     `${String(p.pm2_env.env?.DH_GC_QUIT_HOUR_OVERRIDE ?? "23").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_QUIT_MINUTE_OVERRIDE ?? "25").padStart(2, "0")}`,
             live:       p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:   p.pm2_env.env?.DH_EXCHANGE_OVERRIDE || "MCX",
+            strategy:   (p.pm2_env.env?.DH_STRATEGY || "DUAL").toUpperCase(),
+            unwindMode: p.pm2_env.env?.DH_UNWIND_MODE || "BAND_FLIP",
+            bandTimeframe: p.pm2_env.env?.DH_BAND_TIMEFRAME || "15m",
+            entryTime:  hhmmPad(p.pm2_env.env?.DH_ENTRY_HOUR_OVERRIDE ?? 10, p.pm2_env.env?.DH_ENTRY_MINUTE_OVERRIDE ?? 0),
+            eodTime:    (p.pm2_env.env?.DH_EOD_HOUR_OVERRIDE !== undefined && p.pm2_env.env?.DH_EOD_HOUR_OVERRIDE !== "")
+                ? hhmmPad(p.pm2_env.env.DH_EOD_HOUR_OVERRIDE, p.pm2_env.env.DH_EOD_MINUTE_OVERRIDE ?? 0) : null,
             outLogPath: p.pm2_env.pm_out_log_path,
             errLogPath: p.pm2_env.pm_err_log_path,
         }));
@@ -1828,8 +1858,11 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         underlying, longUser, shortUser, lots, maxLossRupees, takeProfitRupees, rangeSize,
         lotMultOverride, bandStepOverride, live, confirmLive,
         gapCapture, gcEntry, gcExit,
+        strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
     } = req.body || {};
 
+    const strategy = String(strategyIn || "DUAL").toUpperCase();
+    if (strategy !== "DUAL" && strategy !== "BIAS") return res.status(400).json({ error: "strategy must be DUAL or BIAS" });
     if (!underlying || !longUser || !shortUser) {
         return res.status(400).json({ error: "underlying, longUser and shortUser are all required" });
     }
@@ -1843,9 +1876,6 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
             return res.status(400).json({ error: `${label} "${name}" is not a fully configured dual-hedge user (missing API key or access token)` });
         }
     }
-    // Same rule toolbox.js/instrument mode/hedge pairs enforce: going live
-    // requires the literal word "LIVE" server-side too, not just a
-    // client-side checkbox.
     if (live && confirmLive !== "LIVE") {
         return res.status(400).json({ error: 'going live requires confirmLive: "LIVE"' });
     }
@@ -1854,43 +1884,58 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     if (def.lotMult === null && !lotMultOverride) {
         return res.status(400).json({ error: `lotMultOverride is required for ${underlying} (no context.js override on file)` });
     }
-
     for (const [label, v] of [["takeProfitRupees", takeProfitRupees], ["rangeSize", rangeSize], ["bandStepOverride", bandStepOverride]]) {
         if (v !== undefined && v !== null && v !== "" && !(Number(v) > 0)) return res.status(400).json({ error: `${label} must be a positive number` });
     }
 
-    // Gap capture is an option of this deployment (DH_GAP_CAPTURE), not a separate engine.
-    let gcE = null, gcX = null;
-    if (gapCapture) {
-        const parse = (v, dflt) => {
-            const m = String(v || dflt).trim().match(/^(\d{1,2}):(\d{2})$/);
-            if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;
-            return { hour: Number(m[1]), minute: Number(m[2]) };
-        };
-        gcE = parse(gcEntry, "23:20");
-        gcX = parse(gcExit, "23:25");
-        if (!gcE || !gcX) return res.status(400).json({ error: "gap capture times must be HH:MM (IST)" });
-        if (gcX.hour < gcE.hour || (gcX.hour === gcE.hour && gcX.minute <= gcE.minute)) {
-            return res.status(400).json({ error: "gap capture quit time must be after the gap capture time" });
-        }
-    }
+    const name = strategy === "BIAS" ? `${getShortName(underlying)}DualBias` : `${getShortName(underlying)}DualHedge`;
+    const conflict = await findAccountConflict(underlying, [longUser, shortUser], name);
+    if (conflict) return res.status(409).json({ error: conflict });
 
-    const name = `${getShortName(underlying)}DualHedge`;
     const env = {
         DH_UNDERLYING: underlying, DH_LONG_USER: dualHedgeUsers.sanitizeName(longUser), DH_SHORT_USER: dualHedgeUsers.sanitizeName(shortUser),
         DH_EXCHANGE_OVERRIDE: "MCX", DH_LOTS_OVERRIDE: String(lots || 1),
-        DH_MAX_LOSS_RUPEES_OVERRIDE: String(maxLossRupees || 3000), LIVE_ORDERS_OVERRIDE: String(!!live),
+        LIVE_ORDERS_OVERRIDE: String(!!live),
         // Always written explicitly (PM2 restart merges env, never clears it).
-        DH_TAKE_PROFIT_RUPEES_OVERRIDE: String(takeProfitRupees || 3000),
-        DH_RANGE_SIZE_OVERRIDE: rangeSize ? String(rangeSize) : "",
+        DH_STRATEGY: strategy,
     };
     if (lotMultOverride)  env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
     if (bandStepOverride) env.DH_BAND_STEP_OVERRIDE = String(bandStepOverride);
-    // Always written explicitly (PM2 restart merges env, never clears it).
-    env.DH_GAP_CAPTURE = String(!!gapCapture);
-    if (gapCapture) {
-        env.DH_GC_HOUR_OVERRIDE = String(gcE.hour); env.DH_GC_MINUTE_OVERRIDE = String(gcE.minute);
-        env.DH_GC_QUIT_HOUR_OVERRIDE  = String(gcX.hour); env.DH_GC_QUIT_MINUTE_OVERRIDE  = String(gcX.minute);
+
+    if (strategy === "BIAS") {
+        const unwind = String(unwindIn || "BAND_FLIP").toUpperCase();
+        if (unwind !== "BAND_FLIP" && unwind !== "EOD_ONLY") return res.status(400).json({ error: "unwindMode must be BAND_FLIP or EOD_ONLY" });
+        const tf = String(bandTfIn || "15m").toLowerCase();
+        if (!BIAS_BAND_TIMEFRAMES.includes(tf)) return res.status(400).json({ error: `bandTimeframe must be one of ${BIAS_BAND_TIMEFRAMES.join("/")}` });
+        if (gapCapture) return res.status(400).json({ error: "gap capture is not available for the BIAS strategy (no overnight carry)" });
+        const entry = parseHHMM(entryTime, "10:00");
+        if (!entry) return res.status(400).json({ error: "entryTime must be HH:MM (IST)" });
+        const dEod = defaultEodFor(tf, "MCX");
+        const eod = eodTime ? parseHHMM(eodTime) : { hour: dEod.eodHour, minute: dEod.eodMinute };
+        if (!eod) return res.status(400).json({ error: "eodTime must be HH:MM (IST)" });
+        if (eod.hour * 60 + eod.minute <= entry.hour * 60 + entry.minute) return res.status(400).json({ error: "entryTime must be before EOD" });
+        env.DH_UNWIND_MODE = unwind;
+        env.DH_BAND_TIMEFRAME = tf;
+        env.DH_ENTRY_HOUR_OVERRIDE = String(entry.hour); env.DH_ENTRY_MINUTE_OVERRIDE = String(entry.minute);
+        env.DH_EOD_HOUR_OVERRIDE = String(eod.hour); env.DH_EOD_MINUTE_OVERRIDE = String(eod.minute);
+    } else {
+        let gcE = null, gcX = null;
+        if (gapCapture) {
+            gcE = parseHHMM(gcEntry, "23:20");
+            gcX = parseHHMM(gcExit, "23:25");
+            if (!gcE || !gcX) return res.status(400).json({ error: "gap capture times must be HH:MM (IST)" });
+            if (gcX.hour < gcE.hour || (gcX.hour === gcE.hour && gcX.minute <= gcE.minute)) {
+                return res.status(400).json({ error: "gap capture quit time must be after the gap capture time" });
+            }
+        }
+        env.DH_MAX_LOSS_RUPEES_OVERRIDE = String(maxLossRupees || 3000);
+        env.DH_TAKE_PROFIT_RUPEES_OVERRIDE = String(takeProfitRupees || 3000);
+        env.DH_RANGE_SIZE_OVERRIDE = rangeSize ? String(rangeSize) : "";
+        env.DH_GAP_CAPTURE = String(!!gapCapture);
+        if (gapCapture) {
+            env.DH_GC_HOUR_OVERRIDE = String(gcE.hour); env.DH_GC_MINUTE_OVERRIDE = String(gcE.minute);
+            env.DH_GC_QUIT_HOUR_OVERRIDE  = String(gcX.hour); env.DH_GC_QUIT_MINUTE_OVERRIDE  = String(gcX.minute);
+        }
     }
 
     try {
@@ -1898,6 +1943,93 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         res.json({ ok: true, name });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// Backtest of either dual-hedge strategy (backtestDualHedge.js). Market data
+// is account-agnostic: the global account, else the first configured dual user.
+function ensureDualHedgeBacktestKite() {
+    if (engineConfig.API_KEY && engineConfig.getAccessToken()) return ensureToolboxKite();
+    const u = dualHedgeUsers.listUsers().find(x => x.apiKey && x.accessToken);
+    if (!u) throw Object.assign(new Error("no Kite credentials available for market data"), { status: 400 });
+    const kc = new KiteConnect({ api_key: u.apiKey });
+    kc.setAccessToken(u.accessToken);
+    return kc;
+}
+
+app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
+    const b = req.body || {};
+    try {
+        const strategy = String(b.strategy || "DUAL").toUpperCase();
+        if (strategy !== "DUAL" && strategy !== "BIAS") return res.status(400).json({ error: "strategy must be DUAL or BIAS" });
+        if (!b.underlying) return res.status(400).json({ error: "underlying is required" });
+        const from = new Date(b.from), to = new Date(b.to);
+        if (isNaN(from) || isNaN(to)) return res.status(400).json({ error: "from and to must be YYYY-MM-DD" });
+        if (to < from) return res.status(400).json({ error: "to must not be before from" });
+        const pos = (label, v) => { if (v !== undefined && v !== null && v !== "" && !(Number(v) > 0)) throw Object.assign(new Error(`${label} must be a positive number`), { status: 400 }); };
+        for (const [l, v] of [["lots", b.lots], ["lotMultOverride", b.lotMultOverride], ["bandStepOverride", b.bandStepOverride], ["rangeSizeOverride", b.rangeSizeOverride], ["takeProfit", b.takeProfit], ["maxLoss", b.maxLoss]]) pos(l, v);
+        const slip = b.slippagePoints === undefined || b.slippagePoints === "" ? 0 : Number(b.slippagePoints);
+        if (!Number.isFinite(slip) || slip < 0) return res.status(400).json({ error: "slippagePoints must be >= 0" });
+        const exchange = "MCX";
+        const def = getDefinition(b.underlying, exchange);
+        if (def.lotMult === null && !b.lotMultOverride) return res.status(400).json({ error: `lotMultOverride is required for ${b.underlying}` });
+
+        const opts = { strategy };
+        if (strategy === "BIAS") {
+            opts.unwindMode = String(b.unwindMode || "BAND_FLIP").toUpperCase();
+            if (opts.unwindMode !== "BAND_FLIP" && opts.unwindMode !== "EOD_ONLY") return res.status(400).json({ error: "unwindMode must be BAND_FLIP or EOD_ONLY" });
+            opts.bandTimeframe = String(b.bandTimeframe || "15m").toLowerCase();
+            if (!BIAS_BAND_TIMEFRAMES.includes(opts.bandTimeframe)) return res.status(400).json({ error: `bandTimeframe must be one of ${BIAS_BAND_TIMEFRAMES.join("/")}` });
+            const entry = parseHHMM(b.entryTime, "10:00");
+            if (!entry) return res.status(400).json({ error: "entryTime must be HH:MM (IST)" });
+            const dEod = defaultEodFor(opts.bandTimeframe, exchange);
+            const eod = b.eodTime ? parseHHMM(b.eodTime) : { hour: dEod.eodHour, minute: dEod.eodMinute };
+            if (!eod) return res.status(400).json({ error: "eodTime must be HH:MM (IST)" });
+            if (eod.hour * 60 + eod.minute <= entry.hour * 60 + entry.minute) return res.status(400).json({ error: "entryTime must be before EOD" });
+            opts.entryHour = entry.hour; opts.entryMinute = entry.minute; opts.eodHour = eod.hour; opts.eodMinute = eod.minute;
+            if (b.bandStepOverride) opts.bandStepOverride = Number(b.bandStepOverride);
+        } else {
+            opts.signalSource = String(b.signalSource || "RANGE").toUpperCase();
+            if (opts.signalSource !== "RANGE" && opts.signalSource !== "HA") return res.status(400).json({ error: "signalSource must be RANGE or HA" });
+            if (opts.signalSource === "HA") {
+                opts.haTimeframe = String(b.haTimeframe || "1h").toLowerCase();
+                if (!["5m", "15m", "30m", "1h", "1d"].includes(opts.haTimeframe)) return res.status(400).json({ error: "haTimeframe must be 5m/15m/30m/1h/1d" });
+            } else {
+                if (b.bandStepOverride) opts.bandStepOverride = Number(b.bandStepOverride);
+                if (b.rangeSizeOverride) opts.rangeSizeOverride = Number(b.rangeSizeOverride);
+            }
+            opts.takeProfit = Number(b.takeProfit) || 3000;
+            opts.maxLoss = Number(b.maxLoss) || 3000;
+            if (b.gapCapture) {
+                const g = parseHHMM(b.gcEntry, "23:20"), q = parseHHMM(b.gcExit, "23:25");
+                if (!g || !q) return res.status(400).json({ error: "gap capture times must be HH:MM (IST)" });
+                if (q.hour * 60 + q.minute <= g.hour * 60 + g.minute) return res.status(400).json({ error: "gap capture quit time must be after the gap capture time" });
+                opts.gapCapture = true; opts.gcHour = g.hour; opts.gcMinute = g.minute; opts.gcQuitHour = q.hour; opts.gcQuitMinute = q.minute;
+            }
+        }
+
+        const kc = ensureDualHedgeBacktestKite();
+        setEmitSuppressed(true);
+        let out, lines;
+        try {
+            ({ result: out, lines } = await withCapturedConsole(() => runDualHedgeBacktest({
+                underlying: b.underlying, exchange, lots: Number(b.lots) || 1,
+                lotMultOverride: b.lotMultOverride ? Number(b.lotMultOverride) : null,
+                slippagePoints: slip, from, to, kc, ...opts,
+            })));
+        } finally {
+            setEmitSuppressed(false);
+        }
+        const { report, paths } = out;
+        res.json({
+            ok: true, strategy, params: report.params,
+            summary: report.metrics, mtm: report.mtm, stats: report.stats,
+            reportUrl: `/api/toolbox/backtest/reports/${path.basename(paths.htmlPath)}`,
+            jsonUrl: `/api/toolbox/backtest/reports/${path.basename(paths.jsonPath)}`,
+            logLines: lines.slice(-5000),
+        });
+    } catch (err) {
+        res.status(err.status || 500).json({ error: err.message });
     }
 });
 
