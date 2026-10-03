@@ -867,4 +867,4 @@ async function runDualHedgeBacktest({
     return { report, paths };
 }
 
-module.exports = { runDualHedgeBacktest, replayDualHedge, replayBiasHedge, fetchMinuteCandles, fetchNativeBars, buildHaSignal, buildBandSignal, barEndMs };
+module.exports = { runDualHedgeBacktest, replayDualHedge, replayBiasHedge, createLegKit, fetchMinuteCandles, fetchNativeBars, buildHaSignal, buildBandSignal, barEndMs };

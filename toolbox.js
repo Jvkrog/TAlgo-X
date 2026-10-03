@@ -2476,9 +2476,76 @@ async function getDualHedgeProcesses() {
             gcExit:     `${String(p.pm2_env.env?.DH_GC_QUIT_HOUR_OVERRIDE ?? "23").padStart(2, "0")}:${String(p.pm2_env.env?.DH_GC_QUIT_MINUTE_OVERRIDE ?? "25").padStart(2, "0")}`,
             live:       p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:   p.pm2_env.env?.DH_EXCHANGE_OVERRIDE || "MCX",
+            strategy:   (p.pm2_env.env?.DH_STRATEGY || "DUAL").toUpperCase(),
+            unwindMode: p.pm2_env.env?.DH_UNWIND_MODE || "BAND_FLIP",
+            bandTimeframe: p.pm2_env.env?.DH_BAND_TIMEFRAME || "15m",
+            entryTime:  `${String(p.pm2_env.env?.DH_ENTRY_HOUR_OVERRIDE ?? "10").padStart(2, "0")}:${String(p.pm2_env.env?.DH_ENTRY_MINUTE_OVERRIDE ?? "0").padStart(2, "0")}`,
             outLogPath: p.pm2_env.pm_out_log_path,
             errLogPath: p.pm2_env.pm_err_log_path,
         }));
+}
+
+// Two ONLINE deployments may not share an account on the same underlying +
+// exchange (they would fight over one broker position). Returns a message or null.
+async function dualHedgeAccountConflict(underlying, accounts, selfName) {
+    const mine = new Set(accounts.map(a => String(a).toUpperCase()));
+    for (const d of await getDualHedgeProcesses()) {
+        if (d.name === selfName || d.status !== "online") continue;
+        if (String(d.underlying).toUpperCase() !== String(underlying).toUpperCase()) continue;
+        const hit = [d.longUser, d.shortUser].filter(Boolean).find(a => mine.has(String(a).toUpperCase()));
+        if (hit) return `account "${hit}" is already running ${underlying} in ${d.name} \u2014 stop it first`;
+    }
+    return null;
+}
+
+// BIAS strategy deploy: daily-HA core + Dynamic Band hedge, flat at EOD.
+async function addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverride, lots }) {
+    console.log(c.dim("  Core: previous daily HA candle, once a day (green = LONG account, red = SHORT account)"));
+    console.log(c.dim("  Hedge: the OTHER account enters the opposite side when the Dynamic Band turns against the core"));
+    console.log(c.dim("  Both accounts are flat at EOD (no overnight carry, no gap capture, no TP/SL)"));
+    const unwindIn = (await ask("  Hedge unwind: [B] band back in the core's favour closes it, [E] hold to EOD (default B): ")).trim().toUpperCase();
+    if (unwindIn !== "" && unwindIn !== "B" && unwindIn !== "E") { console.log(c.yellow("  Invalid unwind choice")); await pauseForReview(); return; }
+    const unwindMode = unwindIn === "E" ? "EOD_ONLY" : "BAND_FLIP";
+    const tf = (await ask("  Dynamic Band timeframe (5m/15m/30m/1h, default 15m): ")).trim().toLowerCase() || "15m";
+    if (!["5m", "15m", "30m", "1h"].includes(tf)) { console.log(c.yellow("  Invalid timeframe")); await pauseForReview(); return; }
+    const bsIn = (await ask("  Band step override (blank = engine default): ")).trim();
+    const bandStep = bsIn ? Number(bsIn) : null;
+    if (bandStep !== null && (!Number.isFinite(bandStep) || bandStep <= 0)) { console.log(c.yellow("  Invalid band step")); await pauseForReview(); return; }
+    const etIn = (await ask("  Core entry time IST (HH:MM, default 10:00): ")).trim() || "10:00";
+    const m = etIn.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) { console.log(c.yellow("  Invalid time — use HH:MM")); await pauseForReview(); return; }
+    const entryHour = Number(m[1]), entryMinute = Number(m[2]);
+    const eod = defaultEodFor(tf, "MCX");
+    if (eod.eodHour * 60 + eod.eodMinute <= entryHour * 60 + entryMinute) { console.log(c.yellow("  Entry time must be before EOD")); await pauseForReview(); return; }
+
+    const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
+    let isLive = modeInput === "L";
+    if (isLive) {
+        const confirmLive = (await ask(c.red('  This will place REAL orders on BOTH accounts. type "LIVE" to confirm: '))).trim();
+        if (confirmLive !== "LIVE") { console.log(c.dim("  Not confirmed — starting in paper mode instead")); isLive = false; }
+    }
+
+    const name = `${getShortName(underlying)}DualBias`;
+    const conflict = await dualHedgeAccountConflict(underlying, [longUser.name, shortUser.name], name);
+    if (conflict) { console.log(c.red(`  Refused: ${conflict}`)); await pauseForReview(); return; }
+
+    const env = {
+        DH_UNDERLYING: underlying, DH_LONG_USER: longUser.name, DH_SHORT_USER: shortUser.name,
+        DH_EXCHANGE_OVERRIDE: "MCX", DH_LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive),
+        DH_STRATEGY: "BIAS", DH_UNWIND_MODE: unwindMode, DH_BAND_TIMEFRAME: tf,
+        DH_ENTRY_HOUR_OVERRIDE: String(entryHour), DH_ENTRY_MINUTE_OVERRIDE: String(entryMinute),
+        DH_EOD_HOUR_OVERRIDE: String(eod.eodHour), DH_EOD_MINUTE_OVERRIDE: String(eod.eodMinute),
+    };
+    if (lotMultOverride) env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
+    if (bandStep)        env.DH_BAND_STEP_OVERRIDE = String(bandStep);
+    try {
+        await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: __dirname, env });
+        console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  core ${etIn} daily HA  hedge ${tf} band ${unwindMode}  flat ${eod.eodHour}:${String(eod.eodMinute).padStart(2, "0")}  ${isLive ? "LIVE" : "PAPER"})`));
+        console.log(c.dim("  The engine exits at EOD — start it again each trading morning."));
+    } catch (err) {
+        console.log(c.red(`  Failed to start: ${err.message}`));
+    }
+    await pauseForReview();
 }
 
 // ─── Users sub-screen — add/list/remove named Kite accounts + exchange
@@ -2614,6 +2681,10 @@ async function addDualHedge() {
     const lots = lotsInput ? Number(lotsInput) : 1;
     if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  Invalid lots value")); await pauseForReview(); return; }
 
+    const stratIn = (await ask("  Strategy: [D] Dual band-following, [B] Bias hedge (daily HA core + band hedge, flat at EOD) (default D): ")).trim().toUpperCase();
+    if (stratIn !== "" && stratIn !== "D" && stratIn !== "B") { console.log(c.yellow("  Invalid strategy")); await pauseForReview(); return; }
+    if (stratIn === "B") { await addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverride, lots }); return; }
+
     const maxLossInput = await ask("  Stop: exit a flipped leg when loss exceeds ₹ (default 3000): ");
     const maxLoss = maxLossInput ? Number(maxLossInput) : 3000;
     if (!Number.isFinite(maxLoss) || maxLoss <= 0) { console.log(c.yellow("  Invalid max-loss value")); await pauseForReview(); return; }
@@ -2669,7 +2740,10 @@ async function addDualHedge() {
     }
 
     const name = `${getShortName(underlying)}DualHedge`;
+    const conflict = await dualHedgeAccountConflict(underlying, [longUser.name, shortUser.name], name);
+    if (conflict) { console.log(c.red(`  Refused: ${conflict}`)); await pauseForReview(); return; }
     const env = {
+        DH_STRATEGY: "DUAL",
         DH_UNDERLYING: underlying, DH_LONG_USER: longUser.name, DH_SHORT_USER: shortUser.name,
         DH_EXCHANGE_OVERRIDE: "MCX", DH_LOTS_OVERRIDE: String(lots),
         DH_MAX_LOSS_RUPEES_OVERRIDE: String(maxLoss), LIVE_ORDERS_OVERRIDE: String(isLive),
@@ -2865,7 +2939,8 @@ async function dualHedgeScreen() {
                 if (d.status === "online") statusStr = c.green(`\u25cf ${fmtUptime(d.uptime)}`);
                 else                        statusStr = c.red(`\u25cf ${d.status.toUpperCase()}`);
                 body.push(`  ${String(i + 1).padStart(2)}. ${d.name.padEnd(20)} ${d.underlying.padEnd(14)} ${modeTag}  ${statusStr}`);
-                body.push(c.dim(`      LONG:${d.longUser}  SHORT:${d.shortUser}  ${d.lots} lot  maxLoss:\u20b9${d.maxLoss}  takeProfit:\u20b9${d.takeProfit}${d.rangeSize ? `  range:${d.rangeSize}` : ""}${d.gapCapture ? `  GAP ${d.gcEntry}\u2192${d.gcExit}` : ""}`));
+                if (d.strategy === "BIAS") body.push(c.dim(`      BIAS  LONG:${d.longUser}  SHORT:${d.shortUser}  ${d.lots} lot  core daily HA @${d.entryTime}  hedge ${d.bandTimeframe} band ${d.unwindMode}  flat at EOD`));
+                else body.push(c.dim(`      LONG:${d.longUser}  SHORT:${d.shortUser}  ${d.lots} lot  maxLoss:\u20b9${d.maxLoss}  takeProfit:\u20b9${d.takeProfit}${d.rangeSize ? `  range:${d.rangeSize}` : ""}${d.gapCapture ? `  GAP ${d.gcEntry}\u2192${d.gcExit}` : ""}`));
             });
         }
         renderScreenBox("D U A L   H E D G E", body, [

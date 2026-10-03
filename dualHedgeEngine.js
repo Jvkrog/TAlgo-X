@@ -109,6 +109,13 @@
 // toolbox/webdash gap.
 "use strict";
 
+// DH_STRATEGY selects the strategy this single PM2 entry point runs:
+//   DUAL (default) — the band-following dual hedge below
+//   BIAS           — daily-HA-bias core + Dynamic-Band hedge (dualBiasHedgeEngine.js)
+const DH_STRATEGY = (process.env.DH_STRATEGY || "DUAL").toUpperCase();
+if (DH_STRATEGY !== "DUAL" && DH_STRATEGY !== "BIAS") { console.error(`DH_STRATEGY "${process.env.DH_STRATEGY}" invalid (known: DUAL, BIAS) — refusing to boot.`); process.exit(1); }
+if (DH_STRATEGY === "BIAS") { require("./dualBiasHedgeEngine"); return; }
+
 const { KiteConnect, KiteTicker } = require("kiteconnect");
 const engineConfig = require("./engineConfig");
 const c = require("./c");

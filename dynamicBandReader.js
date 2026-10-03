@@ -92,10 +92,10 @@ function replayBandColor(rawCandles, bandStep) {
 // session gives roughly 350+ bars of replay warmup, comfortably more than
 // this module's band-geometry replay needs (same order of magnitude as
 // engineConfig.MAX_CANDLES-driven warmup elsewhere in this codebase).
-const REFRESH_MS = { "15m": 5 * 60 * 1000, "1h": 15 * 60 * 1000, "1d": 6 * 60 * 60 * 1000 };
-const LOOKBACK_DAYS = { "15m": 7, "1h": 15, "1d": 90 };
+const REFRESH_MS = { "5m": 2 * 60 * 1000, "15m": 5 * 60 * 1000, "30m": 10 * 60 * 1000, "1h": 15 * 60 * 1000, "1d": 6 * 60 * 60 * 1000 };
+const LOOKBACK_DAYS = { "5m": 7, "15m": 7, "30m": 7, "1h": 15, "1d": 90 };
 
-function createDynamicBandReader({ token, timeframe, bandStep, engineConfig, label }) {
+function createDynamicBandReader({ token, timeframe, bandStep, engineConfig, label, refreshMs }) {
     if (!REFRESH_MS[timeframe]) {
         throw new Error(`createDynamicBandReader: unsupported timeframe "${timeframe}" (known: ${Object.keys(REFRESH_MS).join(", ")})`);
     }
@@ -139,7 +139,7 @@ function createDynamicBandReader({ token, timeframe, bandStep, engineConfig, lab
     // available yet (fails safe — caller treats null the same as "no
     // read," never as a signal).
     async function getLatest() {
-        if (Date.now() - lastFetchedAt > REFRESH_MS[timeframe]) {
+        if (Date.now() - lastFetchedAt > (refreshMs ?? REFRESH_MS[timeframe])) {
             try {
                 await refresh();
             } catch (err) {
