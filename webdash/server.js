@@ -44,6 +44,7 @@ const customStrategyDb = require("../customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("../historicalFetch");
 const { runBacktest } = require("../backtestRun");
 const { runDualHedgeBacktest } = require("../backtestDualHedge");
+const { runHedgePairBacktest } = require("../backtestHedgePair");
 const { STRATEGY_PARAMS } = require("../backtestFlow");
 const { setEmitSuppressed } = require("../eventBridge");
 const { getShortName } = require("../shortNames");
@@ -1610,6 +1611,52 @@ app.get("/api/toolbox/hedgepairs/lotmult/:underlying", (req, res) => {
         res.json({ lotMultRequired: def.lotMult === null });
     } catch (err) {
         res.status(400).json({ error: err.message });
+    }
+});
+
+// Hedge-pair backtest (backtestHedgePair.js) — market data only, global account.
+app.post("/api/toolbox/hedgepairs/backtest", async (req, res) => {
+    const b = req.body || {};
+    try {
+        const { coreUnderlying, hedgeUnderlying } = b;
+        if (!coreUnderlying || !hedgeUnderlying) return res.status(400).json({ error: "coreUnderlying and hedgeUnderlying are required" });
+        if (coreUnderlying === hedgeUnderlying) return res.status(400).json({ error: "core and hedge must be different underlyings" });
+        const unwindMode = String(b.unwindMode || "HA_FLIP").toUpperCase();
+        if (unwindMode !== "HA_FLIP" && unwindMode !== "EOD_ONLY") return res.status(400).json({ error: "unwindMode must be HA_FLIP or EOD_ONLY" });
+        const from = new Date(b.from), to = new Date(b.to);
+        if (isNaN(from) || isNaN(to)) return res.status(400).json({ error: "from and to must be YYYY-MM-DD" });
+        if (to < from) return res.status(400).json({ error: "to must not be before from" });
+        for (const [l, v] of [["coreLots", b.coreLots], ["hedgeLots", b.hedgeLots], ["coreLotMultOverride", b.coreLotMultOverride], ["hedgeLotMultOverride", b.hedgeLotMultOverride]]) {
+            if (v !== undefined && v !== null && v !== "" && !(Number(v) > 0)) return res.status(400).json({ error: `${l} must be a positive number` });
+        }
+        for (const [u, ov] of [[coreUnderlying, b.coreLotMultOverride], [hedgeUnderlying, b.hedgeLotMultOverride]]) {
+            if (getDefinition(u, "MCX").lotMult === null && !ov) return res.status(400).json({ error: `lot multiplier is required for ${u} (no context.js override on file)` });
+        }
+        const kc = ensureDualHedgeBacktestKite();
+        setEmitSuppressed(true);
+        let out, lines;
+        try {
+            ({ result: out, lines } = await withCapturedConsole(() => runHedgePairBacktest({
+                coreUnderlying, hedgeUnderlying, exchange: "MCX",
+                coreLots: Number(b.coreLots) || 1, hedgeLots: Number(b.hedgeLots) || 5,
+                coreLotMultOverride: b.coreLotMultOverride ? Number(b.coreLotMultOverride) : null,
+                hedgeLotMultOverride: b.hedgeLotMultOverride ? Number(b.hedgeLotMultOverride) : null,
+                unwindMode, from, to, kc,
+            })));
+        } finally {
+            setEmitSuppressed(false);
+        }
+        const { report, paths } = out;
+        res.json({
+            ok: true, unwindMode,
+            core: report.core, hedge: report.hedge, summary: report.metrics,
+            reportUrl: `/api/toolbox/backtest/reports/${path.basename(paths.htmlPath)}`,
+            jsonUrl: `/api/toolbox/backtest/reports/${path.basename(paths.jsonPath)}`,
+            logLines: lines.slice(-5000),
+        });
+    } catch (err) {
+        const code = Number.isInteger(err.status) && err.status >= 400 && err.status < 600 ? err.status : 500;
+        res.status(code).json({ error: err.message });
     }
 });
 
