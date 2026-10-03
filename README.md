@@ -322,7 +322,7 @@ TAlgo-X is designed around a machine-agnostic execution model. The same platform
                             │
           ┌─────────────────┼─────────────────┐
           │                 │                 │
-       NatGas             Zinc             USDINR
+       NatGas             Zinc             Aluminium
        Context            Context           Context
           │                 │                 │
           └─────────────────┼─────────────────┘
