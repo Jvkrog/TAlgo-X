@@ -1,5 +1,8 @@
 {
   "ZINCMINI": {
-    "symbol": "ZINCMINI26AUGFUT"
+    "symbol": "ZINCMINI26OCTFUT"
+  },
+  "ZINC": {
+    "symbol": "ZINC26OCTFUT"
   }
 }
