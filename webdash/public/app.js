@@ -3025,7 +3025,7 @@ async function loadHedgePairsList() {
   try {
     const { pairs } = await (await fetch("/api/toolbox/hedgepairs")).json();
 
-    let html = `<button class="tb-cli-action" id="hpAddBtn" style="margin-bottom:10px">+ Add hedge pair</button>`;
+    let html = `<div style="display:flex;gap:8px;margin-bottom:10px"><button class="tb-cli-action" id="hpAddBtn">+ Add hedge pair</button><button class="tb-cli-action" id="hpBacktestBtn">Backtest</button></div>`;
 
     if (pairs.length === 0) {
       html += `<div class="tb-form-hint">None running yet</div>`;
@@ -3046,7 +3046,8 @@ async function loadHedgePairsList() {
     }
 
     tbHedgePairsBody.innerHTML = html;
-    tbHedgePairsBody.querySelector("#hpAddBtn").addEventListener("click", () => { hpAddState = {}; renderHedgePairAddCorePicker(); });
+    tbHedgePairsBody.querySelector("#hpAddBtn").addEventListener("click", () => { hpAddState = { mode: "deploy" }; renderHedgePairAddCorePicker(); });
+    tbHedgePairsBody.querySelector("#hpBacktestBtn").addEventListener("click", () => { hpAddState = { mode: "backtest" }; renderHedgePairAddCorePicker(); });
 
     tbHedgePairsBody.querySelectorAll("[data-hp-toggle]").forEach(btn => {
       btn.addEventListener("click", async () => {
@@ -3096,7 +3097,7 @@ function renderHedgePairSearchStep(label, onPick) {
     <div id="hpSearchPickList" class="tb-pick-list"></div>
   `;
   tbHedgePairsBody.querySelector("#hpBack").addEventListener("click", () => {
-    if (hpAddState.core) { hpAddState = {}; renderHedgePairAddCorePicker(); }
+    if (hpAddState.core) { hpAddState = { mode: hpAddState.mode }; renderHedgePairAddCorePicker(); }
     else { hpAddState = null; loadHedgePairsList(); }
   });
   const input = tbHedgePairsBody.querySelector("#hpSearchInput");
@@ -3135,7 +3136,7 @@ function renderHedgePairAddCorePicker() {
 function renderHedgePairAddHedgePicker() {
   renderHedgePairSearchStep("hedge underlying (mini contract, e.g. NATGASMINI, ZINCMINI)", u => {
     hpAddState.hedge = u;
-    renderHedgePairAddForm();
+    (hpAddState.mode === "backtest" ? renderHedgePairBacktestForm : renderHedgePairAddForm)();
   });
 }
 
@@ -3622,6 +3623,59 @@ async function renderDualHedgeAddForm() {
       errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
       btn.disabled = false; btn.textContent = tbDualHedgeBody.querySelector("#dhStrategy").value === "BIAS" ? "Start bias hedge" : "Start dual hedge";
     }
+  });
+}
+
+
+// ─── Hedge pair backtest — POST /api/toolbox/hedgepairs/backtest (backtestHedgePair.js).
+async function renderHedgePairBacktestForm() {
+  const [coreLm, hedgeLm] = await Promise.all([
+    (await fetch(`/api/toolbox/hedgepairs/lotmult/${encodeURIComponent(hpAddState.core)}`)).json().catch(() => ({})),
+    (await fetch(`/api/toolbox/hedgepairs/lotmult/${encodeURIComponent(hpAddState.hedge)}`)).json().catch(() => ({})),
+  ]);
+  const today = new Date().toISOString().slice(0, 10);
+  const B = tbHedgePairsBody;
+  B.innerHTML = `
+    <button class="tb-back-link" id="hbBack">\u2039 back</button>
+    <div class="tb-form-hint" style="margin:8px 0">Backtest \u2014 core <b>${escHtml(hpAddState.core)}</b> (daily-HA bias, EOD exit) \u00b7 hedge <b>${escHtml(hpAddState.hedge)}</b> (adverse 1h HA)</div>
+    <div class="tb-form-row"><div class="tb-form-label">Core lots</div><input type="number" id="hbCoreLots" min="1" value="1"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Hedge lots (5:1 default)</div><input type="number" id="hbHedgeLots" min="1" value="5"></div>
+    <div class="tb-form-row" style="display:${coreLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">core lot multiplier \u2014 REQUIRED</div><input type="number" id="hbCoreLotMult" min="1" step="any"></div>
+    <div class="tb-form-row" style="display:${hedgeLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">hedge lot multiplier \u2014 REQUIRED</div><input type="number" id="hbHedgeLotMult" min="1" step="any"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Unwind mode</div><select id="hbUnwind"><option value="HA_FLIP">HA_FLIP \u2014 hedge closes when 1h HA flips back</option><option value="EOD_ONLY">EOD_ONLY \u2014 hold to EOD</option></select></div>
+    <div class="tb-form-row"><div class="tb-form-label">From</div><input type="date" id="hbFrom"></div>
+    <div class="tb-form-row"><div class="tb-form-label">To</div><input type="date" id="hbTo" value="${today}"></div>
+    <div id="hbErrBox"></div>
+    <button class="tb-submit-btn" id="hbSubmit">Run backtest</button>
+    <div id="hbResult"></div>`;
+  const q = id => B.querySelector(id);
+  q("#hbBack").addEventListener("click", renderHedgePairAddHedgePicker);
+  q("#hbSubmit").addEventListener("click", async () => {
+    q("#hbErrBox").innerHTML = ""; q("#hbResult").innerHTML = "";
+    if (!q("#hbFrom").value || !q("#hbTo").value) { q("#hbErrBox").innerHTML = `<div class="tb-err-box">pick a from and to date</div>`; return; }
+    const btn = q("#hbSubmit"); btn.disabled = true; btn.textContent = "Running...";
+    try {
+      const res = await fetch("/api/toolbox/hedgepairs/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        coreUnderlying: hpAddState.core, hedgeUnderlying: hpAddState.hedge,
+        coreLots: q("#hbCoreLots").value || 1, hedgeLots: q("#hbHedgeLots").value || 5,
+        coreLotMultOverride: q("#hbCoreLotMult").value || undefined, hedgeLotMultOverride: q("#hbHedgeLotMult").value || undefined,
+        unwindMode: q("#hbUnwind").value, from: q("#hbFrom").value, to: q("#hbTo").value,
+      }) });
+      const data = await res.json();
+      if (!res.ok) q("#hbErrBox").innerHTML = `<div class="tb-err-box">${escHtml(data.error || "backtest failed")}</div>`;
+      else {
+        const m = data.summary || {};
+        const row = (l, x) => x ? `<tr><td>${l}</td><td>${x.trades}</td><td>${(x.winRate * 100).toFixed(1)}%</td><td>${Number(x.netPnL).toFixed(2)}</td></tr>` : "";
+        q("#hbResult").innerHTML = `
+          <table class="tb-table" style="width:100%;margin-top:10px"><tr><th></th><th>Trades</th><th>Win</th><th>Net \u20b9</th></tr>
+          ${row("Combined", m.combined)}${row("Core " + escHtml(data.core?.symbol || ""), m.core)}${row("Hedge " + escHtml(data.hedge?.symbol || ""), m.hedge)}</table>
+          <div style="margin:8px 0"><a href="${data.reportUrl}" target="_blank">Open report</a> \u00b7 <a href="${data.jsonUrl}" target="_blank">JSON</a> \u00b7 <a href="#" id="hbLogToggle">Show log</a></div>
+          <pre id="hbLogBody" style="display:none;max-height:300px;overflow:auto">${escHtml((data.logLines || []).join("\n"))}</pre>`;
+        const t = q("#hbLogToggle"), lb = q("#hbLogBody");
+        t.addEventListener("click", e => { e.preventDefault(); const o = lb.style.display === "none"; lb.style.display = o ? "" : "none"; t.textContent = o ? "Hide log" : "Show log"; });
+      }
+    } catch (err) { q("#hbErrBox").innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`; }
+    btn.disabled = false; btn.textContent = "Run backtest";
   });
 }
 
