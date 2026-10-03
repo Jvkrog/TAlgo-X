@@ -283,6 +283,14 @@ let dualHedges = [];
 let dualHedgeLegIndex = new Map(); // tgPrefix -> {dealName, leg:"long"|"short"}
 const dualHedgeLegPnl = new Map(); // tgPrefix -> last {uPnl, session}
 
+function dualHedgeStrategyText(d) {
+  if (d.strategy === "BIAS") {
+    const unwind = d.unwindMode === "EOD_ONLY" ? "held to EOD" : "unwinds when the band flips back";
+    return `dual bias hedge \u00b7 core: daily HA @${d.entryTime} \u00b7 hedge: ${d.bandTimeframe} band (${unwind}) \u00b7 flat ${d.eodTime || "EOD"}`;
+  }
+  return `dual hedge \u00b7 stop:\u20b9${d.maxLoss} \u00b7 tp:\u20b9${d.takeProfit}${d.rangeSize ? ` \u00b7 range:${d.rangeSize}` : ""} (armed only after a flip)${d.gapCapture ? ` \u00b7 gap capture ${d.gcEntry}\u2192${d.gcExit}` : ""}`;
+}
+
 function buildDualHedgeCard(d) {
   const el = document.createElement("div");
   el.className = "card";
@@ -291,7 +299,7 @@ function buildDualHedgeCard(d) {
     <div class="card-top">
       <div class="card-id">
         <span class="card-underlying">${d.underlying}</span>
-        <span class="card-strategy">dual hedge \u00b7 stop:\u20b9${d.maxLoss} \u00b7 tp:\u20b9${d.takeProfit}${d.rangeSize ? ` \u00b7 range:${d.rangeSize}` : ""} (armed only after a flip)${d.gapCapture ? ` \u00b7 gap capture ${d.gcEntry}\u2192${d.gcExit}` : ""}</span>
+        <span class="card-strategy">${dualHedgeStrategyText(d)}</span>
       </div>
       <div>
         <span class="status-pill ${d.status === "online" ? "online" : "offline"}" data-role="status">${d.status}</span>
@@ -299,7 +307,7 @@ function buildDualHedgeCard(d) {
       </div>
     </div>
     <div class="card-price-row">
-      <span class="card-price">LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot NRML each</span>
+      <span class="card-price">LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot ${d.strategy === "BIAS" ? "each \u00b7 flat at EOD" : "NRML each"}</span>
     </div>
     <div class="pnl-row">
       <div class="pnl-box">
@@ -3242,6 +3250,7 @@ async function loadDualHedgeList() {
 
     let html = `<div style="display:flex;gap:8px;margin-bottom:10px">
       <button class="tb-cli-action" id="dhAddBtn">+ Add deployment</button>
+      <button class="tb-cli-action" id="dhBacktestBtn">Backtest</button>
       <button class="tb-cli-action" id="dhUsersBtn">Manage users</button>
     </div>`;
 
@@ -3254,7 +3263,7 @@ async function loadDualHedgeList() {
           <div class="tb-watch-row">
             <div class="tb-watch-main">
               <div class="tb-watch-inst">${d.name}</div>
-              <div class="tb-watch-meta">${d.underlying} \u00b7 LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot \u00b7 stop:\u20b9${d.maxLoss} \u00b7 tp:\u20b9${d.takeProfit}${d.rangeSize ? ` \u00b7 range:${d.rangeSize}` : ""} (armed only after a flip)${d.gapCapture ? ` \u00b7 gap capture ${d.gcEntry}\u2192${d.gcExit}` : ""} \u00b7 ${modeTag} \u00b7 [${d.status}]</div>
+              <div class="tb-watch-meta">${d.underlying} \u00b7 LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot \u00b7 ${dualHedgeStrategyText(d)} \u00b7 ${modeTag} \u00b7 [${d.status}]</div>
             </div>
             <button class="tb-cli-action" data-dh-logs="${d.name}" style="padding:4px 8px;font-size:11px">Logs</button>
             <button class="tb-cli-action" data-dh-toggle="${d.name}" data-dh-status="${d.status}" style="padding:4px 8px;font-size:11px">${d.status === "online" ? "stop" : "start"}</button>
@@ -3264,7 +3273,8 @@ async function loadDualHedgeList() {
     }
 
     tbDualHedgeBody.innerHTML = html;
-    tbDualHedgeBody.querySelector("#dhAddBtn").addEventListener("click", () => { dhAddState = {}; renderDualHedgeAddUnderlyingPicker(); });
+    tbDualHedgeBody.querySelector("#dhAddBtn").addEventListener("click", () => { dhAddState = { mode: "deploy" }; renderDualHedgeAddUnderlyingPicker(); });
+    tbDualHedgeBody.querySelector("#dhBacktestBtn").addEventListener("click", () => { dhAddState = { mode: "backtest" }; renderDualHedgeAddUnderlyingPicker(); });
     tbDualHedgeBody.querySelector("#dhUsersBtn").addEventListener("click", renderDualHedgeUsers);
 
     tbDualHedgeBody.querySelectorAll("[data-dh-toggle]").forEach(btn => {
@@ -3474,7 +3484,7 @@ function renderDualHedgeAddUnderlyingPicker() {
         const btn = document.createElement("button");
         btn.className = "tb-pick-item";
         btn.textContent = u;
-        btn.addEventListener("click", () => { dhAddState.underlying = u; renderDualHedgeAddForm(); });
+        btn.addEventListener("click", () => { dhAddState.underlying = u; (dhAddState.mode === "backtest" ? renderDualHedgeBacktestForm : renderDualHedgeAddForm)(); });
         list.appendChild(btn);
       });
     } catch (err) {
@@ -3505,18 +3515,28 @@ async function renderDualHedgeAddForm() {
 
   tbDualHedgeBody.innerHTML = `
     <button class="tb-back-link" id="dhBack">\u2039 back</button>
-    <div class="tb-form-hint" style="margin:8px 0">Underlying: <b>${dhAddState.underlying}</b><br>LONG account enters LONG only, SHORT account enters SHORT only \u2014 both carry overnight, SL only arms after that leg's own first adverse flip.</div>
+    <div class="tb-form-hint" style="margin:8px 0">Underlying: <b>${dhAddState.underlying}</b></div>
+    <div class="tb-form-row"><div class="tb-form-label">Strategy</div><select id="dhStrategy"><option value="DUAL">Dual hedge (band-following)</option><option value="BIAS">Bias hedge (daily HA core + band hedge)</option></select></div>
+    <div class="tb-form-hint" id="dhStrategyHint" style="margin-bottom:8px"></div>
 
     <div class="tb-form-row"><div class="tb-form-label">LONG account</div><select id="dhLongUser">${userOptions}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">SHORT account (must differ from LONG)</div><select id="dhShortUser">${userOptions}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">Lots per leg (default 1)</div><input type="number" id="dhLots" min="1" step="1" value="1"></div>
+    <div id="dhBiasOnly" style="display:none">
+      <div class="tb-form-row"><div class="tb-form-label">Hedge unwind</div><select id="dhUnwind"><option value="BAND_FLIP">Band back in the core's favour closes the hedge</option><option value="EOD_ONLY">Hold the hedge to EOD</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Dynamic Band timeframe</div><select id="dhBandTf"><option value="5m">5m</option><option value="15m" selected>15m</option><option value="30m">30m</option><option value="1h">1h</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Core entry time IST (previous daily HA candle decides, once a day)</div><input type="time" id="dhEntryTime" value="10:00"></div>
+    </div>
+    <div id="dhDualOnly">
     <div class="tb-form-row"><div class="tb-form-label">Stop: exit a flipped leg when loss exceeds \u20b9 (default 3000)</div><input type="number" id="dhMaxLoss" min="1" step="1" value="3000"></div>
     <div class="tb-form-row"><div class="tb-form-label">Take profit: exit a flipped leg when profit exceeds \u20b9 (default 3000)</div><input type="number" id="dhTakeProfit" min="1" step="1" value="3000"></div>
+    </div>
     <div class="tb-form-row" style="display:${lm.lotMultRequired ? "" : "none"}">
       <div class="tb-form-label">lot multiplier \u2014 REQUIRED, no context.js override on file for ${dhAddState.underlying}. Real contract multiplier, not broker lot_size.</div>
       <input type="number" id="dhLotMult" min="1" step="any">
     </div>
     <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dhBandStep" min="0" step="any"></div>
+    <div id="dhDualOnly2">
     <div class="tb-form-row"><div class="tb-form-label">Range bar size in price points (blank = same as the band step)</div><input type="number" id="dhRangeSize" min="0" step="any"></div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="dhGap"><span>Enable gap capture \u2014 at the gap time today's trades are closed (realized), then LONG on the long account + SHORT on the short account, carried overnight; the engine quits afterwards with positions left open</span></label>
@@ -3524,6 +3544,7 @@ async function renderDualHedgeAddForm() {
     <div id="dhGapTimes" style="display:none">
       <div class="tb-form-row"><div class="tb-form-label">Gap capture time IST (realize + enter)</div><input type="time" id="dhGapEntry" value="23:20"></div>
       <div class="tb-form-row"><div class="tb-form-label">Quit time IST (must be after gap time; positions stay open)</div><input type="time" id="dhGapExit" value="23:25"></div>
+    </div>
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="dhLive"><span>Go LIVE (real orders on BOTH accounts) \u2014 unchecked = paper</span></label>
@@ -3533,6 +3554,21 @@ async function renderDualHedgeAddForm() {
   `;
 
   tbDualHedgeBody.querySelector("#dhBack").addEventListener("click", renderDualHedgeAddUnderlyingPicker);
+  const dhHints = {
+    DUAL: "LONG account enters LONG only, SHORT account enters SHORT only \u2014 both carry overnight, SL only arms after that leg's own first adverse flip.",
+    BIAS: "Previous daily HA candle sets the core (green = LONG account, red = SHORT account). The OTHER account hedges when the Dynamic Band turns against the core. Both accounts are flat at EOD (no overnight carry, no gap capture).",
+  };
+  const dhSyncStrategy = () => {
+    const st = tbDualHedgeBody.querySelector("#dhStrategy").value;
+    tbDualHedgeBody.querySelector("#dhStrategyHint").textContent = dhHints[st];
+    tbDualHedgeBody.querySelector("#dhDualOnly").style.display = st === "DUAL" ? "" : "none";
+    tbDualHedgeBody.querySelector("#dhDualOnly2").style.display = st === "DUAL" ? "" : "none";
+    tbDualHedgeBody.querySelector("#dhBiasOnly").style.display = st === "BIAS" ? "" : "none";
+    tbDualHedgeBody.querySelector("#dhSubmitLabelHolder")?.remove();
+    tbDualHedgeBody.querySelector("#dhAddSubmit").textContent = st === "BIAS" ? "Start bias hedge" : "Start dual hedge";
+  };
+  tbDualHedgeBody.querySelector("#dhStrategy").addEventListener("change", dhSyncStrategy);
+  dhSyncStrategy();
   tbDualHedgeBody.querySelector("#dhGap").addEventListener("change", e => {
     tbDualHedgeBody.querySelector("#dhGapTimes").style.display = e.target.checked ? "" : "none";
   });
@@ -3560,7 +3596,11 @@ async function renderDualHedgeAddForm() {
       lotMultOverride: tbDualHedgeBody.querySelector("#dhLotMult")?.value || undefined,
       bandStepOverride: tbDualHedgeBody.querySelector("#dhBandStep")?.value || undefined,
       live, confirmLive,
-      gapCapture: tbDualHedgeBody.querySelector("#dhGap").checked,
+      strategy: tbDualHedgeBody.querySelector("#dhStrategy").value,
+      unwindMode: tbDualHedgeBody.querySelector("#dhUnwind").value,
+      bandTimeframe: tbDualHedgeBody.querySelector("#dhBandTf").value,
+      entryTime: tbDualHedgeBody.querySelector("#dhEntryTime").value || "10:00",
+      gapCapture: tbDualHedgeBody.querySelector("#dhStrategy").value === "DUAL" && tbDualHedgeBody.querySelector("#dhGap").checked,
       gcEntry: tbDualHedgeBody.querySelector("#dhGapEntry").value || "23:20",
       gcExit:  tbDualHedgeBody.querySelector("#dhGapExit").value || "23:25",
     };
@@ -3573,16 +3613,96 @@ async function renderDualHedgeAddForm() {
       const data = await res.json();
       if (!res.ok) {
         errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed to start"}</div>`;
-        btn.disabled = false; btn.textContent = "Start dual hedge";
+        btn.disabled = false; btn.textContent = tbDualHedgeBody.querySelector("#dhStrategy").value === "BIAS" ? "Start bias hedge" : "Start dual hedge";
         return;
       }
       dhAddState = null;
       loadDualHedgeList();
     } catch (err) {
       errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
-      btn.disabled = false; btn.textContent = "Start dual hedge";
+      btn.disabled = false; btn.textContent = tbDualHedgeBody.querySelector("#dhStrategy").value === "BIAS" ? "Start bias hedge" : "Start dual hedge";
     }
   });
+}
+
+// ─── Backtest sub-view — POST /api/toolbox/dualhedge/backtest (backtestDualHedge.js).
+function renderDualHedgeBacktestForm() {
+  const today = new Date().toISOString().slice(0, 10);
+  tbDualHedgeBody.innerHTML = `
+    <button class="tb-back-link" id="dbBack">\u2039 back</button>
+    <div class="tb-form-hint" style="margin:8px 0">Backtest \u2014 <b>${escHtml(dhAddState.underlying)}</b> (market data only, no accounts needed)</div>
+    <div class="tb-form-row"><div class="tb-form-label">Strategy</div><select id="dbStrategy"><option value="DUAL">Dual hedge (band-following)</option><option value="BIAS">Bias hedge (daily HA core + band hedge)</option></select></div>
+    <div class="tb-form-row"><div class="tb-form-label">Lots per leg</div><input type="number" id="dbLots" min="1" step="1" value="1"></div>
+    <div class="tb-form-row"><div class="tb-form-label">lot multiplier (blank = context.js override)</div><input type="number" id="dbLotMult" min="0" step="any"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dbBandStep" min="0" step="any"></div>
+    <div id="dbDual">
+      <div class="tb-form-row"><div class="tb-form-label">Signal</div><select id="dbSignal"><option value="RANGE">Range bars + Dynamic Step Band (live engine)</option><option value="HA">Heikin-Ashi from Kite's own bars</option></select></div>
+      <div class="tb-form-row" id="dbHaRow" style="display:none"><div class="tb-form-label">HA timeframe</div><select id="dbHaTf"><option>5m</option><option>15m</option><option>30m</option><option selected>1h</option><option>1d</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Stop \u20b9</div><input type="number" id="dbMaxLoss" min="1" value="3000"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Take profit \u20b9</div><input type="number" id="dbTakeProfit" min="1" value="3000"></div>
+    </div>
+    <div id="dbBias" style="display:none">
+      <div class="tb-form-row"><div class="tb-form-label">Hedge unwind</div><select id="dbUnwind"><option value="BAND_FLIP">Band flip closes the hedge</option><option value="EOD_ONLY">Hold to EOD</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Dynamic Band timeframe</div><select id="dbBandTf"><option>5m</option><option selected>15m</option><option>30m</option><option>1h</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Core entry time IST</div><input type="time" id="dbEntryTime" value="10:00"></div>
+    </div>
+    <div class="tb-form-row"><div class="tb-form-label">Slippage per order (price points)</div><input type="number" id="dbSlip" min="0" step="any" value="0"></div>
+    <div class="tb-form-row"><div class="tb-form-label">From</div><input type="date" id="dbFrom"></div>
+    <div class="tb-form-row"><div class="tb-form-label">To</div><input type="date" id="dbTo" value="${today}"></div>
+    <div id="dbErrBox"></div>
+    <button class="tb-submit-btn" id="dbSubmit">Run backtest</button>
+    <div id="dbResult"></div>
+  `;
+  const q = id => tbDualHedgeBody.querySelector(id);
+  q("#dbBack").addEventListener("click", () => { dhAddState = null; loadDualHedgeList(); });
+  const sync = () => {
+    const bias = q("#dbStrategy").value === "BIAS";
+    q("#dbDual").style.display = bias ? "none" : "";
+    q("#dbBias").style.display = bias ? "" : "none";
+    q("#dbHaRow").style.display = !bias && q("#dbSignal").value === "HA" ? "" : "none";
+  };
+  q("#dbStrategy").addEventListener("change", sync);
+  q("#dbSignal").addEventListener("change", sync);
+  q("#dbSubmit").addEventListener("click", async () => {
+    const errBox = q("#dbErrBox");
+    errBox.innerHTML = ""; q("#dbResult").innerHTML = "";
+    if (!q("#dbFrom").value || !q("#dbTo").value) { errBox.innerHTML = `<div class="tb-err-box">pick a from and to date</div>`; return; }
+    const body = {
+      underlying: dhAddState.underlying, strategy: q("#dbStrategy").value,
+      lots: q("#dbLots").value || 1, lotMultOverride: q("#dbLotMult").value || undefined,
+      bandStepOverride: q("#dbBandStep").value || undefined, slippagePoints: q("#dbSlip").value || 0,
+      from: q("#dbFrom").value, to: q("#dbTo").value,
+      signalSource: q("#dbSignal").value, haTimeframe: q("#dbHaTf").value,
+      maxLoss: q("#dbMaxLoss").value, takeProfit: q("#dbTakeProfit").value,
+      unwindMode: q("#dbUnwind").value, bandTimeframe: q("#dbBandTf").value, entryTime: q("#dbEntryTime").value || "10:00",
+    };
+    const btn = q("#dbSubmit");
+    btn.disabled = true; btn.textContent = "Running...";
+    try {
+      const res = await fetch("/api/toolbox/dualhedge/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "backtest failed")}</div>`;
+      else renderDualHedgeBacktestResult(data);
+    } catch (err) {
+      errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
+    }
+    btn.disabled = false; btn.textContent = "Run backtest";
+  });
+}
+
+function renderDualHedgeBacktestResult(data) {
+  const m = data.summary || {};
+  const num = n => (n === undefined || n === null || Number.isNaN(n)) ? "\u2014" : Number(n).toFixed(2);
+  const row = (label, x) => x ? `<tr><td>${label}</td><td>${x.trades}</td><td>${(x.winRate * 100).toFixed(1)}%</td><td>${num(x.netPnL)}</td></tr>` : "";
+  const dd = data.mtm ? num(data.mtm.maxDrawdown) : "\u2014";
+  tbDualHedgeBody.querySelector("#dbResult").innerHTML = `
+    <div class="tb-form-hint" style="margin:10px 0 4px"><b>${escHtml(data.strategy)}</b> \u2014 MTM max drawdown ${dd}</div>
+    <table class="tb-table" style="width:100%"><tr><th></th><th>Trades</th><th>Win</th><th>Net \u20b9</th></tr>
+      ${row("Combined", m.combined)}${row("LONG acct", m.long)}${row("SHORT acct", m.short)}</table>
+    <div style="margin:8px 0"><a href="${data.reportUrl}" target="_blank">Open report</a> \u00b7 <a href="${data.jsonUrl}" target="_blank">JSON</a> \u00b7 <a href="#" id="dbLogToggle">Show log</a></div>
+    <pre id="dbLogBody" style="display:none;max-height:300px;overflow:auto">${escHtml((data.logLines || []).join("\n"))}</pre>`;
+  const t = tbDualHedgeBody.querySelector("#dbLogToggle"), body = tbDualHedgeBody.querySelector("#dbLogBody");
+  t.addEventListener("click", e => { e.preventDefault(); const open = body.style.display === "none"; body.style.display = open ? "" : "none"; t.textContent = open ? "Hide log" : "Show log"; });
 }
 
 initAuth();
