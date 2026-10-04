@@ -2469,6 +2469,9 @@ async function getDualHedgeProcesses() {
             uptime:     p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
             lots:       p.pm2_env.env?.DH_LOTS_OVERRIDE || "1",
             maxLoss:    p.pm2_env.env?.DH_MAX_LOSS_RUPEES_OVERRIDE || "3000",
+            slMode:     (p.pm2_env.env?.DH_SL_MODE || "RUPEES").toUpperCase(),
+            atrSlMult:  p.pm2_env.env?.DH_ATR_SL_MULT_OVERRIDE || "",
+            atrTimeframe: p.pm2_env.env?.DH_ATR_TIMEFRAME_OVERRIDE || "15m",
             takeProfit: p.pm2_env.env?.DH_TAKE_PROFIT_RUPEES_OVERRIDE || "3000",
             rangeSize:  p.pm2_env.env?.DH_RANGE_SIZE_OVERRIDE || "",
             gapCapture: p.pm2_env.env?.DH_GAP_CAPTURE === "true",
@@ -2685,7 +2688,25 @@ async function addDualHedge() {
     if (stratIn !== "" && stratIn !== "D" && stratIn !== "B") { console.log(c.yellow("  Invalid strategy")); await pauseForReview(); return; }
     if (stratIn === "B") { await addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverride, lots }); return; }
 
-    const maxLossInput = await ask("  Stop: exit a flipped leg when loss exceeds ₹ (default 3000): ");
+    // Stop-loss type — rupees (original) or ATR multiple from entry (dualHedgeAtr.js).
+    const slModeIn = (await ask("  Stop type: [R] rupees, [A] ATR multiple from entry (default R): ")).trim().toUpperCase();
+    if (slModeIn !== "" && slModeIn !== "R" && slModeIn !== "A") { console.log(c.yellow("  Invalid stop type")); await pauseForReview(); return; }
+    const slMode = slModeIn === "A" ? "ATR" : "RUPEES";
+    let atrSlMult = null, atrTimeframe = "15m";
+    if (slMode === "ATR") {
+        const multIn = (await ask(`  ATR stop multiplier (blank = default ${engineConfig.ATR_SL_MULT}): `)).trim();
+        atrSlMult = multIn ? Number(multIn) : null;
+        if (atrSlMult !== null && (!Number.isFinite(atrSlMult) || atrSlMult <= 0)) { console.log(c.yellow("  Invalid ATR multiplier")); await pauseForReview(); return; }
+        const tfIn = (await ask("  ATR timeframe 5m/15m/30m/1h (default 15m): ")).trim().toLowerCase();
+        if (tfIn) {
+            if (!["5m", "15m", "30m", "1h"].includes(tfIn)) { console.log(c.yellow("  Invalid ATR timeframe")); await pauseForReview(); return; }
+            atrTimeframe = tfIn;
+        }
+        console.log(c.dim(`  A flipped leg exits once price moves ${atrSlMult ?? engineConfig.ATR_SL_MULT} x ATR(${engineConfig.ST_ATR_LEN}) on ${atrTimeframe} against its entry (ATR taken at entry, fixed after).`));
+    }
+    const maxLossInput = await ask(slMode === "ATR"
+        ? "  Rupee backstop, used only while ATR isn't available yet ₹ (default 3000): "
+        : "  Stop: exit a flipped leg when loss exceeds ₹ (default 3000): ");
     const maxLoss = maxLossInput ? Number(maxLossInput) : 3000;
     if (!Number.isFinite(maxLoss) || maxLoss <= 0) { console.log(c.yellow("  Invalid max-loss value")); await pauseForReview(); return; }
 
@@ -2752,6 +2773,9 @@ async function addDualHedge() {
     if (bandStep)        env.DH_BAND_STEP_OVERRIDE = String(bandStep);
     // Always written explicitly (PM2 restart merges env, never clears it).
     env.DH_TAKE_PROFIT_RUPEES_OVERRIDE = String(takeProfit);
+    env.DH_SL_MODE = slMode;
+    env.DH_ATR_SL_MULT_OVERRIDE = atrSlMult ? String(atrSlMult) : "";
+    env.DH_ATR_TIMEFRAME_OVERRIDE = atrTimeframe;
     env.DH_RANGE_SIZE_OVERRIDE = rangeSize ? String(rangeSize) : "";
     // Always written explicitly (PM2 restart merges env, never clears it).
     env.DH_GAP_CAPTURE = String(!!gap);
@@ -2762,7 +2786,7 @@ async function addDualHedge() {
 
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: __dirname, env });
-        console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  maxLoss:\u20b9${maxLoss}  takeProfit:\u20b9${takeProfit}${rangeSize ? `  range:${rangeSize}` : ""}${gap ? `  gap capture ${String(gap.entry.hour).padStart(2, "0")}:${String(gap.entry.minute).padStart(2, "0")}\u2192${String(gap.exit.hour).padStart(2, "0")}:${String(gap.exit.minute).padStart(2, "0")}` : ""}  ${isLive ? "LIVE" : "PAPER"})`));
+        console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  ${slMode === "ATR" ? `stop:${atrSlMult ?? engineConfig.ATR_SL_MULT}x ATR/${atrTimeframe}` : `maxLoss:\u20b9${maxLoss}`}  takeProfit:\u20b9${takeProfit}${rangeSize ? `  range:${rangeSize}` : ""}${gap ? `  gap capture ${String(gap.entry.hour).padStart(2, "0")}:${String(gap.entry.minute).padStart(2, "0")}\u2192${String(gap.exit.hour).padStart(2, "0")}:${String(gap.exit.minute).padStart(2, "0")}` : ""}  ${isLive ? "LIVE" : "PAPER"})`));
     } catch (err) {
         console.log(c.red(`  Failed to start: ${err.message}`));
     }
@@ -2865,7 +2889,14 @@ async function backtestDualHedgeFlow() {
         opts.entryHour = t.hour; opts.entryMinute = t.minute;
         console.log(c.dim("  EOD close: automatic for this band timeframe (23:15 for 15m, 23:00 for 30m/1h). Core/hedge have no target or stop."));
     } else {
-        opts.maxLoss    = await askNum("Stop: exit a flipped leg when loss exceeds ₹ (default 3000)", 3000);
+        opts.slMode = await askChoice("Stop type [R = rupees, A = ATR multiple from entry, default R]", { R: "RUPEES", A: "ATR" }, "RUPEES");
+        if (opts.slMode === "ATR") {
+            opts.atrSlMult = await askNum(`ATR stop multiplier (blank = default ${engineConfig.ATR_SL_MULT})`, null, { optional: true });
+            opts.atrTimeframe = await askTf("ATR timeframe (Kite historical bars)", ["5m", "15m", "30m", "1h"], "15m");
+            opts.maxLoss = await askNum("Rupee backstop, used only while ATR isn't available yet ₹ (default 3000)", 3000);
+        } else {
+            opts.maxLoss = await askNum("Stop: exit a flipped leg when loss exceeds ₹ (default 3000)", 3000);
+        }
         opts.takeProfit = await askNum("Take profit: exit a flipped leg when profit exceeds ₹ (default 3000)", 3000);
         console.log(c.dim("  Signal: R = range bars + Dynamic Step Band (what the live engine uses), H = Heikin-Ashi candle colour from Kite's own bars (backtest-only comparison)"));
         opts.signalSource = await askChoice("Signal source [R/H, default R]", { R: "RANGE", H: "HA" }, "RANGE");
@@ -2940,7 +2971,7 @@ async function dualHedgeScreen() {
                 else                        statusStr = c.red(`\u25cf ${d.status.toUpperCase()}`);
                 body.push(`  ${String(i + 1).padStart(2)}. ${d.name.padEnd(20)} ${d.underlying.padEnd(14)} ${modeTag}  ${statusStr}`);
                 if (d.strategy === "BIAS") body.push(c.dim(`      BIAS  LONG:${d.longUser}  SHORT:${d.shortUser}  ${d.lots} lot  core daily HA @${d.entryTime}  hedge ${d.bandTimeframe} band ${d.unwindMode}  flat at EOD`));
-                else body.push(c.dim(`      LONG:${d.longUser}  SHORT:${d.shortUser}  ${d.lots} lot  maxLoss:\u20b9${d.maxLoss}  takeProfit:\u20b9${d.takeProfit}${d.rangeSize ? `  range:${d.rangeSize}` : ""}${d.gapCapture ? `  GAP ${d.gcEntry}\u2192${d.gcExit}` : ""}`));
+                else body.push(c.dim(`      LONG:${d.longUser}  SHORT:${d.shortUser}  ${d.lots} lot  ${d.slMode === "ATR" ? `stop:${d.atrSlMult || engineConfig.ATR_SL_MULT}x ATR/${d.atrTimeframe}` : `maxLoss:\u20b9${d.maxLoss}`}  takeProfit:\u20b9${d.takeProfit}${d.rangeSize ? `  range:${d.rangeSize}` : ""}${d.gapCapture ? `  GAP ${d.gcEntry}\u2192${d.gcExit}` : ""}`));
             });
         }
         renderScreenBox("D U A L   H E D G E", body, [

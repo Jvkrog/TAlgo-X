@@ -288,7 +288,7 @@ function dualHedgeStrategyText(d) {
     const unwind = d.unwindMode === "EOD_ONLY" ? "held to EOD" : "unwinds when the band flips back";
     return `dual bias hedge \u00b7 core: daily HA @${d.entryTime} \u00b7 hedge: ${d.bandTimeframe} band (${unwind}) \u00b7 flat ${d.eodTime || "EOD"}`;
   }
-  return `dual hedge \u00b7 stop:\u20b9${d.maxLoss} \u00b7 tp:\u20b9${d.takeProfit}${d.rangeSize ? ` \u00b7 range:${d.rangeSize}` : ""} (armed only after a flip)${d.gapCapture ? ` \u00b7 gap capture ${d.gcEntry}\u2192${d.gcExit}` : ""}`;
+  return `dual hedge \u00b7 stop:${d.slMode === "ATR" ? `${d.atrSlMult}x ATR/${d.atrTimeframe}` : `\u20b9${d.maxLoss}`} \u00b7 tp:\u20b9${d.takeProfit}${d.rangeSize ? ` \u00b7 range:${d.rangeSize}` : ""} (armed only after a flip)${d.gapCapture ? ` \u00b7 gap capture ${d.gcEntry}\u2192${d.gcExit}` : ""}`;
 }
 
 function buildDualHedgeCard(d) {
@@ -3529,7 +3529,13 @@ async function renderDualHedgeAddForm() {
       <div class="tb-form-row"><div class="tb-form-label">Core entry time IST (previous daily HA candle decides, once a day)</div><input type="time" id="dhEntryTime" value="10:00"></div>
     </div>
     <div id="dhDualOnly">
-    <div class="tb-form-row"><div class="tb-form-label">Stop: exit a flipped leg when loss exceeds \u20b9 (default 3000)</div><input type="number" id="dhMaxLoss" min="1" step="1" value="3000"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Stop type</div><select id="dhSlMode"><option value="RUPEES">Rupees (loss on the leg)</option><option value="ATR">ATR multiple from entry</option></select></div>
+    <div id="dhAtrRows" style="display:none">
+      <div class="tb-form-row"><div class="tb-form-label">ATR stop multiplier (blank = default)</div><input type="number" id="dhAtrMult" min="0" step="any" placeholder="default"></div>
+      <div class="tb-form-row"><div class="tb-form-label">ATR timeframe</div><select id="dhAtrTf"><option>5m</option><option selected>15m</option><option>30m</option><option>1h</option></select></div>
+      <div class="tb-form-hint">A flipped leg exits once price moves this many ATRs against its entry (ATR taken at entry, fixed after). The rupee figure below is then only a backstop while ATR isn't available yet.</div>
+    </div>
+    <div class="tb-form-row"><div class="tb-form-label" id="dhMaxLossLabel">Stop: exit a flipped leg when loss exceeds \u20b9 (default 3000)</div><input type="number" id="dhMaxLoss" min="1" step="1" value="3000"></div>
     <div class="tb-form-row"><div class="tb-form-label">Take profit: exit a flipped leg when profit exceeds \u20b9 (default 3000)</div><input type="number" id="dhTakeProfit" min="1" step="1" value="3000"></div>
     </div>
     <div class="tb-form-row" style="display:${lm.lotMultRequired ? "" : "none"}">
@@ -3570,6 +3576,15 @@ async function renderDualHedgeAddForm() {
   };
   tbDualHedgeBody.querySelector("#dhStrategy").addEventListener("change", dhSyncStrategy);
   dhSyncStrategy();
+  const dhSyncSl = () => {
+    const atrMode = tbDualHedgeBody.querySelector("#dhSlMode").value === "ATR";
+    tbDualHedgeBody.querySelector("#dhAtrRows").style.display = atrMode ? "" : "none";
+    tbDualHedgeBody.querySelector("#dhMaxLossLabel").textContent = atrMode
+      ? "Rupee backstop, used only while ATR isn't available yet (\u20b9, default 3000)"
+      : "Stop: exit a flipped leg when loss exceeds \u20b9 (default 3000)";
+  };
+  tbDualHedgeBody.querySelector("#dhSlMode").addEventListener("change", dhSyncSl);
+  dhSyncSl();
   tbDualHedgeBody.querySelector("#dhGap").addEventListener("change", e => {
     tbDualHedgeBody.querySelector("#dhGapTimes").style.display = e.target.checked ? "" : "none";
   });
@@ -3592,6 +3607,9 @@ async function renderDualHedgeAddForm() {
       underlying: dhAddState.underlying, longUser, shortUser,
       lots: tbDualHedgeBody.querySelector("#dhLots").value || 1,
       maxLossRupees: tbDualHedgeBody.querySelector("#dhMaxLoss").value || 3000,
+      slMode: tbDualHedgeBody.querySelector("#dhSlMode").value,
+      atrSlMult: tbDualHedgeBody.querySelector("#dhAtrMult").value || undefined,
+      atrTimeframe: tbDualHedgeBody.querySelector("#dhAtrTf").value,
       takeProfitRupees: tbDualHedgeBody.querySelector("#dhTakeProfit").value || 3000,
       rangeSize: tbDualHedgeBody.querySelector("#dhRangeSize")?.value || undefined,
       lotMultOverride: tbDualHedgeBody.querySelector("#dhLotMult")?.value || undefined,
@@ -3692,7 +3710,12 @@ function renderDualHedgeBacktestForm() {
     <div id="dbDual">
       <div class="tb-form-row"><div class="tb-form-label">Signal</div><select id="dbSignal"><option value="RANGE">Range bars + Dynamic Step Band (live engine)</option><option value="HA">Heikin-Ashi from Kite's own bars</option></select></div>
       <div class="tb-form-row" id="dbHaRow" style="display:none"><div class="tb-form-label">HA timeframe</div><select id="dbHaTf"><option>5m</option><option>15m</option><option>30m</option><option selected>1h</option><option>1d</option></select></div>
-      <div class="tb-form-row"><div class="tb-form-label">Stop \u20b9</div><input type="number" id="dbMaxLoss" min="1" value="3000"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Stop type</div><select id="dbSlMode"><option value="RUPEES">Rupees (loss on the leg)</option><option value="ATR">ATR multiple from entry</option></select></div>
+      <div id="dbAtrRows" style="display:none">
+        <div class="tb-form-row"><div class="tb-form-label">ATR stop multiplier (blank = default)</div><input type="number" id="dbAtrMult" min="0" step="any" placeholder="default"></div>
+        <div class="tb-form-row"><div class="tb-form-label">ATR timeframe</div><select id="dbAtrTf"><option>5m</option><option selected>15m</option><option>30m</option><option>1h</option></select></div>
+      </div>
+      <div class="tb-form-row"><div class="tb-form-label" id="dbMaxLossLabel">Stop \u20b9</div><input type="number" id="dbMaxLoss" min="1" value="3000"></div>
       <div class="tb-form-row"><div class="tb-form-label">Take profit \u20b9</div><input type="number" id="dbTakeProfit" min="1" value="3000"></div>
     </div>
     <div id="dbBias" style="display:none">
@@ -3714,9 +3737,13 @@ function renderDualHedgeBacktestForm() {
     q("#dbDual").style.display = bias ? "none" : "";
     q("#dbBias").style.display = bias ? "" : "none";
     q("#dbHaRow").style.display = !bias && q("#dbSignal").value === "HA" ? "" : "none";
+    const atrMode = q("#dbSlMode").value === "ATR";
+    q("#dbAtrRows").style.display = atrMode ? "" : "none";
+    q("#dbMaxLossLabel").textContent = atrMode ? "Rupee backstop while ATR isn't available yet \u20b9" : "Stop \u20b9";
   };
   q("#dbStrategy").addEventListener("change", sync);
   q("#dbSignal").addEventListener("change", sync);
+  q("#dbSlMode").addEventListener("change", sync);
   q("#dbSubmit").addEventListener("click", async () => {
     const errBox = q("#dbErrBox");
     errBox.innerHTML = ""; q("#dbResult").innerHTML = "";
@@ -3728,6 +3755,7 @@ function renderDualHedgeBacktestForm() {
       from: q("#dbFrom").value, to: q("#dbTo").value,
       signalSource: q("#dbSignal").value, haTimeframe: q("#dbHaTf").value,
       maxLoss: q("#dbMaxLoss").value, takeProfit: q("#dbTakeProfit").value,
+      slMode: q("#dbSlMode").value, atrSlMult: q("#dbAtrMult").value || undefined, atrTimeframe: q("#dbAtrTf").value,
       unwindMode: q("#dbUnwind").value, bandTimeframe: q("#dbBandTf").value, entryTime: q("#dbEntryTime").value || "10:00",
     };
     const btn = q("#dbSubmit");

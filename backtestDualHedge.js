@@ -127,6 +127,7 @@ const { candlesToPoints, createDsb } = require("./rangeBandReader");
 const { makeRangeBars } = require("./rangeBars");
 const { toHA } = require("./indicators");
 const { fetchHistoricalCandles, fetchDailyCandles } = require("./historicalFetch");
+const { SL_MODES, ATR_TIMEFRAMES, atrLookup } = require("./dualHedgeAtr");
 const { createBandStepper } = require("./dynamicBandReader");
 const { defaultEodFor } = require("./context");
 const { createCsvRepository } = require("./csvRepository");
@@ -158,6 +159,7 @@ const HA_WARMUP_DAYS  = tf => (tf === "1d" ? 90 : 15);   // haCandleReader.js's 
 const BAND_TIMEFRAMES = { "5m": 5, "15m": 15, "30m": 30, "1h": 60 };
 const BAND_WARMUP_DAYS = tf => (tf === "1h" ? 15 : 7);   // dynamicBandReader.js's LOOKBACK_DAYS
 const DAILY_WARMUP_DAYS = 90;
+const ATR_WARMUP_DAYS = 10;   // ATR(ST_ATR_LEN) bars before `from` — dualHedgeAtr.js's own lookback
 
 const sleep    = ms => new Promise(r => setTimeout(r, ms));
 const fmtIST   = ms => new Date(ms + IST_MS).toISOString().replace("T", " ").slice(0, 19);
@@ -352,10 +354,15 @@ async function replayDualHedge({
     longCtx, shortCtx, candles, bandStep, rangeSize, tradeFromMs,
     signalSource = "RANGE", haTimeframe = "1h", haBars = null,   // haBars: Kite's own bars at haTimeframe (HA only)
     takeProfit = 3000, maxLoss = 3000,
+    // slMode "ATR" (see dualHedgeAtr.js): flipped legs stop out at atrSlMult x ATR(atrLen) of
+    // `atrBars` (Kite's own bars at atrTimeframe) from entry, ATR snapshotted at entry; maxLoss
+    // stays as the backstop while no ATR is available — exactly the live engine's rule.
+    slMode = "RUPEES", atrSlMult = null, atrBars = null, atrTimeframe = "15m", atrLen = engineConfig.ST_ATR_LEN,
     gapCapture = false, gc = { hour: 23, minute: 20, quitHour: 23, quitMinute: 25 },
     slippagePoints = 0, progress, verbose = true,
 }) {
     if (!candles.length) throw new Error("replayDualHedge: no candles");
+    if (slMode === "ATR" && !(atrBars && atrBars.length)) throw new Error("replayDualHedge: ATR stop needs atrBars (Kite's historical bars at atrTimeframe)");
     if (signalSource === "HA" && !(haBars && haBars.length)) throw new Error("replayDualHedge: HA signal needs haBars (Kite's historical bars at haTimeframe)");
     const log  = verbose ? (...a) => console.log(...a) : () => {};
     const slip = Number(slippagePoints) || 0;
@@ -389,6 +396,18 @@ async function replayDualHedge({
     const kit = createLegKit({ longCtx, shortCtx, startDate: candles[0].date, slip, log, stats });
     const { clockBox, long, short, legs, label, enterLeg, exitLeg, unreal, realizedTotal, sampleEquity } = kit;
 
+    // ATR stop distance (price points) per leg — snapshotted at entry. A leg with
+    // no snapshot (gap-capture entry, or ATR still warming up) takes one at its
+    // first manager tick after the flip, like the live engine's lazy snapshot.
+    const atrLk = slMode === "ATR" ? atrLookup(atrBars, atrTimeframe, atrLen) : null;
+    for (const leg of legs) { leg.slDistance = null; leg.slAtr = null; }
+    function snapSl(leg, ms) {
+        if (!atrLk) return;
+        const a = atrLk.at(ms);
+        leg.slDistance = a !== null && a > 0 ? atrSlMult * a : null;
+        leg.slAtr = a;
+    }
+
     // Exit manager for ONE leg across ONE candle's price path (live: every
     // second against the tick). Flipped legs only.
     async function manageLegPath(leg, pts) {
@@ -404,7 +423,18 @@ async function replayDualHedge({
             const dir  = leg.state.position === "LONG" ? 1 : -1;
             let reason = null, thrPx = null;
             if (u > takeProfit)      { reason = `${leg.side} EXIT (take profit > ₹${takeProfit})`; thrPx = leg.state.entryPrice + dir * (takeProfit / mult); stats.exits.takeProfit++; }
-            else if (u < -maxLoss)   { reason = `${leg.side} EXIT SL (loss > ₹${maxLoss})`;        thrPx = leg.state.entryPrice - dir * (maxLoss / mult);   stats.exits.stopLoss++; }
+            else {
+                if (atrLk && leg.slDistance === null) snapSl(leg, clockBox.date.getTime());
+                if (atrLk && leg.slDistance !== null) {
+                    const adverse = dir === 1 ? leg.state.entryPrice - px : px - leg.state.entryPrice;
+                    if (adverse > leg.slDistance) {
+                        reason = `${leg.side} EXIT SL (${adverse.toFixed(2)} pts against entry > ${atrSlMult}x ATR = ${leg.slDistance.toFixed(2)})`;
+                        thrPx = leg.state.entryPrice - dir * leg.slDistance; stats.exits.stopLoss++;
+                    }
+                } else if (u < -maxLoss) {
+                    reason = `${leg.side} EXIT SL (loss > ₹${maxLoss})`; thrPx = leg.state.entryPrice - dir * (maxLoss / mult); stats.exits.stopLoss++;
+                }
+            }
             if (!reason) continue;
 
             // Crossed inside the minute -> filled AT the threshold; already
@@ -412,6 +442,7 @@ async function replayDualHedge({
             // underwater leg) -> filled at the open.
             const fill = p === 0 ? px : thrPx;
             await exitLeg(leg, fill, reason);
+            leg.slDistance = null; leg.slAtr = null;
             leg.wantEntry = false;   // sma_signal = 0 after an exit: needs a fresh favorable colour at a later evaluation
             return;
         }
@@ -449,7 +480,7 @@ async function replayDualHedge({
                     const reason = `gap capture ${hhmm(gc.hour, gc.minute)} IST (carry overnight)`;
                     await enterLeg(long, cn.open, reason);
                     await enterLeg(short, cn.open, reason);
-                    for (const leg of legs) leg.wantEntry = false;
+                    for (const leg of legs) { leg.wantEntry = false; leg.slDistance = null; leg.slAtr = null; }   // ATR snapshot taken lazily at the flip, as live (the engine restarts next day)
                     gcDoneDay = dayKey; stats.gapCaptureDays++;
                 }
             }
@@ -477,7 +508,7 @@ async function replayDualHedge({
                             leg.state.flipped = true;
                             leg.flipTime = cn.date.toISOString();
                             stats.flips[leg.side]++;
-                            log(c.yellow(`[${label(leg)}] ${leg.side} FLIPPED (band ${band.color}) — exits now armed: take-profit > +₹${takeProfit}, stop < -₹${maxLoss}`));
+                            log(c.yellow(`[${label(leg)}] ${leg.side} FLIPPED (band ${band.color}) — exits now armed: take-profit > +₹${takeProfit}, stop ${atrLk ? `${atrSlMult}x ATR` : `< -₹${maxLoss}`}`));
                         }
                     }
                     // manager: entries armed by the evaluation fire right away
@@ -485,6 +516,7 @@ async function replayDualHedge({
                         if (!leg.state.position && leg.wantEntry) {
                             leg.wantEntry = false;
                             await enterLeg(leg, slotPrice, `band ${leg.side === "LONG" ? "green" : "red"}`);
+                            snapSl(leg, slotMs);
                         }
                     }
                 }
@@ -699,6 +731,7 @@ async function runDualHedgeBacktest({
     signalSource = "RANGE", haTimeframe = "1h",
     bandTimeframe = "15m", unwindMode = "BAND_FLIP", entryHour = 10, entryMinute = 0, eodHour, eodMinute,
     takeProfit = 3000, maxLoss = 3000,
+    slMode = "RUPEES", atrSlMult, atrTimeframe = "15m",   // DUAL only — see replayDualHedge
     gapCapture = false, gcHour = 23, gcMinute = 20, gcQuitHour = 23, gcQuitMinute = 25,
     slippagePoints = 0, from, to, kc, progress,
 }) {
@@ -721,6 +754,13 @@ async function runDualHedgeBacktest({
     } else {
         for (const [name, v] of [["takeProfit", takeProfit], ["maxLoss", maxLoss]]) {
             if (!(Number(v) > 0)) throw new Error(`runDualHedgeBacktest: ${name} must be a positive number (got ${v})`);
+        }
+        slMode = String(slMode || "RUPEES").toUpperCase();
+        if (!SL_MODES.includes(slMode)) throw new Error(`runDualHedgeBacktest: slMode must be one of ${SL_MODES.join(", ")} (got ${slMode})`);
+        if (slMode === "ATR") {
+            atrSlMult = Number(atrSlMult) || engineConfig.ATR_SL_MULT;
+            if (!(atrSlMult > 0)) throw new Error(`runDualHedgeBacktest: atrSlMult must be a positive number (got ${atrSlMult})`);
+            if (!ATR_TIMEFRAMES.includes(atrTimeframe)) throw new Error(`runDualHedgeBacktest: atrTimeframe must be one of ${ATR_TIMEFRAMES.join(", ")} (got ${atrTimeframe})`);
         }
         if (gapCapture && !(gcQuitHour * 60 + gcQuitMinute > gcHour * 60 + gcMinute)) {
             throw new Error(`runDualHedgeBacktest: gap capture quit time (${hhmm(gcQuitHour, gcQuitMinute)}) must be after the gap capture time (${hhmm(gcHour, gcMinute)})`);
@@ -825,6 +865,13 @@ async function runDualHedgeBacktest({
                 if (haBars.length === 0) throw new Error(`runDualHedgeBacktest: no ${haTimeframe} bars returned — check the date range and market holidays`);
                 await sleep(CHUNK_DELAY_MS);
             }
+            let atrBars = null;
+            if (slMode === "ATR") {
+                if (progress) progress(`fetching ${atrTimeframe} bars for the ATR stop`);
+                atrBars = await fetchNativeBars({ kc, token, timeframe: atrTimeframe, fromMs: warmAnchor(ATR_WARMUP_DAYS), toMs });
+                if (atrBars.length === 0) throw new Error(`runDualHedgeBacktest: no ${atrTimeframe} bars returned for the ATR stop — check the date range and market holidays`);
+                await sleep(CHUNK_DELAY_MS);
+            }
             // Range bars are built from the minute candles, so those need the warm-up;
             // HA reads Kite's own bars, so the minute clock only needs the range itself.
             candles = await fetchMinuteCandles({ kc, token, fromMs: isHA ? fromMs : anchorMs, toMs, progress });
@@ -835,12 +882,14 @@ async function runDualHedgeBacktest({
                 longCtx: longLeg.context, shortCtx: shortLeg.context, candles, bandStep, rangeSize, tradeFromMs: fromMs,
                 signalSource, haTimeframe, haBars,
                 takeProfit: Number(takeProfit), maxLoss: Number(maxLoss),
+                slMode, atrSlMult, atrBars, atrTimeframe, atrLen: engineConfig.ST_ATR_LEN,
                 gapCapture, gc: { hour: gcHour, minute: gcMinute, quitHour: gcQuitHour, quitMinute: gcQuitMinute },
                 slippagePoints: Number(slippagePoints), progress,
             });
             params = {
                 strategy: "DUAL",
                 takeProfit: Number(takeProfit), maxLoss: Number(maxLoss),
+                slMode, atrSlMult: slMode === "ATR" ? atrSlMult : null, atrTimeframe: slMode === "ATR" ? atrTimeframe : null, atrLen: slMode === "ATR" ? engineConfig.ST_ATR_LEN : null,
                 signal: isHA ? `HA ${haTimeframe}` : "RANGE", bandStep: isHA ? null : bandStep, rangeSize: isHA ? null : rangeSize,
                 rangeStart: fmtIST(anchorMs), anchor: anchorNote, slippagePoints: Number(slippagePoints),
                 gapCapture: gapCapture ? { time: hhmm(gcHour, gcMinute), quit: hhmm(gcQuitHour, gcQuitMinute) } : null,

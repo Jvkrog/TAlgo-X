@@ -72,7 +72,15 @@ async function main() {
         const t = parseTime((await ask("  core entry time IST, decided once a day [10:00]: ")).trim(), 10, 0);
         opts.entryHour = t.hour; opts.entryMinute = t.minute;
     } else {
-        opts.maxLoss    = num((await ask("  stop: exit a flipped leg when loss exceeds ₹ [3000]: ")).trim(), 3000, "max loss");
+        opts.slMode = choice(await ask("  stop-loss: R = rupees, A = ATR multiple from entry [R]: "), { R: "RUPEES", A: "ATR" }, "RUPEES", "stop-loss mode");
+        if (opts.slMode === "ATR") {
+            const mIn = (await ask(`  ATR stop multiplier (blank = default ${engineConfig.ATR_SL_MULT}): `)).trim();
+            opts.atrSlMult = mIn ? num(mIn, null, "ATR multiplier") : null;
+            opts.atrTimeframe = tf(await ask("  ATR timeframe (5m/15m/30m/1h) [15m]: "), ["5m", "15m", "30m", "1h"], "15m", "ATR timeframe");
+            opts.maxLoss = num((await ask("  rupee backstop while ATR isn't available yet ₹ [3000]: ")).trim(), 3000, "max loss");
+        } else {
+            opts.maxLoss = num((await ask("  stop: exit a flipped leg when loss exceeds ₹ [3000]: ")).trim(), 3000, "max loss");
+        }
         opts.takeProfit = num((await ask("  take profit: exit a flipped leg when profit exceeds ₹ [3000]: ")).trim(), 3000, "take profit");
         opts.signalSource = choice(await ask("  signal source: R = range bars + Dynamic Step Band (live engine), H = Heikin-Ashi from Kite's own bars [R]: "), { R: "RANGE", H: "HA" }, "RANGE", "signal source");
         if (opts.signalSource === "HA") {

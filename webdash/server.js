@@ -44,6 +44,7 @@ const customStrategyDb = require("../customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("../historicalFetch");
 const { runBacktest } = require("../backtestRun");
 const { runDualHedgeBacktest } = require("../backtestDualHedge");
+const { SL_MODES: DH_SL_MODES, ATR_TIMEFRAMES: DH_ATR_TIMEFRAMES } = require("../dualHedgeAtr");
 const { runHedgePairBacktest } = require("../backtestHedgePair");
 const { STRATEGY_PARAMS } = require("../backtestFlow");
 const { setEmitSuppressed } = require("../eventBridge");
@@ -1789,6 +1790,9 @@ async function getDualHedgeProcesses() {
             uptime:     p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
             lots:       p.pm2_env.env?.DH_LOTS_OVERRIDE || "1",
             maxLoss:    p.pm2_env.env?.DH_MAX_LOSS_RUPEES_OVERRIDE || "3000",
+            slMode:     (p.pm2_env.env?.DH_SL_MODE || "RUPEES").toUpperCase(),
+            atrSlMult:  p.pm2_env.env?.DH_ATR_SL_MULT_OVERRIDE || String(engineConfig.ATR_SL_MULT),
+            atrTimeframe: p.pm2_env.env?.DH_ATR_TIMEFRAME_OVERRIDE || "15m",
             takeProfit: p.pm2_env.env?.DH_TAKE_PROFIT_RUPEES_OVERRIDE || "3000",
             rangeSize:  p.pm2_env.env?.DH_RANGE_SIZE_OVERRIDE || "",
             gapCapture: p.pm2_env.env?.DH_GAP_CAPTURE === "true",
@@ -1903,6 +1907,7 @@ app.post("/api/toolbox/dualhedge/users/token", async (req, res) => {
 app.post("/api/toolbox/dualhedge", async (req, res) => {
     const {
         underlying, longUser, shortUser, lots, maxLossRupees, takeProfitRupees, rangeSize,
+        slMode: slModeIn, atrSlMult, atrTimeframe: atrTfIn,
         lotMultOverride, bandStepOverride, live, confirmLive,
         gapCapture, gcEntry, gcExit,
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
@@ -1931,9 +1936,14 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     if (def.lotMult === null && !lotMultOverride) {
         return res.status(400).json({ error: `lotMultOverride is required for ${underlying} (no context.js override on file)` });
     }
-    for (const [label, v] of [["takeProfitRupees", takeProfitRupees], ["rangeSize", rangeSize], ["bandStepOverride", bandStepOverride]]) {
+    for (const [label, v] of [["takeProfitRupees", takeProfitRupees], ["rangeSize", rangeSize], ["bandStepOverride", bandStepOverride], ["atrSlMult", atrSlMult]]) {
         if (v !== undefined && v !== null && v !== "" && !(Number(v) > 0)) return res.status(400).json({ error: `${label} must be a positive number` });
     }
+    // Stop-loss type (DUAL only) — rupees (default) or ATR multiple from entry, see dualHedgeAtr.js.
+    const slMode = String(slModeIn || "RUPEES").toUpperCase();
+    if (!DH_SL_MODES.includes(slMode)) return res.status(400).json({ error: `slMode must be one of ${DH_SL_MODES.join("/")}` });
+    const atrTimeframe = String(atrTfIn || "15m").toLowerCase();
+    if (slMode === "ATR" && !DH_ATR_TIMEFRAMES.includes(atrTimeframe)) return res.status(400).json({ error: `atrTimeframe must be one of ${DH_ATR_TIMEFRAMES.join("/")}` });
 
     const name = strategy === "BIAS" ? `${getShortName(underlying)}DualBias` : `${getShortName(underlying)}DualHedge`;
     const conflict = await findAccountConflict(underlying, [longUser, shortUser], name);
@@ -1975,8 +1985,12 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
                 return res.status(400).json({ error: "gap capture quit time must be after the gap capture time" });
             }
         }
-        env.DH_MAX_LOSS_RUPEES_OVERRIDE = String(maxLossRupees || 3000);
+        env.DH_MAX_LOSS_RUPEES_OVERRIDE = String(maxLossRupees || 3000);   // ATR mode: only the backstop while ATR isn't available
         env.DH_TAKE_PROFIT_RUPEES_OVERRIDE = String(takeProfitRupees || 3000);
+        // Always written explicitly (PM2 restart merges env, never clears it).
+        env.DH_SL_MODE = slMode;
+        env.DH_ATR_SL_MULT_OVERRIDE = slMode === "ATR" && atrSlMult ? String(Number(atrSlMult)) : "";
+        env.DH_ATR_TIMEFRAME_OVERRIDE = slMode === "ATR" ? atrTimeframe : "15m";
         env.DH_RANGE_SIZE_OVERRIDE = rangeSize ? String(rangeSize) : "";
         env.DH_GAP_CAPTURE = String(!!gapCapture);
         if (gapCapture) {
@@ -2014,7 +2028,7 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
         if (isNaN(from) || isNaN(to)) return res.status(400).json({ error: "from and to must be YYYY-MM-DD" });
         if (to < from) return res.status(400).json({ error: "to must not be before from" });
         const pos = (label, v) => { if (v !== undefined && v !== null && v !== "" && !(Number(v) > 0)) throw Object.assign(new Error(`${label} must be a positive number`), { status: 400 }); };
-        for (const [l, v] of [["lots", b.lots], ["lotMultOverride", b.lotMultOverride], ["bandStepOverride", b.bandStepOverride], ["rangeSizeOverride", b.rangeSizeOverride], ["takeProfit", b.takeProfit], ["maxLoss", b.maxLoss]]) pos(l, v);
+        for (const [l, v] of [["lots", b.lots], ["lotMultOverride", b.lotMultOverride], ["bandStepOverride", b.bandStepOverride], ["rangeSizeOverride", b.rangeSizeOverride], ["takeProfit", b.takeProfit], ["maxLoss", b.maxLoss], ["atrSlMult", b.atrSlMult]]) pos(l, v);
         const slip = b.slippagePoints === undefined || b.slippagePoints === "" ? 0 : Number(b.slippagePoints);
         if (!Number.isFinite(slip) || slip < 0) return res.status(400).json({ error: "slippagePoints must be >= 0" });
         const exchange = "MCX";
@@ -2047,6 +2061,13 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
             }
             opts.takeProfit = Number(b.takeProfit) || 3000;
             opts.maxLoss = Number(b.maxLoss) || 3000;
+            opts.slMode = String(b.slMode || "RUPEES").toUpperCase();
+            if (!DH_SL_MODES.includes(opts.slMode)) return res.status(400).json({ error: `slMode must be one of ${DH_SL_MODES.join("/")}` });
+            if (opts.slMode === "ATR") {
+                opts.atrSlMult = b.atrSlMult ? Number(b.atrSlMult) : null;   // null -> engineConfig.ATR_SL_MULT
+                opts.atrTimeframe = String(b.atrTimeframe || "15m").toLowerCase();
+                if (!DH_ATR_TIMEFRAMES.includes(opts.atrTimeframe)) return res.status(400).json({ error: `atrTimeframe must be one of ${DH_ATR_TIMEFRAMES.join("/")}` });
+            }
             if (b.gapCapture) {
                 const g = parseHHMM(b.gcEntry, "23:20"), q = parseHHMM(b.gcExit, "23:25");
                 if (!g || !q) return res.status(400).json({ error: "gap capture times must be HH:MM (IST)" });

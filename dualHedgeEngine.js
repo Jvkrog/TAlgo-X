@@ -97,6 +97,13 @@
 //                             dependent — never change it casually)
 //   DH_MAX_LOSS_RUPEES_OVERRIDE     default 3000 (flipped legs exit below -this)
 //   DH_TAKE_PROFIT_RUPEES_OVERRIDE  default 3000 (flipped legs exit above +this)
+//   DH_SL_MODE                "RUPEES" (default — the stop above) | "ATR": a flipped
+//                             leg exits once price moves DH_ATR_SL_MULT_OVERRIDE x ATR
+//                             against its entry (ATR snapshotted at entry, fixed after;
+//                             see dualHedgeAtr.js). DH_MAX_LOSS_RUPEES_OVERRIDE then
+//                             stays only as the backstop used while ATR isn't available.
+//   DH_ATR_SL_MULT_OVERRIDE   ATR mode: multiplier, default engineConfig.ATR_SL_MULT
+//   DH_ATR_TIMEFRAME_OVERRIDE ATR mode: bar timeframe 5m|15m|30m|1h, default 15m
 //   DH_GAP_CAPTURE            "true" enables gap capture (see above), default off
 //   DH_GC_HOUR_OVERRIDE       / DH_GC_MINUTE_OVERRIDE         realize + enter, default 23 / 20 (IST)
 //   DH_GC_QUIT_HOUR_OVERRIDE  / DH_GC_QUIT_MINUTE_OVERRIDE    quit (positions stay open), default 23 / 25
@@ -132,10 +139,18 @@ const positions = require("./positions");
 const { emitEvent } = require("./eventBridge");
 const { istParts, todayIST } = require("./istTime");
 const { createRangeBandReader } = require("./rangeBandReader");
+const { SL_MODES, ATR_TIMEFRAMES, DEFAULT_ATR_TIMEFRAME, createAtrReader } = require("./dualHedgeAtr");
 
 const MAX_LOSS_RUPEES    = Number(process.env.DH_MAX_LOSS_RUPEES_OVERRIDE) || 3000;
 const TAKE_PROFIT_RUPEES = Number(process.env.DH_TAKE_PROFIT_RUPEES_OVERRIDE) || 3000;
 const RANGE_START = process.env.DH_RANGE_START_OVERRIDE || "2026-06-01 09:00:00";
+// Stop-loss mode — see header. RUPEES (default) keeps the original behaviour.
+const SL_MODE = (process.env.DH_SL_MODE || "RUPEES").toUpperCase();
+if (!SL_MODES.includes(SL_MODE)) { console.error(`DH_SL_MODE "${process.env.DH_SL_MODE}" invalid (known: ${SL_MODES.join(", ")}) — refusing to boot.`); process.exit(1); }
+const ATR_SL_MULT   = Number(process.env.DH_ATR_SL_MULT_OVERRIDE) || engineConfig.ATR_SL_MULT;
+const ATR_TIMEFRAME = process.env.DH_ATR_TIMEFRAME_OVERRIDE || DEFAULT_ATR_TIMEFRAME;
+if (SL_MODE === "ATR" && !ATR_TIMEFRAMES.includes(ATR_TIMEFRAME)) { console.error(`DH_ATR_TIMEFRAME_OVERRIDE "${ATR_TIMEFRAME}" invalid (known: ${ATR_TIMEFRAMES.join(", ")}) — refusing to boot.`); process.exit(1); }
+if (SL_MODE === "ATR" && !(ATR_SL_MULT > 0)) { console.error(`DH_ATR_SL_MULT_OVERRIDE must be a positive number — refusing to boot.`); process.exit(1); }
 const EVAL_OFFSET_SEC = 20;      // evaluate at :20 past each 15-minute mark (reference trade_timer)
 const EXIT_COOLDOWN_MS = 30 * 1000;   // after a FAILED exit, don't re-fire every second
 const PRICE_STALE_MS = 15 * 1000;
@@ -249,7 +264,7 @@ async function main() {
         }
         await orders.reconcile(state);
 
-        return { side, user, context, tg, db, state, orders, ltpKey: `${context.exchange}:${context.symbol}`, wantEntry: false, nextExitAt: 0 };
+        return { side, user, context, tg, db, state, orders, ltpKey: `${context.exchange}:${context.symbol}`, wantEntry: false, nextExitAt: 0, slDistance: null, slAtr: null, slSnapshotAt: 0 };
     }
 
     const bandStepOverride = process.env.DH_BAND_STEP_OVERRIDE ? Number(process.env.DH_BAND_STEP_OVERRIDE) : null;
@@ -265,7 +280,7 @@ async function main() {
         lotMultOverride, bandStepOverride,
     });
 
-    console.log(c.bold(`DUAL HEDGE  ${long.context.symbol}  LONG:${long.user.name} (${long.context.lots} lot)  SHORT:${short.user.name} (${short.context.lots} lot)  maxLoss:₹${MAX_LOSS_RUPEES} takeProfit:₹${TAKE_PROFIT_RUPEES} (exits armed only once flipped)`));
+    console.log(c.bold(`DUAL HEDGE  ${long.context.symbol}  LONG:${long.user.name} (${long.context.lots} lot)  SHORT:${short.user.name} (${short.context.lots} lot)  ${SL_MODE === "ATR" ? `stop:${ATR_SL_MULT}x ATR(${engineConfig.ST_ATR_LEN}) on ${ATR_TIMEFRAME} (backstop ₹${MAX_LOSS_RUPEES} until ATR is available)` : `maxLoss:₹${MAX_LOSS_RUPEES}`} takeProfit:₹${TAKE_PROFIT_RUPEES} (exits armed only once flipped)`));
     console.log();
 
     // Shared band signal — read ONCE per evaluation, applied to both legs.
@@ -309,6 +324,21 @@ async function main() {
         return data[ltpKey]?.last_price ?? null;
     }
 
+    // ATR stop-loss (DH_SL_MODE=ATR): read on the LONG user's client like all
+    // market data here. See dualHedgeAtr.js.
+    const atrReader = SL_MODE === "ATR"
+        ? createAtrReader({ getKc: () => longKc, token: long.context.token, timeframe: ATR_TIMEFRAME, len: engineConfig.ST_ATR_LEN })
+        : null;
+    // Stop distance in price points for this leg's current position, from the
+    // ATR at entry. null = not known yet (resumed position, or ATR unavailable).
+    async function snapshotSlDistance(leg) {
+        if (!atrReader) return;
+        const a = await atrReader.get().catch(() => null);
+        leg.slDistance = a !== null && a > 0 ? ATR_SL_MULT * a : null;
+        leg.slAtr = a;
+        leg.slSnapshotAt = Date.now();
+    }
+
     async function enterLeg(leg, reason) {
         const orderId = await leg.orders.enter(leg.side);
         if (engineConfig.LIVE_ORDERS && orderId === null) {
@@ -320,11 +350,15 @@ async function main() {
         leg.state.position    = leg.side;
         leg.state.entryPrice  = price;
         leg.state.flipped     = false;
+        leg.slDistance = null; leg.slAtr = null; leg.slSnapshotAt = 0;
+        await snapshotSlDistance(leg);
         leg.state.openTradeId = await leg.db.insertOpenTrade(leg.context.tgPrefix, leg.context.symbol, leg.side, leg.context.lots, price);
         leg.db.savePosition(leg.context.tgPrefix, leg.context.token, leg.context.symbol, leg.side, price, `DUAL_HEDGE_${leg.side}`);
         console.log(c.bold(`**${leg.side} ENTRY**`));
         console.log(c.green(`[${leg.context.tgPrefix}] ${leg.side} @ price ${price.toFixed(2)}  |  ${reason}`));
-        leg.tg(`${leg.side} ENTER (${reason}) @ \u20b9${price.toFixed(2)}`);
+        const slNote = leg.slDistance !== null ? `\nstop (once flipped): ${ATR_SL_MULT}x ATR ${leg.slAtr.toFixed(2)} = ${leg.slDistance.toFixed(2)} pts` : "";
+        if (leg.slDistance !== null) console.log(c.dim(`[${leg.context.tgPrefix}] ${leg.side} stop distance ${leg.slDistance.toFixed(2)} pts (${ATR_SL_MULT}x ATR(${engineConfig.ST_ATR_LEN}) ${leg.slAtr.toFixed(2)} on ${ATR_TIMEFRAME}), armed once flipped`));
+        leg.tg(`${leg.side} ENTER (${reason}) @ \u20b9${price.toFixed(2)}${slNote}`);
         emitEvent(leg.context.tgPrefix, "ENTRY", { side: leg.side, price, trail: null });
         return true;
     }
@@ -345,6 +379,7 @@ async function main() {
         await positions.close(leg.context, leg.state, leg.db, leg.tg, price, reason);
         leg.db.savePosition(leg.context.tgPrefix, leg.context.token, leg.context.symbol, null, 0);
         leg.state.flipped = false;
+        leg.slDistance = null; leg.slAtr = null; leg.slSnapshotAt = 0;
         return true;
     }
 
@@ -380,7 +415,7 @@ async function main() {
                 if (band.color === favorable) leg.wantEntry = true;   // white/adverse while flat: nothing
             } else if (!leg.state.flipped && band.color === adverse) {
                 leg.state.flipped = true;
-                console.log(c.yellow(`[${leg.context.tgPrefix}] ${leg.side} FLIPPED (band ${band.color}) — exits now armed: take-profit > +₹${TAKE_PROFIT_RUPEES}, stop < -₹${MAX_LOSS_RUPEES}`));
+                console.log(c.yellow(`[${leg.context.tgPrefix}] ${leg.side} FLIPPED (band ${band.color}) — exits now armed: take-profit > +₹${TAKE_PROFIT_RUPEES}, stop ${SL_MODE === "ATR" ? `${ATR_SL_MULT}x ATR` : `< -₹${MAX_LOSS_RUPEES}`}`));
             }
         }
         await emitLivePnl();
@@ -401,8 +436,20 @@ async function main() {
 
         const uPnl = positions.unrealised(leg.context, leg.state, price);
         let reason = null;
-        if (uPnl > TAKE_PROFIT_RUPEES)      reason = `${leg.side} EXIT (take profit > ₹${TAKE_PROFIT_RUPEES})`;
-        else if (uPnl < -MAX_LOSS_RUPEES)   reason = `${leg.side} EXIT SL (loss > ₹${MAX_LOSS_RUPEES})`;
+        if (uPnl > TAKE_PROFIT_RUPEES) reason = `${leg.side} EXIT (take profit > ₹${TAKE_PROFIT_RUPEES})`;
+        else {
+            // ATR mode: price-distance stop from the entry-time ATR. A resumed
+            // position (or one entered while ATR was unavailable) has no
+            // snapshot — take one now, at most every 30s. While there is still
+            // none, the rupee stop below stays as the backstop.
+            if (SL_MODE === "ATR" && leg.slDistance === null && Date.now() - leg.slSnapshotAt > 30 * 1000) await snapshotSlDistance(leg);
+            if (SL_MODE === "ATR" && leg.slDistance !== null) {
+                const adverse = leg.state.position === "LONG" ? leg.state.entryPrice - price : price - leg.state.entryPrice;
+                if (adverse > leg.slDistance) reason = `${leg.side} EXIT SL (${adverse.toFixed(2)} pts against entry > ${ATR_SL_MULT}x ATR = ${leg.slDistance.toFixed(2)})`;
+            } else if (uPnl < -MAX_LOSS_RUPEES) {
+                reason = `${leg.side} EXIT SL (loss > ₹${MAX_LOSS_RUPEES})`;
+            }
+        }
         if (!reason) return;
 
         const ok = await exitLeg(leg, reason);
