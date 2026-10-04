@@ -359,6 +359,21 @@ async function main() {
     // applies. It still wires in no chop/volume/HTF gates, so those banner
     // lines stay skipped for it.
     const bannerSkip = context.strategy === "DAILY_HA_BIAS";
+    // DAILY_HA_BIAS entry time ("HH:MM" IST) — see context.dailyBiasEntryHour.
+    // Invalid/blank = unset, strategies.js falls back to 10:00.
+    if (process.env.DAILY_BIAS_ENTRY_TIME_OVERRIDE !== undefined && process.env.DAILY_BIAS_ENTRY_TIME_OVERRIDE !== "") {
+        const m = String(process.env.DAILY_BIAS_ENTRY_TIME_OVERRIDE).trim().match(/^(\d{1,2}):(\d{2})$/);
+        if (m && Number(m[1]) <= 23 && Number(m[2]) <= 59) {
+            context.dailyBiasEntryHour = Number(m[1]);
+            context.dailyBiasEntryMinute = Number(m[2]);
+        } else {
+            console.warn(`[${context.tgPrefix}] DAILY_BIAS_ENTRY_TIME_OVERRIDE "${process.env.DAILY_BIAS_ENTRY_TIME_OVERRIDE}" is not HH:MM — using the default 10:00`);
+        }
+    }
+    if (bannerSkip) {
+        const eh = context.dailyBiasEntryHour ?? 10, em = context.dailyBiasEntryMinute ?? 0;
+        console.log(c.dim(`[${context.tgPrefix}] entry time: ${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")} IST${context.dailyBiasEntryHour === null ? " (default)" : ""} — first ${context.timeframe} candle at/after it takes the previous completed daily HA candle's side`));
+    }
     console.log(c.dim(`[${context.tgPrefix}] ATR SL multiplier: ${context.atrSlMult ?? `${engineConfig.ATR_SL_MULT} (default)`}${context.strategy === "PURE_HA" ? `  |  flip confirm: ${context.flipConfirmCandles ?? 1} candle(s)` : ""}`));
 
     // volumeGate.js's universal "volume above its own SMA" entry gate —

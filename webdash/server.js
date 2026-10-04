@@ -465,6 +465,7 @@ async function getEngineProcesses() {
             disableDoubleOrders: p.pm2_env.env?.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true",
             atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
             flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
+            dailyBiasEntryTime: p.pm2_env.env?.DAILY_BIAS_ENTRY_TIME_OVERRIDE || null,
             volumeFilterEnabled: p.pm2_env.env?.VOLUME_FILTER_OVERRIDE === "true",
             volumeSmaPeriod: p.pm2_env.env?.VOLUME_SMA_PERIOD_OVERRIDE ? Number(p.pm2_env.env.VOLUME_SMA_PERIOD_OVERRIDE) : null,
             longCandleFilterEnabled: p.pm2_env.env?.LONG_CANDLE_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.LONG_CANDLE_FILTER_OVERRIDE === "true" : true,
@@ -522,6 +523,8 @@ function buildProcessEnv(p, overrides = {}) {
     env.DISABLE_DOUBLE_ORDERS_OVERRIDE = String(!!p.disableDoubleOrders);
     env.ATR_SL_MULT_OVERRIDE = p.atrSlMult ? String(p.atrSlMult) : "";
     env.FLIP_CONFIRM_CANDLES_OVERRIDE = p.flipConfirmCandles ? String(p.flipConfirmCandles) : "";
+    // DAILY_HA_BIAS only (entry time, IST "HH:MM"); blank = default 10:00. Always written explicitly.
+    env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = p.dailyBiasEntryTime || "";
     env.VOLUME_FILTER_OVERRIDE = String(!!p.volumeFilterEnabled);
     env.VOLUME_SMA_PERIOD_OVERRIDE = p.volumeSmaPeriod ? String(p.volumeSmaPeriod) : "";
     env.LONG_CANDLE_FILTER_OVERRIDE = p.longCandleFilterEnabled === false ? "false" : "true";
@@ -761,7 +764,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, dailyBiasEntryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -820,6 +823,15 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 const parsedConfirm = Number(flipConfirmCandles);
                 if (!Number.isInteger(parsedConfirm) || parsedConfirm < 1) return res.status(400).json({ error: "invalid flipConfirmCandles value" });
                 updated.flipConfirmCandles = parsedConfirm;
+            }
+        }
+        if (dailyBiasEntryTime !== undefined) {
+            if (dailyBiasEntryTime === null || dailyBiasEntryTime === "" || dailyBiasEntryTime === "clear") {
+                updated.dailyBiasEntryTime = null;
+            } else {
+                const t = normEntryTime(dailyBiasEntryTime);
+                if (!t) return res.status(400).json({ error: "dailyBiasEntryTime must be HH:MM (IST)" });
+                updated.dailyBiasEntryTime = t;
             }
         }
         if (volumeFilterEnabled !== undefined) updated.volumeFilterEnabled = !!volumeFilterEnabled;
@@ -1034,7 +1046,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, dailyBiasEntryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -1137,6 +1149,11 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         if (atrSlMult !== undefined && atrSlMult !== null && atrSlMult !== "") {
             const parsedAtrMult = Number(atrSlMult);
             if (Number.isFinite(parsedAtrMult) && parsedAtrMult > 0) env.ATR_SL_MULT_OVERRIDE = String(parsedAtrMult);
+        }
+        if (stratKey === "DAILY_HA_BIAS" && dailyBiasEntryTime !== undefined && dailyBiasEntryTime !== null && dailyBiasEntryTime !== "") {
+            const t = normEntryTime(dailyBiasEntryTime);
+            if (!t) return res.status(400).json({ error: "dailyBiasEntryTime must be HH:MM (IST)" });
+            env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = t;
         }
         if (stratKey === "PURE_HA" && flipConfirmCandles !== undefined && flipConfirmCandles !== null && flipConfirmCandles !== "") {
             const parsedConfirm = Number(flipConfirmCandles);
@@ -1755,6 +1772,11 @@ app.get("/api/toolbox/hedgepairs/logs/:name", async (req, res) => {
 // toolbox.js's own dualHedgeScreen()/addDualHedge()/manageDualHedgeUsersScreen()
 // — see that file's comments for the full reasoning behind each field.
 const hhmmPad = (h, m) => `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+// "HH:MM" -> zero-padded "HH:MM", or null when invalid (DAILY_HA_BIAS entry time).
+function normEntryTime(v) {
+    const t = parseHHMM(v);
+    return t ? `${String(t.hour).padStart(2, "0")}:${String(t.minute).padStart(2, "0")}` : null;
+}
 function parseHHMM(v, dflt) {
     const m = String(v || dflt).trim().match(/^(\d{1,2}):(\d{2})$/);
     if (!m || Number(m[1]) > 23 || Number(m[2]) > 59) return null;

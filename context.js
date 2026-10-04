@@ -199,6 +199,13 @@ function buildContext(def, resolvedContract) {
         // position, since a whipsaw is specifically "flip, flip back,"
         // not "was slow to get in."
         flipConfirmCandles: null,
+        // DAILY_HA_BIAS only — IST wall-clock time (hour/minute) from which
+        // the once-a-day decision may be taken, on the first candle of the
+        // instrument's timeframe (15m by default) at/after it. null (not a
+        // literal default) for the same STRATEGY_PARAMS-backtest-tuning
+        // reason as bandStep above; strategies.js falls back to 10:00.
+        dailyBiasEntryHour: null,
+        dailyBiasEntryMinute: null,
         // Per-instrument ATR stop-loss multiplier override. null (not a
         // literal default) for the same STRATEGY_PARAMS-backtest-tuning
         // reason as bandStep/flipConfirmCandles above — every

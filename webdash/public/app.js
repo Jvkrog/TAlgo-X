@@ -1397,6 +1397,7 @@ function renderRiskList() {
       `<span class="mode-pill ${inst.dailyHaGateEnabled !== false ? "live" : ""}">dailyha ${inst.dailyHaGateEnabled !== false ? "on" : "off"}</span>`,
     ];
     if (inst.strategy === "PURE_HA") badges.push(`<span class="mode-pill">flip ${inst.flipConfirmCandles ?? 1}</span>`);
+    if (inst.strategy === "DAILY_HA_BIAS") badges.push(`<span class="mode-pill">entry ${inst.dailyBiasEntryTime || "10:00"}</span>`);
     if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
     if (inst.maxDailyLoss) badges.push(`<span class="mode-pill">maxloss -₹${inst.maxDailyLoss}</span>`);
     row.innerHTML = `
@@ -1627,6 +1628,11 @@ function openEditModal(inst) {
       <div class="tb-form-label">reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
       <input type="number" id="editFlipConfirm" min="1" step="1" value="${inst.flipConfirmCandles ?? ""}">
     </div>` : ""}
+    ${inst.strategy === "DAILY_HA_BIAS" ? `
+    <div class="tb-form-row">
+      <div class="tb-form-label">trade entry time IST \u2014 the first ${inst.timeframe || "15m"} candle at/after it takes the previous daily HA candle's side (blank = 10:00)</div>
+      <input type="time" id="editDhabEntry" value="${inst.dailyBiasEntryTime ?? ""}">
+    </div>` : ""}
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="editVolumeFilter" ${inst.volumeFilterEnabled ? "checked" : ""}><span>Only enter when volume is above its SMA</span></label>
       <div class="tb-form-hint">Period below only applies while this is checked</div>
@@ -1703,6 +1709,8 @@ function openEditModal(inst) {
     body.atrSlMult = tbEditBody.querySelector("#editAtrSlMult").value || null;
     const editFlipConfirmEl = tbEditBody.querySelector("#editFlipConfirm");
     if (editFlipConfirmEl) body.flipConfirmCandles = editFlipConfirmEl.value || null;
+    const editDhabEntryEl = tbEditBody.querySelector("#editDhabEntry");
+    if (editDhabEntryEl) body.dailyBiasEntryTime = editDhabEntryEl.value || null;
     body.volumeFilterEnabled = tbEditBody.querySelector("#editVolumeFilter").checked;
     body.volumeSmaPeriod = tbEditBody.querySelector("#editVolumeSmaPeriod").value || null;
     body.longCandleFilterEnabled = tbEditBody.querySelector("#editLongCandleFilter").checked;
@@ -2004,6 +2012,10 @@ function renderAddConfigStep() {
       <div class="tb-form-label">Reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
       <input type="number" id="addFlipConfirm" min="1" step="1">
     </div>
+    <div class="tb-form-row" id="addDhabEntryRow" style="display:none">
+      <div class="tb-form-label">Trade entry time IST \u2014 the first candle (15m by default) at/after it takes the previous daily HA candle's side (blank = 10:00)</div>
+      <input type="time" id="addDhabEntry">
+    </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="addVolumeFilter"><span>Only enter when volume is above its SMA</span></label>
       <div class="tb-form-hint">Period below only applies while this is checked</div>
@@ -2049,6 +2061,7 @@ function renderAddConfigStep() {
   const bandStepRow = tbAddBody.querySelector("#addBandStepRow");
   const greyExitRow = tbAddBody.querySelector("#addGreyExitRow");
   const flipConfirmRow = tbAddBody.querySelector("#addFlipConfirmRow");
+  const dhabEntryRow = tbAddBody.querySelector("#addDhabEntryRow");
   strategies.forEach(s => {
     const div = document.createElement("div");
     div.className = "tb-strategy-item" + (s.key === defaultStrat ? " picked" : "");
@@ -2065,6 +2078,7 @@ function renderAddConfigStep() {
       bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_MID_COLOR" || s.key === "DYNAMIC_MID_COLOR_HL") ? "" : "none";
       greyExitRow.style.display = s.key === "ALMA_TRI_BAND" ? "" : "none";
       flipConfirmRow.style.display = s.key === "PURE_HA" ? "" : "none";
+      dhabEntryRow.style.display = s.key === "DAILY_HA_BIAS" ? "" : "none";
     });
     stratList.appendChild(div);
   });
@@ -2143,6 +2157,7 @@ function renderAddConfigStep() {
         disableDoubleOrders: tbAddBody.querySelector("#addDisableDouble").checked,
         atrSlMult: tbAddBody.querySelector("#addAtrSlMult").value || undefined,
         flipConfirmCandles: pickedStrategy === "PURE_HA" ? (tbAddBody.querySelector("#addFlipConfirm").value || undefined) : undefined,
+        dailyBiasEntryTime: pickedStrategy === "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addDhabEntry").value || undefined) : undefined,
         volumeFilterEnabled: tbAddBody.querySelector("#addVolumeFilter").checked,
         volumeSmaPeriod: tbAddBody.querySelector("#addVolumeSmaPeriod").value || undefined,
         longCandleFilterEnabled: tbAddBody.querySelector("#addLongCandleFilter").checked,
