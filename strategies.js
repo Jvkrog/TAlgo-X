@@ -6215,8 +6215,10 @@ function createPureHaStrategy({ context, engineConfig, state, db, candles, slSto
 //   the decision itself has nothing to do with that timeframe), so
 //   there's no daily buffer sitting around to read this off of. Green ->
 //   LONG, red -> SHORT, doji -> no trade today.
-// Stop-loss: a FIXED price level, not a trailing indicator — that SAME
-//   previous daily HA candle's high (SHORT) or low (LONG). Armed once,
+// Stop-loss: CHANGED Oct 2026 — ATR-based, configurable (was the previous
+//   daily HA candle's high/low): entry price -/+ ATR_SL_MULT x
+//   ATR(ST_ATR_LEN), multiplier per-instrument via context.atrSlMult. A
+//   FIXED price level, not trailing. Armed once,
 //   at entry, via slStore.setTrail() — candlePoll.js's existing generic
 //   tick-driven checkSL() does the rest; nothing strategy-specific is
 //   needed here beyond arming it.
@@ -6253,12 +6255,19 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
     const ENTRY_HOUR = 10, ENTRY_MINUTE = 0;
 
     const dailyReader = createHaCandleReader({ token: context.token, timeframe: "1d", engineConfig, label: context.tgPrefix });
-    // Added Sep 2026 for the pre-entry breach check below — separate
-    // instance from hedgePairEngine.js's own 1h reader (different token,
-    // different process), same module/caching behavior.
-    const hourlyReader = createHaCandleReader({ token: context.token, timeframe: "1h", engineConfig, label: context.tgPrefix });
 
-    async function doEnter(side, livePrice, slLevel, daily) {
+    // CHANGED Oct 2026 — SL is no longer the previous daily HA candle's
+    // high/low. Same ATR_SL_MULT x ATR(ST_ATR_LEN) distance every other
+    // strategy uses (per-instrument context.atrSlMult overrides the global
+    // default, configurable from toolbox + web dashboard), measured from
+    // the entry price and fixed once armed — no trailing, same as before.
+    function computeSl(livePrice, atrVal, side) {
+        if (atrVal === null) return null;
+        const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
+        return side === "LONG" ? livePrice - offset : livePrice + offset;
+    }
+
+    async function doEnter(side, livePrice, slLevel, atrVal, daily) {
         // Long-candle / volatility-shock filter — CHANGED Sep 2026
         // (reported directly): every other strategy in this file already
         // gates its flat entry on this (see longCandleGate.js's header),
@@ -6303,9 +6312,10 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
         // seeing exactly which date/OHLC this decision used, right in the
         // message, not just the resulting color.
         const dateStr = daily.date instanceof Date ? daily.date.toISOString().split("T")[0] : String(daily.date);
-        console.log(c.white(`[${context.tgPrefix}] ${side} DAILY HA BIAS ENTRY  @ ${livePrice.toFixed(2)}  SL ${slLevel.toFixed(2)} (prev daily HA ${side === "LONG" ? "low" : "high"}, ${daily.color} candle dated ${dateStr}, HA close ${daily.close.toFixed(2)})`));
+        const atrMult = context.atrSlMult ?? engineConfig.ATR_SL_MULT;
+        console.log(c.white(`[${context.tgPrefix}] ${side} DAILY HA BIAS ENTRY  @ ${livePrice.toFixed(2)}  SL ${slLevel.toFixed(2)} (${atrMult}x ATR ${atrVal.toFixed(2)}, ${daily.color} candle dated ${dateStr}, HA close ${daily.close.toFixed(2)})`));
         emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slLevel, pure: null });
-        tg(`${side} DAILY HA BIAS ENTRY @ \u20b9${livePrice.toFixed(2)}\nSL \u20b9${slLevel.toFixed(2)} (prev daily HA ${side === "LONG" ? "low" : "high"})\nbias candle: ${dateStr}, ${daily.color}, HA close \u20b9${daily.close.toFixed(2)}`);
+        tg(`${side} DAILY HA BIAS ENTRY @ \u20b9${livePrice.toFixed(2)}\nSL \u20b9${slLevel.toFixed(2)} (${atrMult}x ATR ${atrVal.toFixed(2)})\nbias candle: ${dateStr}, ${daily.color}, HA close \u20b9${daily.close.toFixed(2)}`);
         return true;
     }
 
@@ -6334,33 +6344,19 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
         const daily = await dailyReader.getLatest();
         if (!daily || !daily.color) return; // fails safe — no read yet: try again next candle, still within today's window; a genuine doji day IS decided (falls through below), this is only "no data at all yet"
 
-        const side    = daily.color === "green" ? "LONG" : "SHORT";
-        const slLevel = side === "LONG" ? daily.low : daily.high;
+        const side = daily.color === "green" ? "LONG" : "SHORT";
 
-        // Breach check — CHANGED Sep 2026 (reported directly): by 10:00
-        // IST the first ~1h of trading can already have pushed price
-        // through where today's SL is about to sit (a gap against
-        // yesterday's HA low/high, or just a fast first hour). Entering
-        // anyway meant an SL that was already behind price at the moment
-        // of entry — one report showed a LONG taken at ₹275.10 against an
-        // SL of ₹275.50, i.e. the stop was already on the wrong side of
-        // entry, near-instant stop-out. Rather than validate the stop
-        // itself, check whether the latest COMPLETED 1h HA candle's own
-        // high/low has already crossed the level this entry is about to
-        // set its SL at; if so, the setup is already invalidated —
-        // skipped entirely, same "decided for today, no retry" rule as
-        // every other no-trade path here (doji, order failure, long-
-        // candle block above).
-        const hourly = await hourlyReader.getLatest();
-        const alreadyBreached = hourly && (side === "LONG" ? hourly.low <= slLevel : hourly.high >= slLevel);
-        if (alreadyBreached) {
-            console.log(c.yellow(`[${context.tgPrefix}] DAILY HA BIAS skip — ${side} setup already breached its own SL (prev daily HA ${side === "LONG" ? "low" : "high"} ${slLevel.toFixed(2)}) within the latest 1h candle (${hourly.low.toFixed(2)}-${hourly.high.toFixed(2)}) — no trade today`));
-            tg(`${side} DAILY HA BIAS setup skipped — SL level \u20b9${slLevel.toFixed(2)} already breached within the first hour (${hourly.low.toFixed(2)}-${hourly.high.toFixed(2)}), no trade today`);
-            state.dailyBiasDecidedForDate = today;
-            return;
-        }
+        // ATR-based SL (see computeSl above). The old pre-entry "1h candle
+        // already breached the SL level" check is gone with the prev-candle
+        // high/low SL — the stop is now measured from the entry price, so
+        // it can never start out behind price. Not enough candle history
+        // for ATR yet = fail safe, try again next candle (same posture as
+        // the "no daily read yet" return above).
+        const atrVal  = atr(candles.getRawCandles(), engineConfig.ST_ATR_LEN);
+        const slLevel = computeSl(livePrice, atrVal, side);
+        if (slLevel === null) return;
 
-        await doEnter(side, livePrice, slLevel, daily);
+        await doEnter(side, livePrice, slLevel, atrVal, daily);
         // Decided for today regardless of whether the order actually
         // filled — see header: a failed entry means no trade today, not
         // a retry loop.
@@ -6404,7 +6400,6 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
             state.tradesToday = await db.getTradeCountToday(context.tgPrefix);
 
             dailyReader.prewarm();
-            hourlyReader.prewarm();
 
             const info = state.position ? `${state.position}@${state.entryPrice}` : "flat (waiting for 10:00 IST decision)";
             console.log();
@@ -6469,7 +6464,7 @@ const STRATEGY_INFO = {
     ALMA_PRO_SLOW:        { label: "ALMA Pro \u2014 Slow Engine", description: "the SLOW half of strategy #17: single slow ALMA(100) on HA close, entry LEVEL-based on the line's own current slope direction (deadband-filtered, same whipsaw control ALMA_FAST uses) \u2014 no band/breakout confirmation, that's the fast engine's job; Choppiness Index entry filter toggleable per instrument (default ON, not in the original); run alongside ALMA_PRO_FAST on a DIFFERENT underlying (e.g. the full-lot contract) \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APS" },
     VOLUME_DELTA_CVD:     { label: "Volume Delta / CVD", description: "estimated tick-rule buy/sell volume delta (price-direction based \u2014 Kite doesn't expose true exchange aggressor side) + CVD, layered under EMA20/50 trend, VWAP, relative volume, delta Z-score, absorption, and CVD/price divergence into a 0-100 score; two-candle setup\u2192confirm entry debounce, ATR stop-loss; delta-based signals need warmup time after boot (can't backfill genuine tick delta from historical candles)", short: "VDCVD" },
     PURE_HA:              { label: "Pure Heikin-Ashi Color", description: "no indicator at all \u2014 pure HA candle color decides everything: green candle -> LONG, red -> SHORT, always-in-market, a color flip exits and reverses same candle; separately tags each candle as a \"pure trend\" candle (no wick on the side opposite the body \u2014 no lower wick on green, no upper wick on red) for logging/dashboard purposes, without gating entry on it; Choppiness Index filter available same as every other strategy (currently always-on per the codebase-wide forced check, see this strategy's header comment)", short: "PHA" },
-    DAILY_HA_BIAS:        { label: "Daily HA Bias (2-Trade)", description: "one decision a day \u2014 at/after 10:00 IST, take the previous COMPLETED daily HA candle's color as the day's bias (green -> LONG, red -> SHORT, doji -> no trade), fixed SL at that same candle's high (SHORT) or low (LONG), no target/reversal/re-entry; only exit besides SL is EOD (23:15 IST default) \u2014 at most one entry + one exit per day; CHANGED Sep 2026: skips the day entirely if the latest completed 1h HA candle already breached that SL level before entry (gap/fast-open protection), and now gated by the long-candle/volatility-shock filter same as every other strategy (default on); chop/volume/htf gates still not wired in", short: "DHAB" },
+    DAILY_HA_BIAS:        { label: "Daily HA Bias (2-Trade)", description: "one decision a day \u2014 at/after 10:00 IST, take the previous COMPLETED daily HA candle's color as the day's bias (green -> LONG, red -> SHORT, doji -> no trade), fixed ATR-based SL from entry (ATR stop-loss multiplier x ATR, configurable), no target/reversal/re-entry; only exit besides SL is EOD (23:15 IST default) \u2014 at most one entry + one exit per day; CHANGED Sep 2026: gated by the long-candle/volatility-shock filter same as every other strategy (default on); CHANGED Oct 2026: SL no longer previous-candle high/low, 1h breach pre-check removed; chop/volume/htf gates still not wired in", short: "DHAB" },
 };
 
 // Each strategy's live/paper candle interval — this is a property of the

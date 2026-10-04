@@ -354,19 +354,12 @@ async function main() {
         const parsedAtrMult = Number(process.env.ATR_SL_MULT_OVERRIDE);
         context.atrSlMult = Number.isFinite(parsedAtrMult) && parsedAtrMult > 0 ? parsedAtrMult : null;
     }
-    // ATR SL / volume / long-candle / HTF banner lines below don't apply
-    // to DAILY_HA_BIAS at all — its SL is the previous daily HA candle's
-    // high/low (fixed price level, see strategies.js's createDailyHaBiasStrategy),
-    // and it wires in none of the other three gates either (see its own
-    // header). Printing them anyway implied settings that do nothing for
-    // this strategy — same bug class as toolbox.js's riskManagement()
-    // menu, fixed there Sep 2026; this is the boot-banner counterpart.
+    // DAILY_HA_BIAS (Oct 2026): SL is ATR-based like every other strategy
+    // (was the previous daily HA candle's high/low) — the ATR banner line
+    // applies. It still wires in no chop/volume/HTF gates, so those banner
+    // lines stay skipped for it.
     const bannerSkip = context.strategy === "DAILY_HA_BIAS";
-    if (bannerSkip) {
-        console.log(c.dim(`[${context.tgPrefix}] SL: previous daily HA candle's high (SHORT) / low (LONG) — not ATR-based; ATR/volume/long-candle/HTF settings below don't apply to this strategy`));
-    }
-
-    if (!bannerSkip) console.log(c.dim(`[${context.tgPrefix}] ATR SL multiplier: ${context.atrSlMult ?? `${engineConfig.ATR_SL_MULT} (default)`}${context.strategy === "PURE_HA" ? `  |  flip confirm: ${context.flipConfirmCandles ?? 1} candle(s)` : ""}`));
+    console.log(c.dim(`[${context.tgPrefix}] ATR SL multiplier: ${context.atrSlMult ?? `${engineConfig.ATR_SL_MULT} (default)`}${context.strategy === "PURE_HA" ? `  |  flip confirm: ${context.flipConfirmCandles ?? 1} candle(s)` : ""}`));
 
     // volumeGate.js's universal "volume above its own SMA" entry gate —
     // off by default. See context.volumeFilterEnabled/volumeSmaPeriod.

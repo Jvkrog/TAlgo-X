@@ -997,7 +997,7 @@ async function riskManagement(procs) {
         // anything for this strategy, so those two stay below unchanged.
         const isDailyHaBias = p.strategy === "DAILY_HA_BIAS";
         if (isDailyHaBias) {
-            console.log(c.dim(`  DAILY_HA_BIAS ignores chop/double-order/ATR/volume/long-candle/HTF gates entirely (fixed SL from the previous day's HA candle, no target, one decision at 9:15) — skipping those prompts; only the daily-HA gate and max daily loss below actually apply`));
+            console.log(c.dim(`  DAILY_HA_BIAS ignores chop/double-order/volume/long-candle/HTF gates entirely (no target, one decision at 10:00) — skipping those prompts; only the ATR stop-loss multiplier, the daily-HA gate and max daily loss below actually apply`));
         }
 
         // Choppiness Index entry filter toggle — ALMA_PRO_FAST/ALMA_PRO_SLOW only.
@@ -1056,10 +1056,10 @@ async function riskManagement(procs) {
 
         // ATR stop-loss multiplier — universal, but only read by
         // strategies that call computeTrail() (not PURE_HA/DYNAMIC_BAND/
-        // DYNAMIC_MID_COLOR(_HL)/DAILY_HA_BIAS — the last one's SL is a
-        // fixed price level, not ATR-derived, see its header comment).
+        // DYNAMIC_MID_COLOR(_HL)). DAILY_HA_BIAS reads it too since Oct
+        // 2026 (entry -/+ mult x ATR, was previous daily HA high/low).
         let atrSlMult = p.atrSlMult;
-        if (!isDailyHaBias) {
+        {
             const atrSlMultDefault = p.atrSlMult !== null ? String(p.atrSlMult) : `default (${engineConfig.ATR_SL_MULT})`;
             const atrSlMultInput = (await ask(`  ATR stop-loss multiplier (current: ${atrSlMultDefault}, "0"/"clear" for default, blank = keep): `)).trim();
             if (atrSlMultInput) {
@@ -1282,7 +1282,7 @@ async function riskManagement(procs) {
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
                 env: buildProcessEnv(updatedP),
             });
-            // These 6 tags don't apply to DAILY_HA_BIAS at all (see the
+            // These 5 tags don't apply to DAILY_HA_BIAS at all (see the
             // skip note printed above) — showing them would misrepresent
             // settings that were never asked about as if they'd been
             // confirmed "on"/"off" for this restart.
@@ -1290,7 +1290,7 @@ async function riskManagement(procs) {
                 ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? engineConfig.CHOP_LEN}/${chopMax ?? engineConfig.CHOP_GATE_MAX_DEFAULT}`) : c.yellow(" chop:off"))
                 : (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
             const doubleTag = isDailyHaBias ? "" : disableDoubleOrders ? c.yellow(" double:off") : c.dim(" double:on");
-            const atrTag = isDailyHaBias ? "" : atrSlMult !== null ? c.dim(` atr:${atrSlMult}x`) : "";
+            const atrTag = atrSlMult !== null ? c.dim(` atr:${atrSlMult}x`) : "";
             const flipTag = p.strategy === "PURE_HA" ? c.dim(` flip:${flipConfirmCandles ?? 1}`) : "";
             const volTag = isDailyHaBias ? "" : volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
             const lcTag = isDailyHaBias ? "" : longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
