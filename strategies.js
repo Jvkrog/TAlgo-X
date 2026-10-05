@@ -6260,6 +6260,13 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
     const ENTRY_HOUR = context.dailyBiasEntryHour ?? 10, ENTRY_MINUTE = context.dailyBiasEntryMinute ?? 0;
     const ENTRY_LABEL = `${String(ENTRY_HOUR).padStart(2, "0")}:${String(ENTRY_MINUTE).padStart(2, "0")}`;
 
+    // Which daily candle decides the side — "PREVIOUS" (default): the last COMPLETED daily
+    // HA candle; "CURRENT": today's still-forming daily HA candle as of the entry time
+    // (built from today's intraday candles + live price, chained off the previous daily
+    // HA candle's open/close exactly like a real HA candle).
+    const CANDLE_MODE = context.dailyBiasCandle === "CURRENT" ? "CURRENT" : "PREVIOUS";
+    const istDay = d => new Date(new Date(d).getTime() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
+
     // Backtest (backtestRun.js) passes dailyHa.getLatest(): the previous COMPLETED daily HA
     // candle AS OF THE REPLAY CLOCK. Without it the live reader below would fetch today's
     // latest completed daily candle from Kite and apply it to every historical day
@@ -6324,11 +6331,13 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
         // "legitimate HA quirk" apart from "wrong candle got read" is
         // seeing exactly which date/OHLC this decision used, right in the
         // message, not just the resulting color.
-        const dateStr = daily.date instanceof Date ? daily.date.toISOString().split("T")[0] : String(daily.date);
+        // IST calendar date (Kite stamps daily bars at IST midnight, so a UTC date would read one day early).
+        const dateStr = daily.date instanceof Date ? istDay(daily.date) : String(daily.date);
+        const candleTag = CANDLE_MODE === "CURRENT" ? "present-day candle" : "prev-day candle";
         const atrMult = context.atrSlMult ?? engineConfig.ATR_SL_MULT;
-        console.log(c.white(`[${context.tgPrefix}] ${side} DAILY HA BIAS ENTRY  @ ${livePrice.toFixed(2)}  SL ${slLevel.toFixed(2)} (${atrMult}x ATR ${atrVal.toFixed(2)}, ${daily.color} candle dated ${dateStr}, HA close ${daily.close.toFixed(2)})`));
+        console.log(c.white(`[${context.tgPrefix}] ${side} DAILY HA BIAS ENTRY  @ ${livePrice.toFixed(2)}  SL ${slLevel.toFixed(2)} (${atrMult}x ATR ${atrVal.toFixed(2)}, ${candleTag} ${daily.color}, dated ${dateStr}, HA close ${daily.close.toFixed(2)})`));
         emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slLevel, pure: null });
-        tg(`${side} DAILY HA BIAS ENTRY @ \u20b9${livePrice.toFixed(2)}\nSL \u20b9${slLevel.toFixed(2)} (${atrMult}x ATR ${atrVal.toFixed(2)})\nbias candle: ${dateStr}, ${daily.color}, HA close \u20b9${daily.close.toFixed(2)}`);
+        tg(`${side} DAILY HA BIAS ENTRY @ \u20b9${livePrice.toFixed(2)}\nSL \u20b9${slLevel.toFixed(2)} (${atrMult}x ATR ${atrVal.toFixed(2)})\nbias candle (${candleTag}): ${dateStr}, ${daily.color}, HA close \u20b9${daily.close.toFixed(2)}`);
         return true;
     }
 
@@ -6354,7 +6363,22 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
         const pastEntryTime = hours > ENTRY_HOUR || (hours === ENTRY_HOUR && minutes >= ENTRY_MINUTE);
         if (!pastEntryTime) return;
 
-        const daily = await dailyReader.getLatest();
+        let daily = await dailyReader.getLatest();
+        if (CANDLE_MODE === "CURRENT") {
+            // Today's forming daily HA candle. Needs the previous completed daily HA candle to chain from.
+            if (!daily || daily.open === undefined) return;
+            const todayKey = istDay(clock.now());
+            const todays = candles.getRawCandles().filter(k => istDay(k.date) === todayKey);
+            if (!todays.length) return;   // no candle of today yet — try next candle
+            const o = todays[0].open, cl = livePrice;
+            const h = Math.max(livePrice, ...todays.map(k => k.high)), l = Math.min(livePrice, ...todays.map(k => k.low));
+            const haOpen = (daily.open + daily.close) / 2, haClose = (o + h + l + cl) / 4;
+            daily = {
+                color: haClose > haOpen ? "green" : haClose < haOpen ? "red" : null,
+                date: todays[0].date instanceof Date ? todays[0].date : new Date(todays[0].date),
+                open: haOpen, close: haClose, high: Math.max(h, haOpen, haClose), low: Math.min(l, haOpen, haClose),
+            };
+        }
         if (!daily || !daily.color) return; // fails safe — no read yet: try again next candle, still within today's window; a genuine doji day IS decided (falls through below), this is only "no data at all yet"
 
         const side = daily.color === "green" ? "LONG" : "SHORT";

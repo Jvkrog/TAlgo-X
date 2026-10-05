@@ -206,6 +206,9 @@ function buildContext(def, resolvedContract) {
         // reason as bandStep above; strategies.js falls back to 10:00.
         dailyBiasEntryHour: null,
         dailyBiasEntryMinute: null,
+        // "PREVIOUS" (null default) = side from the previous COMPLETED daily HA candle;
+        // "CURRENT" = side from today's still-forming daily HA candle as of the entry time.
+        dailyBiasCandle: null,
         // Per-instrument ATR stop-loss multiplier override. null (not a
         // literal default) for the same STRATEGY_PARAMS-backtest-tuning
         // reason as bandStep/flipConfirmCandles above — every

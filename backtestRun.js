@@ -147,7 +147,7 @@ async function runBacktest({ strategyKey, strategyLabel, context, timeframe, fro
         return {
             dayKey: new Date(istMs).toISOString().split("T")[0],
             color: bar.close > bar.open ? "green" : bar.close < bar.open ? "red" : null,
-            date: bar.date, close: bar.close, high: bar.high, low: bar.low,
+            date: bar.date, open: bar.open, close: bar.close, high: bar.high, low: bar.low,
         };
     });
     let dailyPtr = 0;
@@ -167,7 +167,7 @@ async function runBacktest({ strategyKey, strategyLabel, context, timeframe, fro
         getLatest: async () => {
             const dayKey = new Date(clock.now().getTime() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
             const bar = priorDailyBar(dayKey);
-            return bar ? { color: bar.color, date: bar.date, close: bar.close, high: bar.high, low: bar.low } : null;
+            return bar ? { color: bar.color, date: bar.date, open: bar.open, close: bar.close, high: bar.high, low: bar.low } : null;
         },
         isBlocked: async (side) => {
             if (context.dailyHaGateEnabled === false) return false;

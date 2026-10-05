@@ -1397,7 +1397,7 @@ function renderRiskList() {
       `<span class="mode-pill ${inst.dailyHaGateEnabled !== false ? "live" : ""}">dailyha ${inst.dailyHaGateEnabled !== false ? "on" : "off"}</span>`,
     ];
     if (inst.strategy === "PURE_HA") badges.push(`<span class="mode-pill">flip ${inst.flipConfirmCandles ?? 1}</span>`);
-    if (inst.strategy === "DAILY_HA_BIAS") badges.push(`<span class="mode-pill">entry ${inst.dailyBiasEntryTime || "10:00"}</span>`);
+    if (inst.strategy === "DAILY_HA_BIAS") badges.push(`<span class="mode-pill">entry ${inst.dailyBiasEntryTime || "10:00"} \u00b7 ${inst.dailyBiasCandle === "CURRENT" ? "today's candle" : "prev candle"}</span>`);
     if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
     if (inst.maxDailyLoss) badges.push(`<span class="mode-pill">maxloss -₹${inst.maxDailyLoss}</span>`);
     row.innerHTML = `
@@ -1632,6 +1632,12 @@ function openEditModal(inst) {
     <div class="tb-form-row">
       <div class="tb-form-label">trade entry time IST \u2014 the first ${inst.timeframe || "15m"} candle at/after it takes the previous daily HA candle's side (blank = 10:00)</div>
       <input type="time" id="editDhabEntry" value="${inst.dailyBiasEntryTime ?? ""}">
+      <div class="tb-form-label" style="margin-top:8px">Daily candle used \u2014 previous = yesterday's completed daily HA candle; present = today's forming daily HA candle at entry time</div>
+      <select id="editDhabCandle">
+        <option value="">Previous day (default)</option>
+        <option value="PREVIOUS" ${inst.dailyBiasCandle === "PREVIOUS" ? "selected" : ""}>Previous day (explicit)</option>
+        <option value="CURRENT" ${inst.dailyBiasCandle === "CURRENT" ? "selected" : ""}>Present day (forming)</option>
+      </select>
     </div>` : ""}
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="editVolumeFilter" ${inst.volumeFilterEnabled ? "checked" : ""}><span>Only enter when volume is above its SMA</span></label>
@@ -1711,6 +1717,8 @@ function openEditModal(inst) {
     if (editFlipConfirmEl) body.flipConfirmCandles = editFlipConfirmEl.value || null;
     const editDhabEntryEl = tbEditBody.querySelector("#editDhabEntry");
     if (editDhabEntryEl) body.dailyBiasEntryTime = editDhabEntryEl.value || null;
+    const editDhabCandleEl = tbEditBody.querySelector("#editDhabCandle");
+    if (editDhabCandleEl) body.dailyBiasCandle = editDhabCandleEl.value || null;
     body.volumeFilterEnabled = tbEditBody.querySelector("#editVolumeFilter").checked;
     body.volumeSmaPeriod = tbEditBody.querySelector("#editVolumeSmaPeriod").value || null;
     body.longCandleFilterEnabled = tbEditBody.querySelector("#editLongCandleFilter").checked;
@@ -2015,6 +2023,12 @@ function renderAddConfigStep() {
     <div class="tb-form-row" id="addDhabEntryRow" style="display:none">
       <div class="tb-form-label">Trade entry time IST \u2014 the first candle (15m by default) at/after it takes the previous daily HA candle's side (blank = 10:00)</div>
       <input type="time" id="addDhabEntry">
+      <div class="tb-form-label" style="margin-top:8px">Daily candle used \u2014 previous = yesterday's completed daily HA candle; present = today's forming daily HA candle at entry time</div>
+      <select id="addDhabCandle">
+        <option value="">Previous day (default)</option>
+        <option value="PREVIOUS">Previous day (explicit)</option>
+        <option value="CURRENT">Present day (forming)</option>
+      </select>
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="addVolumeFilter"><span>Only enter when volume is above its SMA</span></label>
@@ -2158,6 +2172,7 @@ function renderAddConfigStep() {
         atrSlMult: tbAddBody.querySelector("#addAtrSlMult").value || undefined,
         flipConfirmCandles: pickedStrategy === "PURE_HA" ? (tbAddBody.querySelector("#addFlipConfirm").value || undefined) : undefined,
         dailyBiasEntryTime: pickedStrategy === "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addDhabEntry").value || undefined) : undefined,
+        dailyBiasCandle: pickedStrategy === "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addDhabCandle").value || undefined) : undefined,
         volumeFilterEnabled: tbAddBody.querySelector("#addVolumeFilter").checked,
         volumeSmaPeriod: tbAddBody.querySelector("#addVolumeSmaPeriod").value || undefined,
         longCandleFilterEnabled: tbAddBody.querySelector("#addLongCandleFilter").checked,
@@ -2334,6 +2349,12 @@ async function renderBacktestParamsStep() {
     <div class="tb-form-row" id="btDhabEntryRow" style="display:none">
       <div class="tb-form-label">Trade entry time IST \u2014 the first candle at/after it takes the previous daily HA candle's side (blank = 10:00)</div>
       <input type="time" id="btDhabEntry">
+      <div class="tb-form-label" style="margin-top:8px">Daily candle used \u2014 previous = yesterday's completed daily HA candle; present = today's forming daily HA candle at entry time</div>
+      <select id="btDhabCandle">
+        <option value="">Previous day (default)</option>
+        <option value="PREVIOUS">Previous day (explicit)</option>
+        <option value="CURRENT">Present day (forming)</option>
+      </select>
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="btVolEnabled"><span>Only enter when volume is above its SMA (default N)</span></label>
@@ -2415,6 +2436,7 @@ async function renderBacktestParamsStep() {
       disableDoubleOrders: tbBacktestBody.querySelector("#btDoubleDisabled").checked,
       atrSlMult: btState.strategy === "ALMA_BAND" ? undefined : (tbBacktestBody.querySelector("#btAtrMult").value || undefined),
       dailyBiasEntryTime: btState.strategy === "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btDhabEntry").value || undefined) : undefined,
+      dailyBiasCandle: btState.strategy === "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btDhabCandle").value || undefined) : undefined,
       volumeFilterEnabled: tbBacktestBody.querySelector("#btVolEnabled").checked,
       volumeSmaPeriod: tbBacktestBody.querySelector("#btVolPeriod").value || undefined,
       carryOvernight: tbBacktestBody.querySelector("#btCarry").checked,

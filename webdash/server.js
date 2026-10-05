@@ -466,6 +466,7 @@ async function getEngineProcesses() {
             atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
             flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
             dailyBiasEntryTime: p.pm2_env.env?.DAILY_BIAS_ENTRY_TIME_OVERRIDE || null,
+            dailyBiasCandle: p.pm2_env.env?.DAILY_BIAS_CANDLE_OVERRIDE || null,
             volumeFilterEnabled: p.pm2_env.env?.VOLUME_FILTER_OVERRIDE === "true",
             volumeSmaPeriod: p.pm2_env.env?.VOLUME_SMA_PERIOD_OVERRIDE ? Number(p.pm2_env.env.VOLUME_SMA_PERIOD_OVERRIDE) : null,
             longCandleFilterEnabled: p.pm2_env.env?.LONG_CANDLE_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.LONG_CANDLE_FILTER_OVERRIDE === "true" : true,
@@ -525,6 +526,7 @@ function buildProcessEnv(p, overrides = {}) {
     env.FLIP_CONFIRM_CANDLES_OVERRIDE = p.flipConfirmCandles ? String(p.flipConfirmCandles) : "";
     // DAILY_HA_BIAS only (entry time, IST "HH:MM"); blank = default 10:00. Always written explicitly.
     env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = p.dailyBiasEntryTime || "";
+    env.DAILY_BIAS_CANDLE_OVERRIDE = p.dailyBiasCandle || "";
     env.VOLUME_FILTER_OVERRIDE = String(!!p.volumeFilterEnabled);
     env.VOLUME_SMA_PERIOD_OVERRIDE = p.volumeSmaPeriod ? String(p.volumeSmaPeriod) : "";
     env.LONG_CANDLE_FILTER_OVERRIDE = p.longCandleFilterEnabled === false ? "false" : "true";
@@ -764,7 +766,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, dailyBiasEntryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -832,6 +834,14 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 const t = normEntryTime(dailyBiasEntryTime);
                 if (!t) return res.status(400).json({ error: "dailyBiasEntryTime must be HH:MM (IST)" });
                 updated.dailyBiasEntryTime = t;
+            }
+        }
+        if (dailyBiasCandle !== undefined) {
+            if (dailyBiasCandle === null || dailyBiasCandle === "") updated.dailyBiasCandle = null;
+            else {
+                const v = String(dailyBiasCandle).toUpperCase();
+                if (v !== "PREVIOUS" && v !== "CURRENT") return res.status(400).json({ error: "dailyBiasCandle must be PREVIOUS or CURRENT" });
+                updated.dailyBiasCandle = v;
             }
         }
         if (volumeFilterEnabled !== undefined) updated.volumeFilterEnabled = !!volumeFilterEnabled;
@@ -1046,7 +1056,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, dailyBiasEntryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -1155,6 +1165,11 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             if (!t) return res.status(400).json({ error: "dailyBiasEntryTime must be HH:MM (IST)" });
             env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = t;
         }
+        if (stratKey === "DAILY_HA_BIAS" && dailyBiasCandle !== undefined && dailyBiasCandle !== null && dailyBiasCandle !== "") {
+            const v = String(dailyBiasCandle).toUpperCase();
+            if (v !== "PREVIOUS" && v !== "CURRENT") return res.status(400).json({ error: "dailyBiasCandle must be PREVIOUS or CURRENT" });
+            env.DAILY_BIAS_CANDLE_OVERRIDE = v;
+        }
         if (stratKey === "PURE_HA" && flipConfirmCandles !== undefined && flipConfirmCandles !== null && flipConfirmCandles !== "") {
             const parsedConfirm = Number(flipConfirmCandles);
             if (Number.isInteger(parsedConfirm) && parsedConfirm >= 1) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(parsedConfirm);
@@ -1231,7 +1246,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // else mutates context directly, exactly like backtestFlow.js does.
         chopFilterEnabled, chopPeriod, chopMax,
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
-        disableDoubleOrders, atrSlMult, dailyBiasEntryTime,
+        disableDoubleOrders, atrSlMult, dailyBiasEntryTime, dailyBiasCandle,
         volumeFilterEnabled, volumeSmaPeriod,
         carryOvernight, maxDailyLoss, sessionTargetRupees, dailyHaGateEnabled,
     } = req.body || {};
@@ -1346,6 +1361,11 @@ app.post("/api/toolbox/backtest", async (req, res) => {
             const t = parseHHMM(dailyBiasEntryTime);
             if (!t) return res.status(400).json({ error: "dailyBiasEntryTime must be HH:MM (IST)" });
             context.dailyBiasEntryHour = t.hour; context.dailyBiasEntryMinute = t.minute;
+        }
+        if (dailyBiasCandle !== undefined && dailyBiasCandle !== null && dailyBiasCandle !== "") {
+            const v = String(dailyBiasCandle).toUpperCase();
+            if (v !== "PREVIOUS" && v !== "CURRENT") return res.status(400).json({ error: "dailyBiasCandle must be PREVIOUS or CURRENT" });
+            context.dailyBiasCandle = v;
         }
         if (volumeFilterEnabled !== undefined) context.volumeFilterEnabled = !!volumeFilterEnabled;
         if (volumeSmaPeriod !== undefined && volumeSmaPeriod !== null && volumeSmaPeriod !== "") {

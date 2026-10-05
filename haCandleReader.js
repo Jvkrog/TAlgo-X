@@ -130,7 +130,7 @@ function createHaCandleReader({ token, timeframe, engineConfig, label }) {
         if (!haBars.length) return null;
         const last = haBars[haBars.length - 1];
         const color = last.close > last.open ? "green" : last.close < last.open ? "red" : null;
-        return { color, date: last.date, close: last.close, high: last.high, low: last.low };
+        return { color, date: last.date, open: last.open, close: last.close, high: last.high, low: last.low };
     }
 
     return { getLatest, prewarm: () => getLatest().catch(() => {}) };

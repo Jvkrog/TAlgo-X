@@ -446,6 +446,9 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
                 console.log(c.yellow(`  "${entryInput}" isn't HH:MM — using the default 10:00`));
             }
         }
+        const candleInput = (await ask(`  Daily candle used — PREVIOUS = yesterday's completed daily HA candle, CURRENT = today's forming daily HA candle at entry time (blank = PREVIOUS): `)).trim().toUpperCase();
+        if (candleInput === "CURRENT" || candleInput === "PREVIOUS") context.dailyBiasCandle = candleInput;
+        else if (candleInput) console.log(c.yellow(`  "${candleInput}" isn't PREVIOUS or CURRENT — using PREVIOUS`));
     }
 
     // Carry-overnight — now meaningful for a multi-day backtest range
@@ -511,6 +514,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     console.log(`  Instrument: ${underlying} (${context.symbol})`);
     console.log(`  Timeframe:  ${timeframe}`);
     if (strategyKey === "DAILY_HA_BIAS") console.log(`  Entry time: ${String(context.dailyBiasEntryHour ?? 10).padStart(2, "0")}:${String(context.dailyBiasEntryMinute ?? 0).padStart(2, "0")} IST`);
+    if (strategyKey === "DAILY_HA_BIAS") console.log(`  Daily candle: ${context.dailyBiasCandle === "CURRENT" ? "CURRENT (today's forming daily HA candle)" : "PREVIOUS (yesterday's completed daily HA candle)"}`);
     console.log(`  Range:      ${from.toISOString().split("T")[0]} -> ${to.toISOString().split("T")[0]}`);
     console.log(`  Params:     ${Object.keys(params).length ? JSON.stringify(params) : "(all defaults)"}`);
     console.log(`  Risk:       chop:${isShortHold ? "n/a" : (params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on")} lc:${isShortHold ? "n/a" : (context.longCandleFilterEnabled === false ? "off" : "on")} double:${isShortHold ? "n/a" : (context.disableDoubleOrders ? "off" : "on")} vol:${isShortHold ? "n/a" : (context.volumeFilterEnabled ? "on" : "off")} atr:${strategyKey === "ALMA_BAND" ? "n/a (band SL)" : isShortHold ? "n/a (no SL)" : context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"}${isShortHold ? " (forced)" : ""} maxloss:${context.maxDailyLoss ?? "none"} sessionTarget:${context.sessionTargetRupees ?? "none"} dailyha:${context.dailyHaGateEnabled === false ? "off" : "on"}${isShortHold ? " (forced)" : ""}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);
