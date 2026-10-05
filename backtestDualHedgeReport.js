@@ -15,6 +15,14 @@
 // Deliberately a separate file for the same reason backtestHedgePairReport.js is.
 "use strict";
 
+// "2026-10-05T04:15:00.000Z" (UTC) -> "2026-10-05 09:45:00" (IST, no T/Z).
+function fmtIst(v) {
+    const d = new Date(v);
+    if (isNaN(d)) return String(v);
+    return new Date(d.getTime() + 5.5 * 3600e3).toISOString().replace("T", " ").slice(0, 19);
+}
+
+
 const fs   = require("fs");
 const path = require("path");
 const { fmtDuration } = require("./backtestMetrics");
@@ -102,8 +110,8 @@ function renderDualHedgeHtml(report) {
             const sideArrow = t.side === "LONG" ? "\u25b2" : "\u25bc";
             return `<tr class="${t.leg === "SHORT" ? "short-leg" : ""}">
                 <td>${t.leg}</td>${isBias ? `<td>${esc(t.role || "")}</td>` : ""}
-                <td>${t.entry_time}</td><td class="${sideClass}">${sideArrow} ${t.side}</td><td>${(+t.entry_price).toFixed(2)}</td>
-                <td>${t.exit_time}</td><td>${(+t.exit_price).toFixed(2)}</td>
+                <td>${fmtIst(t.entry_time)}</td><td class="${sideClass}">${sideArrow} ${t.side}</td><td>${(+t.entry_price).toFixed(2)}</td>
+                <td>${fmtIst(t.exit_time)}</td><td>${(+t.exit_price).toFixed(2)}</td>
                 <td class="${pnlClass}">${(t.pnl || 0).toFixed(2)}</td>
                 <td class="neg">${(t.mae || 0).toFixed(0)}</td>
                 <td>${t.flipped ? "yes" : "no"}</td>
@@ -167,7 +175,7 @@ ${metricsCards(report.metrics.short)}
 
 <h2>Trades (${report.metrics.combined.trades}) \u2014 gold rows are the SHORT account${isBias ? "; Role = CORE (daily-bias leg) or HEDGE" : ""}</h2>
 <table><thead><tr>
-  <th>Acct</th>${isBias ? "<th>Role</th>" : ""}<th>Entry Time</th><th>Side</th><th>Entry</th><th>Exit Time</th><th>Exit</th><th>PnL</th><th>MAE</th><th>Flipped</th><th>Combined PnL</th><th>Reason</th>
+  <th>Acct</th>${isBias ? "<th>Role</th>" : ""}<th>Entry Time (IST)</th><th>Side</th><th>Entry</th><th>Exit Time (IST)</th><th>Exit</th><th>PnL</th><th>MAE</th><th>Flipped</th><th>Combined PnL</th><th>Reason</th>
 </tr></thead><tbody>${rows || `<tr><td colspan="12">no closed trades in this range</td></tr>`}</tbody></table>
 <div class="note">MAE = worst unrealized PnL during the trade. Times are UTC ISO (IST = +5:30). Fills are modeled from 1-minute OHLC \u2014 see backtestDualHedge.js's header for the assumptions.</div>
 </body></html>`;

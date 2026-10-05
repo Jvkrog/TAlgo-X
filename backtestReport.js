@@ -7,6 +7,14 @@
 //   backtests/<STRATEGY>_<INSTRUMENT>_<runTimestamp>.html
 "use strict";
 
+// "2026-10-05T04:15:00.000Z" (UTC) -> "2026-10-05 09:45:00" (IST, no T/Z).
+function fmtIst(v) {
+    const d = new Date(v);
+    if (isNaN(d)) return String(v);
+    return new Date(d.getTime() + 5.5 * 3600e3).toISOString().replace("T", " ").slice(0, 19);
+}
+
+
 const fs   = require("fs");
 const path = require("path");
 const { fmtDuration } = require("./backtestMetrics");
@@ -60,8 +68,8 @@ function renderHtml(report) {
             const sideClass = t.side === "LONG" ? "pos" : "neg";
             const sideArrow = t.side === "LONG" ? "▲" : "▼";
             return `<tr>
-                <td>${t.entry_time}</td><td class="${sideClass}">${sideArrow} ${t.side}</td><td>${t.entry_price}</td>
-                <td>${t.exit_time}</td><td>${t.exit_price}</td>
+                <td>${fmtIst(t.entry_time)}</td><td class="${sideClass}">${sideArrow} ${t.side}</td><td>${t.entry_price}</td>
+                <td>${fmtIst(t.exit_time)}</td><td>${t.exit_price}</td>
                 <td class="${pnlClass}">${(t.pnl || 0).toFixed(2)}</td>
                 <td class="${sessionClass}">${runningSession.toFixed(2)}</td>
                 <td>${t.exit_reason}</td>
@@ -100,7 +108,7 @@ th{background:#161a22} td:first-child,th:first-child{text-align:left}
 </div>
 <h2>Trades (${m.trades})</h2>
 <table><thead><tr>
-  <th>Entry Time</th><th>Side</th><th>Entry</th><th>Exit Time</th><th>Exit</th><th>PnL</th><th>Session PnL</th><th>Reason</th>
+  <th>Entry Time (IST)</th><th>Side</th><th>Entry</th><th>Exit Time (IST)</th><th>Exit</th><th>PnL</th><th>Session PnL</th><th>Reason</th>
 </tr></thead><tbody>${rows || `<tr><td colspan="7">no closed trades in this range</td></tr>`}</tbody></table>
 </body></html>`;
 }
