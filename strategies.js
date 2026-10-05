@@ -6260,7 +6260,14 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
     const ENTRY_HOUR = context.dailyBiasEntryHour ?? 10, ENTRY_MINUTE = context.dailyBiasEntryMinute ?? 0;
     const ENTRY_LABEL = `${String(ENTRY_HOUR).padStart(2, "0")}:${String(ENTRY_MINUTE).padStart(2, "0")}`;
 
-    const dailyReader = createHaCandleReader({ token: context.token, timeframe: "1d", engineConfig, label: context.tgPrefix });
+    // Backtest (backtestRun.js) passes dailyHa.getLatest(): the previous COMPLETED daily HA
+    // candle AS OF THE REPLAY CLOCK. Without it the live reader below would fetch today's
+    // latest completed daily candle from Kite and apply it to every historical day
+    // (look-ahead). Live deployments' dailyHa (the orders.js gate) has no getLatest, so they
+    // keep reading Kite directly.
+    const dailyReader = (dailyHa && typeof dailyHa.getLatest === "function")
+        ? { getLatest: () => dailyHa.getLatest(), prewarm() {} }
+        : createHaCandleReader({ token: context.token, timeframe: "1d", engineConfig, label: context.tgPrefix });
 
     // CHANGED Oct 2026 — SL is no longer the previous daily HA candle's
     // high/low. Same ATR_SL_MULT x ATR(ST_ATR_LEN) distance every other

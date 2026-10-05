@@ -147,15 +147,28 @@ async function runBacktest({ strategyKey, strategyLabel, context, timeframe, fro
         return {
             dayKey: new Date(istMs).toISOString().split("T")[0],
             color: bar.close > bar.open ? "green" : bar.close < bar.open ? "red" : null,
+            date: bar.date, close: bar.close, high: bar.high, low: bar.low,
         };
     });
     let dailyPtr = 0;
-    function priorDailyColor(dayKey) {
+    function priorDailyBar(dayKey) {
         while (dailyPtr + 1 < dailyHaSorted.length && dailyHaSorted[dailyPtr + 1].dayKey < dayKey) dailyPtr++;
         const candidate = dailyHaSorted[dailyPtr];
-        return (candidate && candidate.dayKey < dayKey) ? candidate.color : null;
+        return (candidate && candidate.dayKey < dayKey) ? candidate : null;
+    }
+    function priorDailyColor(dayKey) {
+        const candidate = priorDailyBar(dayKey);
+        return candidate ? candidate.color : null;
     }
     const dailyHa = {
+        // The previous completed daily HA candle as of the replay clock, same shape as
+        // haCandleReader.js's getLatest() — DAILY_HA_BIAS reads its side from this in a
+        // backtest instead of fetching today's live candle (see createDailyHaBiasStrategy).
+        getLatest: async () => {
+            const dayKey = new Date(clock.now().getTime() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
+            const bar = priorDailyBar(dayKey);
+            return bar ? { color: bar.color, date: bar.date, close: bar.close, high: bar.high, low: bar.low } : null;
+        },
         isBlocked: async (side) => {
             if (context.dailyHaGateEnabled === false) return false;
             const now = clock.now();

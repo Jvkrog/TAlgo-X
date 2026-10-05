@@ -1231,7 +1231,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // else mutates context directly, exactly like backtestFlow.js does.
         chopFilterEnabled, chopPeriod, chopMax,
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
-        disableDoubleOrders, atrSlMult,
+        disableDoubleOrders, atrSlMult, dailyBiasEntryTime,
         volumeFilterEnabled, volumeSmaPeriod,
         carryOvernight, maxDailyLoss, sessionTargetRupees, dailyHaGateEnabled,
     } = req.body || {};
@@ -1340,6 +1340,12 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         if (atrSlMult !== undefined && atrSlMult !== null && atrSlMult !== "") {
             const n = Number(atrSlMult);
             if (Number.isFinite(n) && n > 0) context.atrSlMult = n;
+        }
+        // DAILY_HA_BIAS trade entry time (IST "HH:MM"), same field the live engine reads.
+        if (dailyBiasEntryTime !== undefined && dailyBiasEntryTime !== null && dailyBiasEntryTime !== "") {
+            const t = parseHHMM(dailyBiasEntryTime);
+            if (!t) return res.status(400).json({ error: "dailyBiasEntryTime must be HH:MM (IST)" });
+            context.dailyBiasEntryHour = t.hour; context.dailyBiasEntryMinute = t.minute;
         }
         if (volumeFilterEnabled !== undefined) context.volumeFilterEnabled = !!volumeFilterEnabled;
         if (volumeSmaPeriod !== undefined && volumeSmaPeriod !== null && volumeSmaPeriod !== "") {

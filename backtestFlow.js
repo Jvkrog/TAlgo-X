@@ -433,6 +433,21 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         }
     }
 
+    // DAILY_HA_BIAS trade entry time (IST) — the once-a-day decision fires on the first
+    // candle of the chosen timeframe at/after it. Default 10:00.
+    if (strategyKey === "DAILY_HA_BIAS") {
+        const entryInput = (await ask(`  Trade entry time IST HH:MM — first ${timeframe} candle at/after it takes the previous daily HA candle's side (blank = 10:00): `)).trim();
+        if (entryInput) {
+            const m = entryInput.match(/^(\d{1,2}):(\d{2})$/);
+            if (m && Number(m[1]) <= 23 && Number(m[2]) <= 59) {
+                context.dailyBiasEntryHour = Number(m[1]);
+                context.dailyBiasEntryMinute = Number(m[2]);
+            } else {
+                console.log(c.yellow(`  "${entryInput}" isn't HH:MM — using the default 10:00`));
+            }
+        }
+    }
+
     // Carry-overnight — now meaningful for a multi-day backtest range
     // since backtestRun.js's EOD handler respects it exactly like
     // lifecycle.js does live (see that file's EOD block): on, a position
@@ -495,6 +510,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     console.log(`  Strategy:   ${strategyLabel}`);
     console.log(`  Instrument: ${underlying} (${context.symbol})`);
     console.log(`  Timeframe:  ${timeframe}`);
+    if (strategyKey === "DAILY_HA_BIAS") console.log(`  Entry time: ${String(context.dailyBiasEntryHour ?? 10).padStart(2, "0")}:${String(context.dailyBiasEntryMinute ?? 0).padStart(2, "0")} IST`);
     console.log(`  Range:      ${from.toISOString().split("T")[0]} -> ${to.toISOString().split("T")[0]}`);
     console.log(`  Params:     ${Object.keys(params).length ? JSON.stringify(params) : "(all defaults)"}`);
     console.log(`  Risk:       chop:${isShortHold ? "n/a" : (params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on")} lc:${isShortHold ? "n/a" : (context.longCandleFilterEnabled === false ? "off" : "on")} double:${isShortHold ? "n/a" : (context.disableDoubleOrders ? "off" : "on")} vol:${isShortHold ? "n/a" : (context.volumeFilterEnabled ? "on" : "off")} atr:${strategyKey === "ALMA_BAND" ? "n/a (band SL)" : isShortHold ? "n/a (no SL)" : context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"}${isShortHold ? " (forced)" : ""} maxloss:${context.maxDailyLoss ?? "none"} sessionTarget:${context.sessionTargetRupees ?? "none"} dailyha:${context.dailyHaGateEnabled === false ? "off" : "on"}${isShortHold ? " (forced)" : ""}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);

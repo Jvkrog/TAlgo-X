@@ -2331,6 +2331,10 @@ async function renderBacktestParamsStep() {
       <div class="tb-form-label">ATR stop-loss multiplier (blank = default)</div>
       <input type="number" id="btAtrMult" min="0" step="any">
     </div>
+    <div class="tb-form-row" id="btDhabEntryRow" style="display:none">
+      <div class="tb-form-label">Trade entry time IST \u2014 the first candle at/after it takes the previous daily HA candle's side (blank = 10:00)</div>
+      <input type="time" id="btDhabEntry">
+    </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="btVolEnabled"><span>Only enter when volume is above its SMA (default N)</span></label>
       <input type="number" id="btVolPeriod" placeholder="SMA period, default 20" min="1" step="1">
@@ -2361,6 +2365,9 @@ async function renderBacktestParamsStep() {
   // nothing, same reasoning as the CLI skipping this prompt for it.
   if (btState.strategy === "ALMA_BAND") {
     tbBacktestBody.querySelector("#btAtrRow").style.display = "none";
+  }
+  if (btState.strategy === "DAILY_HA_BIAS") {
+    tbBacktestBody.querySelector("#btDhabEntryRow").style.display = "";
   }
 
   const tfSelect = tbBacktestBody.querySelector("#btTimeframe");
@@ -2407,6 +2414,7 @@ async function renderBacktestParamsStep() {
       longCandleCooldownCandles: tbBacktestBody.querySelector("#btLcCooldown").value || undefined,
       disableDoubleOrders: tbBacktestBody.querySelector("#btDoubleDisabled").checked,
       atrSlMult: btState.strategy === "ALMA_BAND" ? undefined : (tbBacktestBody.querySelector("#btAtrMult").value || undefined),
+      dailyBiasEntryTime: btState.strategy === "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btDhabEntry").value || undefined) : undefined,
       volumeFilterEnabled: tbBacktestBody.querySelector("#btVolEnabled").checked,
       volumeSmaPeriod: tbBacktestBody.querySelector("#btVolPeriod").value || undefined,
       carryOvernight: tbBacktestBody.querySelector("#btCarry").checked,
