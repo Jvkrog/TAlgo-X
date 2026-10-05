@@ -1657,11 +1657,7 @@ function openEditModal(inst) {
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="editHtfGate" ${inst.htfGateEnabled !== false ? "checked" : ""}><span>Block entries when a higher timeframe is trending but price hasn't broken its band yet</span></label>
-      <div class="tb-form-hint">On by default. Checks the higher timeframe below; period/max tune that timeframe's own Choppiness Index reading.</div>
-      <select id="editHtfTimeframe">
-        <option value="1h" ${(inst.htfTimeframe || "1h") === "1h" ? "selected" : ""}>1h</option>
-        <option value="1d" ${inst.htfTimeframe === "1d" ? "selected" : ""}>1d</option>
-      </select>
+      <div class="tb-form-hint">On by default. Checks the 1h timeframe; period/max tune its Choppiness Index reading.</div>
       <input type="number" id="editHtfChopPeriod" min="1" step="1" value="${inst.htfChopPeriod ?? ""}" placeholder="chop period, blank = default (9)">
       <input type="number" id="editHtfChopMax" min="0" step="any" value="${inst.htfChopMax ?? ""}" placeholder="chop max, blank = default (58)">
       <label class="tb-form-row-inline"><input type="checkbox" id="editHtfBandBlock" ${inst.htfBandBlockEnabled !== false ? "checked" : ""}><span>Also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
@@ -1726,7 +1722,6 @@ function openEditModal(inst) {
     body.longCandleAtrMult = tbEditBody.querySelector("#editLongCandleAtrMult").value || null;
     body.longCandleCooldownCandles = tbEditBody.querySelector("#editLongCandleCooldown").value || null;
     body.htfGateEnabled = tbEditBody.querySelector("#editHtfGate").checked;
-    body.htfTimeframe = tbEditBody.querySelector("#editHtfTimeframe").value;
     body.htfChopPeriod = tbEditBody.querySelector("#editHtfChopPeriod").value || null;
     body.htfChopMax = tbEditBody.querySelector("#editHtfChopMax").value || null;
     body.htfBandBlockEnabled = tbEditBody.querySelector("#editHtfBandBlock").checked;
@@ -2048,11 +2043,7 @@ function renderAddConfigStep() {
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="addHtfGate" checked><span>Block entries when a higher timeframe is trending but price hasn't broken its band yet (default: ON)</span></label>
-      <div class="tb-form-hint">Checks the higher timeframe below; period/max tune that timeframe's own Choppiness Index reading.</div>
-      <select id="addHtfTimeframe">
-        <option value="1h" selected>1h</option>
-        <option value="1d">1d</option>
-      </select>
+      <div class="tb-form-hint">Checks the 1h timeframe; period/max tune its Choppiness Index reading.</div>
       <input type="number" id="addHtfChopPeriod" min="1" step="1" placeholder="chop period, blank = default (9)">
       <input type="number" id="addHtfChopMax" min="0" step="any" placeholder="chop max, blank = default (58)">
       <label class="tb-form-row-inline"><input type="checkbox" id="addHtfBandBlock" checked><span>Also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
@@ -2180,7 +2171,6 @@ function renderAddConfigStep() {
         longCandleAtrMult: tbAddBody.querySelector("#addLongCandleAtrMult").value || undefined,
         longCandleCooldownCandles: tbAddBody.querySelector("#addLongCandleCooldown").value || undefined,
         htfGateEnabled: tbAddBody.querySelector("#addHtfGate").checked,
-        htfTimeframe: tbAddBody.querySelector("#addHtfTimeframe").value,
         htfChopPeriod: tbAddBody.querySelector("#addHtfChopPeriod").value || undefined,
         htfChopMax: tbAddBody.querySelector("#addHtfChopMax").value || undefined,
         htfBandBlockEnabled: tbAddBody.querySelector("#addHtfBandBlock").checked,

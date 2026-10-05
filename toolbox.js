@@ -1242,12 +1242,6 @@ async function riskManagement(procs) {
             const htfGateInput = (await ask(`  Block entries when a higher timeframe is trending but hasn't broken its own ALMA band? [Y/n] (current: ${htfGateDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (htfGateInput) htfGateEnabled = htfGateInput !== "N";
             if (htfGateEnabled) {
-                const htfTfDefault = htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT;
-                const htfTfInput = (await ask(`  Higher timeframe, 1h or 1d (current: ${htfTfDefault}, blank = keep): `)).trim().toLowerCase();
-                if (htfTfInput) {
-                    if (htfTfInput === "1h" || htfTfInput === "1d") htfTimeframe = htfTfInput;
-                    else console.log(c.yellow(`  "${htfTfInput}" isn't "1h" or "1d" — left unchanged (${htfTfDefault})`));
-                }
                 const htfPeriodDefault = htfChopPeriod !== null ? String(htfChopPeriod) : `${engineConfig.HTF_CHOP_LEN_DEFAULT} (default)`;
                 const htfPeriodInput = (await ask(`  Higher-timeframe Choppiness Index period (current: ${htfPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
                 if (htfPeriodInput) {
@@ -1767,11 +1761,6 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     let htfChopPeriod = null;
     let htfChopMax = null;
     if (htfGateEnabled) {
-        const htfTfInput = (await ask(`  Higher timeframe, 1h or 1d (blank = default ${engineConfig.HTF_GATE_TIMEFRAME_DEFAULT}): `)).trim().toLowerCase();
-        if (htfTfInput) {
-            if (htfTfInput === "1h" || htfTfInput === "1d") htfTimeframe = htfTfInput;
-            else console.log(c.yellow(`  "${htfTfInput}" isn't "1h" or "1d" — using default (${engineConfig.HTF_GATE_TIMEFRAME_DEFAULT})`));
-        }
         const htfPeriodInput = (await ask(`  Higher-timeframe Choppiness Index period (blank = default ${engineConfig.HTF_CHOP_LEN_DEFAULT}): `)).trim();
         if (htfPeriodInput) {
             const parsed = Number(htfPeriodInput);
