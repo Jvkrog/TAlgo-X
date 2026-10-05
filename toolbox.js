@@ -180,6 +180,7 @@ async function getEngineProcesses() {
             flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
             dailyBiasEntryTime: p.pm2_env.env?.DAILY_BIAS_ENTRY_TIME_OVERRIDE || null,
             dailyBiasCandle: p.pm2_env.env?.DAILY_BIAS_CANDLE_OVERRIDE || null,
+            entryTime: p.pm2_env.env?.ENTRY_TIME_OVERRIDE || null,
             atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
             volumeFilterEnabled: p.pm2_env.env?.VOLUME_FILTER_OVERRIDE === "true",
             volumeSmaPeriod: p.pm2_env.env?.VOLUME_SMA_PERIOD_OVERRIDE ? Number(p.pm2_env.env.VOLUME_SMA_PERIOD_OVERRIDE) : null,
@@ -612,6 +613,7 @@ function buildProcessEnv(p, overrides = {}) {
     // DAILY_HA_BIAS only (entry time, IST "HH:MM"); blank = default 10:00. Always written, same "restart merges env" reasoning.
     env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = p.dailyBiasEntryTime || "";
     env.DAILY_BIAS_CANDLE_OVERRIDE = p.dailyBiasCandle || "";
+    env.ENTRY_TIME_OVERRIDE = p.entryTime || "";
     // Universal, always written explicitly (both true AND false), same
     // "unset is ambiguous" reasoning as CHOP_FILTER_OVERRIDE.
     env.VOLUME_FILTER_OVERRIDE = p.volumeFilterEnabled === true ? "true" : "false";
@@ -841,6 +843,21 @@ async function editInstrument(procs) {
         }
 
         // DAILY_HA_BIAS: which daily candle decides the side.
+        // Universal entry time (every strategy except DAILY_HA_BIAS, which has its own above).
+        let entryTime = p.entryTime;
+        if (!isDailyHaBias) {
+            const cur = p.entryTime || "off";
+            const inp = (await ask(`  Entry time IST HH:MM — no new entries before it (current: ${cur}, "clear" = off, blank = keep): `)).trim();
+            if (inp) {
+                if (inp.toLowerCase() === "clear") entryTime = null;
+                else {
+                    const t = parseEntryTime(inp);
+                    if (!t) console.log(c.yellow(`  "${inp}" isn't HH:MM — entry time left unchanged (${cur})`));
+                    else entryTime = t;
+                }
+            }
+        }
+
         let dailyBiasCandle = p.dailyBiasCandle;
         if (isDailyHaBias) {
             const cur = p.dailyBiasCandle || "PREVIOUS (default)";
@@ -1309,7 +1326,7 @@ async function riskManagement(procs) {
             }
         }
 
-        const updatedP = { ...p, dailyBiasEntryTime, dailyBiasCandle, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, longCandleUseBodyFilter, longCandleBodyAtrMult, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, maxDailyLoss };
+        const updatedP = { ...p, dailyBiasEntryTime, dailyBiasCandle, entryTime, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, longCandleUseBodyFilter, longCandleBodyAtrMult, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, maxDailyLoss };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -1329,7 +1346,7 @@ async function riskManagement(procs) {
             const lcTag = isDailyHaBias ? "" : longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
             const htfTag = isDailyHaBias ? "" : htfGateEnabled ? c.dim(` htf:${p.timeframe || timeframe}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${htfBandBlockEnabled === false ? "(no-band)" : ""}`) : c.yellow(" htf:off");
             const dailyHaTag = dailyHaGateEnabled === false ? c.yellow(" dailyha:off") : c.dim(" dailyha:on");
-            const entryTag = isDailyHaBias ? c.dim(` entry:${dailyBiasEntryTime || "10:00"} ${(dailyBiasCandle || "PREVIOUS") === "CURRENT" ? "today-candle" : "prev-candle"}`) : "";
+            const entryTag = isDailyHaBias ? c.dim(` entry:${dailyBiasEntryTime || "10:00"} ${(dailyBiasCandle || "PREVIOUS") === "CURRENT" ? "today-candle" : "prev-candle"}`) : entryTime ? c.dim(` entry>=${entryTime}`) : "";
             const lossTag = maxDailyLoss !== null ? c.dim(` maxloss:-₹${maxDailyLoss}`) : "";
             console.log(c.green(`  ${p.underlying} risk settings updated${chopTag}${doubleTag}${atrTag}${flipTag}${volTag}${lcTag}${htfTag}${dailyHaTag}${entryTag}${lossTag} (restarted)`));
         } catch (err) {
@@ -1679,6 +1696,16 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     }
 
+    let entryTime = null;
+    if (strategy !== "DAILY_HA_BIAS") {
+        const inp = (await ask(`  Entry time IST HH:MM — no new entries before it (blank = off, trade from the start): `)).trim();
+        if (inp) {
+            const t = parseEntryTime(inp);
+            if (!t) console.log(c.yellow(`  "${inp}" isn't HH:MM — no entry-time restriction`));
+            else entryTime = t;
+        }
+    }
+
     let dailyBiasCandle = null;
     if (strategy === "DAILY_HA_BIAS") {
         const inp = (await ask(`  Daily candle used — PREVIOUS = yesterday's completed daily HA candle, CURRENT = today's forming daily HA candle at entry time (blank = PREVIOUS): `)).trim().toUpperCase();
@@ -1894,6 +1921,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (strategy === "PURE_HA" && flipConfirmCandles !== null) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(flipConfirmCandles);
     if (strategy === "DAILY_HA_BIAS" && dailyBiasEntryTime !== null) env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = dailyBiasEntryTime;
     if (strategy === "DAILY_HA_BIAS" && dailyBiasCandle !== null) env.DAILY_BIAS_CANDLE_OVERRIDE = dailyBiasCandle;
+    if (strategy !== "DAILY_HA_BIAS" && entryTime !== null) env.ENTRY_TIME_OVERRIDE = entryTime;
     // Volume SMA gate + long-candle gate — always written explicitly (both
     // true AND false), same write-asymmetry reasoning as CHOP_FILTER_OVERRIDE
     // and DISABLE_DOUBLE_ORDERS_OVERRIDE above.

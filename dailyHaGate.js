@@ -34,6 +34,8 @@
 // haCandleReader.js/htfGate.js already use for a daily bar (12h).
 "use strict";
 
+const { isBeforeEntryTime } = require("./entryTimeGate");
+
 const { fetchDailyCandles } = require("./historicalFetch");
 const { toHA } = require("./indicators");
 
@@ -60,6 +62,8 @@ function createDailyHaGate({ context, kc }) {
     // side: "LONG" | "SHORT" — the entry orders.js's enter() is about to
     // place. Returns true if THIS side should be blocked.
     async function isBlocked(side) {
+        // Universal entry-time gate (entryTimeGate.js) rides on this hook.
+        if (isBeforeEntryTime(context)) return true;
         if (context.dailyHaGateEnabled === false) return false;
 
         if (Date.now() - lastFetchedAt > REFRESH_MS) {

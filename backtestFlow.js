@@ -433,6 +433,16 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         }
     }
 
+    // Universal entry time — no new entries before HH:MM IST (every strategy except DAILY_HA_BIAS).
+    if (strategyKey !== "DAILY_HA_BIAS") {
+        const etInput = (await ask(`  Entry time IST HH:MM — no new entries before it (blank = off): `)).trim();
+        if (etInput) {
+            const m = etInput.match(/^(\d{1,2}):(\d{2})$/);
+            if (m && Number(m[1]) <= 23 && Number(m[2]) <= 59) { context.entryTimeHour = Number(m[1]); context.entryTimeMinute = Number(m[2]); }
+            else console.log(c.yellow(`  "${etInput}" isn't HH:MM — no entry-time restriction`));
+        }
+    }
+
     // DAILY_HA_BIAS trade entry time (IST) — the once-a-day decision fires on the first
     // candle of the chosen timeframe at/after it. Default 10:00.
     if (strategyKey === "DAILY_HA_BIAS") {

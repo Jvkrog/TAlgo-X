@@ -1398,6 +1398,7 @@ function renderRiskList() {
     ];
     if (inst.strategy === "PURE_HA") badges.push(`<span class="mode-pill">flip ${inst.flipConfirmCandles ?? 1}</span>`);
     if (inst.strategy === "DAILY_HA_BIAS") badges.push(`<span class="mode-pill">entry ${inst.dailyBiasEntryTime || "10:00"} \u00b7 ${inst.dailyBiasCandle === "CURRENT" ? "today's candle" : "prev candle"}</span>`);
+    else if (inst.entryTime) badges.push(`<span class="mode-pill">entry \u2265 ${inst.entryTime}</span>`);
     if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
     if (inst.maxDailyLoss) badges.push(`<span class="mode-pill">maxloss -₹${inst.maxDailyLoss}</span>`);
     row.innerHTML = `
@@ -1628,6 +1629,11 @@ function openEditModal(inst) {
       <div class="tb-form-label">reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
       <input type="number" id="editFlipConfirm" min="1" step="1" value="${inst.flipConfirmCandles ?? ""}">
     </div>` : ""}
+    ${inst.strategy !== "DAILY_HA_BIAS" ? `
+    <div class="tb-form-row">
+      <div class="tb-form-label">entry time IST \u2014 no new entries before it (blank = off, trade from the start)</div>
+      <input type="time" id="editEntryTime" value="${inst.entryTime ?? ""}">
+    </div>` : ""}
     ${inst.strategy === "DAILY_HA_BIAS" ? `
     <div class="tb-form-row">
       <div class="tb-form-label">trade entry time IST \u2014 the first ${inst.timeframe || "15m"} candle at/after it takes the previous daily HA candle's side (blank = 10:00)</div>
@@ -1713,6 +1719,8 @@ function openEditModal(inst) {
     if (editFlipConfirmEl) body.flipConfirmCandles = editFlipConfirmEl.value || null;
     const editDhabEntryEl = tbEditBody.querySelector("#editDhabEntry");
     if (editDhabEntryEl) body.dailyBiasEntryTime = editDhabEntryEl.value || null;
+    const editEntryTimeEl = tbEditBody.querySelector("#editEntryTime");
+    if (editEntryTimeEl) body.entryTime = editEntryTimeEl.value || null;
     const editDhabCandleEl = tbEditBody.querySelector("#editDhabCandle");
     if (editDhabCandleEl) body.dailyBiasCandle = editDhabCandleEl.value || null;
     body.volumeFilterEnabled = tbEditBody.querySelector("#editVolumeFilter").checked;
@@ -2015,6 +2023,10 @@ function renderAddConfigStep() {
       <div class="tb-form-label">Reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
       <input type="number" id="addFlipConfirm" min="1" step="1">
     </div>
+    <div class="tb-form-row" id="addEntryTimeRow">
+      <div class="tb-form-label">Entry time IST \u2014 no new entries before it (blank = off, trade from the start)</div>
+      <input type="time" id="addEntryTime">
+    </div>
     <div class="tb-form-row" id="addDhabEntryRow" style="display:none">
       <div class="tb-form-label">Trade entry time IST \u2014 the first candle (15m by default) at/after it takes the previous daily HA candle's side (blank = 10:00)</div>
       <input type="time" id="addDhabEntry">
@@ -2084,6 +2096,7 @@ function renderAddConfigStep() {
       greyExitRow.style.display = s.key === "ALMA_TRI_BAND" ? "" : "none";
       flipConfirmRow.style.display = s.key === "PURE_HA" ? "" : "none";
       dhabEntryRow.style.display = s.key === "DAILY_HA_BIAS" ? "" : "none";
+      tbAddBody.querySelector("#addEntryTimeRow").style.display = s.key === "DAILY_HA_BIAS" ? "none" : "";
     });
     stratList.appendChild(div);
   });
@@ -2163,6 +2176,7 @@ function renderAddConfigStep() {
         atrSlMult: tbAddBody.querySelector("#addAtrSlMult").value || undefined,
         flipConfirmCandles: pickedStrategy === "PURE_HA" ? (tbAddBody.querySelector("#addFlipConfirm").value || undefined) : undefined,
         dailyBiasEntryTime: pickedStrategy === "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addDhabEntry").value || undefined) : undefined,
+        entryTime: pickedStrategy !== "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addEntryTime").value || undefined) : undefined,
         dailyBiasCandle: pickedStrategy === "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addDhabCandle").value || undefined) : undefined,
         volumeFilterEnabled: tbAddBody.querySelector("#addVolumeFilter").checked,
         volumeSmaPeriod: tbAddBody.querySelector("#addVolumeSmaPeriod").value || undefined,
@@ -2336,6 +2350,10 @@ async function renderBacktestParamsStep() {
       <div class="tb-form-label">ATR stop-loss multiplier (blank = default)</div>
       <input type="number" id="btAtrMult" min="0" step="any">
     </div>
+    <div class="tb-form-row" id="btEntryTimeRow">
+      <div class="tb-form-label">Entry time IST \u2014 no new entries before it (blank = off)</div>
+      <input type="time" id="btEntryTime">
+    </div>
     <div class="tb-form-row" id="btDhabEntryRow" style="display:none">
       <div class="tb-form-label">Trade entry time IST \u2014 the first candle at/after it takes the previous daily HA candle's side (blank = 10:00)</div>
       <input type="time" id="btDhabEntry">
@@ -2379,6 +2397,7 @@ async function renderBacktestParamsStep() {
   }
   if (btState.strategy === "DAILY_HA_BIAS") {
     tbBacktestBody.querySelector("#btDhabEntryRow").style.display = "";
+    tbBacktestBody.querySelector("#btEntryTimeRow").style.display = "none";
   }
 
   const tfSelect = tbBacktestBody.querySelector("#btTimeframe");
@@ -2426,6 +2445,7 @@ async function renderBacktestParamsStep() {
       disableDoubleOrders: tbBacktestBody.querySelector("#btDoubleDisabled").checked,
       atrSlMult: btState.strategy === "ALMA_BAND" ? undefined : (tbBacktestBody.querySelector("#btAtrMult").value || undefined),
       dailyBiasEntryTime: btState.strategy === "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btDhabEntry").value || undefined) : undefined,
+      entryTime: btState.strategy !== "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btEntryTime").value || undefined) : undefined,
       dailyBiasCandle: btState.strategy === "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btDhabCandle").value || undefined) : undefined,
       volumeFilterEnabled: tbBacktestBody.querySelector("#btVolEnabled").checked,
       volumeSmaPeriod: tbBacktestBody.querySelector("#btVolPeriod").value || undefined,

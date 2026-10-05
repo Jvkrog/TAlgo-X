@@ -359,6 +359,17 @@ async function main() {
     // applies. It still wires in no chop/volume/HTF gates, so those banner
     // lines stay skipped for it.
     const bannerSkip = context.strategy === "DAILY_HA_BIAS";
+    // Universal entry time ("HH:MM" IST) — see entryTimeGate.js. Not used by DAILY_HA_BIAS.
+    if (!bannerSkip && process.env.ENTRY_TIME_OVERRIDE) {
+        const m = String(process.env.ENTRY_TIME_OVERRIDE).trim().match(/^(\d{1,2}):(\d{2})$/);
+        if (m && Number(m[1]) <= 23 && Number(m[2]) <= 59) {
+            context.entryTimeHour = Number(m[1]);
+            context.entryTimeMinute = Number(m[2]);
+            console.log(c.dim(`[${context.tgPrefix}] entry time: no new entries before ${String(m[1]).padStart(2, "0")}:${m[2]} IST`));
+        } else {
+            console.warn(`[${context.tgPrefix}] ENTRY_TIME_OVERRIDE "${process.env.ENTRY_TIME_OVERRIDE}" is not HH:MM — no entry-time restriction`);
+        }
+    }
     // DAILY_HA_BIAS daily-candle source — see context.dailyBiasCandle.
     if (process.env.DAILY_BIAS_CANDLE_OVERRIDE) {
         const v = String(process.env.DAILY_BIAS_CANDLE_OVERRIDE).trim().toUpperCase();

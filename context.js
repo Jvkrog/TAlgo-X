@@ -209,6 +209,9 @@ function buildContext(def, resolvedContract) {
         // "PREVIOUS" (null default) = side from the previous COMPLETED daily HA candle;
         // "CURRENT" = side from today's still-forming daily HA candle as of the entry time.
         dailyBiasCandle: null,
+        // Universal "no new entries before HH:MM IST" (every strategy except DAILY_HA_BIAS). null = off.
+        entryTimeHour: null,
+        entryTimeMinute: null,
         // Per-instrument ATR stop-loss multiplier override. null (not a
         // literal default) for the same STRATEGY_PARAMS-backtest-tuning
         // reason as bandStep/flipConfirmCandles above — every

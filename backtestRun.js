@@ -4,6 +4,7 @@
 // UNMODIFIED state.js/sl.js/positions.js, driven by a replay loop instead
 // of candlePoll's live tick/poll cycle.
 "use strict";
+const { isBeforeEntryTime } = require("./entryTimeGate");
 
 const { STRATEGIES }              = require("./strategies");
 const customStrategyDb            = require("./customStrategyDb");
@@ -170,6 +171,7 @@ async function runBacktest({ strategyKey, strategyLabel, context, timeframe, fro
             return bar ? { color: bar.color, date: bar.date, open: bar.open, close: bar.close, high: bar.high, low: bar.low } : null;
         },
         isBlocked: async (side) => {
+            if (isBeforeEntryTime(context, clock.now())) return true;   // universal entry-time gate
             if (context.dailyHaGateEnabled === false) return false;
             const now = clock.now();
             const dayKey = new Date(now.getTime() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
