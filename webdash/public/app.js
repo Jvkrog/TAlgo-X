@@ -1393,7 +1393,7 @@ function renderRiskList() {
       `<span class="mode-pill ${inst.disableDoubleOrders ? "" : "live"}">double ${inst.disableDoubleOrders ? "off" : "on"}</span>`,
       `<span class="mode-pill ${inst.volumeFilterEnabled ? "live" : ""}">vol ${inst.volumeFilterEnabled ? `sma${inst.volumeSmaPeriod ?? 20}` : "off"}</span>`,
       `<span class="mode-pill ${inst.longCandleFilterEnabled !== false ? "live" : ""}">long-candle ${inst.longCandleFilterEnabled !== false ? "on" : "off"}</span>`,
-      `<span class="mode-pill ${inst.htfGateEnabled !== false ? "live" : ""}">htf ${inst.htfGateEnabled !== false ? (inst.htfTimeframe || "1h") : "off"}</span>`,
+      `<span class="mode-pill ${inst.htfGateEnabled !== false ? "live" : ""}">htf ${inst.htfGateEnabled !== false ? (inst.timeframe || "tf") : "off"}</span>`,
       `<span class="mode-pill ${inst.dailyHaGateEnabled !== false ? "live" : ""}">dailyha ${inst.dailyHaGateEnabled !== false ? "on" : "off"}</span>`,
     ];
     if (inst.strategy === "PURE_HA") badges.push(`<span class="mode-pill">flip ${inst.flipConfirmCandles ?? 1}</span>`);
@@ -1657,7 +1657,7 @@ function openEditModal(inst) {
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="editHtfGate" ${inst.htfGateEnabled !== false ? "checked" : ""}><span>Block entries when a higher timeframe is trending but price hasn't broken its band yet</span></label>
-      <div class="tb-form-hint">On by default. Checks the 1h timeframe; period/max tune its Choppiness Index reading.</div>
+      <div class="tb-form-hint">On by default. Checks the instrument's own selected candle timeframe; period/max tune its Choppiness Index reading.</div>
       <input type="number" id="editHtfChopPeriod" min="1" step="1" value="${inst.htfChopPeriod ?? ""}" placeholder="chop period, blank = default (9)">
       <input type="number" id="editHtfChopMax" min="0" step="any" value="${inst.htfChopMax ?? ""}" placeholder="chop max, blank = default (58)">
       <label class="tb-form-row-inline"><input type="checkbox" id="editHtfBandBlock" ${inst.htfBandBlockEnabled !== false ? "checked" : ""}><span>Also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
@@ -2043,7 +2043,7 @@ function renderAddConfigStep() {
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="addHtfGate" checked><span>Block entries when a higher timeframe is trending but price hasn't broken its band yet (default: ON)</span></label>
-      <div class="tb-form-hint">Checks the 1h timeframe; period/max tune its Choppiness Index reading.</div>
+      <div class="tb-form-hint">Checks the instrument's own selected candle timeframe; period/max tune its Choppiness Index reading.</div>
       <input type="number" id="addHtfChopPeriod" min="1" step="1" placeholder="chop period, blank = default (9)">
       <input type="number" id="addHtfChopMax" min="0" step="any" placeholder="chop max, blank = default (58)">
       <label class="tb-form-row-inline"><input type="checkbox" id="addHtfBandBlock" checked><span>Also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>

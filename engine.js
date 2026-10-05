@@ -442,7 +442,7 @@ async function main() {
     if (process.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE !== undefined && process.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE !== "") {
         context.htfBandBlockEnabled = process.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE === "true";
     }
-    if (!bannerSkip) console.log(c.dim(`[${context.tgPrefix}] HTF gate: ${context.htfGateEnabled ? c.yellow(`on — ${context.htfTimeframe} chop(${context.htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}) < ${context.htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${context.htfBandBlockEnabled === false ? "" : " + inside its own ALMA band"} blocks entries`) : "off"}`));
+    if (!bannerSkip) console.log(c.dim(`[${context.tgPrefix}] HTF gate: ${context.htfGateEnabled ? c.yellow(`on — ${context.timeframe} chop(${context.htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}) < ${context.htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${context.htfBandBlockEnabled === false ? "" : " + inside its own ALMA band"} blocks entries`) : "off"}`));
 
     // dailyHaGate.js's universal daily-HA directional gate (orders.js) —
     // on by default, same opt-out posture as htfGateEnabled. See

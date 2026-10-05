@@ -1327,7 +1327,7 @@ async function riskManagement(procs) {
             const flipTag = p.strategy === "PURE_HA" ? c.dim(` flip:${flipConfirmCandles ?? 1}`) : "";
             const volTag = isDailyHaBias ? "" : volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
             const lcTag = isDailyHaBias ? "" : longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
-            const htfTag = isDailyHaBias ? "" : htfGateEnabled ? c.dim(` htf:${htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${htfBandBlockEnabled === false ? "(no-band)" : ""}`) : c.yellow(" htf:off");
+            const htfTag = isDailyHaBias ? "" : htfGateEnabled ? c.dim(` htf:${p.timeframe || timeframe}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${htfBandBlockEnabled === false ? "(no-band)" : ""}`) : c.yellow(" htf:off");
             const dailyHaTag = dailyHaGateEnabled === false ? c.yellow(" dailyha:off") : c.dim(" dailyha:on");
             const entryTag = isDailyHaBias ? c.dim(` entry:${dailyBiasEntryTime || "10:00"} ${(dailyBiasCandle || "PREVIOUS") === "CURRENT" ? "today-candle" : "prev-candle"}`) : "";
             const lossTag = maxDailyLoss !== null ? c.dim(` maxloss:-₹${maxDailyLoss}`) : "";
@@ -1929,7 +1929,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const maxLossTag = maxDailyLoss !== null ? c.yellow(` maxLoss:-₹${maxDailyLoss}`) : "";
         const volTag = volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
         const lcTag = longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
-        const htfTag = htfGateEnabled ? c.dim(` htf:${htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}`) : c.yellow(" htf:off");
+        const htfTag = htfGateEnabled ? c.dim(` htf:${timeframe}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}`) : c.yellow(" htf:off");
         console.log(c.green(`  Started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${almaLenTag}${almaChopTag}${vdChopTag}${bandStepTag}${greyExitTag}${volTag}${lcTag}${htfTag}${maxLossTag}`));
     } catch (err) {
         console.log(c.red(`  Failed to start ${name}: ${err.message}`));

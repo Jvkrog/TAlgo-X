@@ -47,7 +47,7 @@
 "use strict";
 
 const { KiteConnect } = require("kiteconnect");
-const { fetchHistoricalCandles, fetchDailyCandles } = require("./historicalFetch");
+const { fetchHistoricalCandles, fetchDailyCandles, TIMEFRAME_MINUTES } = require("./historicalFetch");
 const { choppinessIndex, alma } = require("./indicators");
 
 const REFRESH_MS = { "1h": 30 * 60 * 1000, "1d": 12 * 60 * 60 * 1000 };
@@ -79,7 +79,7 @@ function createHtfGate({ context, engineConfig, tg }) {
         const kc = getClient();
         const raw = timeframe === "1d"
             ? await fetchDailyCandles({ kc, token: context.token, from, to })
-            : await fetchHistoricalCandles({ kc, token: context.token, timeframe: "1h", from, to });
+            : await fetchHistoricalCandles({ kc, token: context.token, timeframe, from, to });
         if (!raw || raw.length === 0) throw new Error("API returned 0 bars");
         // Drop the still-forming current bar, same as preload.js.
         bars = raw.slice(0, -1);
@@ -88,8 +88,11 @@ function createHtfGate({ context, engineConfig, tg }) {
 
     async function isBlocked() {
         if (context.htfGateEnabled === false) return false;
-        const timeframe = context.htfTimeframe || engineConfig.HTF_GATE_TIMEFRAME_DEFAULT;
-        const refreshMs = REFRESH_MS[timeframe] || REFRESH_MS[engineConfig.HTF_GATE_TIMEFRAME_DEFAULT];
+        // CHANGED Oct 2026 — no separate selector any more: the gate's chop/ALMA
+        // reading runs on the instrument's OWN selected candle timeframe (15m, 30m...).
+        // context.htfTimeframe is ignored; "1h" only if the timeframe is unknown here.
+        const timeframe = TIMEFRAME_MINUTES[context.timeframe] ? context.timeframe : "1h";
+        const refreshMs = Math.min(30 * 60 * 1000, TIMEFRAME_MINUTES[timeframe] * 30 * 1000);   // half a bar, capped at 30 min
 
         if (Date.now() - lastFetchedAt > refreshMs) {
             try {
