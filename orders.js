@@ -235,7 +235,7 @@ function createOrders(context, tg, kcOverride) {
         // Same "return null on block" contract every caller already
         // checks for (they gate their own state transition on this).
         if (await dailyHaGate.isBlocked(side)) {
-            console.log(c.yellow(`[${context.tgPrefix}] ${side} entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`));
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} entry blocked — daily HA / entry-time gate (reason in the line above)`));
             return null;
         }
         const transaction_type = side === "LONG" ? "BUY" : "SELL";

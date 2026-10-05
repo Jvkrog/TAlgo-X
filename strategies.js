@@ -221,7 +221,7 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
                 else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
                 else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
                 const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
                 if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -619,7 +619,7 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
                 else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
                 else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
                 const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
                 if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -681,7 +681,7 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
                 else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
                 else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
                 const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
                 if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -967,7 +967,7 @@ function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, 
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
                 else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
                 else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
                 const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
                 if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -1205,7 +1205,7 @@ function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles,
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
             else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -1470,7 +1470,7 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
                 else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
                 else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
                 const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
                 if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -1715,7 +1715,7 @@ function createAlmaFastStrategy({ context, engineConfig, state, db, candles, slS
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
             else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -2040,7 +2040,7 @@ function createMaSlopeStrategy({ context, engineConfig, state, db, candles, slSt
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
             else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -2445,7 +2445,7 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
             else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -2804,7 +2804,7 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
             else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -3067,7 +3067,7 @@ function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, sl
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
             else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -3313,7 +3313,7 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
                 else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
                 else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
                 const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
                 if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                     console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -3552,7 +3552,7 @@ function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
             else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
             if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -3820,7 +3820,7 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
         else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
         else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-        else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+        else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
         const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
         if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
@@ -4135,7 +4135,7 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
         else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
         else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-        else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+        else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
         const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
         if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
@@ -4522,7 +4522,7 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
         else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
         else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-        else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+        else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
         const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
         if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
@@ -4879,7 +4879,7 @@ function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, 
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
         else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
         else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-        else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+        else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
         const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
         if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));
@@ -5798,7 +5798,7 @@ function createVolumeDeltaCvdStrategy({ context, engineConfig, state, db, candle
         // dailyHaGate.js — universal, every strategy (see its header).
         const dailyHaBlocked = await dailyHa.isBlocked(side);
         if (htfBlocked) { console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`); return; }
-        if (dailyHaBlocked) { console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`); return; }
+        if (dailyHaBlocked) { console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`); return; }
 
         const ordered = await orders.enter(side);
         if (engineConfig.LIVE_ORDERS && ordered === null) {
@@ -5982,7 +5982,7 @@ function createPureHaStrategy({ context, engineConfig, state, db, candles, slSto
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
         else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
         else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
-        else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+        else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`);
         const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
         if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed (${reason}) — will retry next candle`));

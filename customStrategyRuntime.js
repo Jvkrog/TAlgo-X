@@ -112,7 +112,7 @@ function createCustomStrategy(spec) {
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] custom:${spec.name} entry blocked — volume not above its SMA`);
                 else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} strategy=custom:${spec.name} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
                 else if (htfBlocked) console.log(`[${context.tgPrefix}] custom:${spec.name} entry blocked — higher timeframe trending but still inside its own ALMA band`);
-                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] custom:${spec.name} entry blocked — daily HA gate / entry-time gate (before entry time, or previous day's completed candle disagrees)`);
+                else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] custom:${spec.name} entry blocked — daily HA / entry-time gate (reason in the line above)`);
                 if (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) return;
 
                 await orders.enter(side);

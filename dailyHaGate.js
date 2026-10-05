@@ -63,7 +63,10 @@ function createDailyHaGate({ context, kc }) {
     // place. Returns true if THIS side should be blocked.
     async function isBlocked(side) {
         // Universal entry-time gate (entryTimeGate.js) rides on this hook.
-        if (isBeforeEntryTime(context)) return true;
+        if (isBeforeEntryTime(context)) {
+            console.log(`[${context.tgPrefix}] ${side} entry blocked by ENTRY-TIME gate — before ${String(context.entryTimeHour).padStart(2, "0")}:${String(context.entryTimeMinute ?? 0).padStart(2, "0")} IST`);
+            return true;
+        }
         if (context.dailyHaGateEnabled === false) return false;
 
         if (Date.now() - lastFetchedAt > REFRESH_MS) {
@@ -83,7 +86,9 @@ function createDailyHaGate({ context, kc }) {
         const color = last.close > last.open ? "green" : last.close < last.open ? "red" : null;
         if (!color) return false; // doji -> no directional read, never blocks
 
-        return (color === "green" && side === "SHORT") || (color === "red" && side === "LONG");
+        const blocked = (color === "green" && side === "SHORT") || (color === "red" && side === "LONG");
+        if (blocked) console.log(`[${context.tgPrefix}] ${side} entry blocked by DAILY HA gate — previous completed daily HA candle is ${color} (turn the gate off in edit settings to ignore it)`);
+        return blocked;
     }
 
     return { isBlocked, prewarm: () => isBlocked("LONG").catch(() => {}) };
