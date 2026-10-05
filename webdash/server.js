@@ -1283,10 +1283,12 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         strategyLabel = `${custom.name} (custom)`;
     }
 
-    const to = toStr ? new Date(toStr) : new Date();
+    // Date-only picks (YYYY-MM-DD from the calendar) are IST days: from = 00:00 IST, to = 23:59:59 IST.
+    const isDay = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v));
+    const to = toStr ? new Date(isDay(toStr) ? `${toStr}T23:59:59+05:30` : toStr) : new Date();
     let from;
     if (fromStr) {
-        from = new Date(fromStr);
+        from = new Date(isDay(fromStr) ? `${fromStr}T00:00:00+05:30` : fromStr);
     } else {
         const d = days ? Number(days) : 30;
         if (!Number.isFinite(d) || d <= 0) return res.status(400).json({ error: "invalid days value" });

@@ -287,8 +287,9 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     if (rangeMode === "F") {
         const fromStr = await ask("  from (YYYY-MM-DD): ");
         const toStr   = await ask("  to   (YYYY-MM-DD, blank = today): ");
-        from = new Date(fromStr);
-        if (toStr) to = new Date(toStr);
+        const isDay = v => /^\d{4}-\d{2}-\d{2}$/.test(v.trim());
+        from = new Date(isDay(fromStr) ? `${fromStr.trim()}T00:00:00+05:30` : fromStr);
+        if (toStr) to = new Date(isDay(toStr) ? `${toStr.trim()}T23:59:59+05:30` : toStr);
         if (isNaN(from.getTime()) || isNaN(to.getTime())) { console.log(c.yellow("  invalid date")); await pauseForReview(); return; }
     } else {
         const daysInput = await ask("  days back (default 30): ");

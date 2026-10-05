@@ -2323,7 +2323,9 @@ async function renderBacktestParamsStep() {
       <div class="tb-form-hint">${btState.underlying} — ${(btState.strategies.find(s => s.key === btState.strategy) || {}).label || btState.strategy}</div>
     </div>
     <div class="tb-form-row"><div class="tb-form-label">Timeframe</div><select id="btTimeframe"></select></div>
-    <div class="tb-form-row"><div class="tb-form-label">Days back (default 30)</div><input type="number" id="btDays" placeholder="30" min="1"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Days back (default 30) \u2014 ignored when a From date is picked</div><input type="number" id="btDays" placeholder="30" min="1"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Or pick dates (IST) \u2014 From</div><input type="date" id="btFrom"></div>
+    <div class="tb-form-row"><div class="tb-form-label">To (blank = today)</div><input type="date" id="btTo"></div>
     <div class="tb-form-row" id="btLotMultRow" style="display:${preview && preview.lotMultRequired ? "" : "none"}">
       <div class="tb-form-label">Lot multiplier (required for this instrument)</div>
       <input type="number" id="btLotMult" min="0" step="any">
@@ -2433,6 +2435,8 @@ async function renderBacktestParamsStep() {
       strategy: btState.strategy,
       timeframe: tfSelect.value,
       days: tbBacktestBody.querySelector("#btDays").value || undefined,
+      from: tbBacktestBody.querySelector("#btFrom").value || undefined,
+      to: tbBacktestBody.querySelector("#btTo").value || undefined,
       params,
       lotMultOverride: tbBacktestBody.querySelector("#btLotMult").value || undefined,
       chopFilterEnabled: tbBacktestBody.querySelector("#btChopEnabled").checked,
