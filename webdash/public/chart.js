@@ -41,9 +41,14 @@
             <button class="btn btn-ghost chart-type" data-type="ha">HA</button>
             <button class="btn btn-ghost chart-type" data-type="range">Range</button>
           </div>
+          <div class="chart-seg">
+            <button class="btn btn-ghost chart-toggle" data-toggle="indicator">Indicator</button>
+            <button class="btn btn-ghost chart-toggle" data-toggle="filters">Filters</button>
+          </div>
           <label class="chart-range" data-r="rangeWrap" style="display:none">range <input type="number" data-r="range" min="0.01" step="any"></label>
           <span class="chart-status" data-r="status"></span>
         </div>
+        <div class="chart-info" data-r="info"></div>
         <div class="chart-box" data-r="box"></div>
       </div>`;
     document.body.appendChild(modal);
@@ -51,6 +56,7 @@
     els.close.addEventListener("click", close);
     modal.addEventListener("click", e => { if (e.target === modal) close(); });
     modal.querySelectorAll(".chart-type").forEach(b => b.addEventListener("click", () => setType(b.dataset.type)));
+    modal.querySelectorAll(".chart-toggle").forEach(b => b.addEventListener("click", () => toggle(b.dataset.toggle)));
     els.range.addEventListener("change", () => { if (S && S.type === "range") { S.range = Number(els.range.value) || S.range; render(true); } });
   }
 
@@ -87,14 +93,18 @@
   };
   const series = list => { const out = []; let prev; for (const b of list) { const x = lw(b, prev); out.push(x); prev = x.time; } return out; };
 
+  let displayedT = null;   // bar-start ms of the displayed list (range bars: set from the list below)
   function displayed() {
     if (S.type === "range") {
       const { bars, forming } = window.makeRangeBars(S.points, S.range);
       const all = bars.map(b => ({ t: b.time, o: b.open, h: b.high, l: b.low, c: b.close }));
+      displayedT = null;
       if (forming && (forming.high !== forming.low || !all.length)) all.push({ t: forming.time, o: forming.open, h: forming.high, l: forming.low, c: forming.close });
+      displayedT = all.map(b => b.t);
       return all;
     }
     const base = S.type === "ha" ? toHA(S.bars) : S.bars;
+    displayedT = base.slice(S.dayIdx).map(b => b.t);
     return base.slice(S.dayIdx);
   }
 
@@ -102,8 +112,83 @@
     const list = series(displayed());
     S.series.setData(list);
     S.lastTime = list.length ? list[list.length - 1].time : 0;
+    S.dispT = displayedT; S.dispTimes = list.map(x => x.time);
     if (fit) S.chart.timeScale().fitContent();
+    drawOverlay(); drawMarkers();
     status();
+  }
+
+  // ── Indicator tab: the instrument's own indicator lines (server computes via chartOverlay.js) ──
+  const SHORT = { CHOP: "CHOP", VOLUME: "VOL", LONG_CANDLE: "LONGC", HTF: "HTF", DOUBLE_ORDER: "2X", DAILY_HA: "DHA", ENTRY_TIME: "TIME" };
+  const LONGNAME = { CHOP: "choppiness index", VOLUME: "volume below SMA", LONG_CANDLE: "long-candle filter", HTF: "higher-timeframe trend", DOUBLE_ORDER: "double-order guard", DAILY_HA: "daily HA direction", ENTRY_TIME: "before entry time" };
+  function drawOverlay() {
+    (S.lineSeries || []).forEach(ls => S.chart.removeSeries(ls));
+    S.lineSeries = [];
+    const ov = S.overlay;
+    if (!S.ind || !ov || !ov.lines) return;
+    const step = window.LightweightCharts.LineType ? window.LightweightCharts.LineType.WithSteps : undefined;
+    for (const l of ov.lines) {
+      const ls = S.chart.addLineSeries({ color: l.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, ...(step !== undefined ? { lineType: step } : {}) });
+      let prev = 0; const data = [];
+      for (const [t, v] of l.points) { const time = Math.floor(t / 1000) + IST_S; if (time > prev) { data.push({ time, value: v }); prev = time; } }
+      ls.setData(data);
+      S.lineSeries.push(ls);
+    }
+  }
+
+  // ── Filters tab: markers where an entry gate blocked a signal ──
+  function drawMarkers() {
+    if (!S.filters || !S.dispT || !S.dispT.length) { S.series.setMarkers([]); return; }
+    const groups = new Map();   // "time|side" -> Set(reasons)
+    for (const b of S.blocks) {
+      let idx = -1;   // last displayed bar that started at/before the block
+      for (let i = S.dispT.length - 1; i >= 0; i--) { if (S.dispT[i] <= b.ts) { idx = i; break; } }
+      if (idx < 0) continue;
+      const key = S.dispTimes[idx] + "|" + b.side;
+      if (!groups.has(key)) groups.set(key, new Set());
+      b.reasons.forEach(r => groups.get(key).add(r));
+    }
+    const marks = [...groups.entries()].map(([key, rs]) => {
+      const [time, side] = key.split("|");
+      return { time: Number(time), position: side === "LONG" ? "belowBar" : "aboveBar", shape: side === "LONG" ? "arrowUp" : "arrowDown", color: "#ffb347", text: [...rs].map(r => SHORT[r] || r).join("+") };
+    }).sort((a, b) => a.time - b.time);
+    S.series.setMarkers(marks);
+  }
+
+  function toggle(which) {
+    if (!S) return;
+    S[which === "indicator" ? "ind" : "filters"] = !S[which === "indicator" ? "ind" : "filters"];
+    modal.querySelector(`[data-toggle="${which}"]`).classList.toggle("active", S[which === "indicator" ? "ind" : "filters"]);
+    drawOverlay(); drawMarkers(); info();
+  }
+
+  function info() {
+    const bits = [];
+    if (S.ind) bits.push(S.overlay && S.overlay.label ? "Indicator: " + S.overlay.label : (S.overlay && S.overlay.note) || "no indicator data");
+    if (S.filters) {
+      const used = new Set(); S.blocks.forEach(b => b.reasons.forEach(r => used.add(r)));
+      bits.push(S.blocks.length ? `Blocked entries: ${S.blocks.length} (▲ long blocked, ▼ short blocked) — ` + [...used].map(r => `${SHORT[r] || r} = ${LONGNAME[r] || r}`).join(" · ") : "Filters: no blocked entries recorded for this day (recorded while the dashboard is running)");
+    }
+    els.info.textContent = bits.join("   |   ");
+    els.info.style.display = bits.length ? "" : "none";
+  }
+
+  async function refreshOverlay() {
+    if (!S) return;
+    try {
+      const r = await fetch(`/api/chart/${encodeURIComponent(S.inst.name)}/overlay`);
+      const d = await r.json();
+      if (!r.ok || !S) return;
+      S.overlay = d.overlay;
+      const have = new Set(S.blocks.map(b => b.ts + "|" + b.side));
+      d.blocks.forEach(b => { if (!have.has(b.ts + "|" + b.side)) S.blocks.push(b); });
+      drawOverlay(); drawMarkers(); info();
+    } catch { /* keep what we have */ }
+  }
+  function onBlock(msg) {
+    if (!S || !S.isToday || msg.engine !== S.data.underlying || !Array.isArray(msg.reasons)) return;
+    S.blocks.push({ ts: msg.ts || Date.now(), side: msg.side, price: msg.price, reasons: msg.reasons });
+    drawMarkers(); info();
   }
 
   function status() {
@@ -132,7 +217,7 @@
       const start = anchor + Math.floor((ts - anchor) / slot) * slot;
       const lastBar = S.bars[S.bars.length - 1];
       if (lastBar.t === start) { lastBar.h = Math.max(lastBar.h, price); lastBar.l = Math.min(lastBar.l, price); lastBar.c = price; }
-      else if (start > lastBar.t) S.bars.push({ t: start, o: price, h: price, l: price, c: price });
+      else if (start > lastBar.t) { S.bars.push({ t: start, o: price, h: price, l: price, c: price }); setTimeout(refreshOverlay, 4000); }
     }
     S.dirty = true;
     if (!S.timer) S.timer = setTimeout(flush, 250);   // coalesce bursts
@@ -183,10 +268,13 @@
       });
       S = {
         inst, data, bars, dayIdx, chart, series: sr, type: "raw", range: data.suggestedRange, last: null,
+        overlay: data.overlay, blocks: (data.blocks || []).slice(), ind: false, filters: false, lineSeries: [], dispT: null, dispTimes: null,
         points: minutePoints(data.minuteBars.map(toBar)), isToday: data.day === istDay(Date.now()), timer: null, dirty: false, lastTime: 0,
       };
       if (bars.length) S.last = bars[bars.length - 1].c;
       els.range.value = S.range;
+      modal.querySelectorAll(".chart-toggle").forEach(b => b.classList.remove("active"));
+      info();
       setType("raw");
     } catch (err) {
       els.status.textContent = "error: " + err.message;
@@ -195,4 +283,5 @@
 
   window.openInstrumentChart = open;
   window.chartOnLtp = onLtp;
+  window.chartOnBlock = onBlock;
 })();

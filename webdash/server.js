@@ -48,6 +48,7 @@ const { SL_MODES: DH_SL_MODES, ATR_TIMEFRAMES: DH_ATR_TIMEFRAMES } = require("..
 const { runHedgePairBacktest } = require("../backtestHedgePair");
 const { STRATEGY_PARAMS } = require("../backtestFlow");
 const { setEmitSuppressed } = require("../eventBridge");
+const { computeOverlay } = require("../chartOverlay");
 const { getShortName } = require("../shortNames");
 const dualHedgeUsers = require("../dualHedgeUsers");
 const { adx, atr: atrFn } = require("../indicators");
@@ -977,8 +978,59 @@ app.post("/api/toolbox/edit", async (req, res) => {
 // engine's throttled LTP event, relayed over /ws). Returns the instrument's own
 // timeframe bars (several days, so Heikin-Ashi can be seeded) plus 1-minute bars of the
 // displayed day (used to build range bars). The browser draws raw / HA / range from this.
+// BLOCK events (an entry gate refused a signal — see blockReport.js) are kept per engine for
+// the last 3 IST days and persisted to chartBlocks.json so a dashboard restart doesn't lose
+// today's markers. Chart "Filters" tab reads them.
+const BLOCKS_FILE = path.join(ROOT, "chartBlocks.json");
+let blockStore = {};
+try { blockStore = JSON.parse(fs.readFileSync(BLOCKS_FILE, "utf8")) || {}; } catch { blockStore = {}; }
+let blockSaveTimer = null;
+function recordBlock(msg) {
+    if (!msg || !msg.engine || !Array.isArray(msg.reasons)) return;
+    const list = (blockStore[msg.engine] = blockStore[msg.engine] || []);
+    list.push({ ts: msg.ts || Date.now(), side: msg.side, price: msg.price, reasons: msg.reasons });
+    const cutoff = Date.now() - 3 * 86400000;
+    blockStore[msg.engine] = list.filter(b => b.ts >= cutoff).slice(-3000);
+    if (!blockSaveTimer) blockSaveTimer = setTimeout(() => {
+        blockSaveTimer = null;
+        try { fs.writeFileSync(BLOCKS_FILE, JSON.stringify(blockStore)); } catch { /* best effort */ }
+    }, 5000);
+}
 const IST_MS = 5.5 * 60 * 60 * 1000;
 const istDayStr = ms => new Date(ms + IST_MS).toISOString().split("T")[0];
+// Overlay lines restricted to the displayed day (the full 8-day bar list is only the warm-up).
+function chartOverlayFor(p, tfBars, day) {
+    try {
+        const bars = tfBars.map(b => ({ t: b.date.getTime(), open: b.open, high: b.high, low: b.low, close: b.close }));
+        const ov = computeOverlay(p.strategy, bars, { bandStep: p.bandStep ? Number(p.bandStep) : null, almaFastLen: p.almaFastLen || null }, engineConfig);
+        if (ov.lines) ov.lines.forEach(l => { l.points = l.points.filter(pt => istDayStr(pt[0]) === day); });
+        return ov;
+    } catch (err) {
+        return { note: "indicator unavailable: " + err.message };
+    }
+}
+const blocksForDay = (engine, day) => (blockStore[engine] || []).filter(b => istDayStr(b.ts) === day);
+
+// Overlay + blocks only (refresh when a new bar opens, without re-fetching minute bars).
+app.get("/api/chart/:name/overlay", async (req, res) => {
+    try {
+        const procs = await getEngineProcesses();
+        const p = procs.find(x => x.name === req.params.name);
+        if (!p) return res.status(404).json({ error: "instrument not found" });
+        const exchange = p.exchange || "MCX";
+        const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
+        const def = getDefinition(p.underlying, exchange);
+        const { contract } = resolveCurrent(p.underlying, def, repo, pinStore);
+        const tf = p.timeframe || STRATEGY_TIMEFRAME[p.strategy] || "15m";
+        const now = Date.now();
+        const tfBars = await fetchHistoricalCandles({ kc: ensureToolboxKite(), token: contract.token, timeframe: tf, from: new Date(now - 8 * 86400000), to: new Date(now) });
+        const day = istDayStr(tfBars[tfBars.length - 1].date.getTime());
+        res.json({ overlay: chartOverlayFor(p, tfBars, day), blocks: blocksForDay(p.underlying, day) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get("/api/chart/:name", async (req, res) => {
     try {
         const procs = await getEngineProcesses();
@@ -1001,6 +1053,9 @@ app.get("/api/chart/:name", async (req, res) => {
         const a = atrFn(tfBars.map(b => ({ open: b.open, high: b.high, low: b.low, close: b.close })), engineConfig.ST_ATR_LEN);
         res.json({
             name: p.name, underlying: p.underlying, exchange, timeframe: tf, tfMinutes: TIMEFRAME_MINUTES[tf], day,
+            strategy: p.strategy,
+            overlay: chartOverlayFor(p, tfBars, day),
+            blocks: blocksForDay(p.underlying, day),
             tfBars: tfBars.map(row), minuteBars: mins.map(row),
             suggestedRange: a ? Math.max(0.05, Math.round(a * 20) / 20) : 1,
             bandStep: p.bandStep ? Number(p.bandStep) : null,
@@ -2568,6 +2623,7 @@ engineWss.on("connection", ws => {
         const str = raw.toString();
         // High-rate LTP stream is live-only (chart): never replayed from the ring buffer.
         if (!str.includes('"type":"LTP"')) pushToRing(str);
+        if (str.includes('"type":"BLOCK"')) { try { recordBlock(JSON.parse(str)); } catch { /* ignore */ } }
         broadcastToBrowsers(str);
     });
 });

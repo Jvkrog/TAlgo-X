@@ -7,6 +7,7 @@
 // picks one of these by context.strategy and hands back its instance
 // unchanged — engine.js, candlePoll.js, lifecycle.js need no changes.
 "use strict";
+const { reportBlocks } = require("./blockReport");
 
 const c = require("./c");
 const {
@@ -216,6 +217,7 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
                 const htfBlocked = await htf.isBlocked();
                 // dailyHaGate.js — universal, every strategy (see its header).
                 const dailyHaBlocked = await dailyHa.isBlocked(side);
+                reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
                 else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -614,6 +616,7 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
                 const htfBlocked = await htf.isBlocked();
                 // dailyHaGate.js — universal, every strategy (see its header).
                 const dailyHaBlocked = await dailyHa.isBlocked(side);
+                reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
                 else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -676,6 +679,7 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
                 const htfBlocked = await htf.isBlocked();
                 // dailyHaGate.js — universal, every strategy (see its header).
                 const dailyHaBlocked = await dailyHa.isBlocked(side);
+                reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
                 else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -962,6 +966,7 @@ function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, 
                 const htfBlocked = await htf.isBlocked();
                 // dailyHaGate.js — universal, every strategy (see its header).
                 const dailyHaBlocked = await dailyHa.isBlocked(side);
+                reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
                 else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -1200,6 +1205,7 @@ function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles,
             const htfBlocked = await htf.isBlocked();
             // dailyHaGate.js — universal, every strategy (see its header).
             const dailyHaBlocked = await dailyHa.isBlocked(side);
+            reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -1465,6 +1471,7 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
                 const htfBlocked = await htf.isBlocked();
                 // dailyHaGate.js — universal, every strategy (see its header).
                 const dailyHaBlocked = await dailyHa.isBlocked(side);
+                reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
                 else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -1710,6 +1717,7 @@ function createAlmaFastStrategy({ context, engineConfig, state, db, candles, slS
             const htfBlocked = await htf.isBlocked();
             // dailyHaGate.js — universal, every strategy (see its header).
             const dailyHaBlocked = await dailyHa.isBlocked(side);
+            reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -2035,6 +2043,7 @@ function createMaSlopeStrategy({ context, engineConfig, state, db, candles, slSt
             const htfBlocked = await htf.isBlocked();
             // dailyHaGate.js — universal, every strategy (see its header).
             const dailyHaBlocked = await dailyHa.isBlocked(side);
+            reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -2440,6 +2449,7 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
             const htfBlocked = await htf.isBlocked();
             // dailyHaGate.js — universal, every strategy (see its header).
             const dailyHaBlocked = await dailyHa.isBlocked(side);
+            reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -2799,6 +2809,7 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
             const htfBlocked = await htf.isBlocked();
             // dailyHaGate.js — universal, every strategy (see its header).
             const dailyHaBlocked = await dailyHa.isBlocked(side);
+            reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -3062,6 +3073,7 @@ function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, sl
             const htfBlocked = await htf.isBlocked();
             // dailyHaGate.js — universal, every strategy (see its header).
             const dailyHaBlocked = await dailyHa.isBlocked(side);
+            reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -3308,6 +3320,7 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
                 const htfBlocked = await htf.isBlocked();
                 // dailyHaGate.js — universal, every strategy (see its header).
                 const dailyHaBlocked = await dailyHa.isBlocked(side);
+                reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
                 else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -3547,6 +3560,7 @@ function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles
             const htfBlocked = await htf.isBlocked();
             // dailyHaGate.js — universal, every strategy (see its header).
             const dailyHaBlocked = await dailyHa.isBlocked(side);
+            reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -3815,6 +3829,7 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
         const htfBlocked = await htf.isBlocked();
         // dailyHaGate.js — universal, every strategy (see its header).
         const dailyHaBlocked = await dailyHa.isBlocked(side);
+        reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
         else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -4130,6 +4145,7 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
         const htfBlocked = await htf.isBlocked();
         // dailyHaGate.js — universal, every strategy (see its header).
         const dailyHaBlocked = await dailyHa.isBlocked(side);
+        reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
         else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -4517,6 +4533,7 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
         const htfBlocked = await htf.isBlocked();
         // dailyHaGate.js — universal, every strategy (see its header).
         const dailyHaBlocked = await dailyHa.isBlocked(side);
+        reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
         else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -4874,6 +4891,7 @@ function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, 
         const htfBlocked = await htf.isBlocked();
         // dailyHaGate.js — universal, every strategy (see its header).
         const dailyHaBlocked = await dailyHa.isBlocked(side);
+        reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
         else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -5500,6 +5518,7 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
             // gated behind the other flags here, same posture as htfGate.js would
             // have had if this strategy used it (it doesn't, pre-existing).
             const dailyHaBlocked = await dailyHa.isBlocked(side);
+            reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: forcedChopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: false, dailyHa: dailyHaBlocked }, dailyHa);
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (forcedChopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -5797,6 +5816,7 @@ function createVolumeDeltaCvdStrategy({ context, engineConfig, state, db, candle
         const htfBlocked = await htf.isBlocked();
         // dailyHaGate.js — universal, every strategy (see its header).
         const dailyHaBlocked = await dailyHa.isBlocked(side);
+        reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
         if (htfBlocked) { console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`); return; }
         if (dailyHaBlocked) { console.log(`[${context.tgPrefix}] entry blocked — daily HA / entry-time gate (reason in the line above)`); return; }
 
@@ -5977,6 +5997,7 @@ function createPureHaStrategy({ context, engineConfig, state, db, candles, slSto
         const htfBlocked = await htf.isBlocked();
         // dailyHaGate.js — universal, every strategy (see its header).
         const dailyHaBlocked = await dailyHa.isBlocked(side);
+        reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
         else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
@@ -6300,6 +6321,7 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
         // retries later the same day regardless of why an entry didn't
         // happen.
         if (evaluateLongCandle(context, engineConfig, candles, state)) {
+            reportBlocks(context, side, livePrice, { longCandle: true });
             console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
             tg(`\u26a0 ${side} DAILY HA BIAS entry blocked — abnormal candle expansion filter active, no trade today`);
             return false;

@@ -749,6 +749,8 @@ function handleEvent(msg) {
   }
   const isReplay = replayRemaining > 0;
   if (isReplay) replayRemaining--;
+  // Entry-gate block (see blockReport.js) — feeds the chart's Filters tab; not a log line.
+  if (msg.type === "BLOCK") { if (!isReplay && window.chartOnBlock) window.chartOnBlock(msg); return; }
 
   const time = ts();
 

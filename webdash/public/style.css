@@ -1498,3 +1498,6 @@ body {
 .chart-status { margin-left: auto; font-size: 11px; color: var(--dim); }
 .chart-box { height: 62vh; min-height: 320px; padding: 0 6px 10px; }
 @media (max-width: 700px) { .chart-box { height: 56vh; } .chart-status { margin-left: 0; width: 100%; } }
+.chart-toggle.active { color: var(--cyan); border-color: var(--cyan); }
+.chart-info { padding: 0 14px 6px; font-size: 11px; color: var(--dim); line-height: 1.5; }
+.chart-modal .tb-modal-head .btn { flex: 0 0 auto; padding: 6px 14px; }
