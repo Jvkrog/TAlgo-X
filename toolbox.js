@@ -1803,6 +1803,15 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     } else {
         console.log(c.dim(`  HTF gate off — entries will NOT be blocked by the higher-timeframe check`));
     }
+    let htfBandBlockEnabled = true;
+    if (htfGateEnabled) {
+        const htfBandInput = (await ask(`  HTF gate: also require price still inside its own ALMA band (not just low chop)? [Y/n] (default: Y): `)).trim().toUpperCase();
+        htfBandBlockEnabled = htfBandInput !== "N";
+    }
+
+    // Universal daily-HA directional gate (dailyHaGate.js) — on by default, opt-out.
+    const dailyHaInput = (await ask(`  Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)? [Y/n] (default: Y): `)).trim().toUpperCase();
+    const dailyHaGateEnabled = dailyHaInput !== "N";
 
     // Max daily loss circuit breaker — universal, every strategy. Blank =
     // disabled, no floor (today's original behavior). Once today's
@@ -1934,6 +1943,8 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     env.LONG_CANDLE_BODY_FILTER_OVERRIDE = longCandleUseBodyFilter ? "true" : "false";
     if (longCandleBodyAtrMult !== null) env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE = String(longCandleBodyAtrMult);
     env.HTF_GATE_ENABLED_OVERRIDE = htfGateEnabled ? "true" : "false";
+    env.HTF_BAND_BLOCK_ENABLED_OVERRIDE = htfBandBlockEnabled ? "true" : "false";
+    env.DAILY_HA_GATE_ENABLED_OVERRIDE = dailyHaGateEnabled ? "true" : "false";
     if (htfTimeframe !== null) env.HTF_TIMEFRAME_OVERRIDE = htfTimeframe;
     if (htfChopPeriod !== null) env.HTF_CHOP_PERIOD_OVERRIDE = String(htfChopPeriod);
     if (htfChopMax !== null) env.HTF_CHOP_MAX_OVERRIDE = String(htfChopMax);

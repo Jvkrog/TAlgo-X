@@ -981,6 +981,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
 // BLOCK events (an entry gate refused a signal — see blockReport.js) are kept per engine for
 // the last 3 IST days and persisted to chartBlocks.json so a dashboard restart doesn't lose
 // today's markers. Chart "Filters" tab reads them.
+const { parseBlocksFromLog } = require("./logBlocks");
 const BLOCKS_FILE = path.join(ROOT, "chartBlocks.json");
 let blockStore = {};
 try { blockStore = JSON.parse(fs.readFileSync(BLOCKS_FILE, "utf8")) || {}; } catch { blockStore = {}; }
@@ -1009,7 +1010,15 @@ function chartOverlayFor(p, tfBars, day) {
         return { note: "indicator unavailable: " + err.message };
     }
 }
-const blocksForDay = (engine, day) => (blockStore[engine] || []).filter(b => istDayStr(b.ts) === day);
+// Stored BLOCK events + blocks parsed from the engine's PM2 log (covers the time before the
+// engine emitted BLOCK events). Log-derived ones are dropped when a stored event already
+// covers the same side within 30s.
+function blocksForDay(engine, day, outLogPath) {
+    const stored = (blockStore[engine] || []).filter(b => istDayStr(b.ts) === day);
+    const fromLog = parseBlocksFromLog(outLogPath, day)
+        .filter(l => !stored.some(s => s.side === l.side && Math.abs(s.ts - l.ts) < 30000));
+    return stored.concat(fromLog).sort((a, b) => a.ts - b.ts);
+}
 
 // Overlay + blocks only (refresh when a new bar opens, without re-fetching minute bars).
 app.get("/api/chart/:name/overlay", async (req, res) => {
@@ -1025,7 +1034,7 @@ app.get("/api/chart/:name/overlay", async (req, res) => {
         const now = Date.now();
         const tfBars = await fetchHistoricalCandles({ kc: ensureToolboxKite(), token: contract.token, timeframe: tf, from: new Date(now - 8 * 86400000), to: new Date(now) });
         const day = istDayStr(tfBars[tfBars.length - 1].date.getTime());
-        res.json({ overlay: chartOverlayFor(p, tfBars, day), blocks: blocksForDay(p.underlying, day) });
+        res.json({ overlay: chartOverlayFor(p, tfBars, day), blocks: blocksForDay(p.underlying, day, p.outLogPath) });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1055,7 +1064,7 @@ app.get("/api/chart/:name", async (req, res) => {
             name: p.name, underlying: p.underlying, exchange, timeframe: tf, tfMinutes: TIMEFRAME_MINUTES[tf], day,
             strategy: p.strategy,
             overlay: chartOverlayFor(p, tfBars, day),
-            blocks: blocksForDay(p.underlying, day),
+            blocks: blocksForDay(p.underlying, day, p.outLogPath),
             tfBars: tfBars.map(row), minuteBars: mins.map(row),
             suggestedRange: a ? Math.max(0.05, Math.round(a * 20) / 20) : 1,
             bandStep: p.bandStep ? Number(p.bandStep) : null,

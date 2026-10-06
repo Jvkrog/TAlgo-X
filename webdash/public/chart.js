@@ -168,7 +168,7 @@
     if (S.ind) bits.push(S.overlay && S.overlay.label ? "Indicator: " + S.overlay.label : (S.overlay && S.overlay.note) || "no indicator data");
     if (S.filters) {
       const used = new Set(); S.blocks.forEach(b => b.reasons.forEach(r => used.add(r)));
-      bits.push(S.blocks.length ? `Blocked entries: ${S.blocks.length} (▲ long blocked, ▼ short blocked) — ` + [...used].map(r => `${SHORT[r] || r} = ${LONGNAME[r] || r}`).join(" · ") : "Filters: no blocked entries recorded for this day — blocks are recorded live by instruments running the latest code while the dashboard is up, so restart the instrument after updating");
+      bits.push(S.blocks.length ? `Blocked entries: ${S.blocks.length} (▲ long blocked, ▼ short blocked) — ` + [...used].map(r => `${SHORT[r] || r} = ${LONGNAME[r] || r}`).join(" · ") : "Filters: no blocked entries found for this day in the live feed or the instrument PM2 log");
     }
     els.info.textContent = bits.join("   |   ");
     els.info.style.display = bits.length ? "" : "none";
