@@ -19,7 +19,7 @@
 
 const { KiteConnect } = require("kiteconnect");
 const { fetchHistoricalCandles, fetchDailyCandles } = require("./historicalFetch");
-const { toHA } = require("./indicators");
+const { toHAAlways: toHA } = require("./indicators");
 
 // Refresh cadence — same "roughly half the bar's own duration" logic
 // htfGate.js uses, so the cached last-closed bar is never far behind.

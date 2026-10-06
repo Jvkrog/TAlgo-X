@@ -14,6 +14,8 @@
 
 const sqlite3 = require("sqlite3").verbose();
 const path    = require("path");
+const fs      = require("fs");
+const { candleSuffix, nativeCandleType } = require("./candleType");
 
 function createDb(context) {
     // Fail loud, not silently wrong (same reasoning as engine.js's lotMult/
@@ -45,9 +47,23 @@ function createDb(context) {
     // there, rename that file to match the new pattern before restarting;
     // I didn't do it automatically since I don't know which strategy each
     // existing file's history actually belongs to.
-    const DB_NAME = context.name.toLowerCase().replace(/\s+/g, "") + "_" +
-                    context.strategy.toLowerCase().replace(/\s+/g, "") + ".db";
+    // CHANGED Oct 2026: candle type is part of the file name (…_<strategy>_<raw|ha|range>.db) so the
+    // same instrument + strategy can run on different candles side by side with separate state.
+    const baseName = context.name.toLowerCase().replace(/\s+/g, "") + "_" +
+                     context.strategy.toLowerCase().replace(/\s+/g, "");
+    const DB_NAME = baseName + "_" + candleSuffix(context.candleType) + ".db";
     const DB_PATH = path.join(__dirname, DB_NAME);
+    // One-time continuity: an instrument deployed before candle names existed keeps its open
+    // position/history — its old file is COPIED (not moved) to the new name when the new one
+    // doesn't exist yet and the instrument is running its native candle type.
+    try {
+        const oldPath = path.join(__dirname, baseName + ".db");
+        if (!fs.existsSync(DB_PATH) && fs.existsSync(oldPath) &&
+            candleSuffix(context.candleType) === candleSuffix(nativeCandleType(context.strategy))) {
+            fs.copyFileSync(oldPath, DB_PATH);
+            console.log(`[${context.tgPrefix}] DB: copied ${path.basename(oldPath)} -> ${DB_NAME} (candle-type naming)`);
+        }
+    } catch (err) { console.error(`DB legacy copy failed: ${err.message}`); }
     const db      = new sqlite3.Database(DB_PATH);
 
     function initDB() {

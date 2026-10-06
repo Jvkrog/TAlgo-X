@@ -1509,3 +1509,5 @@ body {
 .card-resize-handle::before { content: ""; position: absolute; right: 4px; bottom: 4px; width: 8px; height: 8px; border-right: 2px solid var(--border-strong); border-bottom: 2px solid var(--border-strong); opacity: 0.7; }
 #dashboardView.layout-edit-mode .instrument-grid.cards-freeform > .card { outline: 1px dashed var(--border); outline-offset: 2px; cursor: move; touch-action: none; user-select: none; }
 #dashboardView.layout-edit-mode .instrument-grid.cards-freeform > .card .card-resize-handle { display: block; }
+.tb-native-tag { font-size: 10px; color: var(--dim); font-weight: 400; margin-left: 4px; }
+.candle-tag { font-size: 9px; padding: 1px 5px; border-radius: 8px; border: 1px solid var(--border, #2a3040); color: var(--dim); margin-left: 4px; vertical-align: middle; }

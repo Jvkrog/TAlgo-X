@@ -27,6 +27,7 @@ const { createContractPinStore } = require("./contractPins");
 const { resolveCurrent }         = require("./instrumentResolution");
 const { getDefinition, buildContext, defaultEodFor } = require("./context");
 const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = require("./strategies");
+const { CANDLE_LABEL, nativeCandleType, normalizeCandleType, resolveCandleMode, overrideWarning } = require("./candleType");
 const { INDICATOR_CATALOG } = require("./indicatorCatalog");
 const { normalizePrice }    = require("./price");
 const { createTelegram }    = require("./telegram");
@@ -145,9 +146,15 @@ function fmtUptime(ms) {
 // starting a second strategy on an instrument already running silently
 // collided with (and restarted/overwrote) the first, since PM2 process
 // names have to be unique.
-function toProcessName(underlying, strategy) {
+// candleType: only a NON-native candle choice adds a suffix (HA / RNG / RAW), so every instrument deployed
+// before candle types existed keeps its process name, and the same instrument + strategy can run on
+// several candle types side by side.
+const CANDLE_NAME_TAG = { RAW: "Raw", HA: "HA", RANGE: "Rng" };
+function toProcessName(underlying, strategy, candleType) {
     const stratShort = (STRATEGY_INFO[strategy] || { short: strategy }).short;
-    return `${getShortName(underlying)}${stratShort}Engine`;
+    const ct = normalizeCandleType(candleType);
+    const tag = ct && ct !== nativeCandleType(strategy) ? CANDLE_NAME_TAG[ct] : "";
+    return `${getShortName(underlying)}${stratShort}${tag}Engine`;
 }
 
 async function getEngineProcesses() {
@@ -178,6 +185,8 @@ async function getEngineProcesses() {
             chopMax: p.pm2_env.env?.CHOP_MAX_OVERRIDE ? Number(p.pm2_env.env.CHOP_MAX_OVERRIDE) : null,
             disableDoubleOrders: p.pm2_env.env?.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true",
             flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
+            candleType: normalizeCandleType(p.pm2_env.env?.CANDLE_TYPE_OVERRIDE) || null,
+            rangeSize: p.pm2_env.env?.RANGE_SIZE_OVERRIDE ? Number(p.pm2_env.env.RANGE_SIZE_OVERRIDE) : null,
             dailyBiasEntryTime: p.pm2_env.env?.DAILY_BIAS_ENTRY_TIME_OVERRIDE || null,
             dailyBiasCandle: p.pm2_env.env?.DAILY_BIAS_CANDLE_OVERRIDE || null,
             entryTime: p.pm2_env.env?.ENTRY_TIME_OVERRIDE || null,
@@ -451,7 +460,8 @@ async function renderMenu() {
             const box  = selected.has(p.name) ? "x" : " ";
             const num  = String(i + 1).padStart(2);
             const stratShort = (STRATEGY_INFO[p.strategy] || { short: p.strategy }).short;
-            const inst = `${p.underlying}/${stratShort}`.padEnd(INST_COL_WIDTH);
+            const candleShort = p.candleType && p.candleType !== nativeCandleType(p.strategy) ? `·${p.candleType === "RANGE" ? "RNG" : p.candleType}` : "";
+            const inst = `${p.underlying}/${stratShort}${candleShort}`.padEnd(INST_COL_WIDTH);
             const lots = String(p.lots).padEnd(LOTS_COL_WIDTH);
             const mult = String(p.lotMult ?? "-").padEnd(MULT_COL_WIDTH);
             const mode = p.live ? colorPad("LIVE", MODE_COL_WIDTH, c.red) : colorPad("PAPER", MODE_COL_WIDTH, c.cyan);
@@ -611,6 +621,9 @@ function buildProcessEnv(p, overrides = {}) {
     // every other strategy simply never reads it.
     env.FLIP_CONFIRM_CANDLES_OVERRIDE = p.flipConfirmCandles ? String(p.flipConfirmCandles) : "";
     // DAILY_HA_BIAS only (entry time, IST "HH:MM"); blank = default 10:00. Always written, same "restart merges env" reasoning.
+    env.CANDLE_TYPE_OVERRIDE = p.candleType || "";
+    env.RANGE_SIZE_OVERRIDE = p.rangeSize ? String(p.rangeSize) : "";
+    env.PROCESS_NAME = p.name;
     env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = p.dailyBiasEntryTime || "";
     env.DAILY_BIAS_CANDLE_OVERRIDE = p.dailyBiasCandle || "";
     env.ENTRY_TIME_OVERRIDE = p.entryTime || "";
@@ -1309,6 +1322,17 @@ async function riskManagement(procs) {
             console.log(c.dim(`  Daily HA gate off — entries in either direction stay allowed regardless of yesterday's daily candle`));
         }
 
+        // Candle type is fixed at deploy (process + state file are named after it); only the range-bar size is editable.
+        let rangeSize = p.rangeSize;
+        if (p.candleType === "RANGE") {
+            const rsDefault = p.rangeSize ? String(p.rangeSize) : "ATR default";
+            const rsInput = (await ask(`  Range bar size in price units (current: ${rsDefault}, "0"/"clear" = ATR default, blank = keep): `)).trim();
+            if (rsInput) {
+                if (rsInput === "0" || rsInput.toLowerCase() === "clear") rangeSize = null;
+                else { const n = Number(rsInput); if (Number.isFinite(n) && n > 0) rangeSize = n; else console.log(c.yellow(`  "${rsInput}" isn't a valid positive number — range size left unchanged`)); }
+            }
+        }
+
         // Max daily loss circuit breaker — universal, every strategy.
         const maxDailyLossDefault = p.maxDailyLoss !== null ? String(p.maxDailyLoss) : "none";
         const maxDailyLossInput = (await ask(`  Max daily loss in rupees (current: ${maxDailyLossDefault}, "0"/"clear" to remove, blank = keep): `)).trim();
@@ -1326,7 +1350,7 @@ async function riskManagement(procs) {
             }
         }
 
-        const updatedP = { ...p, dailyBiasEntryTime, dailyBiasCandle, entryTime, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, longCandleUseBodyFilter, longCandleBodyAtrMult, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, maxDailyLoss };
+        const updatedP = { ...p, dailyBiasEntryTime, dailyBiasCandle, entryTime, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, longCandleUseBodyFilter, longCandleBodyAtrMult, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, maxDailyLoss };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -1425,6 +1449,20 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // deploy attempt on an unfinished one anyway, but filtering here saves
     // the round trip. Default still matches context.js's own fallback, so
     // leaving this blank changes nothing about today's behavior.
+    // Candle type — chosen BEFORE the strategy. Blank = whatever the strategy is designed for. Choosing a type
+    // the strategy wasn't designed for overrides it (warned right after the strategy pick below).
+    console.log();
+    console.log(c.dim(`  Candle type the strategy should run on:`));
+    console.log(`  1. Raw (time candles)`);
+    console.log(`  2. Heikin-Ashi`);
+    console.log(`  3. Range bars ${c.dim("(fixed high-low range, price driven)")}`);
+    const candleInput = (await ask(`  Select number (blank = the strategy's own native type): `)).trim();
+    let candleType = null;
+    if (candleInput) {
+        candleType = ["RAW", "HA", "RANGE"][Number(candleInput) - 1] || null;
+        if (!candleType) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
+    }
+
     const customStrategies = (await customStrategyDb.listStrategies()).filter(s => s.entryLong || s.entryShort);
     const strategyKeys = [...Object.keys(STRATEGIES), ...customStrategies.map(s => s.name)];
     console.log();
@@ -1437,7 +1475,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         } else {
             const info = STRATEGY_INFO[key] || { label: key, description: "" };
             const defTag = key === DEFAULT_STRATEGY ? c.dim(" (default)") : "";
-            console.log(`  ${String(i + 1).padStart(2)}. ${info.label}${defTag}`);
+            console.log(`  ${String(i + 1).padStart(2)}. ${info.label}${defTag} ${c.dim(`[native: ${CANDLE_LABEL[nativeCandleType(key)]}]`)}`);
             if (info.description) wrapText(info.description, "      ").forEach(line => console.log(c.dim(line)));
         }
     });
@@ -1448,6 +1486,14 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const picked = strategyKeys[Number(stratInput) - 1];
         if (!picked) { console.log(c.yellow("  Invalid selection")); await pauseForReview(); return; }
         strategy = picked;
+    }
+    if (candleType && customStrategies.some(cs => cs.name === strategy)) {
+        console.log(c.dim(`  Custom strategy — it carries its own candle type, ignoring the candle choice above`));
+        candleType = null;
+    }
+    if (candleType) {
+        const warn = overrideWarning(strategy, candleType);
+        if (warn) console.log(c.yellow(`  ⚠ ${warn}`));
     }
 
     // Timeframe picker — defaults to the selected strategy's own fixed
@@ -1472,6 +1518,16 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         timeframe = picked;
         if (timeframe !== defaultTimeframe) {
             console.log(c.yellow(`  ⚠ overriding ${strategy}'s default ${defaultTimeframe} cadence — its lookback params were tuned assuming ${defaultTimeframe} candles`));
+        }
+    }
+
+    let rangeSize = null;
+    if (candleType === "RANGE") {
+        const rsInput = (await ask(`  Range bar size in price units (blank = ATR default, same as the chart's suggestion): `)).trim();
+        if (rsInput) {
+            const parsedRange = Number(rsInput);
+            if (Number.isFinite(parsedRange) && parsedRange > 0) rangeSize = parsedRange;
+            else console.log(c.yellow(`  "${rsInput}" isn't a valid positive number — using the ATR default`));
         }
     }
 
@@ -1858,7 +1914,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         greyExitEnabled = greyExitInput === "Y";
     }
 
-    const name = toProcessName(underlying, strategy);
+    const name = toProcessName(underlying, strategy, candleType);
 
     // Exact duplicate check — same underlying AND same strategy produces
     // the same process name, which would still silently collide even with
@@ -1867,7 +1923,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // scheme) and isn't blocked here.
     const existingProcs = await getEngineProcesses();
     if (existingProcs.some(p => p.name === name)) {
-        console.log(c.yellow(`  ⚠ ${underlying} is already running ${(STRATEGY_INFO[strategy] || { label: strategy }).label} as ${name} — stop/remove it first, or pick a different strategy.`));
+        console.log(c.yellow(`  ⚠ ${underlying} is already running ${(STRATEGY_INFO[strategy] || { label: strategy }).label} as ${name} — stop/remove it first, or pick a different strategy or candle type.`));
         await pauseForReview();
         return;
     }
@@ -1897,7 +1953,9 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     }
 
-    const env  = { UNDERLYING: underlying, EXCHANGE_OVERRIDE: exchange, LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), CARRY_OVERNIGHT_OVERRIDE: String(carryOvernight), STRATEGY_OVERRIDE: strategy, TIMEFRAME_OVERRIDE: timeframe };
+    const env  = { UNDERLYING: underlying, EXCHANGE_OVERRIDE: exchange, LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), CARRY_OVERNIGHT_OVERRIDE: String(carryOvernight), STRATEGY_OVERRIDE: strategy, TIMEFRAME_OVERRIDE: timeframe, PROCESS_NAME: name };
+    if (candleType) env.CANDLE_TYPE_OVERRIDE = candleType;
+    if (rangeSize !== null) env.RANGE_SIZE_OVERRIDE = String(rangeSize);
     if (lotMultOverride !== null) env.LOTMULT_OVERRIDE = String(lotMultOverride);
     if (targetPoints !== null) env.TARGET_POINTS_OVERRIDE = String(targetPoints);
     if (targetMode === "adaptive") env.TARGET_MODE_OVERRIDE = "adaptive";
@@ -1969,7 +2027,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         const volTag = volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
         const lcTag = longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
         const htfTag = htfGateEnabled ? c.dim(` htf:${timeframe}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}`) : c.yellow(" htf:off");
-        console.log(c.green(`  Started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe}${targetTag}${almaBandTag}${almaLenTag}${almaChopTag}${vdChopTag}${bandStepTag}${greyExitTag}${volTag}${lcTag}${htfTag}${maxLossTag}`));
+        console.log(c.green(`  Started ${name} (${lots} lot${lots > 1 ? "s" : ""}${lotMultOverride !== null ? `, lotMult ${lotMultOverride}` : ""}) — ${modeTag}${carryTag} — ${stratLabel} @ ${timeframe} ${CANDLE_LABEL[resolveCandleMode(strategy, candleType).type]}${candleType === "RANGE" ? ` (range ${rangeSize ?? "ATR default"})` : ""}${targetTag}${almaBandTag}${almaLenTag}${almaChopTag}${vdChopTag}${bandStepTag}${greyExitTag}${volTag}${lcTag}${htfTag}${maxLossTag}`));
     } catch (err) {
         console.log(c.red(`  Failed to start ${name}: ${err.message}`));
     }

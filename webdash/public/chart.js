@@ -188,6 +188,7 @@
   }
   function onBlock(msg) {
     if (!S || !S.isToday || msg.engine !== S.data.underlying || !Array.isArray(msg.reasons)) return;
+    if (msg.proc && S.inst && S.inst.name && msg.proc !== S.inst.name) return;   // another candle-type deployment of the same instrument
     S.blocks.push({ ts: msg.ts || Date.now(), side: msg.side, price: msg.price, reasons: msg.reasons });
     drawMarkers(); info();
   }
@@ -244,7 +245,7 @@
     if (!modal) build();
     if (S && S.chart) S.chart.remove();
     S = null;
-    els.title.textContent = `${inst.underlying} · ${inst.strategy}`;
+    els.title.textContent = `${inst.underlying} · ${inst.strategy}${inst.candleType ? " · " + inst.candleType : ""}`;
     els.status.textContent = "loading…";
     els.box.innerHTML = "";
     modal.classList.add("open");
@@ -268,7 +269,7 @@
         wickUpColor: "#33ff88", wickDownColor: "#ff5266",
       });
       S = {
-        inst, data, bars, dayIdx, chart, series: sr, type: "raw", range: data.suggestedRange, last: null,
+        inst, data, bars, dayIdx, chart, series: sr, type: "raw", range: (inst.candleType === "RANGE" && inst.rangeSize) ? inst.rangeSize : data.suggestedRange, last: null,
         overlay: data.overlay, blocks: (data.blocks || []).slice(), ind: false, filters: false, lineSeries: [], dispT: null, dispTimes: null,
         points: minutePoints(data.minuteBars.map(toBar)), isToday: data.day === istDay(Date.now()), timer: null, dirty: false, lastTime: 0,
       };
@@ -276,7 +277,7 @@
       els.range.value = S.range;
       modal.querySelectorAll(".chart-toggle").forEach(b => b.classList.remove("active"));
       info();
-      setType("raw");
+      setType(inst.candleType === "HA" ? "ha" : inst.candleType === "RANGE" ? "range" : "raw");   // open on the series the instrument actually trades
     } catch (err) {
       els.status.textContent = "error: " + err.message;
     }

@@ -21,7 +21,9 @@ const engineConfigDefaults        = require("./engineConfig");
 const { computeMetrics }          = require("./backtestMetrics");
 const { buildReport, saveReport } = require("./backtestReport");
 const { fetchHistoricalCandles, fetchDailyCandles } = require("./historicalFetch");
-const { toHA }                     = require("./indicators");
+const { toHAAlways: toHA, setHaPassthrough } = require("./indicators");
+const { resolveCandleMode, normalizeCandleType, CANDLE_LABEL, overrideWarning } = require("./candleType");
+const { buildSeries } = require("./backtestCandleType");
 const c = require("./c");
 
 // runBacktest({
@@ -36,7 +38,16 @@ const c = require("./c");
 //   kc,                // authenticated KiteConnect instance, for the historical fetch
 //   progress,         // optional (processed, total) => void, called every 100 candles
 // })
-async function runBacktest({ strategyKey, strategyLabel, context, timeframe, from, to, params = {}, kc, progress }) {
+// Candle type (RAW | HA | RANGE, see candleType.js): optional `candleType` / `rangeSize` on the args;
+// unset = the strategy's native type (legacy behaviour). A non-native choice overrides the strategy.
+async function runBacktest(args) {
+    const mode = resolveCandleMode(args.strategyKey, args.candleType);
+    setHaPassthrough(mode.haPassthrough);   // engine-process switch; backtests run one at a time per call
+    try { return await runBacktestInner(args, mode); }
+    finally { setHaPassthrough(false); }
+}
+
+async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe, from, to, params = {}, kc, progress, rangeSize }, mode) {
     // Same fallback signals.js's createSignals() uses live: a key not in
     // the hardcoded STRATEGIES registry might be a user-built strategy
     // saved via the toolbox/webdash wizard (customStrategyDb) — only an
@@ -79,10 +90,20 @@ async function runBacktest({ strategyKey, strategyLabel, context, timeframe, fro
     const WARMUP_LOOKBACK_DAYS = 10;
     const fetchFrom = new Date(from.getTime() - WARMUP_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
 
-    const historicalCandles = await fetchHistoricalCandles({ kc, token: context.token, timeframe, from: fetchFrom, to });
-    if (historicalCandles.length === 0) {
+    const rawTimeCandles = await fetchHistoricalCandles({ kc, token: context.token, timeframe, from: fetchFrom, to });
+    if (rawTimeCandles.length === 0) {
         throw new Error("runBacktest: no historical candles returned for this range — check the date range and market holidays");
     }
+    const series = await buildSeries({ view: mode.view, rawCandles: rawTimeCandles, kc, token: context.token, from: fetchFrom, to, rangeSize, atrLen: engineConfig.ST_ATR_LEN });
+    const historicalCandles = series.candles;
+    if (historicalCandles.length === 0) {
+        throw new Error("runBacktest: no candles in the chosen candle type for this range");
+    }
+    context.candleType = mode.type;
+    if (series.rangeSize) context.rangeSize = series.rangeSize;
+    const candleWarning = overrideWarning(strategyKey, mode.type);
+    console.log(c.dim(`  Candle type: ${CANDLE_LABEL[mode.type]}${series.rangeSize ? ` (range ${series.rangeSize})` : ""} — ${historicalCandles.length} bars`));
+    if (candleWarning) console.log(c.yellow(`  ⚠ ${candleWarning}`));
 
     const state   = createState();
     const slStore = createSLStore();

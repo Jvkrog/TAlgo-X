@@ -1,23 +1,41 @@
-// candleBuilder.js — live price tracker + raw candle buffer.
+// candleBuilder.js — live price tracker + candle buffer.
 //
-// CHANGED: `rawCandles` and `livePrice` were module-level `let`s — same
-// problem as state.js. Now createCandleBuffer() returns an object holding
-// that state, so each running instrument gets its own buffer instance
-// instead of sharing one through the module cache.
+// One buffer per running instrument. Candles are loaded by preload and appended by candlePoll
+// (time candles) or by the range-bar feed (range mode). WebSocket ticks only update livePrice
+// for SL monitoring.
 //
-// Raw candles are loaded by preload and appended by candlePoll.
-// WebSocket ticks only update livePrice for SL monitoring.
+// Candle type: the buffer stores the SOURCE series and getRawCandles() returns the VIEW the
+// strategy sees. view "native" returns the source untouched (legacy), view "HA" returns a
+// Heikin-Ashi version (flagged _ha so strategy-level toHA() doesn't convert twice).
 "use strict";
 
-function createCandleBuffer() {
-    let rawCandles = [];
-    let livePrice  = null;
+const { toHAAlways } = require("./indicators");
+
+function createCandleBuffer({ view = "native" } = {}) {
+    let source = [];
+    let cache = null;
+    let livePrice = null;
+
+    const viewOf = () => {
+        if (view !== "HA") return source;
+        if (!cache) cache = toHAAlways(source).map(h => ({ ...h, _ha: true }));
+        return cache;
+    };
 
     return {
         onTick(price)    { livePrice = price; },
         getLivePrice()   { return livePrice; },
-        getRawCandles()  { return rawCandles; },
-        setRawCandles(c) { rawCandles = c || []; },
+        getRawCandles()  { return viewOf(); },
+        setRawCandles(c) { source = c || []; cache = null; },
+        // Append one closed candle (source series) and return the candle as the strategy sees it.
+        appendCandle(candle, max) {
+            source.push(candle);
+            if (max && source.length > max) source.shift();
+            cache = null;
+            const v = viewOf();
+            return v[v.length - 1];
+        },
+        getSourceCandles() { return source; },
     };
 }
 

@@ -36,6 +36,9 @@ const { createSignals }      = require("./signals");
 const { STRATEGY_TIMEFRAME, STRATEGY_INFO } = require("./strategies");
 const { TIMEFRAME_TO_INTERVAL } = require("./historicalFetch");
 const { istParts } = require("./istTime");
+const { resolveCandleMode, normalizeCandleType, CANDLE_LABEL, overrideWarning } = require("./candleType");
+const { setHaPassthrough } = require("./indicators");
+const { createRangeFeed } = require("./rangeFeed");
 
 async function main() {
     // ─── SELECT INSTRUMENT — set by PM2 (toolbox.js), defaults to NATGASMINI
@@ -466,6 +469,20 @@ async function main() {
     }
     console.log(c.dim(`[${context.tgPrefix}] Daily HA gate: ${context.dailyHaGateEnabled === false ? "off" : c.yellow("on — blocks entries against the previous completed daily candle's color")}`));
 
+    // Candle type (RAW / HA / RANGE) — chosen at deploy, independent of strategy. Unset = the
+    // strategy's own native type (legacy behaviour). Must be resolved BEFORE createDb (file name).
+    context.candleType = normalizeCandleType(process.env.CANDLE_TYPE_OVERRIDE) || resolveCandleMode(context.strategy, null).type;
+    if (process.env.RANGE_SIZE_OVERRIDE) {
+        const rs = Number(process.env.RANGE_SIZE_OVERRIDE);
+        context.rangeSize = Number.isFinite(rs) && rs > 0 ? rs : null;
+    }
+    const candleMode = resolveCandleMode(context.strategy, context.candleType);
+    context.candleMode = candleMode;
+    setHaPassthrough(candleMode.haPassthrough);
+    console.log(c.dim(`[${context.tgPrefix}] Candle type: ${CANDLE_LABEL[context.candleType]}${candleMode.type === "RANGE" ? ` (range ${context.rangeSize ?? "ATR default"})` : ""}`));
+    const candleWarn = overrideWarning(context.strategy, context.candleType);
+    if (candleWarn) console.log(c.yellow(`[${context.tgPrefix}] ⚠ ${candleWarn}`));
+
     const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
     console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
 
@@ -476,7 +493,7 @@ async function main() {
     // ─── INSTANTIATE — one of each, scoped to `context` ────────────────────────
     const { tg }   = createTelegram(context, engineConfig);
     const state    = createState();
-    const candles  = createCandleBuffer();
+    const candles  = createCandleBuffer({ view: candleMode.view === "HA" ? "HA" : "native" });
     const htf      = createHtfGate({ context, engineConfig, tg });
     const deltaBuffer = createCandleDeltaBuffer();
     const marketDataHealth = createMarketDataHealth({ tg });
@@ -504,6 +521,10 @@ async function main() {
         // enforcement, since its stub broker never calls orders.js at all).
         dailyHa: orders.dailyHaGate,
     });
+    const rangeKc = candleMode.view === "RANGE" ? new KiteConnect({ api_key: engineConfig.API_KEY }) : null;
+    if (rangeKc) rangeKc.setAccessToken(ACCESS_TOKEN);
+    const rangeFeed = rangeKc ? createRangeFeed({ context, engineConfig, kc: rangeKc, candles, tg }) : null;
+    let rangeQueue = Promise.resolve();
     const candlePollInstance = createCandlePoll({
         context, engineConfig, state, candles, slStore, targetStore, orders,
         positionsClose, processCandle: signalsInstance.processCandle, db, tg, deltaBuffer,
@@ -537,7 +558,12 @@ async function main() {
             setTimeout(resolve, target - now);
         });
 
-        await preloadInstance.preload();
+        if (rangeFeed) {
+            try { await rangeFeed.load(); }
+            catch (err) { console.error(c.red(`RANGE load failed: ${err.message}`)); tg(`⚠ Range-bar load failed: ${err.message}`); }
+        } else {
+            await preloadInstance.preload();
+        }
         htf.prewarm();
 
         const bufLen = candles.getRawCandles().length;
@@ -570,7 +596,8 @@ async function main() {
 
         tg(`${strategyLabel} started  ${info}`);
 
-        candlePollInstance.startPoll();
+        // Range bars close on price, not on the clock — the tick handler drives processCandle instead.
+        if (!rangeFeed) candlePollInstance.startPoll();
         lifecycleInstance.startLifecycle();
 
         // Section 17 diagnostic — throttled inside marketDataHealth itself
@@ -609,6 +636,15 @@ async function main() {
                 const nowMs = Date.now();
                 if (nowMs - lastLtpEmitAt >= 400) { lastLtpEmitAt = nowMs; emitEvent(context.tgPrefix, "LTP", { price: tick.last_price }); }
                 deltaBuffer.onTick(tick.last_price, tick.volume_traded);
+                if (rangeFeed) {
+                    for (const bar of rangeFeed.onTick(tick.last_price, tick.volume_traded)) {
+                        // Serialised: a bar must be fully processed before the next one is.
+                        rangeQueue = rangeQueue.then(async () => {
+                            const seen = candles.appendCandle(bar, engineConfig.MAX_CANDLES);
+                            await signalsInstance.processCandle(seen);
+                        }).catch(err => console.error(c.red("RANGE processCandle: " + (err.message || err))));
+                    }
+                }
                 marketDataHealth.onTick(tick);
                 await candlePollInstance.checkSL(tick.last_price);
                 await candlePollInstance.checkTarget(tick.last_price);

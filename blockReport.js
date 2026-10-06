@@ -17,7 +17,7 @@ function reportBlocks(context, side, price, flags, dailyHa) {
         if (flags.double) reasons.push("DOUBLE_ORDER");
         if (flags.dailyHa) reasons.push(dailyHa && dailyHa.lastBlockReason === "entry-time" ? "ENTRY_TIME" : "DAILY_HA");
         if (!reasons.length) return;
-        emitEvent(context.tgPrefix, "BLOCK", { side, price: price ?? null, reasons });
+        emitEvent(context.tgPrefix, "BLOCK", { side, price: price ?? null, reasons, proc: process.env.PROCESS_NAME || null });
     } catch { /* dashboard-only */ }
 }
 

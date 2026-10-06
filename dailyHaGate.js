@@ -37,7 +37,7 @@
 const { isBeforeEntryTime } = require("./entryTimeGate");
 
 const { fetchDailyCandles } = require("./historicalFetch");
-const { toHA } = require("./indicators");
+const { toHAAlways: toHA } = require("./indicators");
 
 const REFRESH_MS    = 12 * 60 * 60 * 1000;
 const LOOKBACK_DAYS = 90;

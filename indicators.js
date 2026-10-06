@@ -4,7 +4,17 @@
 const config = require("./engineConfig"); // default-arg fallbacks only; signals.js always passes explicit args
 
 // ─── HEIKIN ASHI ─────────────────────────────────────────────────────────────
+// Process-wide switches (an engine process runs exactly one instrument):
+//   haPassthrough — strategy-level toHA() becomes identity (strategy deliberately run on RAW/RANGE bars)
+//   already-HA series (flagged _ha by the candle buffer's HA view) are never converted twice.
+let haPassthrough = false;
+function setHaPassthrough(v) { haPassthrough = !!v; }
 function toHA(raw) {
+    if (haPassthrough) return raw;
+    if (raw.length && raw[0]._ha) return raw;
+    return toHAAlways(raw);
+}
+function toHAAlways(raw) {
     const ha = [];
     for (let i = 0; i < raw.length; i++) {
         const c      = raw[i];
@@ -18,6 +28,7 @@ function toHA(raw) {
             low:   Math.min(c.low,  haOpen, haClose),
             close: haClose,
             date:  c.date,
+            ...(c.volume !== undefined ? { volume: c.volume } : {}),
         });
     }
     return ha;
@@ -530,7 +541,7 @@ function deltaZScore(deltaHistory, len = config.DELTA_Z_LOOKBACK) {
     return (current - mean) / stdDev;
 }
 
-module.exports = { toHA, alma, atr, atrSeries, supertrend, adx, rsi, choppinessIndex, hmIndicator, dpi, getDPIState, sma, ema, adaptiveTrendEnvelope, vwap, relativeVolume, deltaZScore };
+module.exports = { toHA, toHAAlways, setHaPassthrough, alma, atr, atrSeries, supertrend, adx, rsi, choppinessIndex, hmIndicator, dpi, getDPIState, sma, ema, adaptiveTrendEnvelope, vwap, relativeVolume, deltaZScore };
 
 // ─── ADAPTIVE TREND ENVELOPE [BackQuant] ──────────────────────────────────────
 // Direct port of the Pine v6 script "Adaptive Trend Envelope [BackQuant]"

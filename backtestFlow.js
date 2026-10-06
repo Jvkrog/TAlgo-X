@@ -20,6 +20,7 @@ const { STRATEGIES, STRATEGY_INFO, DEFAULT_STRATEGY } = require("./strategies");
 const customStrategyDb           = require("./customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL } = require("./historicalFetch");
 const { runBacktest } = require("./backtestRun");
+const { nativeCandleType, CANDLE_LABEL, overrideWarning } = require("./candleType");
 
 const TIMEFRAMES = Object.keys(TIMEFRAME_TO_INTERVAL); // ["5m","15m","30m","1h"]
 
@@ -167,10 +168,23 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     // same "finished in the builder" requirement runBacktest.js enforces.
     const customUsable = customSpecs.filter(s => s.entryLong || s.entryShort);
     console.log();
-    console.log(c.bold("  Step 1/7 — Strategy"));
+    console.log(c.bold("  Step 1/7 — Candle type, then strategy"));
+    console.log(c.dim("  Candle type the strategy runs on:"));
+    console.log("   1. Raw (time candles)");
+    console.log("   2. Heikin-Ashi");
+    console.log("   3. Range bars");
+    const candleInput = (await ask("  select number (blank = the strategy's own native type): ")).trim();
+    let candleType = candleInput ? ["RAW", "HA", "RANGE"][Number(candleInput) - 1] : null;
+    if (candleInput && !candleType) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    let rangeSize = null;
+    if (candleType === "RANGE") {
+        const rsInput = (await ask("  range bar size in price units (blank = ATR default): ")).trim();
+        const n = Number(rsInput);
+        if (rsInput && Number.isFinite(n) && n > 0) rangeSize = n;
+    }
     strategyKeys.forEach((key, i) => {
         const info = STRATEGY_INFO[key] || { label: key, description: "" };
-        console.log(`  ${String(i + 1).padStart(2)}. ${info.label}`);
+        console.log(`  ${String(i + 1).padStart(2)}. ${info.label} ${c.dim(`[native: ${CANDLE_LABEL[nativeCandleType(key)]}]`)}`);
         if (info.description) console.log(c.dim(`      ${info.description}`));
     });
     if (customUsable.length) {
@@ -186,6 +200,8 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     if (!strategyKey && !customPick) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
     const isCustom = !!customPick;
     const effectiveStrategyKey = isCustom ? customPick.name : strategyKey;
+    if (isCustom) candleType = null;   // custom strategies carry their own candle type
+    if (candleType) { const w = overrideWarning(effectiveStrategyKey, candleType); if (w) console.log(c.yellow(`  ⚠ ${w}`)); }
     const strategyLabel = isCustom ? `${customPick.name} (custom)` : (STRATEGY_INFO[strategyKey] || { label: strategyKey }).label;
 
     // ── Step 2: Instrument — same discovery Add Instrument uses ───────────
@@ -542,7 +558,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     let result;
     try {
         result = await runBacktest({
-            strategyKey: effectiveStrategyKey, strategyLabel, context, timeframe, from, to, params, kc,
+            strategyKey: effectiveStrategyKey, strategyLabel, context, timeframe, from, to, params, kc, candleType, rangeSize,
             progress: (done, total) => process.stdout.write(`\r  ${done}/${total} candles...`),
         });
     } catch (err) {

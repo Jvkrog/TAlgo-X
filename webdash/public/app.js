@@ -61,7 +61,7 @@ function buildCard(inst) {
     <div class="card-top">
       <div class="card-id">
         <span class="card-underlying">${inst.underlying}</span>
-        <span class="card-strategy">${inst.strategy}</span>
+        <span class="card-strategy">${inst.strategy}${candleTag(inst)}</span>
       </div>
       <div>
         <span class="status-pill ${inst.status === "online" ? "online" : "offline"}" data-role="status">${inst.status}</span>
@@ -392,7 +392,7 @@ async function loadDualHedges() {
 
 async function loadEngineState(inst) {
   try {
-    const res = await fetch(`/api/state/${encodeURIComponent(inst.underlying)}/${encodeURIComponent(inst.strategy)}`);
+    const res = await fetch(`/api/state/${encodeURIComponent(inst.underlying)}/${encodeURIComponent(inst.strategy)}?candle=${encodeURIComponent(inst.candleType || "")}`);
     const state = await res.json();
     const session = state.realizedToday || 0;
     sessionPnlByUnderlying.set(inst.underlying, session);
@@ -1019,6 +1019,17 @@ function wirePanelDragAndResize(panel) {
 // cards become absolutely positioned inside their grid once arranged. Positions are per
 // browser (localStorage), keyed by card id, and re-applied whenever a grid re-renders its
 // cards (MutationObserver) so the 30s resync / start-stop never undoes an arrangement.
+const CANDLE_TEXT = { RAW: "Raw", HA: "Heikin-Ashi", RANGE: "Range bars" };
+const NATIVE_HA = new Set(["ALMA_BAND","ALMA_FAST","ALMA_DUAL_BAND_SMA5","DUAL_ST_CHOP","MA_SLOPE","MA_SLOPE_SCALP","MA_SLOPE_PURE","MA_SLOPE_HM","DPI_TREND_MEANREV","DPI_MEANREV","ALMA_TRI_BAND","ALMA_PRO_FAST","ALMA_PRO_SLOW","PURE_HA"]);
+function nativeCandleOf(strategy) { return NATIVE_HA.has(strategy) ? "HA" : "RAW"; }
+function candleText(inst) {
+  const t = inst.candleType || nativeCandleOf(inst.strategy);
+  return CANDLE_TEXT[t] + (t === "RANGE" ? ` (range ${inst.rangeSize ?? "ATR default"})` : "") + (inst.candleType && inst.candleType !== nativeCandleOf(inst.strategy) ? " — overrides the strategy's native " + CANDLE_TEXT[nativeCandleOf(inst.strategy)] : "");
+}
+function candleTag(inst) {
+  const t = inst.candleType || nativeCandleOf(inst.strategy);
+  return ` <span class="candle-tag">${t === "RANGE" ? "RNG" : t}</span>`;
+}
 const CARD_LAYOUT_KEY = "talgox_card_layout_v1";
 const cardGrids = () => Array.from(document.querySelectorAll("#dashboardView .instrument-grid"));
 function loadCardLayout() { try { return JSON.parse(localStorage.getItem(CARD_LAYOUT_KEY) || "{}"); } catch { return {}; } }
@@ -1526,7 +1537,7 @@ function renderRiskList() {
     row.innerHTML = `
       <div class="tb-row-id">
         <span class="tb-underlying">${inst.underlying}</span>
-        <span class="tb-strategy">${inst.strategy}</span>
+        <span class="tb-strategy">${inst.strategy}${candleTag(inst)}</span>
       </div>
       <div class="tb-row-pills" style="flex-wrap:wrap">${badges.join("")}</div>
       <button class="tb-row-edit" data-name="${inst.name}">Manage risk</button>
@@ -1614,7 +1625,7 @@ function renderToolboxList() {
       <input type="checkbox" class="tb-check" data-name="${inst.name}">
       <div class="tb-row-id">
         <span class="tb-underlying">${inst.underlying}</span>
-        <span class="tb-strategy">${inst.strategy}</span>
+        <span class="tb-strategy">${inst.strategy}${candleTag(inst)}</span>
       </div>
       <div class="tb-row-pills">
         <span class="status-pill ${inst.status === "online" ? "online" : "offline"}">${inst.status}</span>
@@ -1791,6 +1802,11 @@ function openEditModal(inst) {
       <label class="tb-form-row-inline"><input type="checkbox" id="editHtfBandBlock" ${inst.htfBandBlockEnabled !== false ? "checked" : ""}><span>Also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
     </div>
     <div class="tb-form-row">
+      <div class="tb-form-label">Candle type</div>
+      <div class="tb-form-hint">${candleText(inst)} — fixed at deploy (the state file and process are named after it). To run another candle type, deploy the same instrument again with a different candle.</div>
+      ${inst.candleType === "RANGE" ? `<input type="number" id="editRangeSize" min="0" step="any" value="${inst.rangeSize ?? ""}" placeholder="range size, blank = ATR default">` : ""}
+    </div>
+    <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="editDailyHaGate" ${inst.dailyHaGateEnabled !== false ? "checked" : ""}><span>Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)</span></label>
       <div class="tb-form-hint">On by default, applies universally regardless of strategy.</div>
     </div>
@@ -1856,6 +1872,8 @@ function openEditModal(inst) {
     body.htfChopMax = tbEditBody.querySelector("#editHtfChopMax").value || null;
     body.htfBandBlockEnabled = tbEditBody.querySelector("#editHtfBandBlock").checked;
     body.dailyHaGateEnabled = tbEditBody.querySelector("#editDailyHaGate").checked;
+    const editRange = tbEditBody.querySelector("#editRangeSize");
+    if (editRange) body.rangeSize = editRange.value || null;
 
     try {
       const res = await fetch("/api/toolbox/edit", {
@@ -2085,6 +2103,18 @@ function renderAddConfigStep() {
     <div class="tb-form-row"><div class="tb-form-label">lot multiplier (required)</div><input type="number" id="addLotMult" placeholder="e.g. 250" min="0" step="any"></div>
     ` : ""}
     <div class="tb-form-row">
+      <div class="tb-form-label">Candle type</div>
+      <select id="addCandleType">
+        <option value="">Strategy's native (default)</option>
+        <option value="RAW">Raw (time candles)</option>
+        <option value="HA">Heikin-Ashi</option>
+        <option value="RANGE">Range bars</option>
+      </select>
+      <div class="tb-form-label" id="addRangeRowLabel" style="display:none;margin-top:6px">Range bar size (blank = ATR default)</div>
+      <input type="number" id="addRangeSize" min="0" step="any" placeholder="price units, e.g. 1.5" style="display:none">
+      <div class="tb-warn-box" id="addCandleWarn" style="display:none"></div>
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">Strategy</div>
       <div id="addStrategyList"></div>
     </div>
@@ -2192,6 +2222,22 @@ function renderAddConfigStep() {
   tbAddBody.querySelector("#addBack").addEventListener("click", renderAddSearchStep);
 
   let pickedStrategy = defaultStrat;
+  const CANDLE_LABELS = { RAW: "Raw (time candles)", HA: "Heikin-Ashi", RANGE: "Range bars" };
+  const candleSel = tbAddBody.querySelector("#addCandleType");
+  const rangeInp = tbAddBody.querySelector("#addRangeSize");
+  const rangeLbl = tbAddBody.querySelector("#addRangeRowLabel");
+  const candleWarn = tbAddBody.querySelector("#addCandleWarn");
+  function refreshCandleWarn() {
+    const chosen = candleSel.value;
+    rangeInp.style.display = rangeLbl.style.display = chosen === "RANGE" ? "" : "none";
+    const info = strategies.find(x => x.key === pickedStrategy);
+    const native = info && info.nativeCandle;
+    if (chosen && native && chosen !== native) {
+      candleWarn.style.display = "";
+      candleWarn.textContent = `⚠ ${info.label} is designed for ${CANDLE_LABELS[native]} — you chose ${CANDLE_LABELS[chosen]}, so the strategy will run on ${CANDLE_LABELS[chosen]} instead (its own candle handling is overridden; results will differ from the original design).`;
+    } else candleWarn.style.display = "none";
+  }
+  candleSel.addEventListener("change", refreshCandleWarn);
   const stratList = tbAddBody.querySelector("#addStrategyList");
   const almaBandRow = tbAddBody.querySelector("#addAlmaBandRow");
   const almaFastLenRow = tbAddBody.querySelector("#addAlmaFastLenRow");
@@ -2204,11 +2250,12 @@ function renderAddConfigStep() {
   strategies.forEach(s => {
     const div = document.createElement("div");
     div.className = "tb-strategy-item" + (s.key === defaultStrat ? " picked" : "");
-    div.innerHTML = `<div class="tb-strategy-item-label">${s.label}${s.key === defaultStrat ? " (default)" : ""}</div><div class="tb-strategy-item-desc">${s.description}</div>`;
+    div.innerHTML = `<div class="tb-strategy-item-label">${s.label}${s.key === defaultStrat ? " (default)" : ""}${s.nativeCandle ? ` <span class="tb-native-tag">[native: ${CANDLE_LABELS[s.nativeCandle]}]</span>` : ""}</div><div class="tb-strategy-item-desc">${s.description}</div>`;
     div.addEventListener("click", () => {
       pickedStrategy = s.key;
       stratList.querySelectorAll(".tb-strategy-item").forEach(el => el.classList.remove("picked"));
       div.classList.add("picked");
+      refreshCandleWarn();
       updateTimeframeOptions(s.timeframe);
       almaBandRow.style.display = s.key === "ALMA_PRO_FAST" ? "" : "none";
       almaFastLenRow.style.display = s.key === "ALMA_PRO_FAST" ? "" : "none";
@@ -2285,6 +2332,8 @@ function renderAddConfigStep() {
         confirmLive: isLive ? tbAddBody.querySelector("#addConfirmLiveInput").value : undefined,
         carryOvernight: tbAddBody.querySelector("#addCarry").checked,
         strategy: pickedStrategy,
+        candleType: candleSel.value || undefined,
+        rangeSize: candleSel.value === "RANGE" ? (rangeInp.value || undefined) : undefined,
         timeframe: tfSelect.value,
         targetPoints: tbAddBody.querySelector("#addTarget").value || undefined,
         almaBandEnabled: pickedStrategy === "ALMA_PRO_FAST" ? tbAddBody.querySelector("#addAlmaBand").checked : undefined,
@@ -2356,13 +2405,35 @@ async function openBacktestModal() {
 }
 
 function renderBacktestStrategyStep() {
-  tbBacktestBody.innerHTML = `<div class="tb-form-row"><div class="tb-form-label">Step 1/3 — strategy</div><div id="btStrategyList"></div></div>`;
+  tbBacktestBody.innerHTML = `
+    <div class="tb-form-row">
+      <div class="tb-form-label">Step 1/3 — candle type, then strategy</div>
+      <select id="btCandleType">
+        <option value="">Strategy's native (default)</option>
+        <option value="RAW">Raw (time candles)</option>
+        <option value="HA">Heikin-Ashi</option>
+        <option value="RANGE">Range bars</option>
+      </select>
+      <input type="number" id="btRangeSize" min="0" step="any" placeholder="range size, blank = ATR default" style="display:none;margin-top:6px">
+      <div class="tb-form-hint">Picking a type the strategy wasn't designed for overrides it — you'll see the warning when you pick the strategy.</div>
+    </div>
+    <div class="tb-form-row"><div id="btStrategyList"></div></div>`;
+  const btCandleSel = tbBacktestBody.querySelector("#btCandleType");
+  const btRangeInp = tbBacktestBody.querySelector("#btRangeSize");
+  btCandleSel.value = btState.candleType || "";
+  btRangeInp.style.display = btCandleSel.value === "RANGE" ? "" : "none";
+  btCandleSel.addEventListener("change", () => { btRangeInp.style.display = btCandleSel.value === "RANGE" ? "" : "none"; });
   const list = tbBacktestBody.querySelector("#btStrategyList");
   btState.strategies.forEach(s => {
     const div = document.createElement("div");
     div.className = "tb-strategy-item";
-    div.innerHTML = `<div class="tb-strategy-item-label">${s.label}</div><div class="tb-strategy-item-desc">${s.description}</div>`;
+    div.innerHTML = `<div class="tb-strategy-item-label">${s.label}${s.nativeCandle ? ` <span class="tb-native-tag">[native: ${CANDLE_TEXT[s.nativeCandle]}]</span>` : ""}</div><div class="tb-strategy-item-desc">${s.description}</div>`;
     div.addEventListener("click", () => {
+      btState.candleType = s.nativeCandle ? (btCandleSel.value || null) : null;
+      btState.rangeSize = btState.candleType === "RANGE" ? (btRangeInp.value || null) : null;
+      btState.candleWarn = (btState.candleType && s.nativeCandle && btState.candleType !== s.nativeCandle)
+        ? `⚠ ${s.label} is designed for ${CANDLE_TEXT[s.nativeCandle]} — you chose ${CANDLE_TEXT[btState.candleType]}, so the strategy will run on ${CANDLE_TEXT[btState.candleType]} instead (its own candle handling is overridden; results will differ from the original design).`
+        : null;
       btState.strategy = s.key;
       btState.defaultTimeframe = s.timeframe;
       renderBacktestInstrumentStep();
@@ -2374,6 +2445,7 @@ function renderBacktestStrategyStep() {
 function renderBacktestInstrumentStep() {
   tbBacktestBody.innerHTML = `
     <button class="tb-back-link" id="btBack1">‹ Back to strategy</button>
+    ${btState.candleWarn ? `<div class="tb-warn-box">${btState.candleWarn}</div>` : ""}
     <div class="tb-form-row">
       <div class="tb-form-label">Step 2/3 — instrument</div>
       <div class="tb-mode-choice" id="btExchangeChoice">
@@ -2556,6 +2628,8 @@ async function renderBacktestParamsStep() {
       exchange: btState.exchange,
       strategy: btState.strategy,
       timeframe: tfSelect.value,
+      candleType: btState.candleType || undefined,
+      rangeSize: btState.rangeSize || undefined,
       days: tbBacktestBody.querySelector("#btDays").value || undefined,
       from: tbBacktestBody.querySelector("#btFrom").value || undefined,
       to: tbBacktestBody.querySelector("#btTo").value || undefined,

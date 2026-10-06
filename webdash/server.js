@@ -28,6 +28,7 @@ const { KiteConnect } = require("kiteconnect");
 const engineConfig = require("../engineConfig");
 const { upsertEnvVar, ENV_PATH: ENV_FILE_PATH } = require("../envFile");
 const { todayIST } = require("../istTime");
+const { nativeCandleType, normalizeCandleType, candleSuffix } = require("../candleType");
 
 // ─── TOOLBOX PORT — same modules toolbox.js's Add Instrument / Backtest /
 // Setup Credentials screens use, required directly rather than reaching
@@ -152,9 +153,12 @@ async function ensureEquityCsvLoaded() {
 // Same naming scheme as toolbox.js's toProcessName — short code + strategy
 // short + "Engine" — must match exactly, since getEngineProcesses()
 // identifies a duplicate by this same computed name.
-function toProcessName(underlying, strategy) {
+const CANDLE_NAME_TAG = { RAW: "Raw", HA: "HA", RANGE: "Rng" };
+function toProcessName(underlying, strategy, candleType) {
     const stratShort = (STRATEGY_INFO[strategy] || { short: strategy }).short;
-    return `${getShortName(underlying)}${stratShort}Engine`;
+    const ct = normalizeCandleType(candleType);
+    const tag = ct && ct !== nativeCandleType(strategy) ? CANDLE_NAME_TAG[ct] : "";
+    return `${getShortName(underlying)}${stratShort}${tag}Engine`;
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -466,6 +470,8 @@ async function getEngineProcesses() {
             disableDoubleOrders: p.pm2_env.env?.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true",
             atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
             flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
+            candleType: normalizeCandleType(p.pm2_env.env?.CANDLE_TYPE_OVERRIDE) || null,
+            rangeSize: p.pm2_env.env?.RANGE_SIZE_OVERRIDE ? Number(p.pm2_env.env.RANGE_SIZE_OVERRIDE) : null,
             dailyBiasEntryTime: p.pm2_env.env?.DAILY_BIAS_ENTRY_TIME_OVERRIDE || null,
             dailyBiasCandle: p.pm2_env.env?.DAILY_BIAS_CANDLE_OVERRIDE || null,
             entryTime: p.pm2_env.env?.ENTRY_TIME_OVERRIDE || null,
@@ -527,6 +533,9 @@ function buildProcessEnv(p, overrides = {}) {
     env.ATR_SL_MULT_OVERRIDE = p.atrSlMult ? String(p.atrSlMult) : "";
     env.FLIP_CONFIRM_CANDLES_OVERRIDE = p.flipConfirmCandles ? String(p.flipConfirmCandles) : "";
     // DAILY_HA_BIAS only (entry time, IST "HH:MM"); blank = default 10:00. Always written explicitly.
+    env.CANDLE_TYPE_OVERRIDE = p.candleType || "";
+    env.RANGE_SIZE_OVERRIDE = p.rangeSize ? String(p.rangeSize) : "";
+    env.PROCESS_NAME = p.name;
     env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = p.dailyBiasEntryTime || "";
     env.DAILY_BIAS_CANDLE_OVERRIDE = p.dailyBiasCandle || "";
     env.ENTRY_TIME_OVERRIDE = p.entryTime || "";
@@ -560,14 +569,18 @@ function tailFile(filePath, n) {
 }
 
 // ─── SQLITE — read-only per-engine state, same filename convention as db.js
-function dbPathFor(underlying, strategy) {
-    const name = `${underlying.toLowerCase().replace(/\s+/g, "")}_${strategy.toLowerCase().replace(/\s+/g, "")}.db`;
-    return path.join(ROOT, name);
+function dbPathFor(underlying, strategy, candleType) {
+    const base = `${underlying.toLowerCase().replace(/\s+/g, "")}_${strategy.toLowerCase().replace(/\s+/g, "")}`;
+    const ct = normalizeCandleType(candleType) || nativeCandleType(strategy);
+    const next = path.join(ROOT, `${base}_${candleSuffix(ct)}.db`);
+    // engines not yet restarted on the new code still write the pre-candle-name file
+    if (!fs.existsSync(next) && fs.existsSync(path.join(ROOT, `${base}.db`))) return path.join(ROOT, `${base}.db`);
+    return next;
 }
 
-function readEngineState(underlying, strategy) {
+function readEngineState(underlying, strategy, candleType) {
     return new Promise(resolve => {
-        const dbPath = dbPathFor(underlying, strategy);
+        const dbPath = dbPathFor(underlying, strategy, candleType);
         if (!fs.existsSync(dbPath)) return resolve({ position: null, trades: [], realizedToday: 0 });
 
         const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, err => {
@@ -672,7 +685,7 @@ app.get("/api/instruments", async (req, res) => {
 });
 
 app.get("/api/state/:underlying/:strategy", async (req, res) => {
-    try { res.json(await readEngineState(req.params.underlying, req.params.strategy)); }
+    try { res.json(await readEngineState(req.params.underlying, req.params.strategy, req.query.candle)); }
     catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -773,7 +786,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -938,6 +951,10 @@ app.post("/api/toolbox/edit", async (req, res) => {
         }
         if (htfBandBlockEnabled !== undefined) updated.htfBandBlockEnabled = !!htfBandBlockEnabled;
         if (dailyHaGateEnabled !== undefined) updated.dailyHaGateEnabled = !!dailyHaGateEnabled;
+        if (rangeSize !== undefined && updated.candleType === "RANGE") {
+            const rs = Number(rangeSize);
+            updated.rangeSize = rangeSize === null || rangeSize === "" ? null : (Number.isFinite(rs) && rs > 0 ? rs : updated.rangeSize);
+        }
 
         if (almaFastLen !== undefined) {
             if (almaFastLen === null || almaFastLen === "" || almaFastLen === "0" || almaFastLen === "clear") {
@@ -988,10 +1005,11 @@ try { blockStore = JSON.parse(fs.readFileSync(BLOCKS_FILE, "utf8")) || {}; } cat
 let blockSaveTimer = null;
 function recordBlock(msg) {
     if (!msg || !msg.engine || !Array.isArray(msg.reasons)) return;
-    const list = (blockStore[msg.engine] = blockStore[msg.engine] || []);
+    const key = msg.proc || msg.engine;
+    const list = (blockStore[key] = blockStore[key] || []);
     list.push({ ts: msg.ts || Date.now(), side: msg.side, price: msg.price, reasons: msg.reasons });
     const cutoff = Date.now() - 3 * 86400000;
-    blockStore[msg.engine] = list.filter(b => b.ts >= cutoff).slice(-3000);
+    blockStore[key] = list.filter(b => b.ts >= cutoff).slice(-3000);
     if (!blockSaveTimer) blockSaveTimer = setTimeout(() => {
         blockSaveTimer = null;
         try { fs.writeFileSync(BLOCKS_FILE, JSON.stringify(blockStore)); } catch { /* best effort */ }
@@ -1013,8 +1031,8 @@ function chartOverlayFor(p, tfBars, day) {
 // Stored BLOCK events + blocks parsed from the engine's PM2 log (covers the time before the
 // engine emitted BLOCK events). Log-derived ones are dropped when a stored event already
 // covers the same side within 30s.
-function blocksForDay(engine, day, outLogPath) {
-    const stored = (blockStore[engine] || []).filter(b => istDayStr(b.ts) === day);
+function blocksForDay(engine, day, outLogPath, procName) {
+    const stored = (blockStore[procName] || blockStore[engine] || []).filter(b => istDayStr(b.ts) === day);
     const fromLog = parseBlocksFromLog(outLogPath, day)
         .filter(l => !stored.some(s => s.side === l.side && Math.abs(s.ts - l.ts) < 30000));
     return stored.concat(fromLog).sort((a, b) => a.ts - b.ts);
@@ -1034,7 +1052,7 @@ app.get("/api/chart/:name/overlay", async (req, res) => {
         const now = Date.now();
         const tfBars = await fetchHistoricalCandles({ kc: ensureToolboxKite(), token: contract.token, timeframe: tf, from: new Date(now - 8 * 86400000), to: new Date(now) });
         const day = istDayStr(tfBars[tfBars.length - 1].date.getTime());
-        res.json({ overlay: chartOverlayFor(p, tfBars, day), blocks: blocksForDay(p.underlying, day, p.outLogPath) });
+        res.json({ overlay: chartOverlayFor(p, tfBars, day), blocks: blocksForDay(p.underlying, day, p.outLogPath, p.name) });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1064,7 +1082,7 @@ app.get("/api/chart/:name", async (req, res) => {
             name: p.name, underlying: p.underlying, exchange, timeframe: tf, tfMinutes: TIMEFRAME_MINUTES[tf], day,
             strategy: p.strategy,
             overlay: chartOverlayFor(p, tfBars, day),
-            blocks: blocksForDay(p.underlying, day, p.outLogPath),
+            blocks: blocksForDay(p.underlying, day, p.outLogPath, p.name),
             tfBars: tfBars.map(row), minuteBars: mins.map(row),
             suggestedRange: a ? Math.max(0.05, Math.round(a * 20) / 20) : 1,
             bandStep: p.bandStep ? Number(p.bandStep) : null,
@@ -1089,6 +1107,7 @@ app.get("/api/toolbox/strategies", async (req, res) => {
                 label: (STRATEGY_INFO[key] || {}).label || key,
                 description: (STRATEGY_INFO[key] || {}).description || "",
                 timeframe: STRATEGY_TIMEFRAME[key] || "15m",
+                nativeCandle: nativeCandleType(key),
                 custom: false,
             })),
             ...customStrategies.map(s => ({
@@ -1171,7 +1190,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -1224,10 +1243,11 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             lotMult = parsed;
         }
 
-        const name = toProcessName(underlying, stratKey);
+        const chosenCandle = customStratTimeframe ? null : normalizeCandleType(candleType);
+        const name = toProcessName(underlying, stratKey, chosenCandle);
         const existing = await getEngineProcesses();
         if (existing.some(p => p.name === name)) {
-            return res.status(409).json({ error: `${underlying} is already running ${(STRATEGY_INFO[stratKey] || {}).label || stratKey} as ${name} — stop/remove it first, or pick a different strategy` });
+            return res.status(409).json({ error: `${underlying} is already running ${(STRATEGY_INFO[stratKey] || {}).label || stratKey} as ${name} — stop/remove it first, or pick a different strategy or candle type` });
         }
 
         const env = {
@@ -1238,7 +1258,13 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             CARRY_OVERNIGHT_OVERRIDE: String(!!carryOvernight),
             STRATEGY_OVERRIDE: stratKey,
             TIMEFRAME_OVERRIDE: tf,
+            PROCESS_NAME: name,
         };
+        if (chosenCandle) env.CANDLE_TYPE_OVERRIDE = chosenCandle;
+        if (chosenCandle === "RANGE" && rangeSize !== undefined && rangeSize !== null && rangeSize !== "") {
+            const parsedRange = Number(rangeSize);
+            if (Number.isFinite(parsedRange) && parsedRange > 0) env.RANGE_SIZE_OVERRIDE = String(parsedRange);
+        }
         if (lotMult !== null) env.LOTMULT_OVERRIDE = String(lotMult);
         if (targetPoints !== undefined && targetPoints !== null && targetPoints !== "") {
             const parsedTarget = Number(targetPoints);
@@ -1357,6 +1383,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
     const {
         underlying, exchange = "MCX", strategy, timeframe,
         days, from: fromStr, to: toStr, params = {}, lotMultOverride,
+        candleType: btCandleIn, rangeSize: btRangeIn,
         // Universal risk toggles — same fields backtestFlow.js's CLI Step 6
         // asks for and merges onto context/params, previously only
         // reachable from the CLI (reported directly: "add these present
@@ -1514,6 +1541,8 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // for it here would be a no-op control).
         if (dailyHaGateEnabled !== undefined) context.dailyHaGateEnabled = !!dailyHaGateEnabled;
 
+        const btCandle = normalizeCandleType(btCandleIn);
+        const btRange = Number(btRangeIn) > 0 ? Number(btRangeIn) : null;
         const kc = ensureToolboxKite();
         // Suppress the in-process event bridge for the duration of the
         // replay (see eventBridge.js's setEmitSuppressed) so the thousands
@@ -1526,7 +1555,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         let result, logLines;
         try {
             ({ result, lines: logLines } = await withCapturedConsole(() =>
-                runBacktest({ strategyKey: strategy, strategyLabel, context, timeframe: tf, from, to, params: parsedParams, kc })
+                runBacktest({ strategyKey: strategy, strategyLabel, context, timeframe: tf, from, to, params: parsedParams, kc, candleType: btCandle, rangeSize: btRange })
             ));
         } finally {
             setEmitSuppressed(false);

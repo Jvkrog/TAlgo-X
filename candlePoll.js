@@ -379,10 +379,7 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
         if (candleTime > lastTime) {
             lastProcessedDate = candle.date;
             retryCount        = 0;   // found it — reset for next cycle
-            const buf = candles.getRawCandles();
-            buf.push(candle);
-            if (buf.length > engineConfig.MAX_CANDLES) buf.shift();
-            candles.setRawCandles(buf);
+            const seen = candles.appendCandle(candle, engineConfig.MAX_CANDLES);
             // Roll the live-tick delta accumulator into this just-closed
             // candle's slot BEFORE processCandle runs — same ordering
             // candleDeltaBuffer.js's own header assumes (a strategy reading
@@ -391,7 +388,7 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
             // strategy that isn't createVolumeDeltaCvdStrategy — deltaBuffer
             // is null unless engine.js specifically instantiated one.
             if (deltaBuffer) deltaBuffer.rollCandle(candle);
-            await processCandle(candle);
+            await processCandle(seen);
             scheduleNext();
         } else {
             // Broker API hasn't published the just-closed candle yet. Retry
@@ -422,15 +419,13 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
     function startPoll() {
         fetchLastCandle().then(async candle => {
             if (!candle) return;
-            const buf = candles.getRawCandles();
+            const buf = candles.getSourceCandles();
             const lastBufTime = buf.length > 0 ? new Date(buf[buf.length - 1].date).getTime() : 0;
             const candleTime  = new Date(candle.date).getTime();
             if (candleTime > lastBufTime) {
                 lastProcessedDate = candle.date;
-                buf.push(candle);
-                if (buf.length > engineConfig.MAX_CANDLES) buf.shift();
-                candles.setRawCandles(buf);
-                await processCandle(candle);
+                const seen = candles.appendCandle(candle, engineConfig.MAX_CANDLES);
+                await processCandle(seen);
             } else {
                 lastProcessedDate = buf.length > 0 ? buf[buf.length - 1].date : null;
             }

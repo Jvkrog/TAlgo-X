@@ -42,4 +42,36 @@ function makeRangeBars(points, range) {
   return { bars, forming: bar };
 }
 
-module.exports = { makeRangeBars };
+// Incremental builder (same algorithm as makeRangeBars) for live ticks.
+// onTick() returns the bars completed by that tick; forming() is the still-open bar.
+function createRangeBuilder(range, formingSeed = null) {
+  let bar = formingSeed ? { ...formingSeed } : null;
+  function onTick(p, time, volume = 0) {
+    const done = [];
+    if (!bar) bar = { time, open: p, high: p, low: p, close: p, volume: 0 };
+    let volLeft = volume;
+    let fin = false;
+    while (!fin) {
+      bar.high = Math.max(bar.high, p);
+      bar.low = Math.min(bar.low, p);
+      bar.close = p;
+      if (bar.high - bar.low >= range - 1e-9) {
+        const up = p >= bar.low + range - 1e-9;
+        if (up) { bar.high = bar.low + range; bar.close = bar.high; }
+        else    { bar.low = bar.high - range; bar.close = bar.low; }
+        done.push({ ...bar, volume: bar.volume + volLeft });
+        volLeft = 0;
+        const o = bar.close;
+        bar = { time, open: o, high: o, low: o, close: o, volume: 0 };
+      } else {
+        bar.volume += volLeft;
+        volLeft = 0;
+        fin = true;
+      }
+    }
+    return done;
+  }
+  return { onTick, forming: () => bar };
+}
+
+module.exports = { makeRangeBars, createRangeBuilder };
