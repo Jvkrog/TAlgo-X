@@ -26,13 +26,15 @@ function computeOverlay(strategy, bars, ctx, cfg) {
     if (strategy === "DYNAMIC_MID_COLOR") {
         const step = ctx.bandStep ?? cfg.BAND_STEP_DEFAULT;
         const st = createBandStepper(step);
-        const hi = [], mid = [], lo = [];
+        // Drawn the way the strategy's name says: ONE mid line, coloured by direction (green while
+        // LONG / before the first breakout, red while SHORT) — not the high/low band edges.
+        const pts = [];
         for (const b of bars) {
             st.push(b);
             const s = st.state();
-            hi.push(s ? s.bandHigh : null); mid.push(s ? s.bandMid : null); lo.push(s ? s.bandLow : null);
+            if (s) pts.push([b.t, s.bandMid, s.color === "red" ? "#ff5266" : "#33ff88"]);
         }
-        return { label: `Dynamic band (step ${step})`, lines: [line("band high", COLORS.high, hi), line("band mid", COLORS.mid, mid), line("band low", COLORS.low, lo)] };
+        return { label: `Dynamic mid color (step ${step}) — green = long, red = short`, lines: [{ name: "mid", color: "#33ff88", width: 3, points: pts }] };
     }
 
     if (strategy === "ALMA_BAND") {

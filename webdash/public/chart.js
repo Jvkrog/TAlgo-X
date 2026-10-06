@@ -128,9 +128,10 @@
     if (!S.ind || !ov || !ov.lines) return;
     const step = window.LightweightCharts.LineType ? window.LightweightCharts.LineType.WithSteps : undefined;
     for (const l of ov.lines) {
-      const ls = S.chart.addLineSeries({ color: l.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, ...(step !== undefined ? { lineType: step } : {}) });
+      const stepped = step !== undefined && !l.width;   // bands step; a "mid" style line (width set) draws as a plain line
+      const ls = S.chart.addLineSeries({ color: l.color, lineWidth: l.width || 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, ...(stepped ? { lineType: step } : {}) });
       let prev = 0; const data = [];
-      for (const [t, v] of l.points) { const time = Math.floor(t / 1000) + IST_S; if (time > prev) { data.push({ time, value: v }); prev = time; } }
+      for (const [t, v, col] of l.points) { const time = Math.floor(t / 1000) + IST_S; if (time > prev) { data.push(col ? { time, value: v, color: col } : { time, value: v }); prev = time; } }
       ls.setData(data);
       S.lineSeries.push(ls);
     }
@@ -167,7 +168,7 @@
     if (S.ind) bits.push(S.overlay && S.overlay.label ? "Indicator: " + S.overlay.label : (S.overlay && S.overlay.note) || "no indicator data");
     if (S.filters) {
       const used = new Set(); S.blocks.forEach(b => b.reasons.forEach(r => used.add(r)));
-      bits.push(S.blocks.length ? `Blocked entries: ${S.blocks.length} (▲ long blocked, ▼ short blocked) — ` + [...used].map(r => `${SHORT[r] || r} = ${LONGNAME[r] || r}`).join(" · ") : "Filters: no blocked entries recorded for this day (recorded while the dashboard is running)");
+      bits.push(S.blocks.length ? `Blocked entries: ${S.blocks.length} (▲ long blocked, ▼ short blocked) — ` + [...used].map(r => `${SHORT[r] || r} = ${LONGNAME[r] || r}`).join(" · ") : "Filters: no blocked entries recorded for this day — blocks are recorded live by instruments running the latest code while the dashboard is up, so restart the instrument after updating");
     }
     els.info.textContent = bits.join("   |   ");
     els.info.style.display = bits.length ? "" : "none";
