@@ -1486,3 +1486,15 @@ body {
 @media (min-width: 700px) {
   .tb-banner { font-size: 56px; letter-spacing: 8px; }
 }
+
+/* ── per-instrument live chart ─────────────────────────────────────────── */
+.btn-chart { color: var(--green-bright); }
+.chart-modal { width: min(1100px, 96vw); max-width: none; }
+.chart-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 8px 14px; }
+.chart-seg { display: flex; gap: 6px; }
+.chart-type.active { color: var(--green); border-color: var(--border-strong); }
+.chart-range { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); display: flex; align-items: center; gap: 6px; }
+.chart-range input { width: 84px; }
+.chart-status { margin-left: auto; font-size: 11px; color: var(--dim); }
+.chart-box { height: 62vh; min-height: 320px; padding: 0 6px 10px; }
+@media (max-width: 700px) { .chart-box { height: 56vh; } .chart-status { margin-left: 0; width: 100%; } }

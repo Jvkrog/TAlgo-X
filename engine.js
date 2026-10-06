@@ -27,6 +27,7 @@ const { createSLStore }      = require("./sl");
 const { createTargetStore }  = require("./target");
 const { createDb }           = require("./db");
 const { createOrders }       = require("./orders");
+const { emitEvent }         = require("./eventBridge");  // web dashboard only (LTP stream for the chart)
 const positions               = require("./positions");
 const { createPreload }      = require("./preload");
 const { createCandlePoll }   = require("./candlePoll");
@@ -598,11 +599,15 @@ async function main() {
         }, 10 * 1000);
     });
 
+    let lastLtpEmitAt = 0;
     ticker.on("ticks", async (ticks) => {
         if (!ticks.length) return;
         for (const tick of ticks) {
             if (tick.instrument_token === context.token && tick.last_price) {
                 candles.onTick(tick.last_price);
+                // Live price stream for the web dashboard's chart (throttled, fail-soft, see eventBridge.js).
+                const nowMs = Date.now();
+                if (nowMs - lastLtpEmitAt >= 400) { lastLtpEmitAt = nowMs; emitEvent(context.tgPrefix, "LTP", { price: tick.last_price }); }
                 deltaBuffer.onTick(tick.last_price, tick.volume_traded);
                 marketDataHealth.onTick(tick);
                 await candlePollInstance.checkSL(tick.last_price);

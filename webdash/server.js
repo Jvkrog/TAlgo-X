@@ -41,7 +41,7 @@ const { getDefinition, buildContext, defaultEodFor } = require("../context");
 const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = require("../strategies");
 const { INDICATOR_CATALOG } = require("../indicatorCatalog");
 const customStrategyDb = require("../customStrategyDb");
-const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("../historicalFetch");
+const { TIMEFRAME_TO_INTERVAL, TIMEFRAME_MINUTES, fetchDailyCandles, fetchHistoricalCandles } = require("../historicalFetch");
 const { runBacktest } = require("../backtestRun");
 const { runDualHedgeBacktest } = require("../backtestDualHedge");
 const { SL_MODES: DH_SL_MODES, ATR_TIMEFRAMES: DH_ATR_TIMEFRAMES } = require("../dualHedgeAtr");
@@ -50,7 +50,7 @@ const { STRATEGY_PARAMS } = require("../backtestFlow");
 const { setEmitSuppressed } = require("../eventBridge");
 const { getShortName } = require("../shortNames");
 const dualHedgeUsers = require("../dualHedgeUsers");
-const { adx } = require("../indicators");
+const { adx, atr: atrFn } = require("../indicators");
 const { createMarketStateClient } = require("../marketStateClient");
 const { createMarketWatchlist } = require("../marketWatchlist");
 
@@ -601,6 +601,10 @@ function readEngineState(underlying, strategy) {
 // ─── EXPRESS APP ────────────────────────────────────────────────────────────
 const app = express();
 app.use(express.json());
+// Same range-bar builder the engines use, served to the browser chart so history/live can't diverge.
+app.get("/rangeBars.js", (req, res) => {
+    res.type("application/javascript").send(`(function(){var module={exports:{}};${fs.readFileSync(path.join(ROOT, "rangeBars.js"), "utf8")}\nwindow.makeRangeBars=module.exports.makeRangeBars;})();`);
+});
 app.use(express.static(path.join(__dirname, "public")));
 
 // ── auth routes — must be registered BEFORE the blanket authRequired below
@@ -969,6 +973,43 @@ app.post("/api/toolbox/edit", async (req, res) => {
 
 // ─── ADD INSTRUMENT — same discovery + resolve + start path as
 // toolbox.js's addInstrument/configureAndStartInstrument. ──────────────────
+// ─── LIVE CHART DATA — history half of the per-instrument chart (the live half is the
+// engine's throttled LTP event, relayed over /ws). Returns the instrument's own
+// timeframe bars (several days, so Heikin-Ashi can be seeded) plus 1-minute bars of the
+// displayed day (used to build range bars). The browser draws raw / HA / range from this.
+const IST_MS = 5.5 * 60 * 60 * 1000;
+const istDayStr = ms => new Date(ms + IST_MS).toISOString().split("T")[0];
+app.get("/api/chart/:name", async (req, res) => {
+    try {
+        const procs = await getEngineProcesses();
+        const p = procs.find(x => x.name === req.params.name);
+        if (!p) return res.status(404).json({ error: "instrument not found" });
+        const exchange = p.exchange || "MCX";
+        const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
+        const def = getDefinition(p.underlying, exchange);
+        const { contract } = resolveCurrent(p.underlying, def, repo, pinStore);
+        const tf = p.timeframe || STRATEGY_TIMEFRAME[p.strategy] || "15m";
+        if (!TIMEFRAME_MINUTES[tf]) return res.status(400).json({ error: `unsupported timeframe ${tf}` });
+        const kc = ensureToolboxKite();
+        const now = Date.now();
+        const tfBars = await fetchHistoricalCandles({ kc, token: contract.token, timeframe: tf, from: new Date(now - 8 * 86400000), to: new Date(now) });
+        if (!tfBars.length) return res.status(404).json({ error: "no historical bars returned" });
+        // Displayed day = today if it has bars, else the latest trading day with bars.
+        const day = istDayStr(tfBars[tfBars.length - 1].date.getTime());
+        const mins = (await kc.getHistoricalData(contract.token, "minute", `${day} 00:00:00`, `${day} 23:59:59`)) || [];
+        const row = b => [new Date(b.date).getTime(), +b.open, +b.high, +b.low, +b.close];
+        const a = atrFn(tfBars.map(b => ({ open: b.open, high: b.high, low: b.low, close: b.close })), engineConfig.ST_ATR_LEN);
+        res.json({
+            name: p.name, underlying: p.underlying, exchange, timeframe: tf, tfMinutes: TIMEFRAME_MINUTES[tf], day,
+            tfBars: tfBars.map(row), minuteBars: mins.map(row),
+            suggestedRange: a ? Math.max(0.05, Math.round(a * 20) / 20) : 1,
+            bandStep: p.bandStep ? Number(p.bandStep) : null,
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get("/api/toolbox/strategies", async (req, res) => {
     // Merges hardcoded STRATEGIES with user-built strategies saved via the
     // strategy builder (custom_strategies.db) — same either/or resolution
@@ -2525,7 +2566,8 @@ function broadcastToBrowsers(raw) {
 engineWss.on("connection", ws => {
     ws.on("message", raw => {
         const str = raw.toString();
-        pushToRing(str);
+        // High-rate LTP stream is live-only (chart): never replayed from the ring buffer.
+        if (!str.includes('"type":"LTP"')) pushToRing(str);
         broadcastToBrowsers(str);
     });
 });

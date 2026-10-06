@@ -86,10 +86,14 @@ function buildCard(inst) {
       <button class="btn btn-start" data-action="start">Start</button>
       <button class="btn btn-stop" data-action="stop">Stop</button>
       <button class="btn btn-restart" data-action="restart">Restart</button>
+      <button class="btn btn-chart" data-action="chart">Chart</button>
     </div>
   `;
   el.querySelectorAll("[data-action]").forEach(btn => {
-    btn.addEventListener("click", () => control(inst.name, btn.dataset.action, el));
+    btn.addEventListener("click", () => {
+      if (btn.dataset.action === "chart") { window.openInstrumentChart && window.openInstrumentChart(inst); return; }
+      control(inst.name, btn.dataset.action, el);
+    });
   });
   return el;
 }
@@ -731,6 +735,16 @@ let replayRemaining = 0;
 function handleEvent(msg) {
   if (msg.type === "HELLO") {
     replayRemaining = msg.replaying || 0;
+    return;
+  }
+  // Live price stream (chart + card price). Never replayed, never logged.
+  if (msg.type === "LTP") {
+    if (window.chartOnLtp) window.chartOnLtp(msg);
+    instruments.filter(i => i.underlying === msg.engine).forEach(i => {
+      const el = document.getElementById(cardId(i));
+      const pe = el && el.querySelector('[data-role="price"]');
+      if (pe) pe.textContent = Number(msg.price).toFixed(2);
+    });
     return;
   }
   const isReplay = replayRemaining > 0;
