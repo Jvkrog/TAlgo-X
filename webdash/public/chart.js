@@ -9,7 +9,7 @@
 "use strict";
 (function () {
   const IST_S = 19800;   // lightweight-charts has no time zones: shift UTC seconds so labels read IST
-  const LWC_SRC = "https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/4.1.3/lightweight-charts.standalone.production.min.js";
+  const LWC_SRC = "/vendor/lightweight-charts.js";   // self-hosted (lightweight-charts 4.1.3, Apache-2.0) — no CDN dependency
   const istDay = ms => new Date(ms + IST_S * 1000).toISOString().split("T")[0];
 
   let modal, els = {}, S = null;   // S = state of the open chart, null when closed
