@@ -1014,6 +1014,108 @@ function wirePanelDragAndResize(panel) {
   });
 }
 
+// ── freeform CARD layout (drag + resize the boxes INSIDE each pane) ───────
+// Same idea as the panel layout above, one level down: instrument / hedge-pair / dual-hedge
+// cards become absolutely positioned inside their grid once arranged. Positions are per
+// browser (localStorage), keyed by card id, and re-applied whenever a grid re-renders its
+// cards (MutationObserver) so the 30s resync / start-stop never undoes an arrangement.
+const CARD_LAYOUT_KEY = "talgox_card_layout_v1";
+const cardGrids = () => Array.from(document.querySelectorAll("#dashboardView .instrument-grid"));
+function loadCardLayout() { try { return JSON.parse(localStorage.getItem(CARD_LAYOUT_KEY) || "{}"); } catch { return {}; } }
+function saveCardLayout(l) { try { localStorage.setItem(CARD_LAYOUT_KEY, JSON.stringify(l)); } catch { /* not persisted this session only */ } }
+const gridCards = g => Array.from(g.querySelectorAll(":scope > .card"));
+
+// Measure cards while the grid is still in normal flow, store any that have no entry yet.
+function freezeCardPositions() {
+  const saved = loadCardLayout();
+  cardGrids().forEach(g => {
+    if (g.classList.contains("cards-freeform")) return;   // already positioned
+    const gr = g.getBoundingClientRect();
+    gridCards(g).forEach(card => {
+      if (saved[card.id]) return;
+      const r = card.getBoundingClientRect();
+      if (!r.width) return;   // grid is in a hidden pane — placed later when it shows
+      saved[card.id] = { left: Math.round(r.left - gr.left + g.scrollLeft), top: Math.round(r.top - gr.top + g.scrollTop), width: Math.round(r.width), height: Math.round(r.height) };
+    });
+  });
+  saveCardLayout(saved);
+}
+
+function applyCardLayout(g) {
+  if (!g.classList.contains("cards-freeform")) return;
+  const saved = loadCardLayout();
+  let bottom = 0;
+  const cards = gridCards(g);
+  cards.forEach(card => {
+    ensureCardHandle(card);
+    wireCard(card);
+    const p = saved[card.id];
+    if (p) { card.style.left = p.left + "px"; card.style.top = p.top + "px"; card.style.width = p.width + "px"; card.style.height = p.height + "px"; bottom = Math.max(bottom, p.top + p.height); }
+  });
+  // cards with no saved spot yet (new deployment): stack them under the arranged ones
+  let y = bottom ? bottom + 16 : 0;
+  cards.forEach(card => {
+    if (saved[card.id]) return;
+    card.style.left = "0px"; card.style.top = y + "px"; card.style.width = "280px"; card.style.height = "";
+    y += (card.offsetHeight || 160) + 16;
+    bottom = Math.max(bottom, y);
+  });
+  g.style.minHeight = (bottom + 18) + "px";
+}
+
+function ensureCardHandle(card) {
+  if (card.querySelector(":scope > .card-resize-handle")) return;
+  const h = document.createElement("div");
+  h.className = "card-resize-handle";
+  card.appendChild(h);
+}
+
+function wireCard(card) {
+  if (card.dataset.cardWired) return;
+  card.dataset.cardWired = "1";
+  const grid = card.parentElement;
+  function persist() {
+    const l = loadCardLayout();
+    l[card.id] = { left: card.offsetLeft, top: card.offsetTop, width: card.offsetWidth, height: card.offsetHeight };
+    saveCardLayout(l);
+    applyCardLayout(card.parentElement);
+  }
+  card.addEventListener("pointerdown", e => {
+    if (!layoutEditMode || !card.parentElement.classList.contains("cards-freeform")) return;
+    const onHandle = e.target.closest(".card-resize-handle");
+    if (!onHandle && e.target.closest("button, input, select, a, label")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    card.style.zIndex = String(++layoutZTop);
+    const sx = e.clientX, sy = e.clientY, sl = card.offsetLeft, st = card.offsetTop, sw = card.offsetWidth, sh = card.offsetHeight;
+    card.setPointerCapture(e.pointerId);
+    const move = ev => {
+      if (onHandle) { card.style.width = Math.max(220, sw + ev.clientX - sx) + "px"; card.style.height = Math.max(120, sh + ev.clientY - sy) + "px"; }
+      else { card.style.left = Math.max(0, sl + ev.clientX - sx) + "px"; card.style.top = Math.max(0, st + ev.clientY - sy) + "px"; }
+    };
+    card.addEventListener("pointermove", move);
+    card.addEventListener("pointerup", () => { card.removeEventListener("pointermove", move); persist(); }, { once: true });
+  });
+}
+
+function enterCardFreeform() {
+  freezeCardPositions();
+  cardGrids().forEach(g => { g.classList.add("cards-freeform"); applyCardLayout(g); });
+}
+function resetCardLayout() {
+  try { localStorage.removeItem(CARD_LAYOUT_KEY); } catch { /* nothing to clear */ }
+  cardGrids().forEach(g => {
+    g.classList.remove("cards-freeform");
+    g.style.minHeight = "";
+    gridCards(g).forEach(c => { c.style.left = c.style.top = c.style.width = c.style.height = c.style.zIndex = ""; });
+  });
+}
+// re-apply after any re-render of a grid's cards
+const cardGridObserver = new MutationObserver(muts => {
+  new Set(muts.map(m => m.target)).forEach(g => { if (g.classList && g.classList.contains("instrument-grid")) applyCardLayout(g); });
+});
+cardGrids().forEach(g => cardGridObserver.observe(g, { childList: true }));
+
 function enterLayoutEditMode() {
   // Capture each panel's CURRENT position/size FIRST, while the container
   // is still the plain CSS grid (position:static) — freezeCurrentPositions()
@@ -1026,6 +1128,7 @@ function enterLayoutEditMode() {
   // paints over earlier siblings by default) visually swallowing
   // Instruments once both were stuck at that same wrong spot.
   const layout = freezeCurrentPositions(loadSavedLayout());
+  freezeCardPositions();   // measure the boxes inside each pane too, while still in normal flow
   layoutEditMode = true;
   dashboardView.classList.add("layout-freeform", "layout-edit-mode");
   layoutEditToggle.textContent = "\u2713 done";
@@ -1033,6 +1136,7 @@ function enterLayoutEditMode() {
   saveLayout(layout);
   applyLayout(layout);
   dashboardPanels().forEach(wirePanelDragAndResize);
+  enterCardFreeform();
 }
 function exitLayoutEditMode() {
   layoutEditMode = false;
@@ -1051,6 +1155,7 @@ layoutResetBtn?.addEventListener("click", () => {
   dashboardPanels().forEach(panel => {
     panel.style.left = panel.style.top = panel.style.width = panel.style.height = panel.style.zIndex = "";
   });
+  resetCardLayout();
   layoutEditMode = false;
   layoutEditToggle.textContent = "\u26f6 layout";
   layoutResetBtn.style.display = "none";
@@ -1063,6 +1168,7 @@ layoutResetBtn?.addEventListener("click", () => {
 // until then it just renders wherever the plain grid flow would put it,
 // since .layout-freeform positions ONLY the panels present in `saved`.
 function reapplySavedLayoutIfAny() {
+  if (Object.keys(loadCardLayout()).length) cardGrids().forEach(g => { g.classList.add("cards-freeform"); applyCardLayout(g); });
   const saved = loadSavedLayout();
   if (Object.keys(saved).length === 0) return;
   dashboardView.classList.add("layout-freeform");
