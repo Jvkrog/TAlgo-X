@@ -845,7 +845,7 @@ async function editInstrument(procs) {
         // DAILY_HA_BIAS: which daily candle decides the side.
         // Universal entry time (every strategy except DAILY_HA_BIAS, which has its own above).
         let entryTime = p.entryTime;
-        if (!isDailyHaBias) {
+        if (p.strategy !== "DAILY_HA_BIAS") {
             const cur = p.entryTime || "off";
             const inp = (await ask(`  Entry time IST HH:MM — no new entries before it (current: ${cur}, "clear" = off, blank = keep): `)).trim();
             if (inp) {
@@ -859,7 +859,7 @@ async function editInstrument(procs) {
         }
 
         let dailyBiasCandle = p.dailyBiasCandle;
-        if (isDailyHaBias) {
+        if (p.strategy === "DAILY_HA_BIAS") {
             const cur = p.dailyBiasCandle || "PREVIOUS (default)";
             const inp = (await ask(`  Daily candle used — PREVIOUS = yesterday's completed daily HA candle, CURRENT = today's forming daily HA candle at entry time (current: ${cur}, blank = keep): `)).trim().toUpperCase();
             if (inp) {
