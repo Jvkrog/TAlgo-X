@@ -1461,6 +1461,7 @@ const tbModeClose = document.getElementById("tbModeClose");
 const TB_BANNER_TEXT = "TALGO-X";
 
 let toolboxBootPlayed = false;
+let toolboxBooting = false;
 let toolboxInstruments = [];
 let riskInstruments = [];
 
@@ -1490,12 +1491,10 @@ function switchTab(tab) {
   dashboardView.style.display = "none";
   riskView.style.display = "none";
 
-  if (toolboxBootPlayed) {
-    toolboxView.style.display = "";
-    loadToolboxList();
-  } else {
-    playToolboxBoot();
-  }
+  // The TALGO-X reveal plays on EVERY click of the Toolbox tab (like the CLI's start-up), not just the first
+  // per page load — a click while it's already playing is ignored.
+  if (toolboxBooting) return;
+  playToolboxBoot();
 }
 
 tabDashboard.addEventListener("click", () => switchTab("dashboard"));
@@ -1566,6 +1565,8 @@ function addCheckLine(text, state) {
 
 async function playToolboxBoot() {
   toolboxBootPlayed = true;
+  toolboxBooting = true;
+  toolboxView.style.display = "none";
   tbBanner.textContent = TB_BANNER_TEXT;
   tbChecklist.innerHTML = "";
   tbBoot.classList.add("playing");
@@ -1599,8 +1600,12 @@ async function playToolboxBoot() {
   await new Promise(r => setTimeout(r, 400));
 
   tbBoot.classList.remove("playing");
-  toolboxView.style.display = "";
-  renderToolboxList();
+  toolboxBooting = false;
+  // the person may have switched tabs while it played — only reveal the toolbox if it's still the active tab
+  if (tabToolbox.classList.contains("active")) {
+    toolboxView.style.display = "";
+    renderToolboxList();
+  }
 }
 
 async function loadToolboxList() {
