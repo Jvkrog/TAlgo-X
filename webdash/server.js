@@ -1167,7 +1167,7 @@ app.get("/api/toolbox/instruments", async (req, res) => {
         const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
         const all = exchange === "NSE" ? repo.listEquitySymbols() : repo.listUnderlyings();
         const matches = q ? all.filter(u => u.toLowerCase().includes(q)) : all;
-        res.json({ exchange, total: all.length, matches: matches.slice(0, 50), truncated: matches.length > 50 });
+        res.json({ exchange, total: all.length, matches: matches.slice(0, 500), truncated: matches.length > 500 });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

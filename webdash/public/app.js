@@ -2040,6 +2040,9 @@ function renderAddSearchStep() {
     exBtns.forEach(b => b.classList.remove("picked", "paper", "live"));
     btn.classList.add("picked", btn.dataset.ex === "MCX" ? "paper" : "live");
     addState.exchange = btn.dataset.ex;
+    searchInput.placeholder = addState.exchange === "NSE" ? "e.g. RELIANCE, TCS, HDFCBANK..." : "e.g. ZINC, NATGAS...";
+    searchInput.value = "";
+    runSearch();
   }));
   const searchInput = tbAddBody.querySelector("#addSearchInput");
   const pickList = tbAddBody.querySelector("#addPickList");
@@ -2052,7 +2055,7 @@ function renderAddSearchStep() {
       const data = await (await fetch(`/api/toolbox/instruments?exchange=${addState.exchange}&q=${encodeURIComponent(q)}`)).json();
       if (data.error) { hint.textContent = data.error; return; }
       if (data.matches.length === 0) { hint.textContent = "No matches"; return; }
-      hint.textContent = data.truncated ? `showing 50 of ${data.total} — narrow your search` : `${data.matches.length} match(es)`;
+      hint.textContent = data.truncated ? `showing 500 of ${data.total} — narrow your search` : `${data.matches.length} match(es)`;
       data.matches.forEach(u => {
         const btn = document.createElement("button");
         btn.className = "tb-pick-item";
@@ -2480,7 +2483,7 @@ function renderBacktestInstrumentStep() {
       const data = await (await fetch(`/api/toolbox/instruments?exchange=${btState.exchange}&q=${encodeURIComponent(q)}`)).json();
       if (data.error) { hint.textContent = data.error; return; }
       if (data.matches.length === 0) { hint.textContent = "No matches"; return; }
-      hint.textContent = data.truncated ? `showing 50 of ${data.total} — narrow your search` : `${data.matches.length} match(es)`;
+      hint.textContent = data.truncated ? `showing 500 of ${data.total} — narrow your search` : `${data.matches.length} match(es)`;
       data.matches.forEach(u => {
         const btn = document.createElement("button");
         btn.className = "tb-pick-item";
