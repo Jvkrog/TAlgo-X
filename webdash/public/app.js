@@ -1223,9 +1223,6 @@ function playUnlockSequence() {
 
   // 2. the TALGO-X reveal fades in as the lock screen fades away, the app starting up behind it
   setTimeout(() => {
-    lockScreen.classList.add("unlocking");
-    startApp();
-    appRoot.classList.add("unlocked");
     playBannerReveal();
   }, 200);
 }
@@ -1242,12 +1239,19 @@ async function playBannerReveal() {
     tbBanner.style.animation = "none";
     void tbBanner.offsetWidth;
     tbBanner.style.animation = "";
-    await wait(1700);
+    // The lock screen stays fully opaque underneath while the cover fades in — only once the cover is solid
+    // is the lock removed, so the dashboard is never visible between the two.
+    await wait(480);
+    lockScreen.style.display = "none";
+    appRoot.classList.add("unlocked");   // the dashboard builds itself behind the now-opaque cover, unseen
+    startApp();
+    await wait(1250);
     tbBoot.classList.remove("pin-in");
-    tbBoot.classList.add("pin-out");     // fade out -> dashboard shows through
+    tbBoot.classList.add("pin-out");     // cover fades out onto a ready dashboard
     await wait(650);
   } finally {
     lockScreen.style.display = "none";
+    appRoot.classList.add("unlocked");
     tbBoot.classList.remove("playing", "pin-in", "pin-out");
     resetIdleTimer();
   }
