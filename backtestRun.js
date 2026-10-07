@@ -191,14 +191,23 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
             const bar = priorDailyBar(dayKey);
             return bar ? { color: bar.color, date: bar.date, open: bar.open, close: bar.close, high: bar.high, low: bar.low } : null;
         },
-        isBlocked: async (side) => {
-            if (isBeforeEntryTime(context, clock.now())) return true;   // universal entry-time gate
+        lastBlockReason: null,   // "entry-time" | "daily-ha", same as the live gate (blockReport + held replay entry read it)
+        lastBlockDetail: null,
+        isBlocked: async function (side) {
+            this.lastBlockReason = null; this.lastBlockDetail = null;
+            if (isBeforeEntryTime(context, clock.now())) {   // universal entry-time gate
+                this.lastBlockReason = "entry-time";
+                this.lastBlockDetail = `ENTRY-TIME gate — no new entries before ${String(context.entryTimeHour).padStart(2, "0")}:${String(context.entryTimeMinute ?? 0).padStart(2, "0")} IST`;
+                return true;
+            }
             if (context.dailyHaGateEnabled === false) return false;
             const now = clock.now();
             const dayKey = new Date(now.getTime() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
             const color = priorDailyColor(dayKey);
             if (!color) return false; // no prior daily read yet, or a doji — fails safe
-            return (color === "green" && side === "SHORT") || (color === "red" && side === "LONG");
+            const blockedByColor = (color === "green" && side === "SHORT") || (color === "red" && side === "LONG");
+            if (blockedByColor) { this.lastBlockReason = "daily-ha"; this.lastBlockDetail = `DAILY HA gate — previous completed daily HA candle is ${color}, ${side} not allowed`; }
+            return blockedByColor;
         },
     };
 
