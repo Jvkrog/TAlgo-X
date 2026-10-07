@@ -31,8 +31,6 @@ const lockDots = document.getElementById("lockDots");
 const lockError = document.getElementById("lockError");
 const lockSubtitle = document.getElementById("lockSubtitle");
 const lockKeypad = document.getElementById("lockKeypad");
-const lockSuccess = document.getElementById("lockSuccess");
-const successParticles = document.getElementById("successParticles");
 
 let instruments = []; // [{name, underlying, strategy, status, live, ...}]
 const sessionPnlByUnderlying = new Map();
@@ -1217,65 +1215,41 @@ function revealApp(instant) {
   playUnlockSequence();
 }
 
-function spawnParticles() {
-  successParticles.innerHTML = "";
-  const count = 14;
-  for (let i = 0; i < count; i++) {
-    const p = document.createElement("div");
-    p.className = "particle";
-    const angle = (Math.PI * 2 * i) / count + (Math.random() * 0.4 - 0.2);
-    const dist = 34 + Math.random() * 30;
-    const size = 4 + Math.random() * 5;
-    const square = Math.random() > 0.5;
-    p.style.setProperty("--tx", `${Math.cos(angle) * dist}px`);
-    p.style.setProperty("--ty", `${Math.sin(angle) * dist}px`);
-    p.style.setProperty("--psize", `${size}px`);
-    p.style.setProperty("--pradius", square ? "2px" : "50%");
-    p.style.setProperty("--pdelay", `${Math.random() * 80}ms`);
-    successParticles.appendChild(p);
-  }
-}
-
 function playUnlockSequence() {
   pinUnlocked = true;
-  // 1. dots + keypad fade out together
+  // 1. dots + keypad fade out (no "access granted" card any more)
   lockDots.classList.add("exit");
   lockKeypad.classList.add("exit");
 
-  // 2. checkmark ring pops in, particles burst outward from it
-  setTimeout(() => {
-    lockSuccess.classList.add("show");
-    spawnParticles();
-  }, 180);
-
-  // 3. hold on "access granted" briefly, then dismiss the whole lock screen
+  // 2. the TALGO-X reveal fades in as the lock screen fades away, the app starting up behind it
   setTimeout(() => {
     lockScreen.classList.add("unlocking");
-  }, 900);
-
-  // 4. hand off to the app once the dismiss animation finishes, behind the TALGO-X reveal
-  setTimeout(async () => {
-    lockScreen.style.display = "none";
-    appRoot.classList.add("unlocked");
     startApp();
-    resetIdleTimer();
-    await playBannerReveal();
-  }, 900 + 520);
+    appRoot.classList.add("unlocked");
+    playBannerReveal();
+  }, 200);
 }
 
 // Same TALGO-X wordmark reveal the Toolbox opens with — banner only, none of the toolbox's loading /
-// PM2 checklist. Played once right after the PIN is accepted, over the freshly started app.
+// PM2 checklist. Fades in over the lock screen, plays, then fades out to reveal the dashboard.
 async function playBannerReveal() {
+  const wait = ms => new Promise(r => setTimeout(r, ms));
   try {
     tbBanner.textContent = TB_BANNER_TEXT;
     tbChecklist.innerHTML = "";
-    tbBoot.classList.add("playing");
+    tbBoot.classList.remove("pin-out");
+    tbBoot.classList.add("playing", "pin-in");
     tbBanner.style.animation = "none";
     void tbBanner.offsetWidth;
     tbBanner.style.animation = "";
-    await new Promise(r => setTimeout(r, 1500));
+    await wait(1700);
+    tbBoot.classList.remove("pin-in");
+    tbBoot.classList.add("pin-out");     // fade out -> dashboard shows through
+    await wait(650);
   } finally {
-    tbBoot.classList.remove("playing");
+    lockScreen.style.display = "none";
+    tbBoot.classList.remove("playing", "pin-in", "pin-out");
+    resetIdleTimer();
   }
 }
 
@@ -1414,7 +1388,6 @@ async function relock() {
   appRoot.classList.remove("unlocked");
   lockScreen.style.display = "";
   lockScreen.classList.remove("unlocking");
-  lockSuccess.classList.remove("show");
   lockDots.classList.remove("exit");
   lockKeypad.classList.remove("exit");
   lockKeypad.style.opacity = "1";

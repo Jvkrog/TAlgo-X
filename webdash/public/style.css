@@ -1511,3 +1511,9 @@ body {
 #dashboardView.layout-edit-mode .instrument-grid.cards-freeform > .card .card-resize-handle { display: block; }
 .tb-native-tag { font-size: 10px; color: var(--dim); font-weight: 400; margin-left: 4px; }
 .candle-tag { font-size: 9px; padding: 1px 5px; border-radius: 8px; border: 1px solid var(--border, #2a3040); color: var(--dim); margin-left: 4px; vertical-align: middle; }
+
+/* TALGO-X reveal after the PIN: fades in over the lock screen, fades out onto the dashboard */
+.tb-boot.pin-in  { animation: tbPinIn 450ms ease-out both; }
+.tb-boot.pin-out { animation: tbPinOut 600ms ease-in forwards; pointer-events: none; }
+@keyframes tbPinIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tbPinOut { from { opacity: 1; } to { opacity: 0; } }
