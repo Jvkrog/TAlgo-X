@@ -292,11 +292,13 @@ async function ensureWebdashPin(rl) {
 // picked up immediately by every route that reads it, no restart needed,
 // same reasoning as WEBDASH_PIN above.
 async function ensureApiCredentials(rl) {
+    let enteredNow = false;
     if (!engineConfig.API_KEY) {
         const key = (await new Promise(resolve => rl.question("webdash: Kite API key not configured yet — enter it now: ", a => resolve(a.trim())))) || "";
         if (key) {
             upsertEnvVar("API_KEY", key);
             engineConfig.API_KEY = key;
+            enteredNow = true;
         }
     }
     if (!engineConfig.API_SECRET) {
@@ -304,11 +306,13 @@ async function ensureApiCredentials(rl) {
         if (secret) {
             upsertEnvVar("API_SECRET", secret);
             engineConfig.API_SECRET = secret;
+            enteredNow = true;
         }
     }
     if (!engineConfig.API_KEY || !engineConfig.API_SECRET) {
         console.warn("webdash: Kite API credentials still not configured — /api/token/* routes will fail until they are (set them from Settings).");
-    } else {
+    } else if (enteredNow) {
+        // only when something was actually typed in and written to .env this boot — silent otherwise
         console.log("webdash: Kite API credentials saved.");
     }
 }
