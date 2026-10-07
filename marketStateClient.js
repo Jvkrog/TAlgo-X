@@ -37,7 +37,7 @@ function unknownProfile(instrument, reason = "unavailable") {
 }
 
 function createMarketStateClient({ dbPath, staleMs = DEFAULT_STALE_MS } = {}) {
-    const resolvedPath = dbPath || path.join(__dirname, "marketState.db");
+    const resolvedPath = dbPath || require("./dbDir").adoptLegacy("marketState.db");
     let store = null;
 
     function getStore() {

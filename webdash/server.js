@@ -29,6 +29,7 @@ const engineConfig = require("../engineConfig");
 const { upsertEnvVar, ENV_PATH: ENV_FILE_PATH } = require("../envFile");
 const { todayIST } = require("../istTime");
 const { nativeCandleType, normalizeCandleType, candleSuffix } = require("../candleType");
+const { DB_DIR } = require("../dbDir");
 
 // ─── TOOLBOX PORT — same modules toolbox.js's Add Instrument / Backtest /
 // Setup Credentials screens use, required directly rather than reaching
@@ -576,9 +577,12 @@ function tailFile(filePath, n) {
 function dbPathFor(underlying, strategy, candleType) {
     const base = `${underlying.toLowerCase().replace(/\s+/g, "")}_${strategy.toLowerCase().replace(/\s+/g, "")}`;
     const ct = normalizeCandleType(candleType) || nativeCandleType(strategy);
-    const next = path.join(ROOT, `${base}_${candleSuffix(ct)}.db`);
-    // engines not yet restarted on the new code still write the pre-candle-name file
-    if (!fs.existsSync(next) && fs.existsSync(path.join(ROOT, `${base}.db`))) return path.join(ROOT, `${base}.db`);
+    const next = path.join(DB_DIR, `${base}_${candleSuffix(ct)}.db`);
+    if (fs.existsSync(next)) return next;
+    // engines not yet restarted on newer code still write older locations/names — read those until they do
+    for (const f of [path.join(ROOT, `${base}_${candleSuffix(ct)}.db`), path.join(ROOT, `${base}.db`), path.join(DB_DIR, `${base}.db`)]) {
+        if (fs.existsSync(f)) return f;
+    }
     return next;
 }
 

@@ -15,6 +15,7 @@
 const sqlite3 = require("sqlite3").verbose();
 const path    = require("path");
 const fs      = require("fs");
+const { DB_DIR, ROOT: DB_ROOT } = require("./dbDir");
 const { candleSuffix, nativeCandleType } = require("./candleType");
 
 function createDb(context) {
@@ -60,17 +61,24 @@ function createDb(context) {
     }
     const suffix = candleSuffix(context.candleType);
     const DB_NAME = baseName + "_" + suffix + ".db";
-    const DB_PATH = path.join(__dirname, DB_NAME);
+    const DB_PATH = path.join(DB_DIR, DB_NAME);
     // One-time continuity: a file written under an earlier naming scheme is COPIED (never moved/deleted) to
     // the new name when the new one doesn't exist yet — newest candidate wins. Regular instruments only
     // inherit when running their native candle type; hedge legs always inherit (they have one fixed mode).
     try {
         if (!fs.existsSync(DB_PATH)) {
             const inheritOk = context.dbNoStrategy || suffix === candleSuffix(nativeCandleType(context.strategy));
-            const candidates = [path.join(__dirname, legacyBase + ".db"), path.join(__dirname, legacyBase + "_" + suffix + ".db"),
-                                path.join(__dirname, legacyBase + "_raw.db")]
+            // earlier naming schemes, in the project root (before databases/) and in databases/
+            const names = [legacyBase + ".db", legacyBase + "_" + suffix + ".db", legacyBase + "_raw.db"];
+            const candidates = [DB_DIR, DB_ROOT].flatMap(d => names.map(n => path.join(d, n)))
                 .filter((f, k, a) => a.indexOf(f) === k && f !== DB_PATH && fs.existsSync(f));
-            if (inheritOk && candidates.length) {
+            // the exact same name sitting in the project root (written after candle naming, before databases/) is the
+            // same identity — always carried over, whatever the candle type
+            const sameName = path.join(DB_ROOT, DB_NAME);
+            if (DB_ROOT !== DB_DIR && fs.existsSync(sameName)) {
+                fs.copyFileSync(sameName, DB_PATH);
+                console.log(`[${context.tgPrefix}] DB: copied ${DB_NAME} into databases/`);
+            } else if (inheritOk && candidates.length) {
                 candidates.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
                 fs.copyFileSync(candidates[0], DB_PATH);
                 console.log(`[${context.tgPrefix}] DB: copied ${path.basename(candidates[0])} -> ${DB_NAME} (naming update)`);

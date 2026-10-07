@@ -13,7 +13,7 @@
 const sqlite3 = require("sqlite3").verbose();
 const path    = require("path");
 
-const DB_PATH = path.join(__dirname, "custom_strategies.db");
+const DB_PATH = require("./dbDir").adoptLegacy("custom_strategies.db");
 const db      = new sqlite3.Database(DB_PATH);
 
 function initDB() {

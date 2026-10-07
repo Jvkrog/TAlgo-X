@@ -21,7 +21,7 @@
 const sqlite3 = require("sqlite3").verbose();
 const path    = require("path");
 
-function createMarketStateStore(dbPath = path.join(__dirname, "marketState.db")) {
+function createMarketStateStore(dbPath = require("./dbDir").adoptLegacy("marketState.db")) {
     const db = new sqlite3.Database(dbPath);
 
     function initDB() {
