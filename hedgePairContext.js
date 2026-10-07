@@ -27,6 +27,7 @@ function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore
 
     context.tgPrefix = `${context.tgPrefix}_${legLabel}`;
     context.name     = `${context.name} (${legLabel})`;
+    context.dbNoStrategy = true;   // db.js: file named after the leg, not buildContext()'s default strategy
     // Telegram display label ONLY — see telegram.js's tgPrefixFor() header
     // comment for why this doesn't touch context.strategy itself. Written
     // to actually match what each leg's own trigger is (not "DPI Trend",

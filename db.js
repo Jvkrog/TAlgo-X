@@ -49,19 +49,32 @@ function createDb(context) {
     // existing file's history actually belongs to.
     // CHANGED Oct 2026: candle type is part of the file name (…_<strategy>_<raw|ha|range>.db) so the
     // same instrument + strategy can run on different candles side by side with separate state.
-    const baseName = context.name.toLowerCase().replace(/\s+/g, "") + "_" +
-                     context.strategy.toLowerCase().replace(/\s+/g, "");
-    const DB_NAME = baseName + "_" + candleSuffix(context.candleType) + ".db";
+    const legacyBase = context.name.toLowerCase().replace(/\s+/g, "") + "_" +
+                       context.strategy.toLowerCase().replace(/\s+/g, "");
+    let baseName = legacyBase;
+    if (context.dbNoStrategy) {
+        // Hedge legs (dual hedge / dual bias hedge / hedge pair) aren't running context.strategy at all —
+        // that field is just buildContext()'s default (DPI_TREND_MEANREV), and it was leaking into their file
+        // names. Name them after what they are, with filesystem-safe characters only.
+        baseName = context.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    }
+    const suffix = candleSuffix(context.candleType);
+    const DB_NAME = baseName + "_" + suffix + ".db";
     const DB_PATH = path.join(__dirname, DB_NAME);
-    // One-time continuity: an instrument deployed before candle names existed keeps its open
-    // position/history — its old file is COPIED (not moved) to the new name when the new one
-    // doesn't exist yet and the instrument is running its native candle type.
+    // One-time continuity: a file written under an earlier naming scheme is COPIED (never moved/deleted) to
+    // the new name when the new one doesn't exist yet — newest candidate wins. Regular instruments only
+    // inherit when running their native candle type; hedge legs always inherit (they have one fixed mode).
     try {
-        const oldPath = path.join(__dirname, baseName + ".db");
-        if (!fs.existsSync(DB_PATH) && fs.existsSync(oldPath) &&
-            candleSuffix(context.candleType) === candleSuffix(nativeCandleType(context.strategy))) {
-            fs.copyFileSync(oldPath, DB_PATH);
-            console.log(`[${context.tgPrefix}] DB: copied ${path.basename(oldPath)} -> ${DB_NAME} (candle-type naming)`);
+        if (!fs.existsSync(DB_PATH)) {
+            const inheritOk = context.dbNoStrategy || suffix === candleSuffix(nativeCandleType(context.strategy));
+            const candidates = [path.join(__dirname, legacyBase + ".db"), path.join(__dirname, legacyBase + "_" + suffix + ".db"),
+                                path.join(__dirname, legacyBase + "_raw.db")]
+                .filter((f, k, a) => a.indexOf(f) === k && f !== DB_PATH && fs.existsSync(f));
+            if (inheritOk && candidates.length) {
+                candidates.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+                fs.copyFileSync(candidates[0], DB_PATH);
+                console.log(`[${context.tgPrefix}] DB: copied ${path.basename(candidates[0])} -> ${DB_NAME} (naming update)`);
+            }
         }
     } catch (err) { console.error(`DB legacy copy failed: ${err.message}`); }
     const db      = new sqlite3.Database(DB_PATH);

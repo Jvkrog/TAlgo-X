@@ -24,6 +24,9 @@ function resolveDualHedgeLeg({ underlying, side, userName, exchange, csvRepo, pi
     context.tgPrefix = `${context.tgPrefix}_DH_${side}`;
     context.name     = `${context.name} (Dual Hedge ${side}: ${userName})`;
     context.tgLabel  = `Dual Hedge ${side} (${userName})`;
+    // db.js: name the state file after the hedge leg, not the default strategy buildContext() fills in
+    context.dbNoStrategy = true;
+    context.candleType   = "RANGE";   // the shared band reader runs on range bars
     context.lots     = lots;
     if (lotMultOverride) context.lotMult = lotMultOverride;
     if (bandStepOverride) context.bandStep = bandStepOverride;
