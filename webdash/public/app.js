@@ -1253,13 +1253,30 @@ function playUnlockSequence() {
     lockScreen.classList.add("unlocking");
   }, 900);
 
-  // 4. fully hand off to the app once the dismiss animation finishes
-  setTimeout(() => {
+  // 4. hand off to the app once the dismiss animation finishes, behind the TALGO-X reveal
+  setTimeout(async () => {
     lockScreen.style.display = "none";
     appRoot.classList.add("unlocked");
     startApp();
     resetIdleTimer();
+    await playBannerReveal();
   }, 900 + 520);
+}
+
+// Same TALGO-X wordmark reveal the Toolbox opens with — banner only, none of the toolbox's loading /
+// PM2 checklist. Played once right after the PIN is accepted, over the freshly started app.
+async function playBannerReveal() {
+  try {
+    tbBanner.textContent = TB_BANNER_TEXT;
+    tbChecklist.innerHTML = "";
+    tbBoot.classList.add("playing");
+    tbBanner.style.animation = "none";
+    void tbBanner.offsetWidth;
+    tbBanner.style.animation = "";
+    await new Promise(r => setTimeout(r, 1500));
+  } finally {
+    tbBoot.classList.remove("playing");
+  }
 }
 
 // ── PIN lock ─────────────────────────────────────────────────────────────
@@ -1491,10 +1508,13 @@ function switchTab(tab) {
   dashboardView.style.display = "none";
   riskView.style.display = "none";
 
-  // The TALGO-X reveal plays on EVERY click of the Toolbox tab (like the CLI's start-up), not just the first
-  // per page load — a click while it's already playing is ignored.
   if (toolboxBooting) return;
-  playToolboxBoot();
+  if (toolboxBootPlayed) {
+    toolboxView.style.display = "";
+    loadToolboxList();
+  } else {
+    playToolboxBoot();
+  }
 }
 
 tabDashboard.addEventListener("click", () => switchTab("dashboard"));
