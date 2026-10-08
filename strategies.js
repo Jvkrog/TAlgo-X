@@ -6570,7 +6570,7 @@ const STRATEGIES = {
 // Object.keys(STRATEGIES) and look up a label here, with a plain fallback
 // to the raw key for anything added without an entry here.
 const STRATEGY_INFO = {
-    DPI_TREND_MEANREV: { label: "DPI Trend (pure)", description: "ST1-confirmed DPI trend only — the MEANREV regime that used to live here has moved to DPI_MEANREV; key name kept for DB-filename continuity", short: "DPI" },
+    DPI_TREND_MEANREV: { label: "DPI Trend (pure)", description: "ST1-confirmed DPI trend only — mean-reversion is the separate DPI_MEANREV strategy", short: "DPI" },
     ALMA_BAND:          { label: "ALMA Band",                  description: "ta.alma(high/low) breakout bands, HA-close signal, HA-candle bands", short: "ALMAB" },
     ALMA_FAST:          { label: "ALMA Fast (Color Flip)",     description: "single fast ALMA on HA close, entry on slope-direction flip",       short: "ALMAF" },
     DUAL_ST_CHOP:       { label: "Dual SuperTrend + Chop",     description: "ST1+ST2 agree on direction, Choppiness Index gates entry",          short: "DST" },
@@ -6590,7 +6590,7 @@ const STRATEGY_INFO = {
     ALMA_PRO_SLOW:        { label: "ALMA Pro \u2014 Slow Engine", description: "the SLOW half of strategy #17: single slow ALMA(100) on HA close, entry LEVEL-based on the line's own current slope direction (deadband-filtered, same whipsaw control ALMA_FAST uses) \u2014 no band/breakout confirmation, that's the fast engine's job; Choppiness Index entry filter toggleable per instrument (default ON, not in the original); run alongside ALMA_PRO_FAST on a DIFFERENT underlying (e.g. the full-lot contract) \u2014 the toolbox blocks starting both engines on the exact same underlying", short: "APS" },
     VOLUME_DELTA_CVD:     { label: "Volume Delta / CVD", description: "estimated tick-rule buy/sell volume delta (price-direction based \u2014 Kite doesn't expose true exchange aggressor side) + CVD, layered under EMA20/50 trend, VWAP, relative volume, delta Z-score, absorption, and CVD/price divergence into a 0-100 score; two-candle setup\u2192confirm entry debounce, ATR stop-loss; delta-based signals need warmup time after boot (can't backfill genuine tick delta from historical candles)", short: "VDCVD" },
     PURE_HA:              { label: "Pure Heikin-Ashi Color", description: "no indicator at all \u2014 pure HA candle color decides everything: green candle -> LONG, red -> SHORT, always-in-market, a color flip exits and reverses same candle; separately tags each candle as a \"pure trend\" candle (no wick on the side opposite the body \u2014 no lower wick on green, no upper wick on red) for logging/dashboard purposes, without gating entry on it; Choppiness Index filter available same as every other strategy (currently always-on per the codebase-wide forced check, see this strategy's header comment)", short: "PHA" },
-    DAILY_HA_BIAS:        { label: "Daily HA Bias (2-Trade)", description: "one decision a day \u2014 at/after a configurable entry time (default 10:00 IST, taken on the first 15m candle at/after it), take the previous COMPLETED daily HA candle's color as the day's bias (green -> LONG, red -> SHORT, doji -> no trade), fixed ATR-based SL from entry (ATR stop-loss multiplier x ATR, configurable), no target/reversal/re-entry; only exit besides SL is EOD (23:15 IST default) \u2014 at most one entry + one exit per day; CHANGED Sep 2026: gated by the long-candle/volatility-shock filter same as every other strategy (default on); CHANGED Oct 2026: SL no longer previous-candle high/low, 1h breach pre-check removed; chop/volume/htf gates still not wired in", short: "DHAB" },
+    DAILY_HA_BIAS:        { label: "Daily HA Bias (2-Trade)", description: "one decision a day \u2014 at/after a configurable entry time (default 10:00 IST, taken on the first 15m candle at/after it), take the previous COMPLETED daily HA candle's color as the day's bias (green -> LONG, red -> SHORT, doji -> no trade), fixed ATR-based SL from entry (ATR stop-loss multiplier x ATR, configurable), no target/reversal/re-entry; only exit besides SL is EOD (23:15 IST default) \u2014 at most one entry + one exit per day; gated by the long-candle/volatility-shock filter (default on)", short: "DHAB" },
 };
 
 // Each strategy's live/paper candle interval — this is a property of the
@@ -6664,7 +6664,7 @@ const STRATEGY_TIMEFRAME = {
     // this timeframe at all; also what makes context.js's defaultEodFor()
     // resolve this instrument's EOD to 23:15 IST, matching the spec's
     // "close at 11:15" exactly with zero extra config.
-    DAILY_HA_BIAS:        "15m",   // CHANGED Oct 2026 (was 5m): trades on 15m candles — the decision fires on the first 15m candle at/after the configurable entry time
+    DAILY_HA_BIAS:        "15m",   // trades on 15m candles — the decision fires on the first 15m candle at/after the configurable entry time
 };
 
 const DEFAULT_STRATEGY = "DPI_TREND_MEANREV";

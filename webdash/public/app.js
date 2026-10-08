@@ -1787,7 +1787,7 @@ function openEditModal(inst) {
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="editLongCandleFilter" ${inst.longCandleFilterEnabled !== false ? "checked" : ""}><span>Block new entries after an abnormally large candle</span></label>
-      <div class="tb-form-hint">On by default — Sep 2 NATGASMINI/DYNAMIC_BAND fix. Range >= ATR x multiplier blocks new entries/reversals for a cooldown; existing SL/target/exit are never affected.</div>
+      <div class="tb-form-hint">On by default. Range >= ATR x multiplier blocks new entries/reversals for a cooldown; existing SL/target/exit are never affected.</div>
       <input type="number" id="editLongCandleAtrPeriod" min="1" step="1" value="${inst.longCandleAtrPeriod ?? ""}" placeholder="ATR period, blank = default (14)">
       <input type="number" id="editLongCandleAtrMult" min="0" step="any" value="${inst.longCandleAtrMult ?? ""}" placeholder="ATR multiplier, blank = default (1.5)">
       <input type="number" id="editLongCandleCooldown" min="0" step="1" value="${inst.longCandleCooldownCandles ?? ""}" placeholder="cooldown candles, blank = default (2)">
@@ -2201,7 +2201,7 @@ function renderAddConfigStep() {
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="addLongCandleFilter" checked><span>Block new entries after an abnormally large candle</span></label>
-      <div class="tb-form-hint">On by default — Sep 2 NATGASMINI/DYNAMIC_BAND fix. Existing SL/target/exit are never affected.</div>
+      <div class="tb-form-hint">On by default. Existing SL/target/exit are never affected.</div>
       <input type="number" id="addLongCandleAtrPeriod" min="1" step="1" placeholder="ATR period, blank = default (14)">
       <input type="number" id="addLongCandleAtrMult" min="0" step="any" placeholder="ATR multiplier, blank = default (1.5)">
       <input type="number" id="addLongCandleCooldown" min="0" step="1" placeholder="cooldown candles, blank = default (2)">
