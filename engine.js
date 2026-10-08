@@ -27,7 +27,7 @@ const { createSLStore }      = require("./sl");
 const { createTargetStore }  = require("./target");
 const { createDb }           = require("./db");
 const { createOrders }       = require("./orders");
-const { emitEvent }         = require("./eventBridge");  // web dashboard only (LTP stream for the chart)
+const { emitEvent, setCurrentCandle } = require("./eventBridge");  // web dashboard only (LTP stream for the chart)
 const positions               = require("./positions");
 const { createPreload }      = require("./preload");
 const { createCandlePoll }   = require("./candlePoll");
@@ -521,6 +521,9 @@ async function main() {
         // enforcement, since its stub broker never calls orders.js at all).
         dailyHa: orders.dailyHaGate,
     });
+    // Remember the candle each decision is made on, so ENTRY/EXIT events can carry its OHLC for the dashboard log.
+    { const rawProcess = signalsInstance.processCandle;
+      signalsInstance.processCandle = async function (candle, ...rest) { setCurrentCandle(candle); return rawProcess.call(this, candle, ...rest); }; }
     const rangeKc = candleMode.view === "RANGE" ? new KiteConnect({ api_key: engineConfig.API_KEY }) : null;
     if (rangeKc) rangeKc.setAccessToken(ACCESS_TOKEN);
     const rangeFeed = rangeKc ? createRangeFeed({ context, engineConfig, kc: rangeKc, candles, tg }) : null;

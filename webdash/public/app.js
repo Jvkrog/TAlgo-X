@@ -47,6 +47,10 @@ function cls(n) {
 }
 
 // ── instrument cards ────────────────────────────────────────────────────
+function candleOhlcText(k) {
+  const f = v => Number(v).toFixed(2);
+  return `candle O:${f(k.o)} H:${f(k.h)} L:${f(k.l)} C:${f(k.c)}`;
+}
 function cardId(inst) { return `card-${inst.name}`; }
 
 let renderedInstrumentNames = null; // null = never rendered yet
@@ -826,6 +830,7 @@ function handleEvent(msg) {
         ["lf-tag", `${msg.arrow ? msg.arrow + " " : ""}${msg.side} ENTRY`],
         ["lf-price", `@ ${Number(msg.price).toFixed(2)}`],
         ["lf-meta", `Tr:${msg.trail != null ? Number(msg.trail).toFixed(2) : "-"}`],
+        ...(msg.candle ? [["lf-meta", candleOhlcText(msg.candle)]] : []),
       ],
     });
     return;

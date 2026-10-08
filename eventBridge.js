@@ -58,10 +58,18 @@ function setEmitSuppressed(suppressed) {
     suppressDepth = Math.max(0, suppressDepth + (suppressed ? 1 : -1));
 }
 
+let currentCandle = null;
+function setCurrentCandle(c) {
+    currentCandle = c && Number.isFinite(+c.close)
+        ? { o: +c.open, h: +c.high, l: +c.low, c: +c.close, t: c.date ? new Date(c.date).getTime() : null }
+        : null;
+}
+
 function emitEvent(engine, type, payload) {
     if (suppressDepth > 0) return;
     try {
-        const msg = JSON.stringify({ engine, type, ts: Date.now(), proc: process.env.PROCESS_NAME || null, ...payload });
+        const extra = (currentCandle && (type === "ENTRY" || type === "EXIT")) ? { candle: currentCandle } : null;
+        const msg = JSON.stringify({ engine, type, ts: Date.now(), proc: process.env.PROCESS_NAME || null, ...extra, ...payload });
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(msg);
         } else {
@@ -74,4 +82,4 @@ function emitEvent(engine, type, payload) {
     }
 }
 
-module.exports = { emitEvent, setEmitSuppressed };
+module.exports = { emitEvent, setEmitSuppressed, setCurrentCandle };
