@@ -61,7 +61,7 @@ function setEmitSuppressed(suppressed) {
 function emitEvent(engine, type, payload) {
     if (suppressDepth > 0) return;
     try {
-        const msg = JSON.stringify({ engine, type, ts: Date.now(), ...payload });
+        const msg = JSON.stringify({ engine, type, ts: Date.now(), proc: process.env.PROCESS_NAME || null, ...payload });
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(msg);
         } else {

@@ -392,16 +392,24 @@ async function loadEngineState(inst) {
   try {
     const res = await fetch(`/api/state/${encodeURIComponent(inst.underlying)}/${encodeURIComponent(inst.strategy)}?candle=${encodeURIComponent(inst.candleType || "")}`);
     const state = await res.json();
+    const el = document.getElementById(cardId(inst));
+    if (el && el.dataset.tickSeen) return;   // a live/replayed TICK already filled this card — don't overwrite it with the stored value
     const session = state.realizedToday || 0;
-    sessionPnlByUnderlying.set(inst.underlying, session);
-    updateCardPnl(inst.underlying, null, session);
+    sessionPnlByUnderlying.set(inst.name, session);
+    updateCardPnl(inst.underlying, null, session, inst.name);
     updateTotalPnl();
   } catch { /* best-effort initial load */ }
 }
 
-function updateCardPnl(underlying, uPnl, session) {
-  instruments
-    .filter(i => i.underlying === underlying)
+// Cards for an event: matched by process name when the engine sent one (two strategies on the same
+// underlying are separate cards), else by underlying (engines started before proc was sent).
+function cardsForEvent(underlying, proc) {
+  const byProc = proc ? instruments.filter(i => i.name === proc) : [];
+  return byProc.length ? byProc : instruments.filter(i => i.underlying === underlying);
+}
+
+function updateCardPnl(underlying, uPnl, session, proc) {
+  cardsForEvent(underlying, proc)
     .forEach(i => {
       const el = document.getElementById(cardId(i));
       if (!el) return;
@@ -423,9 +431,8 @@ function updateTotalPnl() {
   totalPnlEl.className = `session-value ${cls(total)}`;
 }
 
-function flashCards(underlying, direction) {
-  instruments
-    .filter(i => i.underlying === underlying)
+function flashCards(underlying, direction, proc) {
+  cardsForEvent(underlying, proc)
     .forEach(i => {
       const el = document.getElementById(cardId(i));
       if (!el) return;
@@ -767,19 +774,21 @@ function handleEvent(msg) {
     const markerCls = hasDirectionColor
       ? (msg.color === "green" ? "up" : msg.color === "red" ? "down" : "flat")
       : (marker === "▲" ? "up" : marker === "▼" ? "down" : "flat");
-    const cardsForEngine = instruments.filter(i => i.underlying === msg.engine);
+    const cardsForEngine = cardsForEvent(msg.engine, msg.proc);
     cardsForEngine.forEach(i => {
       const el = document.getElementById(cardId(i));
       if (!el) return;
+      el.dataset.tickSeen = "1";
       el.querySelector('[data-role="price"]').textContent = Number(msg.price).toFixed(2);
       const mEl = el.querySelector('[data-role="marker"]');
       mEl.textContent = marker;
       mEl.className = `state-marker ${markerCls}`;
     });
-    updateCardPnl(msg.engine, msg.uPnl, msg.session);
+    updateCardPnl(msg.engine, msg.uPnl, msg.session, msg.proc);
     updateHedgePairLeg(msg.engine, msg.uPnl, msg.session);
     updateDualHedgeLeg(msg.engine, msg.uPnl, msg.session);
-    sessionPnlByUnderlying.set(msg.engine, msg.session);
+    if (!msg.proc) cardsForEngine.forEach(i => sessionPnlByUnderlying.delete(i.name));
+    sessionPnlByUnderlying.set(msg.proc || msg.engine, msg.session);
     updateTotalPnl();
 
     const pnlCls = hasDirectionColor
@@ -802,7 +811,7 @@ function handleEvent(msg) {
   }
 
   if (msg.type === "ENTRY") {
-    if (!isReplay) flashCards(msg.engine, 1);
+    if (!isReplay) flashCards(msg.engine, 1, msg.proc);
     updateHedgePairLeg(msg.engine, undefined, undefined);
     updateDualHedgeLeg(msg.engine, undefined, undefined);
     // msg.arrow (▲/▼) is currently only sent by DYNAMIC_MID_COLOR — every
@@ -823,10 +832,11 @@ function handleEvent(msg) {
   }
 
   if (msg.type === "EXIT") {
-    if (!isReplay) flashCards(msg.engine, msg.pnl >= 0 ? 1 : -1);
+    if (!isReplay) flashCards(msg.engine, msg.pnl >= 0 ? 1 : -1, msg.proc);
     updateHedgePairLeg(msg.engine, 0, msg.session);
     updateDualHedgeLeg(msg.engine, 0, msg.session);
-    sessionPnlByUnderlying.set(msg.engine, msg.session);
+    if (!msg.proc) cardsForEvent(msg.engine).forEach(i => sessionPnlByUnderlying.delete(i.name));
+    sessionPnlByUnderlying.set(msg.proc || msg.engine, msg.session);
     updateTotalPnl();
     appendLog({
       type: "EXIT",
