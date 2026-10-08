@@ -48,6 +48,7 @@
           <label class="chart-range" data-r="rangeWrap" style="display:none">range <input type="number" data-r="range" min="0.01" step="any"></label>
           <span class="chart-status" data-r="status"></span>
         </div>
+        <div class="chart-legend" data-r="legend"></div>
         <div class="chart-info" data-r="info"></div>
         <div class="chart-box" data-r="box"></div>
       </div>`;
@@ -63,6 +64,7 @@
   function close() {
     modal.classList.remove("open");
     if (S && S.chart) S.chart.remove();
+    if (S && S.posTimer) clearInterval(S.posTimer);
     S = null;
   }
 
@@ -193,9 +195,34 @@
     drawMarkers(); info();
   }
 
+  // OHLC of the candle under the crosshair (else the latest candle) + the open position's entry price.
+  function legend(hover) {
+    if (!els.legend || !S) return;
+    let k = hover || null;
+    if (!k) { const list = displayed(); const l = list[list.length - 1]; if (l) k = { open: l.o, high: l.h, low: l.l, close: l.c }; }
+    const f = v => Number(v).toFixed(2);
+    const parts = [];
+    if (k) parts.push(`O ${f(k.open)}  H ${f(k.high)}  L ${f(k.low)}  C ${f(k.close)}`);
+    if (S.position && S.position.entry_price != null) parts.push(`${S.position.position} entry @ ${f(S.position.entry_price)}`);
+    els.legend.textContent = parts.join("   |   ");
+    els.legend.style.display = parts.length ? "" : "none";
+  }
+  async function refreshPosition() {
+    if (!S) return;
+    const mine = S;
+    try {
+      const r = await fetch(`/api/state/${encodeURIComponent(mine.inst.underlying)}/${encodeURIComponent(mine.inst.strategy)}?candle=${encodeURIComponent(mine.inst.candleType || "")}`);
+      const d = await r.json();
+      if (S !== mine) return;
+      S.position = d.position || null;
+      legend(S.hover || null);
+    } catch { /* keep last */ }
+  }
+
   function status() {
     const live = S.isToday ? "LIVE" : "closed — last session";
     els.status.textContent = `${S.data.timeframe} · ${S.data.day} · ${live}${S.last !== null ? " · " + S.last.toFixed(2) : ""}`;
+    legend(S.hover || null);
   }
 
   function setType(type) {
@@ -244,6 +271,7 @@
   async function open(inst) {
     if (!modal) build();
     if (S && S.chart) S.chart.remove();
+    if (S && S.posTimer) clearInterval(S.posTimer);
     S = null;
     els.title.textContent = `${inst.underlying} · ${inst.strategy}${inst.candleType ? " · " + inst.candleType : ""}`;
     els.status.textContent = "loading…";
@@ -274,6 +302,14 @@
         points: minutePoints(data.minuteBars.map(toBar)), isToday: data.day === istDay(Date.now()), timer: null, dirty: false, lastTime: 0,
       };
       if (bars.length) S.last = bars[bars.length - 1].c;
+      S.hover = null; S.position = null;
+      chart.subscribeCrosshairMove(param => {
+        const d = param && param.seriesData ? param.seriesData.get(sr) : null;
+        S.hover = d && d.open !== undefined ? d : null;
+        legend(S.hover);
+      });
+      refreshPosition();
+      S.posTimer = setInterval(refreshPosition, 10000);
       els.range.value = S.range;
       modal.querySelectorAll(".chart-toggle").forEach(b => b.classList.remove("active"));
       info();

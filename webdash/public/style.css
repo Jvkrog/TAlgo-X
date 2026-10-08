@@ -1495,6 +1495,7 @@ body {
 .chart-type.active { color: var(--green); border-color: var(--border-strong); }
 .chart-range { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); display: flex; align-items: center; gap: 6px; }
 .chart-range input { width: 84px; }
+.chart-legend { padding: 4px 14px 0; font-size: 11px; color: var(--text, #cfe9d8); white-space: pre-wrap; }
 .chart-status { margin-left: auto; font-size: 11px; color: var(--dim); }
 .chart-box { height: 62vh; min-height: 320px; padding: 0 6px 10px; }
 @media (max-width: 700px) { .chart-box { height: 56vh; } .chart-status { margin-left: 0; width: 100%; } }
