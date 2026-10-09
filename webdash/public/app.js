@@ -749,11 +749,22 @@ function handleEvent(msg) {
   // Live price stream (chart + card price). Never replayed, never logged.
   if (msg.type === "LTP") {
     if (window.chartOnLtp) window.chartOnLtp(msg);
-    instruments.filter(i => i.underlying === msg.engine).forEach(i => {
+    cardsForEvent(msg.engine, msg.proc).forEach(i => {
       const el = document.getElementById(cardId(i));
       const pe = el && el.querySelector('[data-role="price"]');
       if (pe) pe.textContent = Number(msg.price).toFixed(2);
+      if (el && Number.isFinite(msg.uPnl)) {
+        el.dataset.tickSeen = "1";
+        const uEl = el.querySelector('[data-role="upnl"]');
+        uEl.textContent = fmtSigned(msg.uPnl); uEl.className = `pnl-value ${cls(msg.uPnl)}`;
+        if (Number.isFinite(msg.session)) {
+          const sEl = el.querySelector('[data-role="session"]');
+          sEl.textContent = fmtSigned(msg.session); sEl.className = `pnl-value ${cls(msg.session)}`;
+          sessionPnlByUnderlying.set(msg.proc || i.name, msg.session);
+        }
+      }
     });
+    updateTotalPnl();
     return;
   }
   const isReplay = replayRemaining > 0;

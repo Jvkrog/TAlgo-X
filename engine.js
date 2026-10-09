@@ -637,7 +637,13 @@ async function main() {
                 candles.onTick(tick.last_price);
                 // Live price stream for the web dashboard's chart (throttled, fail-soft, see eventBridge.js).
                 const nowMs = Date.now();
-                if (nowMs - lastLtpEmitAt >= 400) { lastLtpEmitAt = nowMs; emitEvent(context.tgPrefix, "LTP", { price: tick.last_price }); }
+                if (nowMs - lastLtpEmitAt >= 400) { lastLtpEmitAt = nowMs; {
+                    // Live unrealized/session PnL rides on the price stream, so the dashboard cards stay current between
+                    // candle closes (strategies only emit TICK once per candle — hourly for 1h strategies).
+                    let uPnl = null, session = null;
+                    try { uPnl = positionsUnrealised(tick.last_price); session = (state.pnl || 0) + uPnl; } catch { /* price only */ }
+                    emitEvent(context.tgPrefix, "LTP", { price: tick.last_price, uPnl, session, position: state.position || null });
+                } }
                 deltaBuffer.onTick(tick.last_price, tick.volume_traded);
                 if (rangeFeed) {
                     for (const bar of rangeFeed.onTick(tick.last_price, tick.volume_traded)) {
