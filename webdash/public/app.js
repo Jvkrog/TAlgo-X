@@ -2196,8 +2196,8 @@ function renderAddConfigStep() {
       <input type="number" id="addFlipConfirm" min="1" step="1">
     </div>
     <div class="tb-form-row" id="addEntryTimeRow">
-      <div class="tb-form-label">Entry time IST \u2014 no new entries before it (blank = off, trade from the start)</div>
-      <input type="time" id="addEntryTime">
+      <div class="tb-form-label">Entry time IST \u2014 no new entries before it (default 09:15 \u2014 clear it to trade from the start)</div>
+      <input type="time" id="addEntryTime" value="09:15">
     </div>
     <div class="tb-form-row" id="addDhabEntryRow" style="display:none">
       <div class="tb-form-label">Trade entry time IST \u2014 the first candle (15m by default) at/after it takes the previous daily HA candle's side (blank = 10:00)</div>
@@ -2567,8 +2567,8 @@ async function renderBacktestParamsStep() {
       <input type="number" id="btAtrMult" min="0" step="any">
     </div>
     <div class="tb-form-row" id="btEntryTimeRow">
-      <div class="tb-form-label">Entry time IST \u2014 no new entries before it (blank = off)</div>
-      <input type="time" id="btEntryTime">
+      <div class="tb-form-label">Entry time IST \u2014 no new entries before it (default 09:15 \u2014 clear it for off)</div>
+      <input type="time" id="btEntryTime" value="09:15">
     </div>
     <div class="tb-form-row" id="btDhabEntryRow" style="display:none">
       <div class="tb-form-label">Trade entry time IST \u2014 the first candle at/after it takes the previous daily HA candle's side (blank = 10:00)</div>

@@ -1754,8 +1754,10 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
 
     let entryTime = null;
     if (strategy !== "DAILY_HA_BIAS") {
-        const inp = (await ask(`  Entry time IST HH:MM — no new entries before it (blank = off, trade from the start): `)).trim();
-        if (inp) {
+        const inp = (await ask(`  Entry time IST HH:MM — no new entries before it (blank = 09:15, "clear" = off, trade from the start): `)).trim();
+        if (!inp) entryTime = "09:15";
+        else if (inp.toLowerCase() === "clear") entryTime = null;
+        else {
             const t = parseEntryTime(inp);
             if (!t) console.log(c.yellow(`  "${inp}" isn't HH:MM — no entry-time restriction`));
             else entryTime = t;
