@@ -14,7 +14,7 @@ const CANDLE_LABEL = { RAW: "Raw (time candles)", HA: "Heikin-Ashi", RANGE: "Ran
 
 // Strategies that convert to Heikin-Ashi internally (signals read HA) are HA-native.
 const HA_NATIVE = new Set([
-    "ALMA_BAND", "ALMA_FAST", "ALMA_DUAL_BAND_SMA5", "DUAL_ST_CHOP",
+    "ALMA_BAND", "ALMA_DSB", "ALMA_FAST", "ALMA_DUAL_BAND_SMA5", "DUAL_ST_CHOP",
     "MA_SLOPE", "MA_SLOPE_SCALP", "MA_SLOPE_PURE", "MA_SLOPE_HM",
     "DPI_TREND_MEANREV", "DPI_MEANREV", "ALMA_TRI_BAND",
     "ALMA_PRO_FAST", "ALMA_PRO_SLOW", "PURE_HA",

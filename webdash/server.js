@@ -1294,7 +1294,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             const parsedLoss = Number(maxDailyLoss);
             if (Number.isFinite(parsedLoss) && parsedLoss > 0) env.MAX_DAILY_LOSS_OVERRIDE = String(parsedLoss);
         }
-        if ((stratKey === "DYNAMIC_BAND" || stratKey === "DYNAMIC_MID_COLOR" || stratKey === "DYNAMIC_MID_COLOR_HL") && bandStep !== undefined && bandStep !== null && bandStep !== "") {
+        if ((stratKey === "DYNAMIC_BAND" || stratKey === "DYNAMIC_MID_COLOR" || (stratKey === "DYNAMIC_MID_COLOR_HL" || stratKey === "ALMA_DSB")) && bandStep !== undefined && bandStep !== null && bandStep !== "") {
             const parsedStep = Number(bandStep);
             if (Number.isFinite(parsedStep) && parsedStep > 0) env.BAND_STEP_OVERRIDE = String(parsedStep);
         }

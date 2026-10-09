@@ -1033,7 +1033,7 @@ function wirePanelDragAndResize(panel) {
 // browser (localStorage), keyed by card id, and re-applied whenever a grid re-renders its
 // cards (MutationObserver) so the 30s resync / start-stop never undoes an arrangement.
 const CANDLE_TEXT = { RAW: "Raw", HA: "Heikin-Ashi", RANGE: "Range bars" };
-const NATIVE_HA = new Set(["ALMA_BAND","ALMA_FAST","ALMA_DUAL_BAND_SMA5","DUAL_ST_CHOP","MA_SLOPE","MA_SLOPE_SCALP","MA_SLOPE_PURE","MA_SLOPE_HM","DPI_TREND_MEANREV","DPI_MEANREV","ALMA_TRI_BAND","ALMA_PRO_FAST","ALMA_PRO_SLOW","PURE_HA"]);
+const NATIVE_HA = new Set(["ALMA_BAND","ALMA_DSB","ALMA_FAST","ALMA_DUAL_BAND_SMA5","DUAL_ST_CHOP","MA_SLOPE","MA_SLOPE_SCALP","MA_SLOPE_PURE","MA_SLOPE_HM","DPI_TREND_MEANREV","DPI_MEANREV","ALMA_TRI_BAND","ALMA_PRO_FAST","ALMA_PRO_SLOW","PURE_HA"]);
 function nativeCandleOf(strategy) { return NATIVE_HA.has(strategy) ? "HA" : "RAW"; }
 function candleText(inst) {
   const t = inst.candleType || nativeCandleOf(inst.strategy);
@@ -1730,7 +1730,7 @@ function openEditModal(inst) {
 
   const isAlmaProFast = inst.strategy === "ALMA_PRO_FAST";
   const isAlmaProSlow = inst.strategy === "ALMA_PRO_SLOW";
-  const isDynamicBand = inst.strategy === "DYNAMIC_BAND" || inst.strategy === "DYNAMIC_MID_COLOR" || inst.strategy === "DYNAMIC_MID_COLOR_HL";
+  const isDynamicBand = inst.strategy === "DYNAMIC_BAND" || inst.strategy === "DYNAMIC_MID_COLOR" || (inst.strategy === "DYNAMIC_MID_COLOR_HL" || inst.strategy === "ALMA_DSB");
   const isAlmaTriBand = inst.strategy === "ALMA_TRI_BAND";
 
   tbEditBody.innerHTML = `
@@ -2281,7 +2281,7 @@ function renderAddConfigStep() {
       almaFastLenRow.style.display = s.key === "ALMA_PRO_FAST" ? "" : "none";
       almaBandLenRow.style.display = (s.key === "ALMA_PRO_FAST" && tbAddBody.querySelector("#addAlmaBand").checked) ? "" : "none";
       almaChopRow.style.display = (s.key === "ALMA_PRO_FAST" || s.key === "ALMA_PRO_SLOW") ? "" : "none";
-      bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_MID_COLOR" || s.key === "DYNAMIC_MID_COLOR_HL") ? "" : "none";
+      bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_MID_COLOR" || (s.key === "DYNAMIC_MID_COLOR_HL" || s.key === "ALMA_DSB")) ? "" : "none";
       greyExitRow.style.display = s.key === "ALMA_TRI_BAND" ? "" : "none";
       flipConfirmRow.style.display = s.key === "PURE_HA" ? "" : "none";
       dhabEntryRow.style.display = s.key === "DAILY_HA_BIAS" ? "" : "none";
@@ -2361,7 +2361,7 @@ function renderAddConfigStep() {
         almaBandLen: pickedStrategy === "ALMA_PRO_FAST" ? (tbAddBody.querySelector("#addAlmaBandLen").value || undefined) : undefined,
         almaChopFilterEnabled: (pickedStrategy === "ALMA_PRO_FAST" || pickedStrategy === "ALMA_PRO_SLOW") ? tbAddBody.querySelector("#addAlmaChop").checked : undefined,
         maxDailyLoss: tbAddBody.querySelector("#addMaxDailyLoss").value || undefined,
-        bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || pickedStrategy === "DYNAMIC_MID_COLOR_HL") ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
+        bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || (pickedStrategy === "DYNAMIC_MID_COLOR_HL" || pickedStrategy === "ALMA_DSB")) ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
         greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
         disableDoubleOrders: tbAddBody.querySelector("#addDisableDouble").checked,
         atrSlMult: tbAddBody.querySelector("#addAtrSlMult").value || undefined,

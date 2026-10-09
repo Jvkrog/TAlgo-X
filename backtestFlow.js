@@ -100,6 +100,12 @@ const STRATEGY_PARAMS = {
         { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
         { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
     ],
+    ALMA_DSB: [
+        { key: "BAND_STEP_DEFAULT", label: "Dynamic Step Band step — fixed price distance between HIGH/MID/LOW (per-instrument override takes precedence live)" },
+        { key: "ALMA_LEN",          label: "ALMA band length (HA high/low)" },
+        { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
+    ],
     DYNAMIC_MID_COLOR_HL: [
         { key: "BAND_STEP_DEFAULT", label: "Band step \u2014 fixed price distance between HIGH/MID/LOW (internal only, never plotted \u2014 per-instrument override takes precedence live)" },
         { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },

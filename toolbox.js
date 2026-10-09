@@ -583,7 +583,7 @@ function buildProcessEnv(p, overrides = {}) {
     // "adaptive" or "" (cleared/fixed) — same reasoning, was previously
     // only ever written as "adaptive" and never explicitly cleared.
     env.TARGET_MODE_OVERRIDE = p.targetMode === "adaptive" ? "adaptive" : "";
-    env.BAND_STEP_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL") && p.bandStep ? String(p.bandStep) : "";
+    env.BAND_STEP_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || (p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB")) && p.bandStep ? String(p.bandStep) : "";
     env.GREY_EXIT_OVERRIDE = p.strategy === "ALMA_TRI_BAND" && p.greyExitEnabled !== null && p.greyExitEnabled !== undefined ? String(p.greyExitEnabled) : "";
     env.ALMA_BAND_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false ? "false" : "";
     env.ALMA_FAST_LEN_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaFastLen ? String(p.almaFastLen) : "";
@@ -788,7 +788,7 @@ async function editInstrument(procs) {
         // Strategy-specific fields — only asked for the strategy actually
         // running, same conditions as configureAndStartInstrument.
         let bandStep = p.bandStep;
-        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL") {
+        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || (p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB")) {
             const bandDefault = p.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
             const bandInput = (await ask(`  Band step in price points (current: ${bandDefault}, blank = keep): `)).trim();
             if (bandInput) {
@@ -1892,7 +1892,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // createDynamicMidColorStrategy in strategies.js. Blank falls back to
     // engineConfig.BAND_STEP_DEFAULT.
     let bandStep = null;
-    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL")) {
+    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || (strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB"))) {
         const bandStepInput = await ask(`  Band step in price points (blank = default ${engineConfig.BAND_STEP_DEFAULT}): `);
         if (bandStepInput) {
             const parsedStep = Number(bandStepInput);
@@ -2006,7 +2006,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (htfTimeframe !== null) env.HTF_TIMEFRAME_OVERRIDE = htfTimeframe;
     if (htfChopPeriod !== null) env.HTF_CHOP_PERIOD_OVERRIDE = String(htfChopPeriod);
     if (htfChopMax !== null) env.HTF_CHOP_MAX_OVERRIDE = String(htfChopMax);
-    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
+    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || (strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB")) && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
     if (strategy === "ALMA_TRI_BAND" && greyExitEnabled !== null) env.GREY_EXIT_OVERRIDE = String(greyExitEnabled);
     if (maxDailyLoss !== null) env.MAX_DAILY_LOSS_OVERRIDE = String(maxDailyLoss);
     try {
@@ -2021,7 +2021,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
             : "";
         const almaChopTag = (strategy === "ALMA_PRO_FAST" || strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
         const vdChopTag = strategy !== "ALMA_PRO_FAST" && strategy !== "ALMA_PRO_SLOW" ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? engineConfig.CHOP_LEN}/${chopMax ?? engineConfig.CHOP_GATE_MAX_DEFAULT}`) : c.yellow(" chop:off")) : "";
-        const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL") ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
+        const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || (strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB")) ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
         const greyExitTag = strategy === "ALMA_TRI_BAND" ? c.yellow(` grey:${(greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT) ? "exit" : "hold"}`) : "";
         const maxLossTag = maxDailyLoss !== null ? c.yellow(` maxLoss:-₹${maxDailyLoss}`) : "";
         const volTag = volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";

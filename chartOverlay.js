@@ -46,6 +46,18 @@ function computeOverlay(strategy, bars, ctx, cfg) {
         ] };
     }
 
+    if (strategy === "ALMA_DSB") {
+        const len = cfg.ALMA_LEN, ha = toHA(bars), step = ctx.bandStep ?? cfg.BAND_STEP_DEFAULT;
+        const f = vs => alma(vs, len, cfg.ALMA_OFFSET, cfg.ALMA_SIGMA);
+        const st = createBandStepper(step), pts = [];
+        for (const b of bars) { st.push(b); const s = st.state(); if (s) pts.push([b.t, s.bandMid, s.color === "red" ? "#ff5266" : "#33ff88"]); }
+        return { label: `ALMA band (len ${len}) + Dynamic Step Band mid (step ${step}) — green = long bias, red = short bias`, lines: [
+            line("ALMA high", COLORS.high, rolling(ha.map(b => b.high), len, f), len - 1),
+            line("ALMA low", COLORS.low, rolling(ha.map(b => b.low), len, f), len - 1),
+            { name: "DSB mid", color: "#33ff88", width: 3, points: pts },
+        ] };
+    }
+
     if (strategy === "ALMA_FAST") {
         const len = ctx.almaFastLen ?? cfg.ALMA_FAST_LEN, ha = toHA(bars);
         const f = vs => alma(vs, len, cfg.ALMA_FAST_OFFSET, cfg.ALMA_FAST_SIGMA);
