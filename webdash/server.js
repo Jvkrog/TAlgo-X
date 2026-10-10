@@ -1595,6 +1595,16 @@ app.post("/api/toolbox/backtest", async (req, res) => {
             setEmitSuppressed(false);
         }
 
+        if (tf === "1d" && Array.isArray(logLines)) {
+            // Daily bars carry no time of day — show the bar's date instead of a meaningless 00:00:00.
+            let day = "";
+            logLines = logLines.map(l => {
+                const h = l.match(/(\d{1,2}\/\d{1,2}\/\d{4}), 00:00:00/);
+                if (h) { day = h[1]; return l.replace(", 00:00:00", ""); }
+                return day ? l.replace("] 00:00:00 ", `] ${day} `) : l;
+            });
+        }
+
         const m = result.report.metrics;
         res.json({
             ok: true,
