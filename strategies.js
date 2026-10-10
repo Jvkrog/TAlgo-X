@@ -6741,7 +6741,7 @@ function createAlmaDsbStrategy({ context, engineConfig, state, db, candles, slSt
         const bandStep = context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
         const { createBandStepper } = require("./dynamicBandReader");
         const stepper = createBandStepper(bandStep);
-        for (const k of rawCandles.slice(-engineConfig.MAX_CANDLES)) stepper.push(k);
+        for (const k of haCandles.slice(-engineConfig.MAX_CANDLES)) stepper.push(k);   // Dynamic Step Band on Heikin-Ashi
         const dsb = stepper.state();
 
         const atrVal = rawCandles.length >= engineConfig.ST_ATR_LEN + 1 ? atr(rawCandles, engineConfig.ST_ATR_LEN) : null;

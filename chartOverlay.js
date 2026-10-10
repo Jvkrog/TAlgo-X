@@ -26,13 +26,14 @@ function computeOverlay(strategy, bars, ctx, cfg) {
     if (strategy === "DYNAMIC_MID_COLOR") {
         const step = ctx.bandStep ?? cfg.BAND_STEP_DEFAULT;
         const st = createBandStepper(step);
+        const src = ctx.candleType === "RAW" || ctx.candleType === "RANGE" ? bars : toHA(bars);   // Heikin-Ashi unless deployed on another type
         // Drawn the way the strategy's name says: ONE mid line, coloured by direction (green while
         // LONG / before the first breakout, red while SHORT) — not the high/low band edges.
         const pts = [];
-        for (const b of bars) {
-            st.push(b);
+        for (let i = 0; i < src.length; i++) {
+            st.push(src[i]);
             const s = st.state();
-            if (s) pts.push([b.t, s.bandMid, s.color === "red" ? "#ff5266" : "#33ff88"]);
+            if (s) pts.push([bars[i].t, s.bandMid, s.color === "red" ? "#ff5266" : "#33ff88"]);
         }
         return { label: `Dynamic mid color (step ${step}) — green = long, red = short`, lines: [{ name: "mid", color: "#33ff88", width: 3, points: pts }] };
     }
@@ -50,7 +51,7 @@ function computeOverlay(strategy, bars, ctx, cfg) {
         const len = cfg.ALMA_LEN, ha = toHA(bars), step = ctx.bandStep ?? cfg.BAND_STEP_DEFAULT;
         const f = vs => alma(vs, len, cfg.ALMA_OFFSET, cfg.ALMA_SIGMA);
         const st = createBandStepper(step), pts = [];
-        for (const b of bars) { st.push(b); const s = st.state(); if (s) pts.push([b.t, s.bandMid, s.color === "red" ? "#ff5266" : "#33ff88"]); }
+        for (let i = 0; i < bars.length; i++) { st.push(ha[i]); const s = st.state(); if (s) pts.push([bars[i].t, s.bandMid, s.color === "red" ? "#ff5266" : "#33ff88"]); }
         return { label: `ALMA band (len ${len}) + Dynamic Step Band mid (step ${step}) — green = long bias, red = short bias`, lines: [
             line("ALMA high", COLORS.high, rolling(ha.map(b => b.high), len, f), len - 1),
             line("ALMA low", COLORS.low, rolling(ha.map(b => b.low), len, f), len - 1),

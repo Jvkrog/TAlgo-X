@@ -1040,7 +1040,7 @@ const istDayStr = ms => new Date(ms + IST_MS).toISOString().split("T")[0];
 function chartOverlayFor(p, tfBars, day) {
     try {
         const bars = tfBars.map(b => ({ t: b.date.getTime(), open: b.open, high: b.high, low: b.low, close: b.close }));
-        const ov = computeOverlay(p.strategy, bars, { bandStep: p.bandStep ? Number(p.bandStep) : null, almaFastLen: p.almaFastLen || null }, engineConfig);
+        const ov = computeOverlay(p.strategy, bars, { bandStep: p.bandStep ? Number(p.bandStep) : null, almaFastLen: p.almaFastLen || null, candleType: p.candleType || null }, engineConfig);
         if (ov.lines) ov.lines.forEach(l => { l.points = l.points.filter(pt => istDayStr(pt[0]) === day); });
         return ov;
     } catch (err) {

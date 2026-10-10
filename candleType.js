@@ -18,7 +18,11 @@ const HA_NATIVE = new Set([
     "MA_SLOPE", "MA_SLOPE_SCALP", "MA_SLOPE_PURE", "MA_SLOPE_HM",
     "DPI_TREND_MEANREV", "DPI_MEANREV", "ALMA_TRI_BAND",
     "ALMA_PRO_FAST", "ALMA_PRO_SLOW", "PURE_HA",
+    // Dynamic Step Band family: reads the plain candle buffer, so Heikin-Ashi is applied as the series view.
+    "DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL",
 ]);
+// HA-native strategies that do NOT convert internally — their native HA is delivered as the series view.
+const HA_VIEW_NATIVE = new Set(["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL"]);
 
 function nativeCandleType(strategy) { return HA_NATIVE.has(strategy) ? "HA" : "RAW"; }
 
@@ -41,7 +45,8 @@ function resolveCandleMode(strategy, chosen) {
     const type = normalizeCandleType(chosen) || nativeCandleType(strategy);
     const native = nativeCandleType(strategy);
     const overridden = type !== native;
-    if (!overridden) return { type, native, overridden, view: "native", haPassthrough: false };
+    if (!overridden) return { type, native, overridden, view: (type === "HA" && HA_VIEW_NATIVE.has(strategy)) ? "HA" : "native", haPassthrough: false };
+    if (HA_VIEW_NATIVE.has(strategy) && type !== "HA") return { type, native, overridden, view: type === "RANGE" ? "RANGE" : "native", haPassthrough: false };
     if (type === "HA") return { type, native, overridden, view: "HA", haPassthrough: false };
     return { type, native, overridden, view: type === "RANGE" ? "RANGE" : "native", haPassthrough: native === "HA" };
 }

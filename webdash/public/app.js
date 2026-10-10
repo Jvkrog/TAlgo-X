@@ -1044,7 +1044,7 @@ function wirePanelDragAndResize(panel) {
 // browser (localStorage), keyed by card id, and re-applied whenever a grid re-renders its
 // cards (MutationObserver) so the 30s resync / start-stop never undoes an arrangement.
 const CANDLE_TEXT = { RAW: "Raw", HA: "Heikin-Ashi", RANGE: "Range bars" };
-const NATIVE_HA = new Set(["ALMA_BAND","ALMA_DSB","ALMA_FAST","ALMA_DUAL_BAND_SMA5","DUAL_ST_CHOP","MA_SLOPE","MA_SLOPE_SCALP","MA_SLOPE_PURE","MA_SLOPE_HM","DPI_TREND_MEANREV","DPI_MEANREV","ALMA_TRI_BAND","ALMA_PRO_FAST","ALMA_PRO_SLOW","PURE_HA"]);
+const NATIVE_HA = new Set(["DYNAMIC_BAND","DYNAMIC_MID_COLOR","DYNAMIC_MID_COLOR_HL","ALMA_BAND","ALMA_DSB","ALMA_FAST","ALMA_DUAL_BAND_SMA5","DUAL_ST_CHOP","MA_SLOPE","MA_SLOPE_SCALP","MA_SLOPE_PURE","MA_SLOPE_HM","DPI_TREND_MEANREV","DPI_MEANREV","ALMA_TRI_BAND","ALMA_PRO_FAST","ALMA_PRO_SLOW","PURE_HA"]);
 function nativeCandleOf(strategy) { return NATIVE_HA.has(strategy) ? "HA" : "RAW"; }
 function candleText(inst) {
   const t = inst.candleType || nativeCandleOf(inst.strategy);
