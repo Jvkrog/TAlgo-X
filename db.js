@@ -180,6 +180,11 @@ function createDb(context) {
                     updated_at   TEXT    DEFAULT CURRENT_TIMESTAMP
                 )
             `);
+            // Journal columns for post-trade review (TAlgo-Ai). Added by migration so existing
+            // databases keep working; a duplicate-column error just means it is already there.
+            for (const col of ["peak_pnl REAL", "trough_pnl REAL", "ctx TEXT"]) {
+                db.run(`ALTER TABLE trades ADD COLUMN ${col}`, () => { /* already present */ });
+            }
         });
     }
 
@@ -196,14 +201,20 @@ function createDb(context) {
         });
     }
 
-    function closeTrade(id, exitPrice, pnl, exitReason) {
+    // extra (optional): { peakPnl, troughPnl, ctx } — observed best/worst unrealised P&L and a
+    // small settings snapshot, stored for the AI trade review. Never affects trading.
+    function closeTrade(id, exitPrice, pnl, exitReason, extra) {
         if (!id) return Promise.resolve();
+        const x = extra || {};
         return new Promise(resolve => {
             db.run(
                 `UPDATE trades
-                 SET exit_price = ?, exit_time = ?, pnl = ?, exit_reason = ?, status = 'CLOSED', updated_at = CURRENT_TIMESTAMP
+                 SET exit_price = ?, exit_time = ?, pnl = ?, exit_reason = ?, status = 'CLOSED', updated_at = CURRENT_TIMESTAMP,
+                     peak_pnl = ?, trough_pnl = ?, ctx = ?
                  WHERE id = ?`,
-                [exitPrice, new Date().toISOString(), pnl, exitReason, id],
+                [exitPrice, new Date().toISOString(), pnl, exitReason,
+                 Number.isFinite(x.peakPnl) ? x.peakPnl : null, Number.isFinite(x.troughPnl) ? x.troughPnl : null,
+                 x.ctx ? JSON.stringify(x.ctx) : null, id],
                 err => {
                     if (err) console.error("DB closeTrade error:", err.message);
                     resolve();

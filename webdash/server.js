@@ -1626,7 +1626,7 @@ app.use("/api/toolbox/backtest/reports", express.static(path.join(ROOT, "backtes
 // setupCredentials uses (KEY=VALUE lines only, blank input keeps current
 // value, secrets shown masked). ─────────────────────────────────────────
 const ENV_PATH = path.join(ROOT, ".env");
-const CREDENTIAL_FIELDS = ["API_KEY", "API_SECRET", "TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID"];
+const CREDENTIAL_FIELDS = ["API_KEY", "API_SECRET", "TELEGRAM_TOKEN", "TELEGRAM_CHAT_ID", "GEMINI_API_KEY"];
 
 function readEnvFile() {
     if (!fs.existsSync(ENV_PATH)) return { lines: [], values: {} };
@@ -1679,6 +1679,28 @@ app.post("/api/toolbox/credentials", (req, res) => {
     // toolbox.js's setupCredentials flags: this process (and any running
     // engine) needs an actual restart to pick up new values.
     res.json({ ok: true, changed: Object.keys(updates).length, note: "takes effect on next process restart" });
+});
+
+// ─── TALGO-AI — post-trade review (observer only; engines never call this) ──
+const aiReview = require("../aiReview");
+function geminiKeyFromEnvFile() {
+    // Picks up a key saved from Settings without a restart.
+    const k = readEnvFile().values.GEMINI_API_KEY;
+    if (k) process.env.GEMINI_API_KEY = k;
+    return !!process.env.GEMINI_API_KEY;
+}
+app.get("/api/ai/trades", async (req, res) => {
+    try {
+        const trades = await aiReview.listTrades(Math.min(Number(req.query.limit) || 60, 200));
+        res.json({ keySet: geminiKeyFromEnvFile(), trades });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post("/api/ai/review", async (req, res) => {
+    const { journal, id, force } = req.body || {};
+    if (typeof journal !== "string" || !Number.isInteger(Number(id))) return res.status(400).json({ error: "journal and id required" });
+    if (!geminiKeyFromEnvFile()) return res.status(400).json({ error: "Gemini API key not set — add GEMINI_API_KEY in Settings" });
+    try { res.json({ review: await aiReview.reviewTrade(journal, Number(id), !!force) }); }
+    catch (err) { res.status(err.status || 502).json({ error: err.message }); }
 });
 
 // ─── TRENDING INSTRUMENTS — same ADX(14) daily-candle scan toolbox.js's

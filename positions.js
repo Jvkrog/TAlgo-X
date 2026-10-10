@@ -33,7 +33,16 @@ async function close(context, state, db, tg, price, reason) {
 
     state.pnl    += pnl;
     state.trades += 1;
-    await db.closeTrade(state.openTradeId, price, pnl, reason);
+    const peak = Math.max(state.peakPnl ?? 0, pnl), trough = Math.min(state.troughPnl ?? 0, pnl);
+    await db.closeTrade(state.openTradeId, price, pnl, reason, {
+        peakPnl: peak, troughPnl: trough,
+        ctx: {
+            strategy: context.strategy, timeframe: context.timeframe, candleType: context.candleType || null,
+            lots: context.lots, lotMult: context.lotMult,
+            atrSlMult: context.atrSlMult ?? null, hardSlRupees: context.hardSlRupees ?? null,
+        },
+    });
+    state.peakPnl = null; state.troughPnl = null;
     state.openTradeId = null;
     state.position     = null;
     state.entryPrice   = 0;

@@ -646,6 +646,10 @@ async function main() {
                     // candle closes (strategies only emit TICK once per candle — hourly for 1h strategies).
                     let uPnl = null, session = null;
                     try { uPnl = positionsUnrealised(tick.last_price); session = (state.pnl || 0) + uPnl; } catch { /* price only */ }
+                    if (uPnl !== null && state.position) { // journal: observed excursion of the open trade
+                        if (state.peakPnl === null || uPnl > state.peakPnl) state.peakPnl = uPnl;
+                        if (state.troughPnl === null || uPnl < state.troughPnl) state.troughPnl = uPnl;
+                    }
                     emitEvent(context.tgPrefix, "LTP", { price: tick.last_price, uPnl, session, position: state.position || null });
                 } }
                 deltaBuffer.onTick(tick.last_price, tick.volume_traded);

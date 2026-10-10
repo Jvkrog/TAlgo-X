@@ -87,6 +87,7 @@
   <button class="tab active" id="tabDashboard" data-tab="dashboard">Dashboard</button>
   <button class="tab" id="tabToolbox" data-tab="toolbox">Toolbox</button>
   <button class="tab" id="tabRisk" data-tab="risk">Risk</button>
+  <button class="tab" id="tabAi" data-tab="ai">AI Review</button>
   <div class="tabbar-spacer"></div>
   <button class="btn btn-ghost tabbar-layout-btn" id="layoutEditToggle" title="Drag panels by their header, resize from the bottom-right corner">⛶ Layout</button>
   <button class="btn btn-ghost tabbar-layout-btn" id="layoutResetBtn" style="display:none" title="Restore the default arrangement">Reset</button>
@@ -179,6 +180,17 @@
     </div>
     <div class="tb-form-hint" style="padding:8px 16px 0">Per-instrument entry gates — chop filter, double-order cap, ATR SL, volume SMA, and the long-candle/volatility-shock filter. Tap an instrument to open its full risk settings.</div>
     <div class="toolbox-list" id="riskList"></div>
+  </section>
+</main>
+
+<main class="layout" id="aiView" style="display:none">
+  <section class="panel toolbox-panel" style="flex:1">
+    <div class="panel-head">
+      <span class="panel-title">┌─ TALGO-AI · TRADE REVIEW ─┐</span>
+      <button class="btn btn-ghost" id="aiRefreshBtn">Refresh</button>
+    </div>
+    <div class="tb-form-hint" style="padding:8px 16px 0">Closed trades from each instrument's journal. Figures are computed by the system; the AI only comments on them. It never affects trading.</div>
+    <div class="toolbox-list" id="aiList"></div>
   </section>
 </main>
 
@@ -327,6 +339,6 @@
 
 <script src="strategyBuilder.js?v=3"></script>
 <script src="chart.js?v=7"></script>
-<script src="app.js?v=20"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>

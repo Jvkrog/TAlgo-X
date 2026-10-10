@@ -1485,32 +1485,17 @@ let toolboxBooting = false;
 let toolboxInstruments = [];
 let riskInstruments = [];
 
+const tabAi = document.getElementById("tabAi");
+const aiView = document.getElementById("aiView");
 function switchTab(tab) {
-  if (tab === "dashboard") {
-    tabDashboard.classList.add("active");
-    tabToolbox.classList.remove("active");
-    tabRisk.classList.remove("active");
-    dashboardView.style.display = "";
-    toolboxView.style.display = "none";
-    riskView.style.display = "none";
-    return;
+  const tabs = { dashboard: [tabDashboard, dashboardView], toolbox: [tabToolbox, toolboxView], risk: [tabRisk, riskView], ai: [tabAi, aiView] };
+  for (const [name, [btn, view]] of Object.entries(tabs)) {
+    btn.classList.toggle("active", name === tab);
+    if (name !== tab) view.style.display = "none";
   }
-  if (tab === "risk") {
-    tabRisk.classList.add("active");
-    tabDashboard.classList.remove("active");
-    tabToolbox.classList.remove("active");
-    dashboardView.style.display = "none";
-    toolboxView.style.display = "none";
-    riskView.style.display = "";
-    loadRiskList();
-    return;
-  }
-  tabToolbox.classList.add("active");
-  tabDashboard.classList.remove("active");
-  tabRisk.classList.remove("active");
-  dashboardView.style.display = "none";
-  riskView.style.display = "none";
-
+  if (tab === "dashboard") { dashboardView.style.display = ""; return; }
+  if (tab === "risk") { riskView.style.display = ""; loadRiskList(); return; }
+  if (tab === "ai") { aiView.style.display = ""; loadAiTrades(); return; }
   if (toolboxBooting) return;
   if (toolboxBootPlayed) {
     toolboxView.style.display = "";
@@ -1523,6 +1508,8 @@ function switchTab(tab) {
 tabDashboard.addEventListener("click", () => switchTab("dashboard"));
 tabToolbox.addEventListener("click", () => switchTab("toolbox"));
 tabRisk.addEventListener("click", () => switchTab("risk"));
+tabAi.addEventListener("click", () => switchTab("ai"));
+document.getElementById("aiRefreshBtn").addEventListener("click", () => loadAiTrades());
 
 async function loadRiskList() {
   try {
@@ -4206,3 +4193,59 @@ function renderDualHedgeBacktestResult(data) {
 }
 
 initAuth();
+
+
+// ── TALGO-AI trade review tab ────────────────────────────────────────────
+function aiEsc(v) { return String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function aiReviewHtml(r) {
+  const list = arr => arr.length ? `<ul style="margin:4px 0 0 18px;padding:0">${arr.map(x => `<li>${aiEsc(x)}</li>`).join("")}</ul>` : "";
+  return `<div class="tb-form-hint" style="margin-top:8px;border-top:1px solid rgba(255,255,255,.1);padding-top:8px">
+    <div><b>AI commentary</b> — grade <b>${aiEsc(r.grade)}</b> (decision quality, not profit)</div>
+    <div style="margin-top:4px"><b>Entry:</b> ${aiEsc(r.entry_assessment)}</div>
+    <div><b>Behaviour:</b> ${aiEsc(r.trade_behaviour)}</div>
+    <div><b>Exit:</b> ${aiEsc(r.exit_assessment)}</div>
+    <div style="margin-top:4px"><b>Evidence</b>${list(r.evidence)}</div>
+    <div style="margin-top:4px"><b>Limitations</b>${list(r.limitations)}</div>
+    <div style="margin-top:4px"><b>Takeaway:</b> ${aiEsc(r.takeaway)}</div></div>`;
+}
+async function loadAiTrades() {
+  const box = document.getElementById("aiList");
+  box.innerHTML = `<div class="tb-form-hint" style="padding:12px 16px">Loading...</div>`;
+  let data;
+  try { data = await (await fetch("/api/ai/trades")).json(); }
+  catch (err) { box.innerHTML = `<div class="tb-err-box">${aiEsc(err.message)}</div>`; return; }
+  if (data.error) { box.innerHTML = `<div class="tb-err-box">${aiEsc(data.error)}</div>`; return; }
+  if (!data.trades.length) { box.innerHTML = `<div class="empty-state">No closed trades yet.</div>`; return; }
+  const keyNote = data.keySet ? "" : `<div class="tb-err-box" style="margin:8px 16px">Gemini API key not set — add GEMINI_API_KEY in Settings to enable reviews.</div>`;
+  box.innerHTML = keyNote + data.trades.map((t, i) => {
+    const f = t.facts, pnlCol = f.pnlRupees >= 0 ? "var(--green, #3ddc84)" : "var(--red, #ff5c5c)";
+    const when = f.exitTime ? new Date(f.exitTime).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false }) : "";
+    const exc = f.peakPnl !== null ? `peak ${f.peakPnl >= 0 ? "+" : ""}${f.peakPnl} · trough ${f.troughPnl} · ` : "";
+    return `<div class="toolbox-row" style="display:block;padding:10px 16px" data-i="${i}">
+      <div><b>${aiEsc(f.instrument)}</b> ${aiEsc(f.side)} · ${aiEsc(f.strategy || "")} ${aiEsc(f.timeframe || "")} · <span style="color:${pnlCol}">${f.pnlRupees >= 0 ? "+" : ""}${f.pnlRupees}</span></div>
+      <div class="tb-form-hint">${aiEsc(f.entryPrice)} → ${aiEsc(f.exitPrice)} (${f.points >= 0 ? "+" : ""}${f.points} pts) · ${exc}${f.durationMinutes ?? "?"} min · exit: ${aiEsc(f.exitReason || "")} · ${aiEsc(when)}</div>
+      <div class="ai-review-slot">${t.review ? aiReviewHtml(t.review) : ""}</div>
+      ${t.reviewError ? `<div class="tb-form-hint" style="color:var(--red,#ff5c5c)">Last review failed: ${aiEsc(t.reviewError)}</div>` : ""}
+      <button class="btn btn-ghost ai-review-btn" style="margin-top:6px">${t.review ? "Re-run review" : "Review this trade"}</button>
+    </div>`;
+  }).join("");
+  box.querySelectorAll(".toolbox-row").forEach(row => {
+    const t = data.trades[Number(row.dataset.i)];
+    const btn = row.querySelector(".ai-review-btn");
+    btn.addEventListener("click", async () => {
+      btn.disabled = true; const label = btn.textContent; btn.textContent = "Reviewing...";
+      try {
+        const res = await fetch("/api/ai/review", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ journal: t.journal, id: t.id, force: !!t.review }) });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out.error || "Review failed");
+        t.review = out.review;
+        row.querySelector(".ai-review-slot").innerHTML = aiReviewHtml(out.review);
+        btn.textContent = "Re-run review";
+      } catch (err) {
+        row.querySelector(".ai-review-slot").innerHTML = `<div class="tb-err-box">${aiEsc(err.message)}</div>`;
+        btn.textContent = label;
+      }
+      btn.disabled = false;
+    });
+  });
+}

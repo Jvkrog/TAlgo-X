@@ -21,6 +21,7 @@ function createState() {
                           // lifetime-of-process counter with no daily meaning.
         stDir:       0,     // last known SuperTrend direction: 1 | -1 | 0
         peakDPI:     0,     // peak favorable DPI pressure since entry (for giveback exit)
+        peakPnl: null, troughPnl: null, // observed best/worst unrealised P&L of the open position (trade journal)
         openTradeId: null,  // row id in db.trades while a position is OPEN
         positionSource: null,  // "TREND" | "MEANREV" — which engine opened the
                                 // current position, so exits route correctly.
