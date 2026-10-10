@@ -55,6 +55,19 @@ const { createHaCandleReader } = require("./haCandleReader");
 //
 // SL trail: ATR-based, sized off ST1's direction — pure risk management,
 //   not part of the entry/exit decision.
+// Hard stop-loss in rupees (context.hardSlRupees): the alternative to the ATR stop — a fixed level
+// from the entry price at which the position loses exactly that many rupees (rupees / (lotMult x lots)
+// points). Returns null when no hard stop is configured, so the ATR stop applies.
+function hardStopLevel(context, state, side, livePrice) {
+    const rupees = Number(context.hardSlRupees);
+    if (!(rupees > 0)) return null;
+    const perPoint = (Number(context.lotMult) || 1) * (Number(context.lots) || 1);
+    const pts = rupees / perPoint;
+    const ref = state.position === side && Number.isFinite(state.entryPrice) && state.entryPrice > 0 ? state.entryPrice : livePrice;
+    return side === "LONG" ? ref - pts : ref + pts;
+}
+
+
 function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() }, htf, dailyHa }) {
     // ─── PER-INSTANCE STATE ────────────────────────────────────────────────────
     let prevSTDir   = 0;    // last ST1 direction: 1 | -1
@@ -75,6 +88,8 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
 
     // ─── SL TRAIL — ATR-based, direction from ST1. Risk management only. ─────
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -447,6 +462,8 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
 
     // ─── SL TRAIL — ATR-based, direction from ST1. Risk management only. ─────
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -903,6 +920,8 @@ function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, 
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -1145,6 +1164,8 @@ function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles,
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -1657,6 +1678,8 @@ function createAlmaFastStrategy({ context, engineConfig, state, db, candles, slS
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -1942,6 +1965,8 @@ function createMaSlopeStrategy({ context, engineConfig, state, db, candles, slSt
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -2341,6 +2366,8 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -2729,6 +2756,8 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -3010,6 +3039,8 @@ function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, sl
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -3262,6 +3293,8 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -3498,6 +3531,8 @@ function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -4095,6 +4130,8 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -4512,6 +4549,8 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -4893,6 +4932,8 @@ function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, 
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -5212,6 +5253,8 @@ function createAlmaProFastStrategy({ context, engineConfig, state, db, candles, 
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -5488,6 +5531,8 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
     }
 
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -6370,6 +6415,8 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
     // default, configurable from toolbox + web dashboard), measured from
     // the entry price and fixed once armed — no trailing, same as before.
     function computeSl(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
@@ -6567,6 +6614,8 @@ function createAlmaDsbStrategy({ context, engineConfig, state, db, candles, slSt
         db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
     }
     function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;

@@ -221,6 +221,8 @@ function buildContext(def, resolvedContract) {
         // effect on PURE_HA, DYNAMIC_BAND, DYNAMIC_MID_COLOR(_HL) — none
         // of those call computeTrail()/use an ATR stop at all.
         atrSlMult: null,
+        // Hard stop-loss in rupees (null = off -> ATR stop). Either this or the ATR stop applies, never both.
+        hardSlRupees: null,
         // volumeGate.js's universal entry gate — only enter when current
         // volume is strictly above its own SMA. Off by default (opt-in,
         // never a silent behavior change for anything already deployed —

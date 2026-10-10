@@ -395,7 +395,11 @@ async function main() {
         const eh = context.dailyBiasEntryHour ?? 10, em = context.dailyBiasEntryMinute ?? 0;
         console.log(c.dim(`[${context.tgPrefix}] entry time: ${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")} IST${context.dailyBiasEntryHour === null ? " (default)" : ""} — first ${context.timeframe} candle at/after it takes the ${context.dailyBiasCandle === "CURRENT" ? "present-day (forming)" : "previous completed"} daily HA candle's side`));
     }
-    console.log(c.dim(`[${context.tgPrefix}] ATR SL multiplier: ${context.atrSlMult ?? `${engineConfig.ATR_SL_MULT} (default)`}${context.strategy === "PURE_HA" ? `  |  flip confirm: ${context.flipConfirmCandles ?? 1} candle(s)` : ""}`));
+    if (process.env.HARD_SL_RUPEES_OVERRIDE !== undefined && process.env.HARD_SL_RUPEES_OVERRIDE !== "") {
+        const parsedHard = Number(process.env.HARD_SL_RUPEES_OVERRIDE);
+        context.hardSlRupees = Number.isFinite(parsedHard) && parsedHard > 0 ? parsedHard : null;
+    }
+    console.log(c.dim(`[${context.tgPrefix}] ${context.hardSlRupees ? `HARD SL: \u20b9${context.hardSlRupees} per position (ATR stop off)` : `ATR SL multiplier: ${context.atrSlMult ?? `${engineConfig.ATR_SL_MULT} (default)`}`}${context.strategy === "PURE_HA" ? `  |  flip confirm: ${context.flipConfirmCandles ?? 1} candle(s)` : ""}`));
 
     // volumeGate.js's universal "volume above its own SMA" entry gate —
     // off by default. See context.volumeFilterEnabled/volumeSmaPeriod.

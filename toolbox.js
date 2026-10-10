@@ -191,6 +191,7 @@ async function getEngineProcesses() {
             dailyBiasCandle: p.pm2_env.env?.DAILY_BIAS_CANDLE_OVERRIDE || null,
             entryTime: p.pm2_env.env?.ENTRY_TIME_OVERRIDE || null,
             atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
+            hardSlRupees: p.pm2_env.env?.HARD_SL_RUPEES_OVERRIDE ? Number(p.pm2_env.env.HARD_SL_RUPEES_OVERRIDE) : null,
             volumeFilterEnabled: p.pm2_env.env?.VOLUME_FILTER_OVERRIDE === "true",
             volumeSmaPeriod: p.pm2_env.env?.VOLUME_SMA_PERIOD_OVERRIDE ? Number(p.pm2_env.env.VOLUME_SMA_PERIOD_OVERRIDE) : null,
             longCandleFilterEnabled: p.pm2_env.env?.LONG_CANDLE_FILTER_OVERRIDE !== undefined ? p.pm2_env.env.LONG_CANDLE_FILTER_OVERRIDE === "true" : true,
@@ -617,6 +618,8 @@ function buildProcessEnv(p, overrides = {}) {
     env.SESSION_TARGET_OVERRIDE = p.sessionTargetRupees ? String(p.sessionTargetRupees) : "";
     // Universal (unread by strategies with no ATR trail at all).
     env.ATR_SL_MULT_OVERRIDE = p.atrSlMult ? String(p.atrSlMult) : "";
+    // Hard stop in rupees — when set it replaces the ATR stop (either/or).
+    env.HARD_SL_RUPEES_OVERRIDE = p.hardSlRupees ? String(p.hardSlRupees) : "";
     // PURE_HA only, but harmless to always write regardless of p.strategy —
     // every other strategy simply never reads it.
     env.FLIP_CONFIRM_CANDLES_OVERRIDE = p.flipConfirmCandles ? String(p.flipConfirmCandles) : "";
@@ -965,6 +968,21 @@ async function editInstrument(procs) {
             }
         }
 
+
+        // Hard stop-loss in rupees — alternative to the ATR stop (either/or): when set it replaces the ATR stop.
+        let hardSlRupees = p.hardSlRupees ?? null;
+        {
+            const hsInput = (await ask(`  Hard stop-loss in rupees per position (current: ${hardSlRupees ? "\u20b9" + hardSlRupees + " — ATR stop off" : "off — ATR stop"}, "clear" = off, blank = keep): `)).trim();
+            if (hsInput) {
+                if (hsInput.toLowerCase() === "clear" || hsInput === "0") hardSlRupees = null;
+                else {
+                    const hv = Number(hsInput);
+                    if (!Number.isFinite(hv) || hv <= 0) console.log(c.yellow(`  "${hsInput}" isn't a valid positive number — hard stop left unchanged`));
+                    else hardSlRupees = hv;
+                }
+            }
+        }
+
         // Anti-whipsaw flip confirmation — PURE_HA only. How many
         // CONSECUTIVE opposite-color HA candles are required before an
         // already-open position actually flips. "0"/"clear"/"1" all mean
@@ -1005,7 +1023,7 @@ async function editInstrument(procs) {
             }
         }
 
-        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles };
+        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -1141,6 +1159,21 @@ async function riskManagement(procs) {
                     } else {
                         atrSlMult = parsedAtrMult;
                     }
+                }
+            }
+        }
+
+
+        // Hard stop-loss in rupees — alternative to the ATR stop (either/or): when set it replaces the ATR stop.
+        let hardSlRupees = p.hardSlRupees ?? null;
+        {
+            const hsInput = (await ask(`  Hard stop-loss in rupees per position (current: ${hardSlRupees ? "\u20b9" + hardSlRupees + " — ATR stop off" : "off — ATR stop"}, "clear" = off, blank = keep): `)).trim();
+            if (hsInput) {
+                if (hsInput.toLowerCase() === "clear" || hsInput === "0") hardSlRupees = null;
+                else {
+                    const hv = Number(hsInput);
+                    if (!Number.isFinite(hv) || hv <= 0) console.log(c.yellow(`  "${hsInput}" isn't a valid positive number — hard stop left unchanged`));
+                    else hardSlRupees = hv;
                 }
             }
         }
@@ -1350,7 +1383,7 @@ async function riskManagement(procs) {
             }
         }
 
-        const updatedP = { ...p, dailyBiasEntryTime, dailyBiasCandle, entryTime, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, longCandleUseBodyFilter, longCandleBodyAtrMult, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, maxDailyLoss };
+        const updatedP = { ...p, dailyBiasEntryTime, dailyBiasCandle, entryTime, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, longCandleUseBodyFilter, longCandleBodyAtrMult, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, maxDailyLoss };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -1724,6 +1757,15 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     }
 
+    // Hard stop-loss in rupees — either this or the ATR stop (the ATR multiplier above is ignored when this is set).
+    let hardSlRupees = null;
+    const hardSlInput = (await ask(`  Hard stop-loss in rupees per position (blank = use the ATR stop above): `)).trim();
+    if (hardSlInput) {
+        const hv = Number(hardSlInput);
+        if (!Number.isFinite(hv) || hv <= 0) console.log(c.yellow(`  "${hardSlInput}" isn't a valid positive number — using the ATR stop instead`));
+        else hardSlRupees = hv;
+    }
+
     // Anti-whipsaw flip confirmation — PURE_HA only. How many CONSECUTIVE
     // opposite-color HA candles are required before an already-open
     // position actually flips. Blank = 1 (immediate flip).
@@ -1987,6 +2029,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // Double-order gate — always written explicitly, same reasoning.
     env.DISABLE_DOUBLE_ORDERS_OVERRIDE = disableDoubleOrders ? "true" : "false";
     if (atrSlMult !== null) env.ATR_SL_MULT_OVERRIDE = String(atrSlMult);
+    env.HARD_SL_RUPEES_OVERRIDE = hardSlRupees ? String(hardSlRupees) : "";
     if (strategy === "PURE_HA" && flipConfirmCandles !== null) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(flipConfirmCandles);
     if (strategy === "DAILY_HA_BIAS" && dailyBiasEntryTime !== null) env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = dailyBiasEntryTime;
     if (strategy === "DAILY_HA_BIAS" && dailyBiasCandle !== null) env.DAILY_BIAS_CANDLE_OVERRIDE = dailyBiasCandle;

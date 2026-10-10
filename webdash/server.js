@@ -474,6 +474,7 @@ async function getEngineProcesses() {
             maxDailyLoss: p.pm2_env.env?.MAX_DAILY_LOSS_OVERRIDE ? Number(p.pm2_env.env.MAX_DAILY_LOSS_OVERRIDE) : null,
             disableDoubleOrders: p.pm2_env.env?.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true",
             atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
+            hardSlRupees: p.pm2_env.env?.HARD_SL_RUPEES_OVERRIDE ? Number(p.pm2_env.env.HARD_SL_RUPEES_OVERRIDE) : null,
             flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
             candleType: normalizeCandleType(p.pm2_env.env?.CANDLE_TYPE_OVERRIDE) || null,
             rangeSize: p.pm2_env.env?.RANGE_SIZE_OVERRIDE ? Number(p.pm2_env.env.RANGE_SIZE_OVERRIDE) : null,
@@ -536,6 +537,7 @@ function buildProcessEnv(p, overrides = {}) {
     // true case were written.
     env.DISABLE_DOUBLE_ORDERS_OVERRIDE = String(!!p.disableDoubleOrders);
     env.ATR_SL_MULT_OVERRIDE = p.atrSlMult ? String(p.atrSlMult) : "";
+    env.HARD_SL_RUPEES_OVERRIDE = p.hardSlRupees ? String(p.hardSlRupees) : "";   // replaces the ATR stop when set
     env.FLIP_CONFIRM_CANDLES_OVERRIDE = p.flipConfirmCandles ? String(p.flipConfirmCandles) : "";
     // DAILY_HA_BIAS only (entry time, IST "HH:MM"); blank = default 10:00. Always written explicitly.
     env.CANDLE_TYPE_OVERRIDE = p.candleType || "";
@@ -794,7 +796,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -844,6 +846,15 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 const parsedAtrMult = Number(atrSlMult);
                 if (!Number.isFinite(parsedAtrMult) || parsedAtrMult <= 0) return res.status(400).json({ error: "invalid atrSlMult value" });
                 updated.atrSlMult = parsedAtrMult;
+            }
+        }
+        if (hardSlRupees !== undefined) {
+            if (hardSlRupees === null || hardSlRupees === "" || hardSlRupees === "0" || hardSlRupees === "clear") {
+                updated.hardSlRupees = null;
+            } else {
+                const hv = Number(hardSlRupees);
+                if (!Number.isFinite(hv) || hv <= 0) return res.status(400).json({ error: "invalid hardSlRupees value" });
+                updated.hardSlRupees = hv;
             }
         }
         if (flipConfirmCandles !== undefined) {
@@ -1198,7 +1209,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -1309,6 +1320,11 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             const parsedAtrMult = Number(atrSlMult);
             if (Number.isFinite(parsedAtrMult) && parsedAtrMult > 0) env.ATR_SL_MULT_OVERRIDE = String(parsedAtrMult);
         }
+        if (hardSlRupees !== undefined && hardSlRupees !== null && hardSlRupees !== "") {
+            const hv = Number(hardSlRupees);
+            if (!Number.isFinite(hv) || hv <= 0) return res.status(400).json({ error: "hardSlRupees must be a positive number" });
+            env.HARD_SL_RUPEES_OVERRIDE = String(hv);
+        }
         if (stratKey === "DAILY_HA_BIAS" && dailyBiasEntryTime !== undefined && dailyBiasEntryTime !== null && dailyBiasEntryTime !== "") {
             const t = normEntryTime(dailyBiasEntryTime);
             if (!t) return res.status(400).json({ error: "dailyBiasEntryTime must be HH:MM (IST)" });
@@ -1401,7 +1417,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // else mutates context directly, exactly like backtestFlow.js does.
         chopFilterEnabled, chopPeriod, chopMax,
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
-        disableDoubleOrders, atrSlMult, dailyBiasEntryTime, dailyBiasCandle, entryTime,
+        disableDoubleOrders, atrSlMult, hardSlRupees, dailyBiasEntryTime, dailyBiasCandle, entryTime,
         volumeFilterEnabled, volumeSmaPeriod,
         carryOvernight, maxDailyLoss, sessionTargetRupees, dailyHaGateEnabled,
     } = req.body || {};
@@ -1512,6 +1528,10 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         if (atrSlMult !== undefined && atrSlMult !== null && atrSlMult !== "") {
             const n = Number(atrSlMult);
             if (Number.isFinite(n) && n > 0) context.atrSlMult = n;
+        }
+        if (hardSlRupees !== undefined && hardSlRupees !== null && hardSlRupees !== "") {
+            const hv = Number(hardSlRupees);
+            if (Number.isFinite(hv) && hv > 0) context.hardSlRupees = hv;
         }
         // DAILY_HA_BIAS trade entry time (IST "HH:MM"), same field the live engine reads.
         if (dailyBiasEntryTime !== undefined && dailyBiasEntryTime !== null && dailyBiasEntryTime !== "") {

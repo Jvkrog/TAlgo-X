@@ -432,6 +432,16 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         }
     }
 
+    // Hard stop-loss in rupees — either this or the ATR stop; when set it replaces the ATR stop.
+    if (strategyKey !== "ALMA_BAND") {
+        const hardIn = (await ask(`  Hard stop-loss in rupees per position (blank = use the ATR stop): `)).trim();
+        if (hardIn) {
+            const hv = Number(hardIn);
+            if (Number.isFinite(hv) && hv > 0) context.hardSlRupees = hv;
+            else console.log(c.yellow(`  invalid value for hard stop-loss, using the ATR stop`));
+        }
+    }
+
     // Volume SMA entry gate — universal, off by default.
     const volDefault = context.volumeFilterEnabled === true;
     const volInput = (await ask(`  Only enter when volume is above its SMA? [y/N] (default ${volDefault ? "Y" : "N"}): `)).trim().toUpperCase();

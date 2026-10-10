@@ -1554,7 +1554,8 @@ function renderRiskList() {
     if (inst.strategy === "PURE_HA") badges.push(`<span class="mode-pill">flip ${inst.flipConfirmCandles ?? 1}</span>`);
     if (inst.strategy === "DAILY_HA_BIAS") badges.push(`<span class="mode-pill">entry ${inst.dailyBiasEntryTime || "10:00"} \u00b7 ${inst.dailyBiasCandle === "CURRENT" ? "today's candle" : "prev candle"}</span>`);
     else if (inst.entryTime) badges.push(`<span class="mode-pill">entry \u2265 ${inst.entryTime}</span>`);
-    if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
+    if (inst.hardSlRupees) badges.push(`<span class="mode-pill">hard SL \u20b9${inst.hardSlRupees}</span>`);
+    else if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
     if (inst.maxDailyLoss) badges.push(`<span class="mode-pill">maxloss -₹${inst.maxDailyLoss}</span>`);
     row.innerHTML = `
       <div class="tb-row-id">
@@ -1785,6 +1786,10 @@ function openEditModal(inst) {
       <div class="tb-form-label">ATR stop-loss multiplier (blank = default)</div>
       <input type="number" id="editAtrSlMult" min="0" step="any" value="${inst.atrSlMult ?? ""}">
     </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">Hard stop-loss \u20b9 per position \u2014 replaces the ATR stop when set (blank = use ATR)</div>
+      <input type="number" id="editHardSl" min="0" step="any" value="${inst.hardSlRupees ?? ""}">
+    </div>
     ${inst.strategy === "PURE_HA" ? `
     <div class="tb-form-row">
       <div class="tb-form-label">reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
@@ -1881,6 +1886,7 @@ function openEditModal(inst) {
     body.maxDailyLoss = tbEditBody.querySelector("#editMaxDailyLoss").value || null;
     body.disableDoubleOrders = tbEditBody.querySelector("#editDisableDouble").checked;
     body.atrSlMult = tbEditBody.querySelector("#editAtrSlMult").value || null;
+    body.hardSlRupees = tbEditBody.querySelector("#editHardSl").value || null;
     const editFlipConfirmEl = tbEditBody.querySelector("#editFlipConfirm");
     if (editFlipConfirmEl) body.flipConfirmCandles = editFlipConfirmEl.value || null;
     const editDhabEntryEl = tbEditBody.querySelector("#editDhabEntry");
@@ -2202,6 +2208,10 @@ function renderAddConfigStep() {
       <div class="tb-form-label">ATR stop-loss multiplier (blank = default)</div>
       <input type="number" id="addAtrSlMult" min="0" step="any">
     </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">Hard stop-loss \u20b9 per position \u2014 replaces the ATR stop when set (blank = use ATR)</div>
+      <input type="number" id="addHardSl" min="0" step="any">
+    </div>
     <div class="tb-form-row" id="addFlipConfirmRow" style="display:none">
       <div class="tb-form-label">Reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
       <input type="number" id="addFlipConfirm" min="1" step="1">
@@ -2376,6 +2386,7 @@ function renderAddConfigStep() {
         greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
         disableDoubleOrders: tbAddBody.querySelector("#addDisableDouble").checked,
         atrSlMult: tbAddBody.querySelector("#addAtrSlMult").value || undefined,
+        hardSlRupees: tbAddBody.querySelector("#addHardSl").value || undefined,
         flipConfirmCandles: pickedStrategy === "PURE_HA" ? (tbAddBody.querySelector("#addFlipConfirm").value || undefined) : undefined,
         dailyBiasEntryTime: pickedStrategy === "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addDhabEntry").value || undefined) : undefined,
         entryTime: pickedStrategy !== "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addEntryTime").value || undefined) : undefined,
@@ -2577,6 +2588,10 @@ async function renderBacktestParamsStep() {
       <div class="tb-form-label">ATR stop-loss multiplier (blank = default)</div>
       <input type="number" id="btAtrMult" min="0" step="any">
     </div>
+    <div class="tb-form-row" id="btHardSlRow">
+      <div class="tb-form-label">Hard stop-loss \u20b9 per position \u2014 replaces the ATR stop when set (blank = use ATR)</div>
+      <input type="number" id="btHardSl" min="0" step="any">
+    </div>
     <div class="tb-form-row" id="btEntryTimeRow">
       <div class="tb-form-label">Entry time IST \u2014 no new entries before it (default 09:15 \u2014 clear it for off)</div>
       <input type="time" id="btEntryTime" value="09:15">
@@ -2621,6 +2636,7 @@ async function renderBacktestParamsStep() {
   // nothing, same reasoning as the CLI skipping this prompt for it.
   if (btState.strategy === "ALMA_BAND") {
     tbBacktestBody.querySelector("#btAtrRow").style.display = "none";
+    tbBacktestBody.querySelector("#btHardSlRow").style.display = "none";
   }
   if (btState.strategy === "DAILY_HA_BIAS") {
     tbBacktestBody.querySelector("#btDhabEntryRow").style.display = "";
@@ -2675,6 +2691,7 @@ async function renderBacktestParamsStep() {
       longCandleCooldownCandles: tbBacktestBody.querySelector("#btLcCooldown").value || undefined,
       disableDoubleOrders: tbBacktestBody.querySelector("#btDoubleDisabled").checked,
       atrSlMult: btState.strategy === "ALMA_BAND" ? undefined : (tbBacktestBody.querySelector("#btAtrMult").value || undefined),
+      hardSlRupees: btState.strategy === "ALMA_BAND" ? undefined : (tbBacktestBody.querySelector("#btHardSl").value || undefined),
       dailyBiasEntryTime: btState.strategy === "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btDhabEntry").value || undefined) : undefined,
       entryTime: btState.strategy !== "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btEntryTime").value || undefined) : undefined,
       dailyBiasCandle: btState.strategy === "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btDhabCandle").value || undefined) : undefined,
