@@ -2811,8 +2811,8 @@ function renderBtDeployView(bt) {
     <div class="tb-form-row" id="btdLiveRow" style="display:none"><label>Type LIVE to confirm</label><input type="text" id="btdConfirm" autocomplete="off"></div>
     <div id="btdErr"></div>
     <div style="display:flex;gap:8px;margin-top:12px">
-      <button type="button" class="tb-submit-btn" id="btdBack" style="flex:0 0 auto;background:transparent;border:1px solid currentColor">← Back</button>
-      <button type="button" class="tb-submit-btn" id="btdDeploy" style="flex:1">Deploy</button>
+      <button type="button" class="tb-submit-btn" id="btdBack" style="flex:0 0 auto;width:auto;min-width:0;padding:6px 12px;font-size:12px;background:transparent;border:1px solid currentColor">← Back</button>
+      <button type="button" class="tb-submit-btn" id="btdDeploy" style="flex:1 1 auto;width:auto;min-width:0;padding:14px 20px;font-size:16px;font-weight:700">Deploy</button>
     </div>`;
   const q = sel => view.querySelector(sel);
   q("#btdMode").addEventListener("change", e => { q("#btdLiveRow").style.display = e.target.value === "live" ? "" : "none"; });
