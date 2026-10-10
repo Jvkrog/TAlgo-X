@@ -52,6 +52,40 @@ const { choppinessIndex, alma } = require("./indicators");
 
 const REFRESH_MS = { "1h": 30 * 60 * 1000, "1d": 12 * 60 * 60 * 1000 };
 
+// Pure decision shared by the live gate and the backtest replay: `bars` are CLOSED bars of the
+// instrument's own timeframe, oldest -> newest. True = block the entry.
+function evaluateHtf(bars, context, engineConfig) {
+    if (context.htfGateEnabled === false) return false;
+    const period  = context.htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT;
+    const almaLen = engineConfig.HTF_ALMA_LEN_DEFAULT;
+    if (bars.length < Math.max(period, almaLen) + 1) return false;
+
+    const chopArr = choppinessIndex(bars, period);
+    const chopVal = chopArr[chopArr.length - 1];
+    if (chopVal === null || chopVal === undefined) return false;
+
+    const chopMax = context.htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT;
+    if (!(chopVal < chopMax)) return false; // HTF itself is choppy/ranging — this gate doesn't apply
+
+    // ALMA-band check — now independently configurable (was previously
+    // fused into the AND below with no way to run the chop condition
+    // on its own). Default true = unchanged prior behavior. When
+    // false, the gate's block decision drops the band clause entirely
+    // and blocks purely on the chop condition above — i.e. it blocks
+    // for as long as the higher timeframe stays in a low-chop/
+    // trending state, not just until price breaks its own band.
+    if (context.htfBandBlockEnabled === false) return true;
+
+    const highs = bars.map(b => b.high);
+    const lows  = bars.map(b => b.low);
+    const almaHigh = alma(highs, almaLen, engineConfig.HTF_ALMA_OFFSET_DEFAULT, engineConfig.HTF_ALMA_SIGMA_DEFAULT);
+    const almaLow  = alma(lows,  almaLen, engineConfig.HTF_ALMA_OFFSET_DEFAULT, engineConfig.HTF_ALMA_SIGMA_DEFAULT);
+    if (almaHigh === null || almaLow === null) return false;
+
+    const close = bars[bars.length - 1].close;
+    return close > almaLow && close < almaHigh; // still inside the band -> block
+}
+
 function createHtfGate({ context, engineConfig, tg }) {
     let kc = null;
     let bars = [];
@@ -106,37 +140,10 @@ function createHtfGate({ context, engineConfig, tg }) {
             }
         }
 
-        const period  = context.htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT;
-        const almaLen = engineConfig.HTF_ALMA_LEN_DEFAULT;
-        if (bars.length < Math.max(period, almaLen) + 1) return false;
-
-        const chopArr = choppinessIndex(bars, period);
-        const chopVal = chopArr[chopArr.length - 1];
-        if (chopVal === null || chopVal === undefined) return false;
-
-        const chopMax = context.htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT;
-        if (!(chopVal < chopMax)) return false; // HTF itself is choppy/ranging — this gate doesn't apply
-
-        // ALMA-band check — now independently configurable (was previously
-        // fused into the AND below with no way to run the chop condition
-        // on its own). Default true = unchanged prior behavior. When
-        // false, the gate's block decision drops the band clause entirely
-        // and blocks purely on the chop condition above — i.e. it blocks
-        // for as long as the higher timeframe stays in a low-chop/
-        // trending state, not just until price breaks its own band.
-        if (context.htfBandBlockEnabled === false) return true;
-
-        const highs = bars.map(b => b.high);
-        const lows  = bars.map(b => b.low);
-        const almaHigh = alma(highs, almaLen, engineConfig.HTF_ALMA_OFFSET_DEFAULT, engineConfig.HTF_ALMA_SIGMA_DEFAULT);
-        const almaLow  = alma(lows,  almaLen, engineConfig.HTF_ALMA_OFFSET_DEFAULT, engineConfig.HTF_ALMA_SIGMA_DEFAULT);
-        if (almaHigh === null || almaLow === null) return false;
-
-        const close = bars[bars.length - 1].close;
-        return close > almaLow && close < almaHigh; // still inside the band -> block
+        return evaluateHtf(bars, context, engineConfig);
     }
 
     return { isBlocked, prewarm: () => isBlocked().catch(() => {}) };
 }
 
-module.exports = { createHtfGate };
+module.exports = { createHtfGate, evaluateHtf };

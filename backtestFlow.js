@@ -542,6 +542,19 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     // candle would otherwise block the entire strategy, which is only
     // ever short) — skip the prompt and set it directly, same reasoning
     // as carryOvernight above.
+    {
+        const htfDefault = context.htfGateEnabled !== false;
+        const htfIn = (await ask(`  HTF gate — block entries while chop says trending but price is still inside its own ALMA band? [Y/n] (default ${htfDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+        if (htfIn) context.htfGateEnabled = htfIn !== "N";
+        if (context.htfGateEnabled !== false) {
+            const per = Number((await ask(`    HTF chop period (blank = ${engineConfig.HTF_CHOP_LEN_DEFAULT}): `)).trim());
+            if (per > 0) context.htfChopPeriod = per;
+            const mx = Number((await ask(`    HTF chop max (blank = ${engineConfig.HTF_CHOP_MAX_DEFAULT}): `)).trim());
+            if (mx > 0) context.htfChopMax = mx;
+            const bb = (await ask(`    Also require price still inside its ALMA band? [Y/n] (default Y): `)).trim().toUpperCase();
+            if (bb) context.htfBandBlockEnabled = bb !== "N";
+        }
+    }
     if (isShortHold) {
         context.dailyHaGateEnabled = false;
     } else {

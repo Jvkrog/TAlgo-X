@@ -2623,7 +2623,12 @@ async function renderBacktestParamsStep() {
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="btDailyHaGate" checked><span>Only allow entries matching the previous daily HA candle's color (green=long only, red=short only) (default Y)</span></label>
-      <div class="tb-form-hint">Htf gate isn't offered here — its backtest replay is a live-only stub that always passes through, so a toggle for it would do nothing.</div>
+    </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="btHtfGate" checked><span>HTF gate \u2014 block entries while the higher-timeframe chop says trending but price is still inside its own ALMA band (default Y)</span></label>
+      <input type="number" id="btHtfChopPeriod" min="1" step="1" placeholder="chop period, blank = default (9)">
+      <input type="number" id="btHtfChopMax" min="0" step="any" placeholder="chop max, blank = default (58)">
+      <label class="tb-form-row-inline"><input type="checkbox" id="btHtfBandBlock" checked><span>Also require price still inside its own ALMA band (uncheck = block on chop alone)</span></label>
     </div>
     <div id="btErrBox"></div>
     <div id="btResultBox"></div>
@@ -2701,6 +2706,10 @@ async function renderBacktestParamsStep() {
       maxDailyLoss: tbBacktestBody.querySelector("#btMaxLoss").value || undefined,
       sessionTargetRupees: tbBacktestBody.querySelector("#btSessionTarget").value || undefined,
       dailyHaGateEnabled: tbBacktestBody.querySelector("#btDailyHaGate").checked,
+      htfGateEnabled: tbBacktestBody.querySelector("#btHtfGate").checked,
+      htfChopPeriod: tbBacktestBody.querySelector("#btHtfChopPeriod").value || undefined,
+      htfChopMax: tbBacktestBody.querySelector("#btHtfChopMax").value || undefined,
+      htfBandBlockEnabled: tbBacktestBody.querySelector("#btHtfBandBlock").checked,
     };
     try {
       const res = await fetch("/api/toolbox/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

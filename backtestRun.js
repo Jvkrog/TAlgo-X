@@ -20,6 +20,7 @@ const positions                    = require("./positions");
 const engineConfigDefaults        = require("./engineConfig");
 const { computeMetrics }          = require("./backtestMetrics");
 const { buildReport, saveReport, describeSettings } = require("./backtestReport");
+const { evaluateHtf } = require("./htfGate");
 const { fetchHistoricalCandles, fetchDailyCandles } = require("./historicalFetch");
 const { toHAAlways: toHA, setHaPassthrough } = require("./indicators");
 const { resolveCandleMode, normalizeCandleType, CANDLE_LABEL, overrideWarning } = require("./candleType");
@@ -151,7 +152,15 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     // connection to fetch from anyway. Stub that never blocks, so this
     // gate simply doesn't affect backtest results rather than crashing on
     // a missing dependency or firing on stale/wrong data.
-    const htf = { isBlocked: async () => false };
+    // The gate now reads the instrument's OWN timeframe candles (see htfGate.js), so it replays point-in-time
+    // from the candle buffer exactly like live: chop below the limit and (optionally) price still inside the ALMA band.
+    const htf = {
+        isBlocked: async () => {
+            if (context.htfGateEnabled === false) return false;
+            const src = feed.getSourceCandles ? feed.getSourceCandles() : feed.getRawCandles();
+            return evaluateHtf(src.slice(-200), context, engineConfig);
+        },
+    };
 
     // dailyHaGate.js — UNLIKE htfGate.js above, this one CAN be given real
     // backtest parity: "previous completed daily HA candle" is a plain

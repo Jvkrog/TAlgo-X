@@ -1420,6 +1420,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         disableDoubleOrders, atrSlMult, hardSlRupees, dailyBiasEntryTime, dailyBiasCandle, entryTime,
         volumeFilterEnabled, volumeSmaPeriod,
         carryOvernight, maxDailyLoss, sessionTargetRupees, dailyHaGateEnabled,
+        htfGateEnabled, htfChopPeriod, htfChopMax, htfBandBlockEnabled,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -1568,6 +1569,11 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // its backtest stub always returns false, so exposing a toggle
         // for it here would be a no-op control).
         if (dailyHaGateEnabled !== undefined) context.dailyHaGateEnabled = !!dailyHaGateEnabled;
+        // Higher-timeframe gate: replayed point-in-time from the candle buffer (htfGate.js evaluateHtf).
+        if (htfGateEnabled !== undefined) context.htfGateEnabled = !!htfGateEnabled;
+        if (htfBandBlockEnabled !== undefined) context.htfBandBlockEnabled = !!htfBandBlockEnabled;
+        if (htfChopPeriod !== undefined && htfChopPeriod !== null && htfChopPeriod !== "" && Number(htfChopPeriod) > 0) context.htfChopPeriod = Number(htfChopPeriod);
+        if (htfChopMax !== undefined && htfChopMax !== null && htfChopMax !== "" && Number(htfChopMax) > 0) context.htfChopMax = Number(htfChopMax);
 
         const btCandle = normalizeCandleType(btCandleIn);
         const btRange = Number(btRangeIn) > 0 ? Number(btRangeIn) : null;
