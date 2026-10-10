@@ -84,9 +84,28 @@ async function getTrade(journal, id) {
 }
 
 // ── deterministic facts (authoritative — the model never computes these) ──
+let strategyInfo;
+function strategyDescription(key) {
+    try { strategyInfo = strategyInfo || require("./strategies").STRATEGY_INFO || {}; } catch { strategyInfo = {}; }
+    const i = strategyInfo[key];
+    return i ? `${i.label}: ${i.description}` : null;
+}
+
+// Trades closed before the journal stored a settings snapshot still carry the strategy and candle type
+// in the journal's file name (<instrument>_<strategy>_<raw|ha|range>.db).
+function fromFileName(journal) {
+    const parts = String(journal || "").replace(/\.db$/, "").split("_");
+    if (parts.length < 3) return {};
+    const suffix = parts[parts.length - 1];
+    if (!["raw", "ha", "range"].includes(suffix)) return {};
+    return { strategy: parts.slice(1, -1).join("_").toUpperCase(), candleType: suffix.toUpperCase() };
+}
+
 function buildFacts(t) {
     let ctx = {};
     try { ctx = t.ctx ? JSON.parse(t.ctx) : {}; } catch { /* leave empty */ }
+    const fn = fromFileName(t.journal);
+    ctx = { ...ctx, strategy: ctx.strategy || fn.strategy, candleType: ctx.candleType || fn.candleType };
     const dir = t.side === "LONG" ? 1 : -1;
     const points = (t.exit_price - t.entry_price) * dir;
     const durationMin = (t.entry_time && t.exit_time) ? Math.round((new Date(t.exit_time) - new Date(t.entry_time)) / 60000) : null;
@@ -104,6 +123,7 @@ function buildFacts(t) {
         peakPnl: hasExc ? Math.round(t.peak_pnl) : null,
         troughPnl: hasExc ? Math.round(t.trough_pnl) : null,
         profitGivenBack: giveback,
+        strategyRules: strategyDescription(ctx.strategy),
         stop: ctx.hardSlRupees ? `hard Rs ${ctx.hardSlRupees}` : (ctx.atrSlMult ? `ATR x ${ctx.atrSlMult}` : null),
     };
 }
@@ -111,6 +131,7 @@ function buildFacts(t) {
 // ── Gemini ───────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You review ONE completed trade from an algorithmic futures trading engine (MCX commodities).
 You are given verified facts computed by the system. Do not recompute or contradict them; do not invent prices, indicator values or market context that are not in the facts. If something cannot be judged from the facts, say so in "limitations".
+Exit reasons: EOD_FORCE = the engine's scheduled end-of-day close of any open position (a rule, not a market signal); reasons containing SL = a stop-loss was hit; other reasons are strategy signal exits. durationMinutes is entry to exit. Missing optional facts (null) are data gaps, not trade flaws: list them under "limitations" only, never in the entry/behaviour/exit text, and do not restate the raw numbers as evidence — evidence should connect facts to a conclusion.
 Judge decision quality and rule adherence, not just profit: a loss can be a good trade and a win can be a bad one.
 Grade: A = behaved as designed and exit was efficient; B = acceptable with some inefficiency; C = clear problem visible in the facts (e.g. large profit given back, exit far from what the stop implies). With little evidence prefer B and explain.
 Reply with ONLY this JSON:
