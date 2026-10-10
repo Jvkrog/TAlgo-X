@@ -2137,7 +2137,7 @@ function renderAddConfigStep() {
     </div>
     ${p.lotMultRequired ? `
     <div class="tb-warn-box">⚠ lot multiplier required — the broker's lot_size is a contract COUNT, not the real price multiplier (this exact gap caused a real PnL bug once, on NatGas Mini). Look up the actual contract spec before entering this.</div>
-    <div class="tb-form-row"><div class="tb-form-label">lot multiplier (required)</div><input type="number" id="addLotMult" placeholder="e.g. 250" min="0" step="any"></div>
+    <div class="tb-form-row"><div class="tb-form-label">lot multiplier (required) <span class="req-star" title="required">*</span></div><input type="number" id="addLotMult" placeholder="e.g. 250" min="0" step="any"></div>
     ` : ""}
     <div class="tb-form-row">
       <div class="tb-form-label">Candle type</div>
@@ -2563,7 +2563,7 @@ async function renderBacktestParamsStep() {
     <div class="tb-form-row"><div class="tb-form-label">Or pick dates (IST) \u2014 From</div><input type="date" id="btFrom"></div>
     <div class="tb-form-row"><div class="tb-form-label">To (blank = today)</div><input type="date" id="btTo"></div>
     <div class="tb-form-row" id="btLotMultRow" style="display:${preview && preview.lotMultRequired ? "" : "none"}">
-      <div class="tb-form-label">Lot multiplier (required for this instrument)</div>
+      <div class="tb-form-label">Lot multiplier (required for this instrument) <span class="req-star" title="required">*</span></div>
       <input type="number" id="btLotMult" min="0" step="any">
     </div>
     <div id="btParamsBox"></div>
@@ -3462,11 +3462,11 @@ async function renderHedgePairAddForm() {
       <input type="number" id="hpHedgeLots" min="1" step="1" value="5">
     </div>
     <div class="tb-form-row" style="display:${coreLm.lotMultRequired ? "" : "none"}">
-      <div class="tb-form-label">core lot multiplier \u2014 REQUIRED, no context.js override on file for ${hpAddState.core}. Real contract multiplier, not broker lot_size.</div>
+      <div class="tb-form-label">core lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span>, no context.js override on file for ${hpAddState.core}. Real contract multiplier, not broker lot_size.</div>
       <input type="number" id="hpCoreLotMult" min="1" step="any">
     </div>
     <div class="tb-form-row" style="display:${hedgeLm.lotMultRequired ? "" : "none"}">
-      <div class="tb-form-label">hedge lot multiplier \u2014 REQUIRED, no context.js override on file for ${hpAddState.hedge}. Real contract multiplier, not broker lot_size.</div>
+      <div class="tb-form-label">hedge lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span>, no context.js override on file for ${hpAddState.hedge}. Real contract multiplier, not broker lot_size.</div>
       <input type="number" id="hpHedgeLotMult" min="1" step="any">
     </div>
     <div class="tb-form-row">
@@ -3842,7 +3842,7 @@ async function renderDualHedgeAddForm() {
     <div class="tb-form-row"><div class="tb-form-label">Take profit: exit a flipped leg when profit exceeds \u20b9 (default 3000)</div><input type="number" id="dhTakeProfit" min="1" step="1" value="3000"></div>
     </div>
     <div class="tb-form-row" style="display:${lm.lotMultRequired ? "" : "none"}">
-      <div class="tb-form-label">lot multiplier \u2014 REQUIRED, no context.js override on file for ${dhAddState.underlying}. Real contract multiplier, not broker lot_size.</div>
+      <div class="tb-form-label">lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span>, no context.js override on file for ${dhAddState.underlying}. Real contract multiplier, not broker lot_size.</div>
       <input type="number" id="dhLotMult" min="1" step="any">
     </div>
     <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dhBandStep" min="0" step="any"></div>
@@ -3961,8 +3961,8 @@ async function renderHedgePairBacktestForm() {
     <div class="tb-form-hint" style="margin:8px 0">Backtest \u2014 core <b>${escHtml(hpAddState.core)}</b> (daily-HA bias, EOD exit) \u00b7 hedge <b>${escHtml(hpAddState.hedge)}</b> (adverse 1h HA)</div>
     <div class="tb-form-row"><div class="tb-form-label">Core lots</div><input type="number" id="hbCoreLots" min="1" value="1"></div>
     <div class="tb-form-row"><div class="tb-form-label">Hedge lots (5:1 default)</div><input type="number" id="hbHedgeLots" min="1" value="5"></div>
-    <div class="tb-form-row" style="display:${coreLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">core lot multiplier \u2014 REQUIRED</div><input type="number" id="hbCoreLotMult" min="1" step="any"></div>
-    <div class="tb-form-row" style="display:${hedgeLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">hedge lot multiplier \u2014 REQUIRED</div><input type="number" id="hbHedgeLotMult" min="1" step="any"></div>
+    <div class="tb-form-row" style="display:${coreLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">core lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span></div><input type="number" id="hbCoreLotMult" min="1" step="any"></div>
+    <div class="tb-form-row" style="display:${hedgeLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">hedge lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span></div><input type="number" id="hbHedgeLotMult" min="1" step="any"></div>
     <div class="tb-form-row"><div class="tb-form-label">Unwind mode</div><select id="hbUnwind"><option value="HA_FLIP">HA_FLIP \u2014 hedge closes when 1h HA flips back</option><option value="EOD_ONLY">EOD_ONLY \u2014 hold to EOD</option></select></div>
     <div class="tb-form-row"><div class="tb-form-label">From</div><input type="date" id="hbFrom"></div>
     <div class="tb-form-row"><div class="tb-form-label">To</div><input type="date" id="hbTo" value="${today}"></div>
