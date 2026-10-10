@@ -88,7 +88,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     // including weekends/holidays in between. Trades opened during this
     // lookback window are filtered out of the final report below — they're
     // warmup context, not something the person asked to backtest.
-    const WARMUP_LOOKBACK_DAYS = 10;
+    const WARMUP_LOOKBACK_DAYS = timeframe === "1d" ? 150 : 10;   // daily bars: ~100 trading days of warmup
     const fetchFrom = new Date(from.getTime() - WARMUP_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
 
     const rawTimeCandles = await fetchHistoricalCandles({ kc, token: context.token, timeframe, from: fetchFrom, to });
@@ -204,7 +204,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
         lastBlockDetail: null,
         isBlocked: async function (side) {
             this.lastBlockReason = null; this.lastBlockDetail = null;
-            if (isBeforeEntryTime(context, clock.now())) {   // universal entry-time gate
+            if (timeframe !== "1d" && isBeforeEntryTime(context, clock.now())) {   // universal entry-time gate (meaningless on daily bars, which carry no time of day)
                 this.lastBlockReason = "entry-time";
                 this.lastBlockDetail = `ENTRY-TIME gate — no new entries before ${String(context.entryTimeHour).padStart(2, "0")}:${String(context.entryTimeMinute ?? 0).padStart(2, "0")} IST`;
                 return true;

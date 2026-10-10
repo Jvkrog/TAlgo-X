@@ -11,6 +11,7 @@ const TIMEFRAME_TO_INTERVAL = {
     "15m": "15minute",
     "30m": "30minute",
     "1h":  "60minute",
+    "1d":  "day",      // live: evaluated once a day on the last COMPLETED daily bar (see candlePoll.js)
 };
 
 // Slot size in minutes — used by candlePoll.js to compute when a candle of
@@ -20,6 +21,7 @@ const TIMEFRAME_MINUTES = {
     "15m": 15,
     "30m": 30,
     "1h":  60,
+    "1d":  1440,
 };
 
 const CHUNK_DAYS  = 60;   // conservative — safely under Kite's per-call cap at every supported interval

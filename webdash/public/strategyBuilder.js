@@ -20,7 +20,7 @@ document.getElementById("tbOpenCustomStrategy").addEventListener("click", openCu
 let csbState = {};       // wizard-in-progress state
 let csbIndicatorCatalog = null;
 
-const CSB_TIMEFRAMES = ["5m", "15m", "30m", "1h"]; // tick mode intentionally excluded — see chat
+const CSB_TIMEFRAMES = ["5m", "15m", "30m", "1h", "1d"]; // tick mode intentionally excluded — see chat
 const CSB_OPERATORS = [">", "<", ">=", "<=", "==", "crosses_above", "crosses_below", "state_flips_to"];
 // Human-readable labels for the operator <select> — the raw strings above
 // are still what gets saved (matches conditionEvaluator.js exactly), this

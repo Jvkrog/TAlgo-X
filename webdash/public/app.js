@@ -2308,7 +2308,7 @@ function renderAddConfigStep() {
   const tfSelect = tbAddBody.querySelector("#addTimeframe");
   function updateTimeframeOptions(defaultTf) {
     tfSelect.innerHTML = "";
-    (addState.allTimeframes || ["5m", "15m", "30m", "1h"]).forEach(tf => {
+    (addState.allTimeframes || ["5m", "15m", "30m", "1h", "1d"]).forEach(tf => {
       const opt = document.createElement("option");
       opt.value = tf;
       opt.textContent = tf + (tf === defaultTf ? " (default)" : "");
@@ -2636,7 +2636,7 @@ async function renderBacktestParamsStep() {
   }
 
   const tfSelect = tbBacktestBody.querySelector("#btTimeframe");
-  (btState.timeframes || ["5m", "15m", "30m", "1h"]).forEach(tf => {
+  (btState.timeframes || ["5m", "15m", "30m", "1h", "1d"]).forEach(tf => {
     const opt = document.createElement("option");
     opt.value = tf;
     opt.textContent = tf + (tf === btState.defaultTimeframe ? " (default)" : "");

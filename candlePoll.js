@@ -42,6 +42,11 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
     // boot order), so this is a safety net, not a real code path.
     const interval    = TIMEFRAME_TO_INTERVAL[context.timeframe] || engineConfig.HIST_INTERVAL;
     const slotMinutes = TIMEFRAME_MINUTES[context.timeframe]     || 15;
+    const isDaily     = context.timeframe === "1d";
+    // Daily engines act once a day, shortly after the session opens, on the last COMPLETED daily bar —
+    // the same "yesterday's candle decides today" shape DAILY_HA_BIAS uses (a bar that closes after
+    // the market is shut can't be traded until the next open anyway).
+    const istDayStr = ms => new Date(ms + 5.5 * 3600000).toISOString().slice(0, 10);
 
     // ─── SL MONITOR — every WebSocket tick ───────────────────────────────────
     async function checkSL(price) {
@@ -317,7 +322,7 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
             // risking the `bars.length < 2` guard below right after a
             // fresh boot or near session open. Scaling with slotMinutes
             // keeps the same headroom ratio for every timeframe.
-            const lookbackMs = Math.max(2 * 60 * 60 * 1000, slotMinutes * 60 * 1000 * 4);
+            const lookbackMs = isDaily ? 10 * 24 * 60 * 60 * 1000 : Math.max(2 * 60 * 60 * 1000, slotMinutes * 60 * 1000 * 4);
             const from = new Date(now.getTime() - lookbackMs);
 
             const bars = await kc.getHistoricalData(
@@ -327,10 +332,19 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                 now.toISOString().split("T")[0]
             );
 
-            if (!bars || bars.length < 2) return null;
+            if (!bars || bars.length < (isDaily ? 1 : 2)) return null;
 
-            // Last bar is still-forming — take second to last (last completed candle)
-            const b = bars[bars.length - 2];
+            // Last bar is still-forming — take second to last (last completed candle).
+            // Daily: the newest bar dated before today (IST); a bar for today is still forming.
+            let b;
+            if (isDaily) {
+                const today = istDayStr(now.getTime());
+                const done = bars.filter(x => istDayStr(new Date(x.date).getTime()) < today);
+                if (!done.length) return null;
+                b = done[done.length - 1];
+            } else {
+                b = bars[bars.length - 2];
+            }
             return {
                 open:  parseFloat(b.open),
                 high:  parseFloat(b.high),
@@ -361,6 +375,13 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
     const MAX_RETRIES     = 12;          // give up retrying after 2 minutes, fall back to normal cadence
 
     function msUntilNextSlotPlus10() {
+        if (isDaily) {
+            const nowIst = new Date(Date.now() + 5.5 * 3600000);
+            const target = Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate(), 9, 20, 0);
+            let wait = target - nowIst.getTime();
+            if (wait < 60 * 1000) wait += 24 * 3600000;   // already past today's slot — tomorrow's
+            return wait;
+        }
         const now   = new Date();
         const istMs = now.getTime() + (5.5 * 60 * 60 * 1000);
         const ist   = new Date(istMs);

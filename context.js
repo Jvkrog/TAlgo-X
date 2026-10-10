@@ -81,7 +81,7 @@ function defaultEodFor(timeframe, exchange) {
     if (exchange === "NSE") {
         return { eodHour: 15, eodMinute: 15 };
     }
-    const isWideTimeframe = timeframe === "30m" || timeframe === "1h";
+    const isWideTimeframe = timeframe === "30m" || timeframe === "1h" || timeframe === "1d";
     return { eodHour: 23, eodMinute: isWideTimeframe ? 0 : 15 };
 }
 

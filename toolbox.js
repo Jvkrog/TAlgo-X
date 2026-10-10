@@ -4221,7 +4221,7 @@ async function createCustomStrategy() {
     // chat: "ignore ticks for now". requiresCandles filtering below is a
     // no-op until tick mode exists, kept here so step 3 already reads from
     // the same gate it'll need later instead of a second pass being required.)
-    const TIMEFRAMES = ["5m", "15m", "30m", "1h"];
+    const TIMEFRAMES = ["5m", "15m", "30m", "1h", "1d"];
     console.log();
     console.log(c.dim("  Time frame:"));
     TIMEFRAMES.forEach((tf, i) => console.log(`  ${i + 1}. ${tf}`));

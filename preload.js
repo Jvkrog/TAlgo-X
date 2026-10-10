@@ -16,12 +16,13 @@ function createPreload({ context, engineConfig, candles, tg }) {
     async function preload() {
         try {
             const to   = new Date();
-            // 5 days covers weekends comfortably for 200 15m bars
-            const from = new Date(to.getTime() - 5 * 24 * 60 * 60 * 1000);
+            const daily = context.timeframe === "1d";
+            // 5 days covers weekends comfortably for 200 15m bars; daily engines need months of daily bars
+            const from = new Date(to.getTime() - (daily ? 250 : 5) * 24 * 60 * 60 * 1000);
 
             const bars = await kc.getHistoricalData(
                 context.token,
-                engineConfig.HIST_INTERVAL,
+                daily ? "day" : engineConfig.HIST_INTERVAL,
                 from.toISOString().split("T")[0],
                 to.toISOString().split("T")[0]
             );
@@ -32,7 +33,12 @@ function createPreload({ context, engineConfig, candles, tg }) {
 
             // Drop the last bar — it's the still-forming current candle
             // (last completed candle is always second-to-last)
-            const completed = bars.slice(0, -1);
+            // Daily: keep only bars older than the newest completed one. That newest completed bar (yesterday's)
+            // is deliberately left for the candle poll's boot catch-up to process, so a daily engine acts on it
+            // today (entry-time gate / held-entry retry still apply) instead of seeing it only as history.
+            const istDay = d => new Date(new Date(d).getTime() + 5.5 * 3600000).toISOString().slice(0, 10);
+            const todayIst = istDay(Date.now());
+            const completed = daily ? bars.filter(x => istDay(x.date) < todayIst).slice(0, -1) : bars.slice(0, -1);
 
             const parsed = completed.slice(-engineConfig.MAX_CANDLES).map(b => ({
                 open:  parseFloat(b.open),

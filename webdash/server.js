@@ -1069,7 +1069,7 @@ app.get("/api/chart/:name/overlay", async (req, res) => {
         const { contract } = resolveCurrent(p.underlying, def, repo, pinStore);
         const tf = p.timeframe || STRATEGY_TIMEFRAME[p.strategy] || "15m";
         const now = Date.now();
-        const tfBars = await fetchHistoricalCandles({ kc: ensureToolboxKite(), token: contract.token, timeframe: tf, from: new Date(now - 8 * 86400000), to: new Date(now) });
+        const tfBars = await fetchHistoricalCandles({ kc: ensureToolboxKite(), token: contract.token, timeframe: tf, from: new Date(now - (tf === "1d" ? 150 : 8) * 86400000), to: new Date(now) });
         const day = istDayStr(tfBars[tfBars.length - 1].date.getTime());
         res.json({ overlay: chartOverlayFor(p, tfBars, day), blocks: blocksForDay(p.underlying, day, p.outLogPath, p.name) });
     } catch (err) {
@@ -1090,7 +1090,7 @@ app.get("/api/chart/:name", async (req, res) => {
         if (!TIMEFRAME_MINUTES[tf]) return res.status(400).json({ error: `unsupported timeframe ${tf}` });
         const kc = ensureToolboxKite();
         const now = Date.now();
-        const tfBars = await fetchHistoricalCandles({ kc, token: contract.token, timeframe: tf, from: new Date(now - 8 * 86400000), to: new Date(now) });
+        const tfBars = await fetchHistoricalCandles({ kc, token: contract.token, timeframe: tf, from: new Date(now - (tf === "1d" ? 150 : 8) * 86400000), to: new Date(now) });
         if (!tfBars.length) return res.status(404).json({ error: "no historical bars returned" });
         // Displayed day = today if it has bars, else the latest trading day with bars.
         const day = istDayStr(tfBars[tfBars.length - 1].date.getTime());

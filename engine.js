@@ -178,6 +178,12 @@ async function main() {
     if (process.env.CARRY_OVERNIGHT_OVERRIDE !== undefined) {
         context.carryOvernight = process.env.CARRY_OVERNIGHT_OVERRIDE === "true";
     }
+    // A daily-timeframe engine decides once a day on a completed daily bar, so its positions are meant to
+    // live across days — an EOD force-close would turn every trade into a one-day trade.
+    if (context.timeframe === "1d" && !context.carryOvernight) {
+        context.carryOvernight = true;
+        console.log(c.dim(`[${context.tgPrefix}] 1d timeframe: carry overnight forced ON (positions are held across days)`));
+    }
     console.log(c.dim(`[${context.tgPrefix}] carry overnight: ${context.carryOvernight ? c.yellow("ON — NRML, EOD will not force-close") : "off — MIS, EOD force-closes as usual"}`));
 
     // Target points — set per-process by the toolbox's strategy-selection
