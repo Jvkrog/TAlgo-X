@@ -400,7 +400,25 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     // given how short the lookback window is relative to a real backtest
     // range) doesn't belong in the report the person asked for.
     const allTrades = ledger.getAllTrades();
-    const trades    = allTrades.filter(t => new Date(t.entry_time) >= from);
+    let trades      = allTrades.filter(t => new Date(t.entry_time) >= from);
+    if (timeframe === "1d") {
+        // Daily warmup is months long, so the strategy is usually already in a position when the requested
+        // window opens (always-in-market strategies especially). Dropping that trade made short daily ranges
+        // look like "no entries". Count it from the window start instead: entry = close of the last bar before
+        // `from`, so only the P&L earned inside the window is reported.
+        const before = historicalCandles.filter(cd => new Date(cd.date) < from);
+        const anchor = before.length ? before[before.length - 1].close : null;
+        if (anchor !== null) {
+            const carried = allTrades
+                .filter(t => new Date(t.entry_time) < from && t.exit_time && new Date(t.exit_time) >= from)
+                .map(t => {
+                    const dir = t.side === "LONG" ? 1 : -1;
+                    return { ...t, entry_price: anchor, entry_time: from.toISOString(), carriedIn: true,
+                             pnl: (t.exit_price - anchor) * dir * context.lotMult * context.lots };
+                });
+            trades = [...carried, ...trades];
+        }
+    }
     const metrics   = computeMetrics(trades);
 
     const report = buildReport({
