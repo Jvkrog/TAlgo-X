@@ -106,6 +106,8 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     console.log(c.dim(`  Candle type: ${CANDLE_LABEL[mode.type]}${series.rangeSize ? ` (range ${series.rangeSize})` : ""} — ${historicalCandles.length} bars`));
     if (candleWarning) console.log(c.yellow(`  ⚠ ${candleWarning}`));
 
+    // Daily engines hold positions across days (live forces carry-overnight for 1d, see engine.js).
+    if (timeframe === "1d") context.carryOvernight = true;
     const state   = createState();
     const slStore = createSLStore();
     // Every strategy's exit paths now unconditionally call
@@ -302,7 +304,9 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
             // instead of once per simulated day like live actually does.
             // Harmless no-op for every other strategy (they never set
             // this field).
-            state.historyReplayed = false;
+            // Daily bars: every bar is a new calendar day, but a daily engine is NOT restarted each morning
+            // with a fresh boot replay — it replays once (first bar) and then follows real transitions.
+            if (timeframe !== "1d") state.historyReplayed = false;
 
             // Same "--- NAME  date/time ---" header engine.js prints once
             // at live boot — printed here on EVERY day the replay crosses,
