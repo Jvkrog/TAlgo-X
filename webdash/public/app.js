@@ -2734,11 +2734,13 @@ async function renderBacktestParamsStep() {
           <div class="tb-summary-cell"><div class="k">Avg trade</div><div class="v">${fmtMoney(m.avgTrade)}</div></div>
         </div>
         <a class="tb-report-link" href="${data.reportUrl}" target="_blank" rel="noopener">Open full report ↗</a>
+        <button type="button" class="tb-submit-btn" id="btDeployFromBt" style="margin-top:10px;width:100%">Deploy instrument with this config</button>
         <div class="tb-bt-log-wrap">
           <button type="button" class="tb-bt-log-toggle" id="btLogToggle">▸ show full backtest log (${(data.logLines || []).length} lines)</button>
           <pre class="tb-bt-log" id="btLogBody" hidden></pre>
         </div>
       `;
+      resultBox.querySelector("#btDeployFromBt").addEventListener("click", () => renderBtDeployView(body));
       const logToggle = resultBox.querySelector("#btLogToggle");
       const logBody = resultBox.querySelector("#btLogBody");
       logToggle.addEventListener("click", () => {
@@ -2753,6 +2755,110 @@ async function renderBacktestParamsStep() {
       errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
       submitBtn.disabled = false;
       submitBtn.textContent = "Run backtest";
+    }
+  });
+}
+
+// ── backtest → deploy: summary page + Deploy button ──────────────────────
+function renderBtDeployView(bt) {
+  const kids = Array.from(tbBacktestBody.children);
+  kids.forEach(k => { k.dataset.prevDisplay = k.style.display; k.style.display = "none"; });
+  let view = tbBacktestBody.querySelector("#btDeployView");
+  if (view) view.remove();
+  view = document.createElement("div");
+  view.id = "btDeployView";
+  tbBacktestBody.appendChild(view);
+
+  const esc = v => String(v).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const onOff = (flag, detail) => flag ? `ON${detail ? " — " + detail : ""}` : "OFF";
+  const P = bt.params || {};
+  const bandStep = P.BAND_STEP_DEFAULT || null;
+  const almaFastLen = P.ALMA_PRO_FAST_LEN || null;
+  const almaBandLen = P.ALMA_PRO_BAND_LEN || null;
+  const isDhab = bt.strategy === "DAILY_HA_BIAS";
+  const rows = [
+    ["Instrument", `${bt.underlying} (${bt.exchange})`],
+    ["Strategy", bt.strategy],
+    ["Timeframe", bt.timeframe],
+    ["Candle type", (bt.candleType || "default") + (bt.candleType === "RANGE" && bt.rangeSize ? ` (size ${bt.rangeSize})` : "")],
+    ["Lot multiplier", bt.lotMultOverride || "instrument default"],
+    [isDhab ? "Entry time" : "Entry time (no entries before)", (isDhab ? bt.dailyBiasEntryTime : bt.entryTime) || "—"],
+    ...(isDhab ? [["Daily bias candle", bt.dailyBiasCandle || "default"]] : []),
+    ["Stop-loss", bt.hardSlRupees ? `Hard ₹${bt.hardSlRupees}` : bt.atrSlMult ? `ATR × ${bt.atrSlMult}` : "ATR (default multiplier)"],
+    ["Chop filter", onOff(bt.chopFilterEnabled, `period ${bt.chopPeriod || "default"}, max ${bt.chopMax || "default"}`)],
+    ["Long-candle block", onOff(bt.longCandleFilterEnabled, `ATR ${bt.longCandleAtrPeriod || "def"} × ${bt.longCandleAtrMult || "def"}, cooldown ${bt.longCandleCooldownCandles || "def"}`)],
+    ["Volume filter", onOff(bt.volumeFilterEnabled, `SMA ${bt.volumeSmaPeriod || "default"}`)],
+    ["HTF gate", onOff(bt.htfGateEnabled, `chop ${bt.htfChopPeriod || "def"}/${bt.htfChopMax || "def"}, band block ${bt.htfBandBlockEnabled ? "on" : "off"}`)],
+    ["Daily HA gate", onOff(bt.dailyHaGateEnabled)],
+    ["Double orders", bt.disableDoubleOrders ? "Disabled" : "Allowed"],
+    ["Carry overnight", bt.carryOvernight ? "Yes" : "No"],
+    ["Max daily loss", bt.maxDailyLoss ? "₹" + bt.maxDailyLoss : "—"],
+    ...(bt.sessionTargetRupees ? [["Session target", "₹" + bt.sessionTargetRupees + " (backtest only — not applied on deploy)"]] : []),
+    ...(bandStep ? [["Band step", bandStep]] : []),
+    ...(almaFastLen ? [["ALMA fast length", almaFastLen]] : []),
+    ...(almaBandLen ? [["ALMA band length", almaBandLen]] : []),
+  ];
+  const otherParams = Object.entries(P).filter(([k]) => !["BAND_STEP_DEFAULT", "ALMA_PRO_FAST_LEN", "ALMA_PRO_BAND_LEN"].includes(k));
+  view.innerHTML = `
+    <div class="tb-form-hint" style="margin-bottom:10px">Deploy a live engine using the settings from this backtest.</div>
+    <table class="tb-deploy-sum" style="width:100%;border-collapse:collapse;font-size:13px">
+      ${rows.map(([k, v]) => `<tr><td style="padding:4px 10px 4px 0;opacity:.7;white-space:nowrap">${esc(k)}</td><td style="padding:4px 0">${esc(v)}</td></tr>`).join("")}
+    </table>
+    ${otherParams.length ? `<div class="tb-form-hint" style="margin-top:8px">Engine-wide parameters tuned in the backtest (${otherParams.map(([k, v]) => esc(k + "=" + v)).join(", ")}) are global settings, not per-instrument — they are not applied by this deploy.</div>` : ""}
+    <div class="tb-form-row" style="margin-top:12px"><label>Lots <span class="req-star">*</span></label><input type="number" id="btdLots" value="1" min="1" step="1"></div>
+    <div class="tb-form-row"><label>Mode</label>
+      <select id="btdMode"><option value="paper">Paper</option><option value="live">Live</option></select></div>
+    <div class="tb-form-row" id="btdLiveRow" style="display:none"><label>Type LIVE to confirm</label><input type="text" id="btdConfirm" autocomplete="off"></div>
+    <div id="btdErr"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button type="button" class="tb-submit-btn" id="btdBack" style="flex:0 0 auto;background:transparent;border:1px solid currentColor">← Back</button>
+      <button type="button" class="tb-submit-btn" id="btdDeploy" style="flex:1">Deploy</button>
+    </div>`;
+  const q = sel => view.querySelector(sel);
+  q("#btdMode").addEventListener("change", e => { q("#btdLiveRow").style.display = e.target.value === "live" ? "" : "none"; });
+  q("#btdBack").addEventListener("click", () => {
+    view.remove();
+    kids.forEach(k => { k.style.display = k.dataset.prevDisplay || ""; });
+  });
+  q("#btdDeploy").addEventListener("click", async () => {
+    const err = q("#btdErr");
+    err.innerHTML = "";
+    const isLive = q("#btdMode").value === "live";
+    if (isLive && q("#btdConfirm").value !== "LIVE") { err.innerHTML = `<div class="tb-err-box">Type LIVE to confirm live mode</div>`; return; }
+    const btn = q("#btdDeploy");
+    btn.disabled = true; btn.textContent = "Starting...";
+    const body = {
+      underlying: bt.underlying, exchange: bt.exchange,
+      lots: q("#btdLots").value || 1,
+      lotMultOverride: bt.lotMultOverride,
+      live: isLive, confirmLive: isLive ? "LIVE" : undefined,
+      carryOvernight: !!bt.carryOvernight,
+      strategy: bt.strategy,
+      candleType: bt.candleType, rangeSize: bt.candleType === "RANGE" ? bt.rangeSize : undefined,
+      timeframe: bt.timeframe,
+      maxDailyLoss: bt.maxDailyLoss,
+      bandStep: bandStep || undefined,
+      almaFastLen: bt.strategy === "ALMA_PRO_FAST" ? (almaFastLen || undefined) : undefined,
+      almaBandLen: bt.strategy === "ALMA_PRO_FAST" ? (almaBandLen || undefined) : undefined,
+      disableDoubleOrders: !!bt.disableDoubleOrders,
+      atrSlMult: bt.atrSlMult, hardSlRupees: bt.hardSlRupees,
+      dailyBiasEntryTime: bt.dailyBiasEntryTime, entryTime: bt.entryTime, dailyBiasCandle: bt.dailyBiasCandle,
+      volumeFilterEnabled: !!bt.volumeFilterEnabled, volumeSmaPeriod: bt.volumeSmaPeriod,
+      longCandleFilterEnabled: !!bt.longCandleFilterEnabled, longCandleAtrPeriod: bt.longCandleAtrPeriod,
+      longCandleAtrMult: bt.longCandleAtrMult, longCandleCooldownCandles: bt.longCandleCooldownCandles,
+      htfGateEnabled: !!bt.htfGateEnabled, htfChopPeriod: bt.htfChopPeriod, htfChopMax: bt.htfChopMax,
+      htfBandBlockEnabled: !!bt.htfBandBlockEnabled,
+      dailyHaGateEnabled: !!bt.dailyHaGateEnabled,
+    };
+    try {
+      const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) { err.innerHTML = `<div class="tb-err-box">${esc(data.error || "Failed")}</div>`; btn.disabled = false; btn.textContent = "Deploy"; return; }
+      tbBacktestModal.classList.remove("open");
+      appendLog({ type: "SYS", text: `started ${data.name} — ${isLive ? "LIVE" : "PAPER"} — ${bt.strategy} @ ${data.timeframe}` });
+      loadToolboxList();
+    } catch (e) {
+      err.innerHTML = `<div class="tb-err-box">${esc(e.message)}</div>`; btn.disabled = false; btn.textContent = "Deploy";
     }
   });
 }
