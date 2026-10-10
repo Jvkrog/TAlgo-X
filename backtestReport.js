@@ -116,20 +116,25 @@ function renderHtml(report) {
 <html><head><meta charset="utf-8">
 <title>${report.strategyLabel} — ${report.instrument} backtest</title>
 <style>
-body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0b0d12;color:#e6e6e6;padding:24px;max-width:1000px;margin:0 auto}
+body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0b0d12;color:#e6e6e6;padding:24px 32px;max-width:2000px;margin:0 auto}
 h1{font-size:20px;margin-bottom:4px} .meta{color:#9aa0ab;font-size:13px;margin-bottom:20px}
 h2{font-size:15px;color:#9aa0ab;margin-top:28px;border-bottom:1px solid #2a2e37;padding-bottom:6px}
 table{border-collapse:collapse;width:100%;margin-top:8px;font-size:13px}
 th,td{border:1px solid #2a2e37;padding:6px 10px;text-align:right}
 th{background:#161a22} td:first-child,th:first-child{text-align:left}
-.grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-top:8px}
+.top{display:grid;grid-template-columns:minmax(380px,1fr) minmax(0,1.6fr);gap:28px;align-items:start}
+@media(max-width:1000px){.top{grid-template-columns:1fr}}
+.top h2{margin-top:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:8px}
 .card{background:#161a22;border:1px solid #2a2e37;border-radius:8px;padding:12px}
 .card .label{font-size:11px;color:#9aa0ab} .card .value{font-size:20px;margin-top:4px;font-weight:600}
 .pos{color:#3ecf8e}.neg{color:#f0616d}
 </style></head><body>
 <h1>${report.strategyLabel} — ${report.instrument}</h1>
 <div class="meta">${report.timeframe} · ${report.range.from} → ${report.range.to} · run ${fmtIst(report.runAt)} IST</div>
-${settingsHtml(report)}
+<div class="top">
+<div>${settingsHtml(report)}</div>
+<div><h2>Results</h2>
 <div class="grid">
   <div class="card"><div class="label">Trades</div><div class="value">${m.trades}</div></div>
   <div class="card"><div class="label">Win Rate</div><div class="value">${(m.winRate * 100).toFixed(1)}%</div></div>
@@ -141,6 +146,7 @@ ${settingsHtml(report)}
   <div class="card"><div class="label">Largest Loss</div><div class="value neg">${fmtMoney(m.largestLoss)}</div></div>
   <div class="card"><div class="label">Avg Trade</div><div class="value">${fmtMoney(m.avgTrade)}</div></div>
   <div class="card"><div class="label">Avg Hold Time</div><div class="value">${fmtDuration(m.avgHoldTimeMs)}</div></div>
+</div></div>
 </div>
 <h2>Trades (${m.trades})</h2>
 <table><thead><tr>
