@@ -19,7 +19,7 @@ const { createTargetStore }       = require("./target");
 const positions                    = require("./positions");
 const engineConfigDefaults        = require("./engineConfig");
 const { computeMetrics }          = require("./backtestMetrics");
-const { buildReport, saveReport } = require("./backtestReport");
+const { buildReport, saveReport, describeSettings } = require("./backtestReport");
 const { fetchHistoricalCandles, fetchDailyCandles } = require("./historicalFetch");
 const { toHAAlways: toHA, setHaPassthrough } = require("./indicators");
 const { resolveCandleMode, normalizeCandleType, CANDLE_LABEL, overrideWarning } = require("./candleType");
@@ -395,6 +395,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
         underlying: context.name || context.tgPrefix,
         timeframe, from, to, params,
         metrics, trades, runAt: new Date(),
+        settings: describeSettings(context, engineConfig, { candleType: mode && mode.type, rangeSize }),
     });
 
     const paths = saveReport(report);

@@ -19,8 +19,34 @@ const fs   = require("fs");
 const path = require("path");
 const { fmtDuration } = require("./backtestMetrics");
 
-function buildReport({ strategyKey, strategyLabel, underlying, timeframe, from, to, params, metrics, trades, runAt }) {
+// Every setting the run actually used, as [label, value] rows for the report.
+function describeSettings(context, engineConfig, extra = {}) {
+    const onOff = (v, detail) => (v ? "ON" + (detail ? " \u2014 " + detail : "") : "off");
+    const hhmm = (h, m) => `${String(h).padStart(2, "0")}:${String(m ?? 0).padStart(2, "0")} IST`;
+    const rows = [];
+    rows.push(["Candles", extra.candleType ? extra.candleType + (extra.candleType === "RANGE" && extra.rangeSize ? ` (range ${extra.rangeSize})` : "") : "strategy native"]);
+    rows.push(["Lots", `${context.lots} (lot multiplier ${context.lotMult})`]);
+    rows.push(["Entry time", context.entryTimeHour != null ? hhmm(context.entryTimeHour, context.entryTimeMinute) : "off (trade from the start)"]);
+    if (context.dailyBiasEntryHour != null) rows.push(["Daily HA Bias entry time", hhmm(context.dailyBiasEntryHour, context.dailyBiasEntryMinute)]);
+    const chopOn = engineConfig.CHOP_GATE_ALWAYS_FORCE !== false;
+    rows.push(["Choppiness index", onOff(chopOn, `period ${context.chopPeriod ?? engineConfig.CHOP_LEN}, blocks above ${context.chopMax ?? engineConfig.CHOP_GATE_MAX_DEFAULT}`)]);
+    rows.push(["Long-candle block", onOff(context.longCandleFilterEnabled, `ATR period ${context.longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}, range \u2265 ${context.longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}x ATR${context.longCandleUseBodyFilter ? `, body \u2265 ${context.longCandleBodyAtrMult ?? engineConfig.LONG_CANDLE_BODY_ATR_MULT_DEFAULT}x ATR` : ""}, cooldown ${context.longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT} candles`)]);
+    rows.push(["Volume filter", onOff(context.volumeFilterEnabled, `volume above its SMA(${context.volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT})`)]);
+    rows.push(["Higher-timeframe gate", context.htfGateEnabled === false ? "off" : `ON \u2014 ${context.htfTimeframe ?? "default timeframe"}, chop period ${context.htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}, max ${context.htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${context.htfBandBlockEnabled === false ? ", band block off" : ", band block on"}`]);
+    rows.push(["Daily HA gate", context.dailyHaGateEnabled === false ? "off" : "ON"]);
+    rows.push(["Double orders", context.disableDoubleOrders ? "reversal re-entries blocked" : "allowed"]);
+    rows.push(["Stop-loss", context.hardSlRupees ? `HARD \u20b9${context.hardSlRupees} per position` : `ATR ${context.atrSlMult ?? engineConfig.ATR_SL_MULT}x (ATR length ${engineConfig.ST_ATR_LEN})`]);
+    rows.push(["Target", context.targetPoints ? `${context.targetPoints} points` : "off"]);
+    if (context.maxDailyLoss) rows.push(["Max daily loss", `\u20b9${context.maxDailyLoss}`]);
+    if (context.sessionTargetRupees) rows.push(["Session target", `\u20b9${context.sessionTargetRupees}`]);
+    if (context.bandStep != null) rows.push(["Band step", String(context.bandStep)]);
+    if (context.carryOvernight) rows.push(["Carry overnight", "yes"]);
+    return rows;
+}
+
+function buildReport({ strategyKey, strategyLabel, underlying, timeframe, from, to, params, metrics, trades, runAt, settings }) {
     return {
+        settings: settings || [],
         strategy:      strategyKey,
         strategyLabel: strategyLabel || strategyKey,
         instrument:    underlying,
@@ -34,6 +60,15 @@ function buildReport({ strategyKey, strategyLabel, underlying, timeframe, from, 
         metrics,
         trades,
     };
+}
+
+function esc(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+
+function settingsHtml(report) {
+    const rows = (report.settings || []).map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:left">${esc(v)}</td></tr>`).join("");
+    const p = report.params && Object.keys(report.params).length
+        ? `<tr><td>Strategy parameters</td><td style="text-align:left">${esc(Object.entries(report.params).map(([k, v]) => `${k}=${v}`).join(", "))}</td></tr>` : "";
+    return rows || p ? `<h2>Settings used</h2><table><tbody>${rows}${p}</tbody></table>` : "";
 }
 
 function fmtMoney(n) { return (n < 0 ? "-₹" : "₹") + Math.abs(n).toFixed(2); }
@@ -68,8 +103,8 @@ function renderHtml(report) {
             const sideClass = t.side === "LONG" ? "pos" : "neg";
             const sideArrow = t.side === "LONG" ? "▲" : "▼";
             return `<tr>
-                <td>${fmtIst(t.entry_time)}</td><td class="${sideClass}">${sideArrow} ${t.side}</td><td>${t.entry_price}</td>
-                <td>${fmtIst(t.exit_time)}</td><td>${t.exit_price}</td>
+                <td>${fmtIst(t.entry_time)}</td><td class="${sideClass}">${sideArrow} ${t.side}</td><td>${Number(t.entry_price).toFixed(2)}</td>
+                <td>${fmtIst(t.exit_time)}</td><td>${Number(t.exit_price).toFixed(2)}</td>
                 <td class="${pnlClass}">${(t.pnl || 0).toFixed(2)}</td>
                 <td class="${sessionClass}">${runningSession.toFixed(2)}</td>
                 <td>${t.exit_reason}</td>
@@ -93,7 +128,8 @@ th{background:#161a22} td:first-child,th:first-child{text-align:left}
 .pos{color:#3ecf8e}.neg{color:#f0616d}
 </style></head><body>
 <h1>${report.strategyLabel} — ${report.instrument}</h1>
-<div class="meta">${report.timeframe} · ${report.range.from} → ${report.range.to} · run ${report.runAt}</div>
+<div class="meta">${report.timeframe} · ${report.range.from} → ${report.range.to} · run ${fmtIst(report.runAt)} IST</div>
+${settingsHtml(report)}
 <div class="grid">
   <div class="card"><div class="label">Trades</div><div class="value">${m.trades}</div></div>
   <div class="card"><div class="label">Win Rate</div><div class="value">${(m.winRate * 100).toFixed(1)}%</div></div>
@@ -127,4 +163,4 @@ function saveReport(report, outDir = path.join(__dirname, "backtests")) {
     return { jsonPath, htmlPath };
 }
 
-module.exports = { buildReport, renderHtml, saveReport };
+module.exports = { describeSettings, buildReport, renderHtml, saveReport };
