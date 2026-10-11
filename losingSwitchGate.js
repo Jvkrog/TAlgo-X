@@ -28,7 +28,7 @@ const istDayKey = ms => new Date(ms + IST_MS).toISOString().slice(0, 10);
 function createLosingSwitchGate({ context, state, db, clock = { now: () => new Date() }, tag = "DSB" }) {
     let n = 0;
     let dayKey = null;
-    const stats = state.losingSwitchStats = state.losingSwitchStats || { losingReversals: 0, blocked: 0, daysExhausted: 0, exhaustedDays: [] };
+    const stats = state.losingSwitchStats = state.losingSwitchStats || { losingReversals: 0, blocked: 0, daysExhausted: 0, exhaustedDays: [], blockedDays: [], losingDays: [] };
 
     const max = () => {
         const m = Number(context.maxLosingSwitchesPerDay);
@@ -71,6 +71,7 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
         if (!(pnl < 0)) return;                       // profitable / break-even flips are untouched
         n += 1;
         stats.losingReversals += 1;
+        stats.losingDays.push(istDayKey(clock.now().getTime()));
         const to = fromSide === "LONG" ? "SHORT" : "LONG";
         log(`Losing reversal: ${fromSide} -> ${to}  (pnl ${pnl.toFixed(2)})`);
         log(`Losing switches today: ${n}/${max()}`);
@@ -79,6 +80,7 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
         } else {
             stats.blocked += 1;
             const day = istDayKey(clock.now().getTime());
+            stats.blockedDays.push(day);
             if (!stats.exhaustedDays.includes(day)) { stats.exhaustedDays.push(day); stats.daysExhausted += 1; }
             log("Daily losing-switch limit exhausted");
             log("Position exited; opposite entry blocked, no further entries today");

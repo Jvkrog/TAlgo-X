@@ -173,6 +173,7 @@ async function getEngineProcesses() {
             targetPoints: p.pm2_env.env?.TARGET_POINTS_OVERRIDE ? Number(p.pm2_env.env.TARGET_POINTS_OVERRIDE) : null,
             targetMode: p.pm2_env.env?.TARGET_MODE_OVERRIDE === "adaptive" ? "adaptive" : "fixed",
             bandStep: p.pm2_env.env?.BAND_STEP_OVERRIDE ? Number(p.pm2_env.env.BAND_STEP_OVERRIDE) : null,
+            maxLosingSwitches: p.pm2_env.env?.MAX_LOSING_SWITCHES_OVERRIDE ? Number(p.pm2_env.env.MAX_LOSING_SWITCHES_OVERRIDE) : null,
             greyExitEnabled: p.pm2_env.env?.GREY_EXIT_OVERRIDE !== undefined ? p.pm2_env.env.GREY_EXIT_OVERRIDE === "true" : null,
             almaBandEnabled: p.pm2_env.env?.ALMA_BAND_OVERRIDE !== undefined ? p.pm2_env.env.ALMA_BAND_OVERRIDE === "true" : true,
             almaFastLen: p.pm2_env.env?.ALMA_FAST_LEN_OVERRIDE ? Number(p.pm2_env.env.ALMA_FAST_LEN_OVERRIDE) : null,
@@ -585,6 +586,7 @@ function buildProcessEnv(p, overrides = {}) {
     // only ever written as "adaptive" and never explicitly cleared.
     env.TARGET_MODE_OVERRIDE = p.targetMode === "adaptive" ? "adaptive" : "";
     env.BAND_STEP_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || (p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB")) && p.bandStep ? String(p.bandStep) : "";
+    env.MAX_LOSING_SWITCHES_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.maxLosingSwitches ? String(p.maxLosingSwitches) : "";
     env.GREY_EXIT_OVERRIDE = p.strategy === "ALMA_TRI_BAND" && p.greyExitEnabled !== null && p.greyExitEnabled !== undefined ? String(p.greyExitEnabled) : "";
     env.ALMA_BAND_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false ? "false" : "";
     env.ALMA_FAST_LEN_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaFastLen ? String(p.almaFastLen) : "";
@@ -801,6 +803,16 @@ async function editInstrument(procs) {
                 } else {
                     bandStep = parsedStep;
                 }
+            }
+        }
+        let maxLosingSwitches = p.maxLosingSwitches ?? null;
+        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") {
+            const lsInput = (await ask(`  Max losing reversals per day, then flat until next session (current: ${maxLosingSwitches ?? "off"}, blank = keep, 0 = off): `)).trim();
+            if (lsInput === "0") maxLosingSwitches = null;
+            else if (lsInput) {
+                const n = Number(lsInput);
+                if (Number.isInteger(n) && n >= 1) maxLosingSwitches = n;
+                else console.log(c.yellow(`  "${lsInput}" isn't a whole number >= 1 — left unchanged`));
             }
         }
         let greyExitEnabled = p.greyExitEnabled;
@@ -1023,7 +1035,7 @@ async function editInstrument(procs) {
             }
         }
 
-        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles };
+        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, maxLosingSwitches, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -1947,6 +1959,15 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
             }
         }
     }
+    let maxLosingSwitches = null;
+    if (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB") {
+        const lsInput = (await ask("  Max losing reversals per day, then flat until next session (blank = off): ")).trim();
+        if (lsInput) {
+            const n = Number(lsInput);
+            if (Number.isInteger(n) && n >= 1) maxLosingSwitches = n;
+            else console.log(c.yellow(`  "${lsInput}" isn't a whole number >= 1 — limit left off`));
+        }
+    }
 
     // Grey-state behavior — only meaningful for ALMA_TRI_BAND, only asked
     // when that's the strategy picked. Default HOLD (blank = N), matches
@@ -2052,6 +2073,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (htfChopPeriod !== null) env.HTF_CHOP_PERIOD_OVERRIDE = String(htfChopPeriod);
     if (htfChopMax !== null) env.HTF_CHOP_MAX_OVERRIDE = String(htfChopMax);
     if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || (strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB")) && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
+    if (maxLosingSwitches !== null) env.MAX_LOSING_SWITCHES_OVERRIDE = String(maxLosingSwitches);
     if (strategy === "ALMA_TRI_BAND" && greyExitEnabled !== null) env.GREY_EXIT_OVERRIDE = String(greyExitEnabled);
     if (maxDailyLoss !== null) env.MAX_DAILY_LOSS_OVERRIDE = String(maxDailyLoss);
     try {

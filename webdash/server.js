@@ -1430,7 +1430,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // params (merged onto a per-run engineConfig by backtestRun.js,
         // same as the CLI's params.CHOP_GATE_ALWAYS_FORCE etc.) — everything
         // else mutates context directly, exactly like backtestFlow.js does.
-        chopFilterEnabled, chopPeriod, chopMax,
+        chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches,
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
         disableDoubleOrders, atrSlMult, hardSlRupees, dailyBiasEntryTime, dailyBiasCandle, entryTime,
         volumeFilterEnabled, volumeSmaPeriod,
@@ -1570,6 +1570,11 @@ app.post("/api/toolbox/backtest", async (req, res) => {
             const n = Number(volumeSmaPeriod);
             if (Number.isFinite(n) && n > 0) context.volumeSmaPeriod = n;
         }
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && maxLosingSwitches !== undefined && maxLosingSwitches !== null && maxLosingSwitches !== "") {
+            const n = Number(maxLosingSwitches);
+            if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "maxLosingSwitches must be a whole number >= 1 (blank = off)" });
+            context.maxLosingSwitchesPerDay = n;
+        }
         if (carryOvernight !== undefined) context.carryOvernight = !!carryOvernight;
         if (maxDailyLoss !== undefined && maxDailyLoss !== null && maxDailyLoss !== "") {
             const n = Number(maxDailyLoss);
@@ -1636,6 +1641,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
             },
             reportUrl: `/api/toolbox/backtest/reports/${path.basename(result.paths.htmlPath)}`,
             jsonUrl: `/api/toolbox/backtest/reports/${path.basename(result.paths.jsonPath)}`,
+            losingSwitch: result.report.losingSwitch || null,
             logLines,
         });
     } catch (err) {

@@ -421,6 +421,21 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     }
     const metrics   = computeMetrics(trades);
 
+    // Losing-reversal limiter stats, restricted to the requested window (warmup days are replayed too).
+    let losingSwitch = null;
+    if (context.maxLosingSwitchesPerDay) {
+        const st = state.losingSwitchStats || { losingDays: [], blockedDays: [], exhaustedDays: [] };
+        const fromDay = new Date(from.getTime() + 5.5 * 3600000).toISOString().slice(0, 10);
+        const inWin = d => d >= fromDay;
+        losingSwitch = {
+            max: Number(context.maxLosingSwitchesPerDay),
+            losingReversals: st.losingDays.filter(inWin).length,
+            blockedReversals: st.blockedDays.filter(inWin).length,
+            daysExhausted: st.exhaustedDays.filter(inWin).length,
+        };
+        console.log(`[DSB] Losing-reversal limit ${losingSwitch.max}/day: ${losingSwitch.losingReversals} losing reversals, ${losingSwitch.blockedReversals} blocked, ${losingSwitch.daysExhausted} day(s) exhausted`);
+    }
+
     const report = buildReport({
         strategyKey, strategyLabel,
         underlying: context.name || context.tgPrefix,
@@ -429,6 +444,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
         settings: describeSettings(context, engineConfig, { candleType: mode && mode.type, rangeSize }),
     });
 
+    if (losingSwitch) report.losingSwitch = losingSwitch;
     const paths = saveReport(report);
     return { report, paths };
 }

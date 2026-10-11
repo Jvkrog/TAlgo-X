@@ -40,6 +40,7 @@ function describeSettings(context, engineConfig, extra = {}) {
     if (context.maxDailyLoss) rows.push(["Max daily loss", `\u20b9${context.maxDailyLoss}`]);
     if (context.sessionTargetRupees) rows.push(["Session target", `\u20b9${context.sessionTargetRupees}`]);
     if (context.bandStep != null) rows.push(["Band step", String(context.bandStep)]);
+    if (context.maxLosingSwitchesPerDay) rows.push(["Losing-reversal limit", `max ${context.maxLosingSwitchesPerDay} per day, then flat until next session`]);
     if (context.carryOvernight) rows.push(["Carry overnight", "yes"]);
     return rows;
 }
@@ -68,7 +69,9 @@ function settingsHtml(report) {
     const rows = (report.settings || []).map(([k, v]) => `<tr><td>${esc(k)}</td><td style="text-align:left">${esc(v)}</td></tr>`).join("");
     const p = report.params && Object.keys(report.params).length
         ? `<tr><td>Strategy parameters</td><td style="text-align:left">${esc(Object.entries(report.params).map(([k, v]) => `${k}=${v}`).join(", "))}</td></tr>` : "";
-    return rows || p ? `<h2>Settings used</h2><table><tbody>${rows}${p}</tbody></table>` : "";
+    const ls = report.losingSwitch
+        ? `<h2>Losing-reversal limit</h2><table><tbody><tr><td>Limit</td><td style="text-align:left">${report.losingSwitch.max} per day</td></tr><tr><td>Losing reversals</td><td style="text-align:left">${report.losingSwitch.losingReversals}</td></tr><tr><td>Blocked reversals</td><td style="text-align:left">${report.losingSwitch.blockedReversals}</td></tr><tr><td>Days exhausted</td><td style="text-align:left">${report.losingSwitch.daysExhausted}</td></tr></tbody></table>` : "";
+    return (rows || p ? `<h2>Settings used</h2><table><tbody>${rows}${p}</tbody></table>` : "") + ls;
 }
 
 function fmtMoney(n) { return (n < 0 ? "-₹" : "₹") + Math.abs(n).toFixed(2); }
