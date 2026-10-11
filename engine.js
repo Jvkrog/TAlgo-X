@@ -405,6 +405,12 @@ async function main() {
         const parsedHard = Number(process.env.HARD_SL_RUPEES_OVERRIDE);
         context.hardSlRupees = Number.isFinite(parsedHard) && parsedHard > 0 ? parsedHard : null;
     }
+    // DSB-family daily limit on losing reversals (losingSwitchGate.js). Blank/0 = off.
+    if (process.env.MAX_LOSING_SWITCHES_OVERRIDE !== undefined && process.env.MAX_LOSING_SWITCHES_OVERRIDE !== "") {
+        const parsedLs = Number(process.env.MAX_LOSING_SWITCHES_OVERRIDE);
+        context.maxLosingSwitchesPerDay = Number.isFinite(parsedLs) && parsedLs > 0 ? Math.floor(parsedLs) : null;
+    }
+    if (context.maxLosingSwitchesPerDay) console.log(c.dim(`[${context.tgPrefix}] [DSB] losing-reversal limit: ${context.maxLosingSwitchesPerDay} per day (then flat until next session)`));
     console.log(c.dim(`[${context.tgPrefix}] ${context.hardSlRupees ? `HARD SL: \u20b9${context.hardSlRupees} per position (ATR stop off)` : `ATR SL multiplier: ${context.atrSlMult ?? `${engineConfig.ATR_SL_MULT} (default)`}`}${context.strategy === "PURE_HA" ? `  |  flip confirm: ${context.flipConfirmCandles ?? 1} candle(s)` : ""}`));
 
     // volumeGate.js's universal "volume above its own SMA" entry gate —

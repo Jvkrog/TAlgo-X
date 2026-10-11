@@ -263,6 +263,20 @@ function createDb(context) {
         });
     }
 
+    // Losing signal-driven reversals since `sinceIso` (losingSwitchGate.js) — closed trades with one of the
+    // given flip exit reasons and a negative P&L. Rebuilds the daily counter after a restart.
+    function countLosingFlipExitsSince(engine, reasons, sinceIso) {
+        const marks = reasons.map(() => "?").join(",");
+        return new Promise((resolve, reject) => {
+            db.get(
+                `SELECT COUNT(*) AS n FROM trades
+                 WHERE engine = ? AND status = 'CLOSED' AND pnl < 0 AND exit_time >= ? AND exit_reason IN (${marks})`,
+                [engine, sinceIso, ...reasons],
+                (err, row) => err ? reject(err) : resolve(row ? row.n : 0)
+            );
+        });
+    }
+
     function getTradesForDate(engine, dateStr) {
         return new Promise(resolve => {
             db.all(
@@ -340,7 +354,7 @@ function createDb(context) {
 
     return {
         initDB, savePosition, loadPosition, saveRegime, loadRegime, clearAllPositions,
-        insertOpenTrade, closeTrade, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate,
+        insertOpenTrade, closeTrade, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince,
     };
 }
 

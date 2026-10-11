@@ -7,6 +7,7 @@
 // picks one of these by context.strategy and hands back its instance
 // unchanged — engine.js, candlePoll.js, lifecycle.js need no changes.
 "use strict";
+const { createLosingSwitchGate } = require("./losingSwitchGate");
 const { reportBlocks } = require("./blockReport");
 
 const c = require("./c");
@@ -3808,6 +3809,7 @@ function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles
 // configured for this strategy.
 // ════════════════════════════════════════════════════════════════════════
 function createDynamicBandStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() }, htf, dailyHa }) {
+    const lsGate = createLosingSwitchGate({ context, state, db, clock, tag: "DSB" });   // daily losing-reversal limit (off unless context.maxLosingSwitchesPerDay)
     function persist(position, entryPrice, positionSource) {
         db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
     }
@@ -3841,6 +3843,7 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
         }
         tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
         const exitPnl = await positionsClose(livePrice, reason);
+        lsGate.recordFlipExit(reason, exitPnl, side);
         targetStore.clearTarget();
         persist(null, 0);
         const exitCol = exitPnl > 0 ? c.green : exitPnl < 0 ? c.red : c.white;
@@ -3849,6 +3852,11 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
     }
 
     async function doEnter(side, livePrice, reason) {
+        if (lsGate.isLocked()) {
+            console.log(`[DSB] ${side} entry blocked — daily losing-switch limit exhausted (${lsGate.count}/${lsGate.max}); no entries until the next session`);
+            console.log(`[DSB] State: ${state.position || "FLAT"}`);
+            return false;
+        }
         // Reason-based, not count-based: disableDoubleOrders only ever
         // blocks a REVERSAL re-entry (see doubleOrderGate.js), and every
         // call site here already tags reversal re-entries with a reason
@@ -4038,6 +4046,7 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
 
             state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
             state.tradesToday = await db.getTradeCountToday(context.tgPrefix);
+            await lsGate.restore();
 
             const info = state.position ? `${state.position}@${state.entryPrice}` : "flat";
             console.log();
@@ -4119,6 +4128,7 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
 // orders.js's existing in-flight guard.
 // ════════════════════════════════════════════════════════════════════════
 function createDynamicMidColorStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() }, htf, dailyHa }) {
+    const lsGate = createLosingSwitchGate({ context, state, db, clock, tag: "DSB" });   // daily losing-reversal limit (off unless context.maxLosingSwitchesPerDay)
     function persist(position, entryPrice, positionSource) {
         db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
     }
@@ -4158,6 +4168,7 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
         }
         tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
         const exitPnl = await positionsClose(livePrice, reason);
+        lsGate.recordFlipExit(reason, exitPnl, side);
         slStore.clearTrail();
         targetStore.clearTarget();
         persist(null, 0);
@@ -4167,6 +4178,11 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
     }
 
     async function doEnter(side, livePrice, atrVal, reason) {
+        if (lsGate.isLocked()) {
+            console.log(`[DSB] ${side} entry blocked — daily losing-switch limit exhausted (${lsGate.count}/${lsGate.max}); no entries until the next session`);
+            console.log(`[DSB] State: ${state.position || "FLAT"}`);
+            return false;
+        }
         // Reason-based, not count-based: disableDoubleOrders only ever
         // blocks a REVERSAL re-entry (see doubleOrderGate.js), and every
         // call site here already tags reversal re-entries with a reason
@@ -4482,6 +4498,7 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
 
             state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
             state.tradesToday = await db.getTradeCountToday(context.tgPrefix);
+            await lsGate.restore();
 
             const info = state.position
                 ? `${state.position}@${state.entryPrice}`
@@ -4538,6 +4555,7 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
 // "DYNAMIC_MID_COLOR_HL" for its own DB file / position_source / log tag.
 // ════════════════════════════════════════════════════════════════════════
 function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() }, htf, dailyHa }) {
+    const lsGate = createLosingSwitchGate({ context, state, db, clock, tag: "DSB" });   // daily losing-reversal limit (off unless context.maxLosingSwitchesPerDay)
     function persist(position, entryPrice, positionSource) {
         db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
     }
@@ -4572,6 +4590,7 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
         }
         tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
         const exitPnl = await positionsClose(livePrice, reason);
+        lsGate.recordFlipExit(reason, exitPnl, side);
         slStore.clearTrail();
         targetStore.clearTarget();
         persist(null, 0);
@@ -4581,6 +4600,11 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
     }
 
     async function doEnter(side, livePrice, atrVal, reason) {
+        if (lsGate.isLocked()) {
+            console.log(`[DSB] ${side} entry blocked — daily losing-switch limit exhausted (${lsGate.count}/${lsGate.max}); no entries until the next session`);
+            console.log(`[DSB] State: ${state.position || "FLAT"}`);
+            return false;
+        }
         // Reason-based, not count-based: disableDoubleOrders only ever
         // blocks a REVERSAL re-entry (see doubleOrderGate.js), and every
         // call site here already tags reversal re-entries with a reason
@@ -4852,6 +4876,7 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
 
             state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
             state.tradesToday = await db.getTradeCountToday(context.tgPrefix);
+            await lsGate.restore();
 
             const info = state.position
                 ? `${state.position}@${state.entryPrice}`
@@ -6603,6 +6628,7 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
 // so a restart needs no stored band state. No entry is placed on boot; a saved position is resumed.
 // ════════════════════════════════════════════════════════════════════════
 function createAlmaDsbStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() }, htf, dailyHa }) {
+    const lsGate = createLosingSwitchGate({ context, state, db, clock, tag: "DSB" });   // daily losing-reversal limit (off unless context.maxLosingSwitchesPerDay)
     const SRC = "ALMA_DSB";
 
     function canEnter() {
@@ -6629,6 +6655,7 @@ function createAlmaDsbStrategy({ context, engineConfig, state, db, candles, slSt
         }
         tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
         const exitPnl = await positionsClose(livePrice, reason);
+        lsGate.recordFlipExit(reason, exitPnl, side);
         slStore.clearTrail();
         targetStore.clearTarget();
         persist(null, 0);
@@ -6638,6 +6665,11 @@ function createAlmaDsbStrategy({ context, engineConfig, state, db, candles, slSt
     }
 
     async function doEnter(side, livePrice, atrVal, isReversal, info) {
+        if (lsGate.isLocked()) {
+            console.log(`[DSB] ${side} entry blocked — daily losing-switch limit exhausted (${lsGate.count}/${lsGate.max}); no entries until the next session`);
+            console.log(`[DSB] State: ${state.position || "FLAT"}`);
+            return false;
+        }
         const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
         const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
         const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
@@ -6766,6 +6798,7 @@ function createAlmaDsbStrategy({ context, engineConfig, state, db, candles, slSt
             }
             state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
             state.tradesToday = await db.getTradeCountToday(context.tgPrefix);
+            await lsGate.restore();
             console.log();
             console.log(c.green(`[${context.tgPrefix}] ${state.position ? `${state.position}@${state.entryPrice}` : "flat"}`));
             console.log();

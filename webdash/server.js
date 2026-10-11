@@ -458,6 +458,8 @@ async function getEngineProcesses() {
             bandStep: p.pm2_env.env?.BAND_STEP_OVERRIDE !== undefined && p.pm2_env.env?.BAND_STEP_OVERRIDE !== ""
                 ? p.pm2_env.env.BAND_STEP_OVERRIDE
                 : null,
+            // DSB-family daily losing-reversal limit; null = off
+            maxLosingSwitches: p.pm2_env.env?.MAX_LOSING_SWITCHES_OVERRIDE ? p.pm2_env.env.MAX_LOSING_SWITCHES_OVERRIDE : null,
             // undefined (not false) when unset, so buildProcessEnv can tell
             // "never configured" apart from "explicitly turned off" and skip
             // the env var entirely rather than writing a wrong default
@@ -524,6 +526,7 @@ function buildProcessEnv(p, overrides = {}) {
     env.TARGET_POINTS_OVERRIDE = (p.targetPoints !== null && p.targetPoints !== undefined) ? String(p.targetPoints) : "";
     env.TARGET_MODE_OVERRIDE = p.targetMode === "adaptive" ? "adaptive" : "";
     env.BAND_STEP_OVERRIDE = (p.bandStep !== null && p.bandStep !== undefined) ? String(p.bandStep) : "";
+    env.MAX_LOSING_SWITCHES_OVERRIDE = (p.maxLosingSwitches !== null && p.maxLosingSwitches !== undefined && p.maxLosingSwitches !== "") ? String(p.maxLosingSwitches) : "";
     env.GREY_EXIT_OVERRIDE = p.greyExitEnabled !== undefined ? String(!!p.greyExitEnabled) : "";
     env.ALMA_BAND_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false ? "false" : "";
     env.ALMA_FAST_LEN_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaFastLen ? String(p.almaFastLen) : "";
@@ -796,7 +799,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, maxLosingSwitches, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -833,6 +836,14 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 const parsedStep = Number(bandStep);
                 if (!Number.isFinite(parsedStep) || parsedStep <= 0) return res.status(400).json({ error: "invalid bandStep value" });
                 updated.bandStep = parsedStep;
+            }
+        }
+        if (maxLosingSwitches !== undefined) {
+            if (maxLosingSwitches === null || maxLosingSwitches === "" || maxLosingSwitches === "0" || maxLosingSwitches === "clear") updated.maxLosingSwitches = null;
+            else {
+                const n = Number(maxLosingSwitches);
+                if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "invalid maxLosingSwitches value (whole number >= 1, or blank for off)" });
+                updated.maxLosingSwitches = n;
             }
         }
         if (greyExitEnabled !== undefined) updated.greyExitEnabled = !!greyExitEnabled;
@@ -1209,7 +1220,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, maxLosingSwitches, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -1308,6 +1319,10 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         if ((stratKey === "DYNAMIC_BAND" || stratKey === "DYNAMIC_MID_COLOR" || (stratKey === "DYNAMIC_MID_COLOR_HL" || stratKey === "ALMA_DSB")) && bandStep !== undefined && bandStep !== null && bandStep !== "") {
             const parsedStep = Number(bandStep);
             if (Number.isFinite(parsedStep) && parsedStep > 0) env.BAND_STEP_OVERRIDE = String(parsedStep);
+        }
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && maxLosingSwitches !== undefined && maxLosingSwitches !== null && maxLosingSwitches !== "") {
+            const n = Number(maxLosingSwitches);
+            if (Number.isInteger(n) && n >= 1) env.MAX_LOSING_SWITCHES_OVERRIDE = String(n);
         }
         if (stratKey === "ALMA_TRI_BAND" && greyExitEnabled !== undefined) env.GREY_EXIT_OVERRIDE = String(!!greyExitEnabled);
         // Always written explicitly (both true AND false), same
