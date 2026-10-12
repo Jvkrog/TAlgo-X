@@ -2754,6 +2754,8 @@ async function renderBacktestParamsStep() {
         </div>
         ${data.losingSwitch ? `<div class="tb-form-label" style="margin:8px 0">${data.losingSwitch.max ? `Losing-reversal limit ${data.losingSwitch.max}/day: ${data.losingSwitch.losingReversals} losing reversals · ${data.losingSwitch.blockedReversals} blocked · ${data.losingSwitch.daysExhausted} day(s) exhausted` : ""}${data.losingSwitch.max && data.losingSwitch.maxTrades ? "<br>" : ""}${data.losingSwitch.maxTrades ? `Losing-trade limit ${data.losingSwitch.maxTrades}/day: reached on ${data.losingSwitch.tradeLimitDays} day(s) · ${data.losingSwitch.tradeBlocked} entries blocked` : ""}</div>` : ""}
         <a class="tb-report-link" href="${data.reportUrl}" target="_blank" rel="noopener">Open full report ↗</a>
+        <button type="button" class="btn btn-ghost" id="btAiBtn" style="margin-top:10px;width:100%">Analyse this backtest with AI</button>
+        <div id="btAiOut"></div>
         <button type="button" class="tb-submit-btn" id="btDeployFromBt" style="margin-top:10px;width:100%">Deploy instrument with this config</button>
         <div class="tb-bt-log-wrap">
           <button type="button" class="tb-bt-log-toggle" id="btLogToggle">▸ show full backtest log (${(data.logLines || []).length} lines)</button>
@@ -2761,6 +2763,17 @@ async function renderBacktestParamsStep() {
         </div>
       `;
       resultBox.querySelector("#btDeployFromBt").addEventListener("click", () => renderBtDeployView(body));
+      resultBox.querySelector("#btAiBtn").addEventListener("click", async e => {
+        const btn = e.currentTarget, out = resultBox.querySelector("#btAiOut");
+        btn.disabled = true; const label = btn.textContent; btn.textContent = "Analysing...";
+        try {
+          const res = await fetch("/api/ai/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ file: String(data.jsonUrl).split("/").pop() }) });
+          const j = await res.json();
+          if (!res.ok) throw new Error(j.error || "Analysis failed");
+          out.innerHTML = aiNarrationHtml(j.narration);
+        } catch (err) { out.innerHTML = `<div class="tb-err-box">${aiEsc(err.message)}</div>`; }
+        btn.disabled = false; btn.textContent = label;
+      });
       const logToggle = resultBox.querySelector("#btLogToggle");
       const logBody = resultBox.querySelector("#btLogBody");
       logToggle.addEventListener("click", () => {

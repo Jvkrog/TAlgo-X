@@ -30,5 +30,17 @@ const { snapshot } = require("./entrySnapshot");
   // narration with stubbed Gemini
   ai.callGemini = async () => JSON.stringify({ headline: "h", patterns: [{ finding: "f", evidence: "e" }], limiter_assessment: "l", suggestions: ["s"], limitations: ["x"] });
   console.log(await sum.narrate(s, true));
+  // backtest facts + narration (stubbed Gemini)
+  const rep = { instrument: "ZNC", strategy: "DYNAMIC_BAND", timeframe: "1h", range: { from: "2026-09-10", to: "2026-09-11" }, settings: [["Candles", "HA"]], params: {},
+    metrics: { trades: 3, winRate: 0, profitFactor: 0, netPnL: -4162.5, netPoints: -4.16, maxDrawdown: 4162.5, largestWin: 0, largestLoss: -1712.5, avgTrade: -1387.5, avgHoldTimeMs: 9600000 },
+    trades: [
+      { status: "CLOSED", side: "SHORT", entry_time: "2026-09-11T04:30:00Z", exit_time: "2026-09-11T05:30:00Z", pnl: -1700, exit_reason: "COLOR FLIP EXIT" },
+      { status: "CLOSED", side: "LONG", entry_time: "2026-09-11T05:30:00Z", exit_time: "2026-09-11T08:30:00Z", pnl: -1712.5, exit_reason: "COLOR FLIP EXIT" },
+      { status: "CLOSED", side: "SHORT", entry_time: "2026-09-11T08:30:00Z", exit_time: "2026-09-11T12:30:00Z", pnl: -750, exit_reason: "COLOR FLIP EXIT" }],
+    losingSwitch: { max: 1, losingReversals: 2, blockedReversals: 1, daysExhausted: 1 } };
+  const bf = sum.backtestFacts(rep);
+  assert.strictEqual(bf.longestLosingStreak.trades, 3); assert.strictEqual(bf.metrics.winRatePct, 0); assert.strictEqual(bf.limiter.max, 1);
+  assert.strictEqual(bf.byEntryHourIst[0].key, "10:00");
+  console.log((await sum.narrateBacktest(rep, true)).headline);
   console.log("OK"); process.exit(0);
 })().catch(e => { console.error("FAIL", e); process.exit(1); });

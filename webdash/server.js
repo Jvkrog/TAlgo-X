@@ -1767,6 +1767,17 @@ app.post("/api/ai/summary/narrate", async (req, res) => {
     } catch (err) { res.status(err.status || 502).json({ error: err.message }); }
 });
 
+app.post("/api/ai/backtest", async (req, res) => {
+    if (!geminiKeyFromEnvFile()) return res.status(400).json({ error: "Gemini API key not set — add GEMINI_API_KEY in Settings" });
+    const file = path.basename(String((req.body || {}).file || ""));
+    if (!/^[\w.\-]+\.json$/.test(file)) return res.status(400).json({ error: "a backtest .json report file is required" });
+    let report;
+    try { report = JSON.parse(fs.readFileSync(path.join(ROOT, "backtests", file), "utf8")); }
+    catch { return res.status(404).json({ error: "backtest report not found" }); }
+    try { res.json({ narration: await aiSummary.narrateBacktest(report, !!(req.body || {}).force) }); }
+    catch (err) { res.status(err.status || 502).json({ error: err.message }); }
+});
+
 // Auto-review: every minute, review recently closed trades that have no review yet (max 3 per cycle).
 // Observer only — it reads journals and writes ai_reviews.db; a failure is recorded and never retried in a loop.
 // Off with AI_AUTO_REVIEW=0 (or when no Gemini key is set).

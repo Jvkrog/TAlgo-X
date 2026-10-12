@@ -116,17 +116,59 @@ async function ensureTable() {
     tableReady = true;
 }
 
-async function narrate(summary, force = false) {
+async function narrate(summary, force = false, opts = {}) {
     await ensureTable();
-    const hash = crypto.createHash("sha256").update(JSON.stringify(summary)).digest("hex").slice(0, 32);
+    const hash = crypto.createHash("sha256").update((opts.kind || "") + JSON.stringify(summary)).digest("hex").slice(0, 32);
     if (!force) {
         const hit = (await ai.all(ai.cache(), `SELECT result FROM ai_summaries WHERE hash = ?`, [hash]))[0];
         if (hit) return JSON.parse(hit.result);
     }
-    const text = await ai.callGemini(summary, { systemPrompt: SUMMARY_PROMPT, label: "Verified aggregate statistics:" });
+    const text = await ai.callGemini(summary, { systemPrompt: opts.prompt || SUMMARY_PROMPT, label: opts.label || "Verified aggregate statistics:" });
     const out = validateNarration(text);
     await ai.run(ai.cache(), `INSERT OR REPLACE INTO ai_summaries (hash, days, result, model) VALUES (?, ?, ?, ?)`, [hash, summary.days, JSON.stringify(out), ai.MODEL]);
     return out;
 }
 
-module.exports = { buildSummary, narrate, validateNarration };
+// ── backtest report analysis ─────────────────────────────────────────────
+const BACKTEST_PROMPT = `You analyse ONE backtest of an algorithmic futures strategy (MCX commodities) from verified, system-computed statistics.
+Do not recompute or contradict the numbers and do not invent causes, market views or figures. A backtest is in-sample history: it is not evidence of future results, P&L is gross (no brokerage, taxes or slippage) and a short window or few trades supports only weak conclusions - say so. "settings" lists every filter/limit used; "limiter" (when present) is the daily losing-reversal / losing-trade limit and its counts.
+Reply with ONLY this JSON:
+{"headline":"one sentence verdict on what the run shows","patterns":[{"finding":"...","evidence":"the numbers it rests on"}],"limiter_assessment":"what the limiter counts show, or 'no limiter used in this run'","suggestions":["a concrete variant worth backtesting next (a setting change, timeframe, filter), not a live-trading instruction"],"limitations":["..."]}
+Give 2-5 patterns and 1-4 suggestions.`;
+
+function backtestFacts(report) {
+    const trades = (report.trades || []).filter(t => t.status === "CLOSED" || t.exit_time);
+    const by = {}, side = {}, hour = {}, dayMap = {};
+    let run = 0, streak = 0, streakAt = null;
+    for (const t of trades) {
+        const pnl = t.pnl || 0;
+        bucket(by, t.exit_reason || "?", pnl); bucket(side, t.side, pnl);
+        const ist = new Date(new Date(t.entry_time).getTime() + IST_MS);
+        bucket(hour, String(ist.getUTCHours()).padStart(2, "0") + ":00", pnl);
+        const d = ist.toISOString().slice(0, 10); dayMap[d] = (dayMap[d] || 0) + pnl;
+        run = pnl < 0 ? run + 1 : 0;
+        if (run > streak) { streak = run; streakAt = d; }
+    }
+    const days = Object.entries(dayMap).map(([d, p]) => ({ day: d, pnl: r0(p) }));
+    const m = report.metrics || {};
+    return {
+        instrument: report.instrument, strategy: report.strategyLabel || report.strategy, timeframe: report.timeframe, range: report.range,
+        settings: Object.fromEntries((report.settings || []).map(([k, v]) => [k, v])), params: report.params || {},
+        metrics: { trades: m.trades, winRatePct: Math.round((m.winRate || 0) * 1000) / 10, profitFactor: m.profitFactor ?? null, netPnL: r0(m.netPnL || 0),
+            netPoints: Math.round((m.netPoints || 0) * 100) / 100, maxDrawdown: r0(m.maxDrawdown || 0), largestWin: r0(m.largestWin || 0), largestLoss: r0(m.largestLoss || 0),
+            avgTrade: r0(m.avgTrade || 0), avgHoldMinutes: Math.round((m.avgHoldTimeMs || 0) / 60000) },
+        byExitReason: finish(by).sort((a, b) => a.pnl - b.pnl), bySide: finish(side), byEntryHourIst: finish(hour).sort((a, b) => a.key.localeCompare(b.key)),
+        tradingDays: days.length, profitableDays: days.filter(d => d.pnl > 0).length,
+        worstDays: days.sort((a, b) => a.pnl - b.pnl).slice(0, 3), bestDay: days.sort((a, b) => b.pnl - a.pnl)[0] || null,
+        longestLosingStreak: { trades: streak, endedOn: streakAt },
+        limiter: report.losingSwitch || null,
+    };
+}
+
+async function narrateBacktest(report, force = false) {
+    const facts = backtestFacts(report);
+    if (!facts.metrics.trades) throw Object.assign(new Error("This backtest has no trades to analyse"), { status: 400 });
+    return narrate(facts, force, { kind: "backtest:", prompt: BACKTEST_PROMPT, label: "Verified backtest statistics:" });
+}
+
+module.exports = { buildSummary, narrate, validateNarration, backtestFacts, narrateBacktest };
