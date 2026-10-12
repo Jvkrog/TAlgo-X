@@ -626,10 +626,10 @@ body {
 
 /* ── app root — hidden behind the lock screen until authenticated ───────── */
 .app-root { display: none; }
-.app-root.unlocked { display: block; animation: appReveal 420ms ease both; }
+.app-root.unlocked { display: block; animation: appReveal 420ms ease backwards; }
 @keyframes appReveal {
   from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  to   { opacity: 1; transform: none; }
 }
 
 /* ── lock screen ──────────────────────────────────────────────────────── */

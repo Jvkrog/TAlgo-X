@@ -6910,12 +6910,12 @@ const STRATEGY_TIMEFRAME = {
     // Closed-candle-only by design (see this strategy's own header) — 15m
     // matches the platform default cadence; no strategy-specific reason to
     // pick otherwise, easy to override per-instrument via TIMEFRAME_OVERRIDE.
-    DYNAMIC_BAND:         "15m",
+    DYNAMIC_BAND:         "1h",
     // Same rationale as its sibling — no strategy-specific reason to pick
     // otherwise, easy to override per-instrument via TIMEFRAME_OVERRIDE.
-    DYNAMIC_MID_COLOR:    "15m",
-    ALMA_DSB:             "15m",
-    DYNAMIC_MID_COLOR_HL: "15m",
+    DYNAMIC_MID_COLOR:    "1h",
+    ALMA_DSB:             "1h",
+    DYNAMIC_MID_COLOR_HL: "1h",
     // Pine source has no fixed chart timeframe (reuses whatever the chart
     // is on) — 15m matches the platform default, adjustable as usual.
     ALMA_TRI_BAND:        "15m",
