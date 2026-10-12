@@ -54,7 +54,8 @@ async function listTrades(limit = 60) {
         if (!db) continue;
         try {
             const rows = await all(db, `SELECT * FROM trades WHERE status = 'CLOSED' ORDER BY id DESC LIMIT ?`, [limit]);
-            for (const r of rows) out.push({ journal: file, ...r });
+            const recent = await recentRows(db);
+            for (const r of rows) out.push({ journal: file, ...r, _day: dayContextFor(recent, r) });
         } catch { /* file without a trades table (other kind of db) */ }
         db.close();
     }
@@ -79,8 +80,27 @@ async function getTrade(journal, id) {
     if (!db) return null;
     try {
         const rows = await all(db, `SELECT * FROM trades WHERE id = ? AND status = 'CLOSED'`, [id]);
-        return rows[0] ? { journal, ...rows[0] } : null;
+        if (!rows[0]) return null;
+        return { journal, ...rows[0], _day: dayContextFor(await recentRows(db), rows[0]) };
     } catch { return null; } finally { db.close(); }
+}
+
+// Earlier closed trades of the same journal and trade_date -> what the day looked like before this trade.
+function dayContextFor(rows, t) {
+    const prior = rows.filter(r => r.trade_date === t.trade_date && r.id < t.id && r.status === "CLOSED").sort((a, b) => a.id - b.id);
+    let streak = 0;
+    for (let i = prior.length - 1; i >= 0 && prior[i].pnl < 0; i--) streak++;
+    const prev = prior[prior.length - 1];
+    return {
+        tradeNumberToday: prior.length + 1,
+        dayPnlBefore: Math.round(prior.reduce((a, r) => a + (r.pnl || 0), 0)),
+        lossesBeforeToday: prior.filter(r => r.pnl < 0).length,
+        consecutiveLossesBefore: streak,
+        previousTrade: prev ? { side: prev.side, pnl: Math.round(prev.pnl), exitReason: prev.exit_reason } : null,
+    };
+}
+async function recentRows(db) {
+    return all(db, `SELECT id, trade_date, status, pnl, side, exit_reason FROM trades WHERE trade_date >= date('now','-4 day')`).catch(() => []);
 }
 
 // ── deterministic facts (authoritative — the model never computes these) ──
@@ -110,6 +130,8 @@ function buildFacts(t) {
     const points = (t.exit_price - t.entry_price) * dir;
     const durationMin = (t.entry_time && t.exit_time) ? Math.round((new Date(t.exit_time) - new Date(t.entry_time)) / 60000) : null;
     const hasExc = Number.isFinite(t.peak_pnl) && Number.isFinite(t.trough_pnl);
+    let entryCtx = null;
+    try { entryCtx = t.entry_ctx ? JSON.parse(t.entry_ctx) : null; } catch { /* leave null */ }
     const giveback = hasExc && t.peak_pnl > 0 ? Math.round(t.peak_pnl - t.pnl) : null;
     return {
         instrument: t.instrument, strategy: ctx.strategy || null, timeframe: ctx.timeframe || null, candleType: ctx.candleType || null,
@@ -124,26 +146,35 @@ function buildFacts(t) {
         troughPnl: hasExc ? Math.round(t.trough_pnl) : null,
         profitGivenBack: giveback,
         strategyRules: strategyDescription(ctx.strategy),
+        // entry-time snapshot (null for trades opened before this was recorded) and the day so far
+        entryContext: entryCtx,
+        dayContext: t._day || null,
         stop: ctx.hardSlRupees ? `hard Rs ${ctx.hardSlRupees}` : (ctx.atrSlMult ? `ATR x ${ctx.atrSlMult}` : null),
     };
 }
 
 // ── Gemini ───────────────────────────────────────────────────────────────
+const TAGS = ["good_entry", "late_entry", "chop_entry", "against_band_context", "revenge_trade", "overtrading", "gave_back_profit", "normal_stop_out", "forced_eod_exit", "reversal_whipsaw", "clean_win", "limiter_relevant"];
 const SYSTEM_PROMPT = `You review ONE completed trade from an algorithmic futures trading engine (MCX commodities).
-You are given verified facts computed by the system. Do not recompute or contradict them; do not invent prices, indicator values or market context that are not in the facts. If something cannot be judged from the facts, say so in "limitations".
-Exit reasons: EOD_FORCE = the engine's scheduled end-of-day close of any open position (a rule, not a market signal); reasons containing SL = a stop-loss was hit; other reasons are strategy signal exits. durationMinutes is entry to exit. Missing optional facts (null) are data gaps, not trade flaws: list them under "limitations" only, never in the entry/behaviour/exit text, and do not restate the raw numbers as evidence — evidence should connect facts to a conclusion.
-Judge decision quality and rule adherence, not just profit: a loss can be a good trade and a win can be a bad one.
-Grade: A = behaved as designed and exit was efficient; B = acceptable with some inefficiency; C = clear problem visible in the facts (e.g. large profit given back, exit far from what the stop implies). With little evidence prefer B and explain.
+You are given verified facts computed by the system. Do not recompute or contradict them; never invent prices, indicator values or market context that are not in the facts. Anything you cannot judge goes ONLY in "limitations".
+How to read the facts:
+- exitReason: EOD_FORCE = the engine's scheduled end-of-day close (a rule, not a market signal); reasons containing SL = stop-loss hit; others (LONG/SHORT REVERSAL, COLOR FLIP EXIT, DSB FLIP EXIT) are strategy signal exits.
+- entryContext (may be null for older trades — then say so in limitations, not in the assessments): priceVsBand = where price sat relative to the Dynamic Step Band at entry; chop = Choppiness Index (higher = choppier; the platform blocks entries above about 58); atr14 and lastCandleRangeAtrX = volatility and how stretched the signal candle was (>2 means unusually long); entryTimeIst/weekday = when it entered; lastCandles = the 3 candles before entry.
+- dayContext: tradeNumberToday, consecutiveLossesBefore, dayPnlBefore and previousTrade show whether this was a fresh attempt or part of a losing streak (repeated entries after losses can be revenge/overtrading, but only say so when the numbers show it).
+- peakPnl/troughPnl/profitGivenBack: best and worst unrealised P&L observed live (sampled ~every 400 ms); null = data gap, not a flaw.
+Judge decision quality and rule adherence, not profit: a loss can be a good trade and a win a bad one. Every assessment sentence must rest on at least one provided fact; do not restate raw numbers as evidence without linking them to a conclusion. Be specific, not generic.
+Grade: A = behaved as designed and the entry/exit were efficient; B = acceptable with some inefficiency; C = a clear problem visible in the facts. With thin evidence prefer B and explain.
+"tags": pick 0-4 that clearly apply from this list only: ${TAGS.join(", ")}.
 Reply with ONLY this JSON:
-{"grade":"A|B|C","entry_assessment":"...","trade_behaviour":"...","exit_assessment":"...","evidence":["fact-based bullet"],"limitations":["what could not be judged"],"takeaway":"one line"}`;
+{"grade":"A|B|C","entry_assessment":"1-2 sentences","trade_behaviour":"1-2 sentences","exit_assessment":"1-2 sentences","evidence":["fact -> conclusion"],"limitations":["what could not be judged"],"tags":["..."],"takeaway":"one line"}`;
 
-function callGemini(facts) {
+function callGemini(facts, opts = {}) {
     const key = process.env.GEMINI_API_KEY;
     if (!key) return Promise.reject(new Error("GEMINI_API_KEY is not set"));
     const body = JSON.stringify({
-        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents: [{ parts: [{ text: "Verified trade facts:\n" + JSON.stringify(facts, null, 2) }] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 900, responseMimeType: "application/json" },
+        system_instruction: { parts: [{ text: opts.systemPrompt || SYSTEM_PROMPT }] },
+        contents: [{ parts: [{ text: (opts.label || "Verified trade facts:") + "\n" + JSON.stringify(facts, null, 2) }] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 1200, responseMimeType: "application/json" },
     });
     return new Promise((resolve, reject) => {
         const req = https.request(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
@@ -178,6 +209,7 @@ function validateReview(text) {
         grade: GRADES.includes(j.grade) ? j.grade : null,
         entry_assessment: str(j.entry_assessment), trade_behaviour: str(j.trade_behaviour), exit_assessment: str(j.exit_assessment),
         evidence: strList(j.evidence), limitations: strList(j.limitations), takeaway: str(j.takeaway, 300),
+        tags: Array.isArray(j.tags) ? [...new Set(j.tags.filter(x => TAGS.includes(x)))].slice(0, 4) : [],
     };
     const bad = Object.entries(r).filter(([, v]) => v === null).map(([k]) => k);
     if (bad.length) throw new Error("AI reply failed validation: " + bad.join(", "));
@@ -203,4 +235,4 @@ async function reviewTrade(journal, id, force = false) {
     }
 }
 
-module.exports = { listTrades, reviewTrade, buildFacts, validateReview };
+module.exports = { listTrades, reviewTrade, buildFacts, validateReview, callGemini, journalFiles, openRo, all, cache, run, TAGS, MODEL };

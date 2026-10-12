@@ -1495,7 +1495,7 @@ function switchTab(tab) {
   }
   if (tab === "dashboard") { dashboardView.style.display = ""; return; }
   if (tab === "risk") { riskView.style.display = ""; loadRiskList(); return; }
-  if (tab === "ai") { aiView.style.display = ""; loadAiTrades(); return; }
+  if (tab === "ai") { aiView.style.display = ""; loadAiSummary(aiSummaryDays); loadAiTrades(); return; }
   if (toolboxBooting) return;
   if (toolboxBootPlayed) {
     toolboxView.style.display = "";
@@ -1509,7 +1509,7 @@ tabDashboard.addEventListener("click", () => switchTab("dashboard"));
 tabToolbox.addEventListener("click", () => switchTab("toolbox"));
 tabRisk.addEventListener("click", () => switchTab("risk"));
 tabAi.addEventListener("click", () => switchTab("ai"));
-document.getElementById("aiRefreshBtn").addEventListener("click", () => loadAiTrades());
+document.getElementById("aiRefreshBtn").addEventListener("click", () => { loadAiSummary(aiSummaryDays); loadAiTrades(); });
 
 async function loadRiskList() {
   try {
@@ -4243,7 +4243,57 @@ function aiReviewHtml(r) {
     <div><b>Exit:</b> ${aiEsc(r.exit_assessment)}</div>
     <div style="margin-top:4px"><b>Evidence</b>${list(r.evidence)}</div>
     <div style="margin-top:4px"><b>Limitations</b>${list(r.limitations)}</div>
+    ${(r.tags && r.tags.length) ? `<div style="margin-top:4px">${r.tags.map(t => `<span class="mode-pill">${aiEsc(t.replace(/_/g, " "))}</span>`).join(" ")}</div>` : ""}
     <div style="margin-top:4px"><b>Takeaway:</b> ${aiEsc(r.takeaway)}</div></div>`;
+}
+let aiSummaryDays = 7;
+function aiTable(title, rows, cols) {
+  if (!rows || !rows.length) return "";
+  return `<div style="min-width:220px;flex:1"><div class="tb-form-hint" style="margin:6px 0 2px"><b>${aiEsc(title)}</b></div><table style="width:100%;font-size:11px;border-collapse:collapse">${rows.map(r => `<tr>${cols.map((c, i) => { const v = r[c]; const col = c === "pnl" ? (v >= 0 ? "var(--green,#3ddc84)" : "var(--red,#ff5c5c)") : "inherit"; return `<td style="padding:1px 6px 1px 0;${i ? "text-align:right;" : ""}color:${col}">${aiEsc(c === "winRate" ? v + "%" : c === "pnl" && v > 0 ? "+" + v : v)}</td>`; }).join("")}</tr>`).join("")}</table></div>`;
+}
+function aiNarrationHtml(n) {
+  const li = a => `<ul style="margin:4px 0 0 18px;padding:0">${a.map(x => `<li>${aiEsc(x)}</li>`).join("")}</ul>`;
+  return `<div style="margin-top:8px;border-top:1px solid rgba(255,255,255,.1);padding-top:8px"><div><b>AI summary</b> — ${aiEsc(n.headline)}</div>
+    <div style="margin-top:4px"><b>Patterns</b><ul style="margin:4px 0 0 18px;padding:0">${n.patterns.map(p => `<li>${aiEsc(p.finding)} <span class="tb-form-hint">(${aiEsc(p.evidence)})</span></li>`).join("")}</ul></div>
+    <div style="margin-top:4px"><b>Limiter days:</b> ${aiEsc(n.limiter_assessment)}</div>
+    <div style="margin-top:4px"><b>Worth testing</b>${li(n.suggestions)}</div>
+    <div style="margin-top:4px"><b>Limitations</b>${li(n.limitations)}</div></div>`;
+}
+async function loadAiSummary(days) {
+  aiSummaryDays = days;
+  const box = document.getElementById("aiSummaryBox"), status = document.getElementById("aiStatus");
+  try {
+    const st = await (await fetch("/api/ai/status")).json();
+    status.textContent = st.autoReview ? `Auto-review on: new closed trades are reviewed within about a minute${st.lastError ? " · last error: " + st.lastError : ""} (set AI_AUTO_REVIEW=0 to turn off).` : "Auto-review off (AI_AUTO_REVIEW=0).";
+  } catch { status.textContent = ""; }
+  box.innerHTML = `<div class="tb-form-hint">Loading summary...</div>`;
+  let data;
+  try { data = await (await fetch("/api/ai/summary?days=" + days)).json(); } catch (err) { box.innerHTML = `<div class="tb-err-box">${aiEsc(err.message)}</div>`; return; }
+  if (data.error) { box.innerHTML = `<div class="tb-err-box">${aiEsc(data.error)}</div>`; return; }
+  const s = data.summary, pf = s.profitFactor === null ? "-" : s.profitFactor;
+  const ld = s.limiterDays.length ? `<div class="tb-form-hint" style="margin-top:6px"><b>Limiter days:</b> ${s.limiterDays.map(l => `${aiEsc(l.instrument)} ${aiEsc(l.day)} ${l.kind === "LOSING_TRADES_LIMIT" ? "losing-trade limit" : "losing-reversal limit"} (${l.detail ? l.detail.count + "/" + l.detail.max : ""}${l.dayPnl !== null ? ", day P&L " + l.dayPnl : ""})`).join(" · ")}</div>` : "";
+  const g = s.aiReviewed.grades, tg = Object.entries(s.aiReviewed.tags).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k.replace(/_/g, " ")} ${v}`).join(" · ");
+  box.innerHTML = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <b>Pattern summary</b>
+      <select id="aiDays">${[1, 7, 30].map(d => `<option value="${d}" ${d === days ? "selected" : ""}>${d === 1 ? "today / 24h" : "last " + d + " days"}</option>`).join("")}</select>
+      <button class="btn btn-ghost" id="aiNarrateBtn">Analyse patterns with AI</button></div>
+    <div class="tb-form-hint" style="margin-top:6px">${s.trades} trades · win rate ${s.winRate}% · net ${s.netPnl >= 0 ? "+" : ""}${s.netPnl} · profit factor ${pf} · avg win ${s.avgWin ?? "-"} · avg loss ${s.avgLoss ?? "-"}${s.worstLosingStreakInADay.length > 1 ? ` · worst in-day losing streak ${s.worstLosingStreakInADay.length} (${aiEsc(s.worstLosingStreakInADay.instrument)} ${aiEsc(s.worstLosingStreakInADay.day)})` : ""}${s.excursion.tradesWithData ? ` · ${s.excursion.wentRedAfterBeingGreen} trades went red after being green` : ""}</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap">${aiTable("By instrument", s.byInstrument, ["key", "trades", "winRate", "pnl"])}${aiTable("By exit reason", s.byExitReason, ["key", "trades", "winRate", "pnl"])}${aiTable("By entry hour (IST)", s.byEntryHourIst, ["key", "trades", "winRate", "pnl"])}${aiTable("By side", s.bySide, ["key", "trades", "winRate", "pnl"])}</div>
+    ${(g.A + g.B + g.C) ? `<div class="tb-form-hint" style="margin-top:6px">AI grades: A ${g.A} · B ${g.B} · C ${g.C}${tg ? " · " + aiEsc(tg) : ""}</div>` : ""}${ld}
+    <div id="aiNarration"></div>`;
+  box.querySelector("#aiDays").addEventListener("change", e => loadAiSummary(Number(e.target.value)));
+  const nb = box.querySelector("#aiNarrateBtn");
+  nb.addEventListener("click", async () => {
+    nb.disabled = true; const label = nb.textContent; nb.textContent = "Analysing...";
+    const out = box.querySelector("#aiNarration");
+    try {
+      const res = await fetch("/api/ai/summary/narrate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ days }) });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Analysis failed");
+      out.innerHTML = aiNarrationHtml(j.narration);
+    } catch (err) { out.innerHTML = `<div class="tb-err-box">${aiEsc(err.message)}</div>`; }
+    nb.disabled = false; nb.textContent = label;
+  });
 }
 async function loadAiTrades() {
   const box = document.getElementById("aiList");
@@ -4261,6 +4311,7 @@ async function loadAiTrades() {
     return `<div class="toolbox-row" style="display:block;padding:10px 16px" data-i="${i}">
       <div><b>${aiEsc(f.instrument)}</b> ${aiEsc(f.side)} · ${aiEsc(f.strategy || "")} ${aiEsc(f.timeframe || "")} · <span style="color:${pnlCol}">${f.pnlRupees >= 0 ? "+" : ""}${f.pnlRupees}</span></div>
       <div class="tb-form-hint">${aiEsc(f.entryPrice)} → ${aiEsc(f.exitPrice)} (${f.points >= 0 ? "+" : ""}${f.points} pts) · ${exc}${f.durationMinutes ?? "?"} min · exit: ${aiEsc(f.exitReason || "")} · ${aiEsc(when)}</div>
+      ${f.entryContext ? `<div class="tb-form-hint">entry ${aiEsc(f.entryContext.entryTimeIst)} IST${f.entryContext.priceVsBand ? " · " + aiEsc(f.entryContext.priceVsBand) : ""}${f.entryContext.chop != null ? " · chop " + f.entryContext.chop : ""}${f.dayContext ? " · trade #" + f.dayContext.tradeNumberToday + " today" + (f.dayContext.consecutiveLossesBefore ? " (" + f.dayContext.consecutiveLossesBefore + " losses in a row before)" : "") : ""}</div>` : ""}
       <div class="ai-review-slot">${t.review ? aiReviewHtml(t.review) : ""}</div>
       ${t.reviewError ? `<div class="tb-form-hint" style="color:var(--red,#ff5c5c)">Last review failed: ${aiEsc(t.reviewError)}</div>` : ""}
       <button class="btn btn-ghost ai-review-btn" style="margin-top:6px">${t.review ? "Re-run review" : "Review this trade"}</button>

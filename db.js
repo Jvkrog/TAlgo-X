@@ -182,7 +182,12 @@ function createDb(context) {
             `);
             // Journal columns for post-trade review (TAlgo-Ai). Added by migration so existing
             // databases keep working; a duplicate-column error just means it is already there.
-            for (const col of ["peak_pnl REAL", "trough_pnl REAL", "ctx TEXT"]) {
+            // Risk-limiter events (losingSwitchGate.js) for the AI review; observer data only.
+            db.run(`CREATE TABLE IF NOT EXISTS risk_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, engine TEXT NOT NULL, ts TEXT NOT NULL, day TEXT NOT NULL,
+                kind TEXT NOT NULL, detail TEXT
+            )`);
+            for (const col of ["peak_pnl REAL", "trough_pnl REAL", "ctx TEXT", "entry_ctx TEXT"]) {
                 db.run(`ALTER TABLE trades ADD COLUMN ${col}`, () => { /* already present */ });
             }
         });
@@ -265,6 +270,16 @@ function createDb(context) {
 
     // Losing signal-driven reversals since `sinceIso` (losingSwitchGate.js) — closed trades with one of the
     // given flip exit reasons and a negative P&L. Rebuilds the daily counter after a restart.
+    // Attaches the entry-time snapshot (entrySnapshot.js) to an open trade row. Best-effort.
+    function setEntryContext(id, obj) {
+        if (!id || !obj) return Promise.resolve();
+        return new Promise(resolve => db.run(`UPDATE trades SET entry_ctx = ? WHERE id = ?`, [JSON.stringify(obj), id], () => resolve()));
+    }
+    function logRiskEvent(engine, day, kind, detail) {
+        return new Promise(resolve => db.run(`INSERT INTO risk_events (engine, ts, day, kind, detail) VALUES (?, ?, ?, ?, ?)`,
+            [engine, new Date().toISOString(), day, kind, detail ? JSON.stringify(detail) : null], () => resolve()));
+    }
+
     // Losing trades of ANY exit reason since `sinceIso` (losingSwitchGate.js max-losing-trades limit).
     function countLosingTradesSince(engine, sinceIso) {
         return new Promise((resolve, reject) => {
@@ -365,7 +380,7 @@ function createDb(context) {
 
     return {
         initDB, savePosition, loadPosition, saveRegime, loadRegime, clearAllPositions,
-        insertOpenTrade, closeTrade, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince,
+        insertOpenTrade, closeTrade, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince, setEntryContext, logRiskEvent,
     };
 }
 

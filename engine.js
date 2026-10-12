@@ -525,6 +525,15 @@ async function main() {
 
     db.initDB();
 
+    // TAlgo-Ai: attach an entry-time snapshot to every new trade row. Observer only — failures are swallowed
+    // and the wrapper returns exactly what insertOpenTrade returned.
+    { const rawInsert = db.insertOpenTrade;
+      db.insertOpenTrade = async function (engine, instrument, side, qty, entryPrice) {
+          const id = await rawInsert.apply(this, arguments);
+          try { await db.setEntryContext(id, require("./entrySnapshot").snapshot({ context, engineConfig, state, candles, side, price: entryPrice })); } catch { /* observer only */ }
+          return id;
+      }; }
+
     const positionsClose      = (price, reason) => positions.close(context, state, db, tg, price, reason);
     const positionsUnrealised = (price)          => positions.unrealised(context, state, price);
 

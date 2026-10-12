@@ -1753,6 +1753,42 @@ app.post("/api/ai/review", async (req, res) => {
     catch (err) { res.status(err.status || 502).json({ error: err.message }); }
 });
 
+const aiSummary = require("../aiSummary");
+app.get("/api/ai/summary", async (req, res) => {
+    try { res.json({ keySet: geminiKeyFromEnvFile(), summary: await aiSummary.buildSummary(Number(req.query.days) || 7) }); }
+    catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post("/api/ai/summary/narrate", async (req, res) => {
+    if (!geminiKeyFromEnvFile()) return res.status(400).json({ error: "Gemini API key not set — add GEMINI_API_KEY in Settings" });
+    try {
+        const summary = await aiSummary.buildSummary(Number((req.body || {}).days) || 7);
+        if (summary.trades < 1) return res.status(400).json({ error: "No closed trades in that window to analyse" });
+        res.json({ narration: await aiSummary.narrate(summary, !!(req.body || {}).force) });
+    } catch (err) { res.status(err.status || 502).json({ error: err.message }); }
+});
+
+// Auto-review: every minute, review recently closed trades that have no review yet (max 3 per cycle).
+// Observer only — it reads journals and writes ai_reviews.db; a failure is recorded and never retried in a loop.
+// Off with AI_AUTO_REVIEW=0 (or when no Gemini key is set).
+const aiAuto = { enabled: process.env.AI_AUTO_REVIEW !== "0", lastRun: null, reviewed: 0, lastError: null, running: false };
+async function aiAutoTick() {
+    if (!aiAuto.enabled || aiAuto.running || !geminiKeyFromEnvFile()) return;
+    aiAuto.running = true;
+    try {
+        const cutoff = Date.now() - 24 * 3600 * 1000;
+        const todo = (await aiReview.listTrades(40)).filter(t => !t.review && !t.reviewError && t.facts.exitTime && new Date(t.facts.exitTime).getTime() >= cutoff).slice(0, 3);
+        for (const t of todo) {
+            try { await aiReview.reviewTrade(t.journal, t.id, false); aiAuto.reviewed++; aiAuto.lastError = null; }
+            catch (err) { aiAuto.lastError = err.message; }
+            await new Promise(r => setTimeout(r, 1500));
+        }
+        aiAuto.lastRun = new Date().toISOString();
+    } catch (err) { aiAuto.lastError = err.message; }
+    finally { aiAuto.running = false; }
+}
+setInterval(() => { aiAutoTick().catch(() => {}); }, 60000).unref();
+app.get("/api/ai/status", (req, res) => res.json({ keySet: geminiKeyFromEnvFile(), autoReview: aiAuto.enabled, lastRun: aiAuto.lastRun, reviewedSinceStart: aiAuto.reviewed, lastError: aiAuto.lastError }));
+
 // ─── TRENDING INSTRUMENTS — same ADX(14) daily-candle scan toolbox.js's
 // trendingInstruments() runs, same already-running cross-check. Deploying a
 // pick reuses POST /api/toolbox/instrument (the Add Instrument endpoint

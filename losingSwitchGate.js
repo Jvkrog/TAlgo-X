@@ -43,6 +43,8 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
         return Number.isFinite(m) && m > 0 ? m : null;
     };
     const tradesEnabled = () => maxT() !== null;
+    // Persist a limiter event for the AI review (best-effort, never throws, no-op for the backtest ledger).
+    const note = (kind, detail) => { try { if (typeof db.logRiskEvent === "function") db.logRiskEvent(context.tgPrefix, istDayKey(clock.now().getTime()), kind, detail); } catch { /* observer only */ } };
     const log = msg => console.log(`[${tag}] ${msg}`);
 
     // Resets the counter when the IST day has changed since the last call (live: process spanning days;
@@ -99,6 +101,7 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
             stats.blockedDays.push(day);
             if (!stats.exhaustedDays.includes(day)) { stats.exhaustedDays.push(day); stats.daysExhausted += 1; }
             log("Daily losing-switch limit exhausted");
+            if (stats.exhaustedDays.length && stats.blockedDays.filter(d => d === day).length === 1) note("LOSING_REVERSALS_LIMIT", { count: n, max: max(), reason, pnl });
             log("Position exited; opposite entry blocked, no further entries today");
         }
     }
@@ -114,6 +117,7 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
             const day = istDayKey(clock.now().getTime());
             if (!stats.tradeLimitDays.includes(day)) stats.tradeLimitDays.push(day);
             log("Daily losing-trade limit reached; no further entries today");
+            note("LOSING_TRADES_LIMIT", { count: nt, max: maxT(), reason, pnl });
         }
     }
     const prevOnClose = state.onClose;
