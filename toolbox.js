@@ -2295,7 +2295,7 @@ async function marketStatusScreen() {
                 const trend = (p.trend.score != null ? `${p.trend.direction} ${p.trend.score}` : "-").padEnd(13);
                 const vol   = (p.volatility.score != null ? `${p.volatility.state} ${p.volatility.score}` : "-").padEnd(15);
                 const updated = p.updatedAt
-                    ? new Date(p.updatedAt).toLocaleTimeString("en-IN", { hour12: false })
+                    ? new Date(p.updatedAt).toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })
                     : c.dim(p.unavailableReason || "no data");
                 console.log(`  ${num}. ${inst}${state}${conf}${trend}${vol}${updated}`);
             });

@@ -124,7 +124,7 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
 
         // ── Candle close tick ─────────────────────────────────────────────────
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const clr  = stDir === 1 ? "▲" : stDir === -1 ? "▼" : "●";
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
 
@@ -502,7 +502,7 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
 
         // ── Candle close tick ─────────────────────────────────────────────────
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const clr  = stDir === 1 ? "▲" : stDir === -1 ? "▼" : "●";
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
 
@@ -939,7 +939,7 @@ function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, 
         const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session   = (state.pnl || 0) + uPnL;
         const lineColor = !state.position
@@ -1183,7 +1183,7 @@ function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles,
         const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session   = (state.pnl || 0) + uPnL;
         const lineColor = !state.position
@@ -1444,7 +1444,7 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
         const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session   = (state.pnl || 0) + uPnL;
         const lineColor = !state.position
@@ -1697,7 +1697,7 @@ function createAlmaFastStrategy({ context, engineConfig, state, db, candles, slS
         const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const clr  = currentState === "BULL" ? "▲" : currentState === "BEAR" ? "▼" : "●"; // grey = neutral dot
         const session   = (state.pnl || 0) + uPnL;
@@ -1989,7 +1989,7 @@ function createMaSlopeStrategy({ context, engineConfig, state, db, candles, slSt
         const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const clr  = currentState === "BULL" ? "▲" : currentState === "BEAR" ? "▼" : "●"; // grey = neutral dot
         const session   = (state.pnl || 0) + uPnL;
@@ -2398,7 +2398,7 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
         const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const clr  = currentState === "BULL" ? "▲" : currentState === "BEAR" ? "▼" : "●"; // grey = neutral dot
         const session   = (state.pnl || 0) + uPnL;
@@ -2775,7 +2775,7 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
         const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const clr  = currentState === "BULL" ? "▲" : currentState === "BEAR" ? "▼" : "●";
         const session   = (state.pnl || 0) + uPnL;
@@ -3058,7 +3058,7 @@ function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, sl
         const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const clr  = currentState === "BULL" ? "▲" : currentState === "BEAR" ? "▼" : "●";
         const session   = (state.pnl || 0) + uPnL;
@@ -3312,7 +3312,7 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
         const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const agree = st1Dir !== 0 && st1Dir === st2Dir;
         const clr   = !agree ? "✕" : st1Dir === 1 ? "▲" : "▼";
         const fmt   = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
@@ -3550,7 +3550,7 @@ function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles
         const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const clr  = regime === 1 ? "▲" : regime === -1 ? "▼" : "●";
         const session   = (state.pnl || 0) + uPnL;
@@ -3905,7 +3905,7 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
         const livePrice = candles.getLivePrice() ?? rawClose;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session   = (state.pnl || 0) + uPnL;
         const lineColor = !state.position
@@ -4251,7 +4251,7 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
         const livePrice = candles.getLivePrice() ?? rawClose;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session = (state.pnl || 0) + uPnL;
         const color   = directionColor(state.position);
@@ -4666,7 +4666,7 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
         const livePrice = candles.getLivePrice() ?? rawClose;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session = (state.pnl || 0) + uPnL;
         const color   = directionColor(state.position);
@@ -5049,7 +5049,7 @@ function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, 
         const greyExitEnabled = context.greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session = (state.pnl || 0) + uPnL;
         const color   = stateColor(triState);
@@ -5376,7 +5376,7 @@ function createAlmaProFastStrategy({ context, engineConfig, state, db, candles, 
         const greyExitEnabled = context.greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session = (state.pnl || 0) + uPnL;
         const color   = stateColor(fastState);
@@ -5586,7 +5586,7 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
         const positionAtCallStart = state.position;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const clr  = currentState === "BULL" ? "▲" : currentState === "BEAR" ? "▼" : "●";
         const session   = (state.pnl || 0) + uPnL;
@@ -6165,7 +6165,7 @@ function createPureHaStrategy({ context, engineConfig, state, db, candles, slSto
         const livePrice = candles.getLivePrice() ?? rawCandle.close;
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session   = (state.pnl || 0) + uPnL;
         const lineColor = !state.position ? c.white : uPnL > 0 ? c.green : uPnL < 0 ? c.red : c.white;
@@ -6505,7 +6505,7 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
     async function runSignals(rawCandle) {
         const livePrice = candles.getLivePrice() ?? rawCandle.close;
         const uPnL = positionsUnrealised(livePrice);
-        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session   = (state.pnl || 0) + uPnL;
         const lineColor = !state.position ? c.white : uPnL > 0 ? c.green : uPnL < 0 ? c.red : c.white;
@@ -6715,7 +6715,7 @@ function createAlmaDsbStrategy({ context, engineConfig, state, db, candles, slSt
         const dsbColor = dsb ? (dsb.position === "SHORT" ? "red" : dsb.position === "LONG" ? "green" : "none") : "none";
 
         const uPnL = positionsUnrealised(livePrice);
-        const ts = clock.now().toLocaleTimeString("en-IN", { hour12: false });
+        const ts = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const fmt = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session = (state.pnl || 0) + uPnL;
         const tickColor = dsbColor === "red" ? "red" : "green";

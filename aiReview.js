@@ -103,6 +103,17 @@ async function recentRows(db) {
     return all(db, `SELECT id, trade_date, status, pnl, side, exit_reason FROM trades WHERE trade_date >= date('now','-4 day')`).catch(() => []);
 }
 
+const fmtIst = iso => {
+    if (!iso) return null;
+    const d = new Date(new Date(iso).getTime() + 5.5 * 3600000);
+    return isNaN(d) ? null : d.toISOString().replace("T", " ").slice(0, 19) + " IST";
+};
+// What Gemini sees: same facts but with IST wall times only (raw UTC ISO stamps removed).
+function forModel(facts) {
+    const { entryTime, exitTime, ...rest } = facts;
+    return rest;
+}
+
 // ── deterministic facts (authoritative — the model never computes these) ──
 let strategyInfo;
 function strategyDescription(key) {
@@ -136,7 +147,7 @@ function buildFacts(t) {
     return {
         instrument: t.instrument, strategy: ctx.strategy || null, timeframe: ctx.timeframe || null, candleType: ctx.candleType || null,
         side: t.side, qty: t.qty, lots: ctx.lots ?? null,
-        entryPrice: t.entry_price, exitPrice: t.exit_price, entryTime: t.entry_time, exitTime: t.exit_time,
+        entryPrice: t.entry_price, exitPrice: t.exit_price, entryTime: t.entry_time, exitTime: t.exit_time, entryTimeIst: fmtIst(t.entry_time), exitTimeIst: fmtIst(t.exit_time),
         durationMinutes: durationMin,
         pnlRupees: Math.round(t.pnl * 100) / 100,
         points: Math.round(points * 100) / 100,
@@ -156,7 +167,7 @@ function buildFacts(t) {
 // ── Gemini ───────────────────────────────────────────────────────────────
 const TAGS = ["good_entry", "late_entry", "chop_entry", "against_band_context", "revenge_trade", "overtrading", "gave_back_profit", "normal_stop_out", "forced_eod_exit", "reversal_whipsaw", "clean_win", "limiter_relevant"];
 const SYSTEM_PROMPT = `You review ONE completed trade from an algorithmic futures trading engine (MCX commodities).
-You are given verified facts computed by the system. Do not recompute or contradict them; never invent prices, indicator values or market context that are not in the facts. Anything you cannot judge goes ONLY in "limitations".
+You are given verified facts computed by the system. All times are IST (Asia/Kolkata); quote times only in IST. Do not recompute or contradict them; never invent prices, indicator values or market context that are not in the facts. Anything you cannot judge goes ONLY in "limitations".
 How to read the facts:
 - exitReason: EOD_FORCE = the engine's scheduled end-of-day close (a rule, not a market signal); reasons containing SL = stop-loss hit; others (LONG/SHORT REVERSAL, COLOR FLIP EXIT, DSB FLIP EXIT) are strategy signal exits.
 - entryContext (may be null for older trades — then say so in limitations, not in the assessments): priceVsBand = where price sat relative to the Dynamic Step Band at entry; chop = Choppiness Index (higher = choppier; the platform blocks entries above about 58); atr14 and lastCandleRangeAtrX = volatility and how stretched the signal candle was (>2 means unusually long); entryTimeIst/weekday = when it entered; lastCandles = the 3 candles before entry.
@@ -226,7 +237,7 @@ async function reviewTrade(journal, id, force = false) {
         if (hit) return JSON.parse(hit.review);
     }
     try {
-        const review = validateReview(await callGemini(buildFacts(t)));
+        const review = validateReview(await callGemini(forModel(buildFacts(t))));
         await run(db, `INSERT OR REPLACE INTO ai_reviews (journal, trade_id, status, review, model) VALUES (?, ?, 'OK', ?, ?)`, [journal, id, JSON.stringify(review), MODEL]);
         return review;
     } catch (e) {

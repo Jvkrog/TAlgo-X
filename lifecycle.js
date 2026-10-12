@@ -49,7 +49,7 @@ function createLifecycle({ context, engineConfig, state, db, candles, slStore, t
                 const today = now.toISOString().split("T")[0];
 
                 console.log();
-                console.log(c.dim(`EOD  [${context.tgPrefix}]  ${now.toLocaleString("en-IN", { hour12: false })}`));
+                console.log(c.dim(`EOD  [${context.tgPrefix}]  ${now.toLocaleString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })}`));
 
                 if (state.position && !price) {
                     console.error(c.red("EOD  no live price — force close skipped"));

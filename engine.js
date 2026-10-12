@@ -509,7 +509,7 @@ async function main() {
 
     console.log();
     console.log();
-    console.log(c.bold(`--- ${context.name.padEnd(12)} ${new Date().toLocaleString("en-IN", { hour12: false })} ---`));
+    console.log(c.bold(`--- ${context.name.padEnd(12)} ${new Date().toLocaleString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })} ---`));
 
     // ─── INSTANTIATE — one of each, scoped to `context` ────────────────────────
     const { tg }   = createTelegram(context, engineConfig);

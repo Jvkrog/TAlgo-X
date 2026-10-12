@@ -477,7 +477,7 @@ async function main() {
     // ─── Web dashboard live pane + console heartbeat — one line per leg,
     // once per 15-minute evaluation.
     async function emitLivePnl() {
-        const ts = new Date().toLocaleTimeString("en-IN", { hour12: false });
+        const ts = new Date().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         for (const leg of [long, short]) {
             const price = (tickPrice !== null && Date.now() - tickAt <= PRICE_STALE_MS) ? tickPrice : await getLtp(leg.ltpKey).catch(() => null);
             if (price === null) continue;

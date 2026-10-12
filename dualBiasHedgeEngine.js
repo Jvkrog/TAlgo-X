@@ -253,7 +253,7 @@ async function main() {
 
     let lastBeat = 0;
     async function emitLivePnl() {
-        const ts = new Date().toLocaleTimeString("en-IN", { hour12: false });
+        const ts = new Date().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const beat = Date.now() - lastBeat >= 15 * 60 * 1000;
         if (beat) lastBeat = Date.now();
         for (const leg of [long, short]) {

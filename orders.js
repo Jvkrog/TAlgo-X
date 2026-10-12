@@ -61,7 +61,7 @@ function createOrders(context, tg, kcOverride) {
     // CHANGED: split from one long line into two shorter ones — the single-line
     // version wrapped awkwardly on a mobile SSH terminal's narrow width.
     function _logOrder(signal, orderId, status, qty, price) {
-        const ts     = new Date().toLocaleTimeString("en-IN", { hour12: false });
+        const ts     = new Date().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
         const line1  = `ORDER  ${ts}  [${context.tgPrefix}]  ${signal}  ${status}`;
         const line2  = `  id:${orderId}  qty:${qty}  px:${price ?? "MKT"}`;
         const colorFn = (status === "FILLED" || status === "PLACED") ? c.dim : c.red;

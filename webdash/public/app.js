@@ -671,7 +671,7 @@ async function handleTokenRedirectParams() {
 const MAX_LOG_LINES = 400;
 
 function ts() {
-  return new Date().toLocaleTimeString("en-IN", { hour12: false });
+  return new Date().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
 }
 
 function escHtml(s) {
@@ -3193,7 +3193,7 @@ async function loadMarketStatus() {
       entries.forEach(e => {
         const p = e.profile;
         const cls = stateClass(p.structure.state);
-        const updated = p.updatedAt ? new Date(p.updatedAt).toLocaleTimeString([], { hour12: false }) : (p.unavailableReason || "No data");
+        const updated = p.updatedAt ? new Date(p.updatedAt).toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" }) : (p.unavailableReason || "No data");
         html += `
           <div class="tb-watch-row">
             <div class="tb-watch-main">
