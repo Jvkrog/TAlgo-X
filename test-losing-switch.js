@@ -16,14 +16,16 @@ engineConfig.CHOP_GATE_ALWAYS_FORCE = false; engineConfig.BAND_STEP_DEFAULT = 1;
 const IST = 5.5 * 3600000;
 const at = (day, hh, mm = 0) => new Date(Date.UTC(2026, 8, day, hh, mm) - IST);   // IST wall time on Sep <day>
 
-function rig({ max, ledger, exitFails = () => false } = {}) {
+function rig({ max, maxTrades, ledger, exitFails = () => false } = {}) {
     let now = at(11, 10);
     const clock = { now: () => now };
     ledger = ledger || createBacktestLedger({ clock });
     // the in-memory ledger has no journal query; same semantics as db.js's countLosingFlipExitsSince
     ledger.countLosingFlipExitsSince = async (engine, reasons, sinceIso) =>
         ledger.getAllTrades().filter(t => t.status === "CLOSED" && t.pnl < 0 && reasons.includes(t.exit_reason) && t.exit_time >= sinceIso).length;
-    const context = { tgPrefix: "T", symbol: "T", token: 1, lots: 1, lotMult: 1, name: "T", strategy: "DYNAMIC_BAND", maxLosingSwitchesPerDay: max,
+    ledger.countLosingTradesSince = async (engine, sinceIso) =>
+        ledger.getAllTrades().filter(t => t.status === "CLOSED" && t.pnl < 0 && t.exit_time >= sinceIso).length;
+    const context = { tgPrefix: "T", symbol: "T", token: 1, lots: 1, lotMult: 1, name: "T", strategy: "DYNAMIC_BAND", maxLosingSwitchesPerDay: max, maxLosingTradesPerDay: maxTrades,
         chopFilterEnabled: false, bandStep: 1, htfGateEnabled: false, dailyHaGateEnabled: false };
     const state = createState();
     let candle = null; const raw = [];
@@ -40,6 +42,7 @@ function rig({ max, ledger, exitFails = () => false } = {}) {
     return {
         state, ledger, strat, context,
         async feed(d, open, close) { now = d; candle = { open, high: Math.max(open, close), low: Math.min(open, close), close, date: d.toISOString() }; raw.push(candle); await strat.processCandle(candle); },
+        close: (price, reason) => posClose(price, reason),
         setLive(l) { engineConfig.LIVE_ORDERS = l; },
     };
 }
@@ -115,6 +118,39 @@ async function t(name, fn) { await fn(); passed++; console.log("ok  -", name); }
         await quiet(() => r.feed(at(11, 10, 30), 99.5, 99.4));
         assert.strictEqual(r.state.losingSwitchStats.losingReversals, 1); assert.strictEqual(r.state.position, "SHORT");
         r.setLive(false);
+    });
+    // ── max losing trades per day (any exit reason) ──
+    await t("losing-trade limit 2: second losing trade ends the day (no reversal entry)", async () => {
+        const r = rig({ maxTrades: 2 }); await quiet(() => choppy(r));
+        assert.strictEqual(r.state.position, null); assert.strictEqual(exits(r).length, 2);
+    });
+    await t("losing-trade limit 1: first losing flip exits and stays flat", async () => {
+        const r = rig({ maxTrades: 1 }); await quiet(() => choppy(r));
+        assert.strictEqual(r.state.position, null); assert.strictEqual(exits(r).length, 1);
+    });
+    await t("losing-trade limit counts stop-loss exits too, then blocks entries", async () => {
+        const r = rig({ maxTrades: 1 });
+        await quiet(async () => { await r.feed(at(11, 10), 100, 102); await r.close(100, "ATR SL HIT"); await r.feed(at(11, 10, 15), 100, 130); });
+        assert.strictEqual(r.state.position, null); assert.strictEqual(exits(r).length, 1);
+    });
+    await t("profitable trades never count toward the losing-trade limit", async () => {
+        const r = rig({ maxTrades: 1 });
+        await quiet(async () => { await r.feed(at(11, 10), 100, 102); await r.close(105, "TARGET"); await r.feed(at(11, 10, 15), 105, 140); });
+        assert.strictEqual(r.state.position, "LONG");
+    });
+    await t("losing-trade limit resets next IST day", async () => {
+        const r = rig({ maxTrades: 1 }); await quiet(async () => { await choppy(r); await r.feed(at(12, 10), 99.5, 130); });
+        assert.strictEqual(r.state.position, "LONG");
+    });
+    await t("losing-trade limit survives a restart (rebuilt from journal)", async () => {
+        const a = rig({ maxTrades: 1 }); await quiet(() => choppy(a));
+        const b = rig({ maxTrades: 1, ledger: a.ledger });
+        await quiet(async () => { await b.strat.initSignals(); await b.feed(at(11, 13), 99.5, 150); });
+        assert.strictEqual(b.state.position, null);
+    });
+    await t("both limits together: whichever is hit first blocks entries", async () => {
+        const r = rig({ max: 5, maxTrades: 2 }); await quiet(() => choppy(r));
+        assert.strictEqual(exits(r).length, 2); assert.strictEqual(r.state.position, null);
     });
     console.log(`\n${passed} scenarios passed`);
     process.exit(0);

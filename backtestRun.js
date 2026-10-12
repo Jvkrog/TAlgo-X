@@ -423,17 +423,21 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
 
     // Losing-reversal limiter stats, restricted to the requested window (warmup days are replayed too).
     let losingSwitch = null;
-    if (context.maxLosingSwitchesPerDay) {
-        const st = state.losingSwitchStats || { losingDays: [], blockedDays: [], exhaustedDays: [] };
+    if (context.maxLosingSwitchesPerDay || context.maxLosingTradesPerDay) {
+        const st = state.losingSwitchStats || { losingDays: [], blockedDays: [], exhaustedDays: [], tradeLimitDays: [], tradeBlockedDays: [] };
         const fromDay = new Date(from.getTime() + 5.5 * 3600000).toISOString().slice(0, 10);
         const inWin = d => d >= fromDay;
         losingSwitch = {
-            max: Number(context.maxLosingSwitchesPerDay),
+            max: Number(context.maxLosingSwitchesPerDay) || null,
+            maxTrades: Number(context.maxLosingTradesPerDay) || null,
+            tradeLimitDays: (st.tradeLimitDays || []).filter(inWin).length,
+            tradeBlocked: (st.tradeBlockedDays || []).filter(inWin).length,
             losingReversals: st.losingDays.filter(inWin).length,
             blockedReversals: st.blockedDays.filter(inWin).length,
             daysExhausted: st.exhaustedDays.filter(inWin).length,
         };
-        console.log(`[DSB] Losing-reversal limit ${losingSwitch.max}/day: ${losingSwitch.losingReversals} losing reversals, ${losingSwitch.blockedReversals} blocked, ${losingSwitch.daysExhausted} day(s) exhausted`);
+        if (losingSwitch.max) console.log(`[DSB] Losing-reversal limit ${losingSwitch.max}/day: ${losingSwitch.losingReversals} losing reversals, ${losingSwitch.blockedReversals} blocked, ${losingSwitch.daysExhausted} day(s) exhausted`);
+        if (losingSwitch.maxTrades) console.log(`[DSB] Losing-trade limit ${losingSwitch.maxTrades}/day: reached on ${losingSwitch.tradeLimitDays} day(s), ${losingSwitch.tradeBlocked} entries blocked`);
     }
 
     const report = buildReport({

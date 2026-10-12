@@ -3853,7 +3853,7 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
 
     async function doEnter(side, livePrice, reason) {
         if (lsGate.isLocked()) {
-            console.log(`[DSB] ${side} entry blocked — daily losing-switch limit exhausted (${lsGate.count}/${lsGate.max}); no entries until the next session`);
+            console.log(`[DSB] ${lsGate.lockMessage(side)}`);
             console.log(`[DSB] State: ${state.position || "FLAT"}`);
             return false;
         }
@@ -4179,7 +4179,7 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
 
     async function doEnter(side, livePrice, atrVal, reason) {
         if (lsGate.isLocked()) {
-            console.log(`[DSB] ${side} entry blocked — daily losing-switch limit exhausted (${lsGate.count}/${lsGate.max}); no entries until the next session`);
+            console.log(`[DSB] ${lsGate.lockMessage(side)}`);
             console.log(`[DSB] State: ${state.position || "FLAT"}`);
             return false;
         }
@@ -4601,7 +4601,7 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
 
     async function doEnter(side, livePrice, atrVal, reason) {
         if (lsGate.isLocked()) {
-            console.log(`[DSB] ${side} entry blocked — daily losing-switch limit exhausted (${lsGate.count}/${lsGate.max}); no entries until the next session`);
+            console.log(`[DSB] ${lsGate.lockMessage(side)}`);
             console.log(`[DSB] State: ${state.position || "FLAT"}`);
             return false;
         }
@@ -6666,7 +6666,7 @@ function createAlmaDsbStrategy({ context, engineConfig, state, db, candles, slSt
 
     async function doEnter(side, livePrice, atrVal, isReversal, info) {
         if (lsGate.isLocked()) {
-            console.log(`[DSB] ${side} entry blocked — daily losing-switch limit exhausted (${lsGate.count}/${lsGate.max}); no entries until the next session`);
+            console.log(`[DSB] ${lsGate.lockMessage(side)}`);
             console.log(`[DSB] State: ${state.position || "FLAT"}`);
             return false;
         }

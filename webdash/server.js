@@ -460,6 +460,7 @@ async function getEngineProcesses() {
                 : null,
             // DSB-family daily losing-reversal limit; null = off
             maxLosingSwitches: p.pm2_env.env?.MAX_LOSING_SWITCHES_OVERRIDE ? p.pm2_env.env.MAX_LOSING_SWITCHES_OVERRIDE : null,
+            maxLosingTrades: p.pm2_env.env?.MAX_LOSING_TRADES_OVERRIDE ? p.pm2_env.env.MAX_LOSING_TRADES_OVERRIDE : null,
             // undefined (not false) when unset, so buildProcessEnv can tell
             // "never configured" apart from "explicitly turned off" and skip
             // the env var entirely rather than writing a wrong default
@@ -526,6 +527,7 @@ function buildProcessEnv(p, overrides = {}) {
     env.TARGET_POINTS_OVERRIDE = (p.targetPoints !== null && p.targetPoints !== undefined) ? String(p.targetPoints) : "";
     env.TARGET_MODE_OVERRIDE = p.targetMode === "adaptive" ? "adaptive" : "";
     env.BAND_STEP_OVERRIDE = (p.bandStep !== null && p.bandStep !== undefined) ? String(p.bandStep) : "";
+    env.MAX_LOSING_TRADES_OVERRIDE = (p.maxLosingTrades !== null && p.maxLosingTrades !== undefined && p.maxLosingTrades !== "") ? String(p.maxLosingTrades) : "";
     env.MAX_LOSING_SWITCHES_OVERRIDE = (p.maxLosingSwitches !== null && p.maxLosingSwitches !== undefined && p.maxLosingSwitches !== "") ? String(p.maxLosingSwitches) : "";
     env.GREY_EXIT_OVERRIDE = p.greyExitEnabled !== undefined ? String(!!p.greyExitEnabled) : "";
     env.ALMA_BAND_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false ? "false" : "";
@@ -799,7 +801,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, maxLosingSwitches, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -836,6 +838,14 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 const parsedStep = Number(bandStep);
                 if (!Number.isFinite(parsedStep) || parsedStep <= 0) return res.status(400).json({ error: "invalid bandStep value" });
                 updated.bandStep = parsedStep;
+            }
+        }
+        if (maxLosingTrades !== undefined) {
+            if (maxLosingTrades === null || maxLosingTrades === "" || maxLosingTrades === "0" || maxLosingTrades === "clear") updated.maxLosingTrades = null;
+            else {
+                const n = Number(maxLosingTrades);
+                if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "invalid maxLosingTrades value (whole number >= 1, or blank for off)" });
+                updated.maxLosingTrades = n;
             }
         }
         if (maxLosingSwitches !== undefined) {
@@ -1220,7 +1230,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, maxLosingSwitches, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, maxLosingSwitches, maxLosingTrades, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -1319,6 +1329,10 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         if ((stratKey === "DYNAMIC_BAND" || stratKey === "DYNAMIC_MID_COLOR" || (stratKey === "DYNAMIC_MID_COLOR_HL" || stratKey === "ALMA_DSB")) && bandStep !== undefined && bandStep !== null && bandStep !== "") {
             const parsedStep = Number(bandStep);
             if (Number.isFinite(parsedStep) && parsedStep > 0) env.BAND_STEP_OVERRIDE = String(parsedStep);
+        }
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && maxLosingTrades !== undefined && maxLosingTrades !== null && maxLosingTrades !== "") {
+            const n = Number(maxLosingTrades);
+            if (Number.isInteger(n) && n >= 1) env.MAX_LOSING_TRADES_OVERRIDE = String(n);
         }
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && maxLosingSwitches !== undefined && maxLosingSwitches !== null && maxLosingSwitches !== "") {
             const n = Number(maxLosingSwitches);
@@ -1430,7 +1444,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // params (merged onto a per-run engineConfig by backtestRun.js,
         // same as the CLI's params.CHOP_GATE_ALWAYS_FORCE etc.) — everything
         // else mutates context directly, exactly like backtestFlow.js does.
-        chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches,
+        chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches, maxLosingTrades,
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
         disableDoubleOrders, atrSlMult, hardSlRupees, dailyBiasEntryTime, dailyBiasCandle, entryTime,
         volumeFilterEnabled, volumeSmaPeriod,
@@ -1574,6 +1588,11 @@ app.post("/api/toolbox/backtest", async (req, res) => {
             const n = Number(maxLosingSwitches);
             if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "maxLosingSwitches must be a whole number >= 1 (blank = off)" });
             context.maxLosingSwitchesPerDay = n;
+        }
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && maxLosingTrades !== undefined && maxLosingTrades !== null && maxLosingTrades !== "") {
+            const n = Number(maxLosingTrades);
+            if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "maxLosingTrades must be a whole number >= 1 (blank = off)" });
+            context.maxLosingTradesPerDay = n;
         }
         if (carryOvernight !== undefined) context.carryOvernight = !!carryOvernight;
         if (maxDailyLoss !== undefined && maxDailyLoss !== null && maxDailyLoss !== "") {

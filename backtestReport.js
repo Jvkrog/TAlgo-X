@@ -40,6 +40,7 @@ function describeSettings(context, engineConfig, extra = {}) {
     if (context.maxDailyLoss) rows.push(["Max daily loss", `\u20b9${context.maxDailyLoss}`]);
     if (context.sessionTargetRupees) rows.push(["Session target", `\u20b9${context.sessionTargetRupees}`]);
     if (context.bandStep != null) rows.push(["Band step", String(context.bandStep)]);
+    if (context.maxLosingTradesPerDay) rows.push(["Losing-trade limit", `max ${context.maxLosingTradesPerDay} per day, then flat until next session`]);
     if (context.maxLosingSwitchesPerDay) rows.push(["Losing-reversal limit", `max ${context.maxLosingSwitchesPerDay} per day, then flat until next session`]);
     if (context.carryOvernight) rows.push(["Carry overnight", "yes"]);
     return rows;
@@ -70,7 +71,7 @@ function settingsHtml(report) {
     const p = report.params && Object.keys(report.params).length
         ? `<tr><td>Strategy parameters</td><td style="text-align:left">${esc(Object.entries(report.params).map(([k, v]) => `${k}=${v}`).join(", "))}</td></tr>` : "";
     const ls = report.losingSwitch
-        ? `<h2>Losing-reversal limit</h2><table><tbody><tr><td>Limit</td><td style="text-align:left">${report.losingSwitch.max} per day</td></tr><tr><td>Losing reversals</td><td style="text-align:left">${report.losingSwitch.losingReversals}</td></tr><tr><td>Blocked reversals</td><td style="text-align:left">${report.losingSwitch.blockedReversals}</td></tr><tr><td>Days exhausted</td><td style="text-align:left">${report.losingSwitch.daysExhausted}</td></tr></tbody></table>` : "";
+        ? `<h2>Daily loss limits</h2><table><tbody>${report.losingSwitch.max ? `<tr><td>Reversal limit</td><td style="text-align:left">${report.losingSwitch.max} per day</td></tr><tr><td>Losing reversals</td><td style="text-align:left">${report.losingSwitch.losingReversals}</td></tr><tr><td>Blocked reversals</td><td style="text-align:left">${report.losingSwitch.blockedReversals}</td></tr><tr><td>Days exhausted</td><td style="text-align:left">${report.losingSwitch.daysExhausted}</td></tr>` : ""}${report.losingSwitch.maxTrades ? `<tr><td>Losing-trade limit</td><td style="text-align:left">${report.losingSwitch.maxTrades} per day</td></tr><tr><td>Days limit reached</td><td style="text-align:left">${report.losingSwitch.tradeLimitDays}</td></tr><tr><td>Entries blocked</td><td style="text-align:left">${report.losingSwitch.tradeBlocked}</td></tr>` : ""}</tbody></table>` : "";
     return (rows || p ? `<h2>Settings used</h2><table><tbody>${rows}${p}</tbody></table>` : "") + ls;
 }
 

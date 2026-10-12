@@ -28,13 +28,21 @@ const istDayKey = ms => new Date(ms + IST_MS).toISOString().slice(0, 10);
 function createLosingSwitchGate({ context, state, db, clock = { now: () => new Date() }, tag = "DSB" }) {
     let n = 0;
     let dayKey = null;
-    const stats = state.losingSwitchStats = state.losingSwitchStats || { losingReversals: 0, blocked: 0, daysExhausted: 0, exhaustedDays: [], blockedDays: [], losingDays: [] };
+    const stats = state.losingSwitchStats = state.losingSwitchStats || { losingReversals: 0, blocked: 0, daysExhausted: 0, exhaustedDays: [], blockedDays: [], losingDays: [], losingTrades: 0, tradeLimitDays: [], tradeBlocked: 0, tradeBlockedDays: [] };
 
     const max = () => {
         const m = Number(context.maxLosingSwitchesPerDay);
         return Number.isFinite(m) && m > 0 ? m : null;
     };
     const enabled = () => max() !== null;
+    // Second, independent limit: losing trades of ANY exit reason per IST day (stop-loss, target, flip, ...).
+    // Once the Nth losing trade closes, no further entries until the next session.
+    let nt = 0;
+    const maxT = () => {
+        const m = Number(context.maxLosingTradesPerDay);
+        return Number.isFinite(m) && m > 0 ? m : null;
+    };
+    const tradesEnabled = () => maxT() !== null;
     const log = msg => console.log(`[${tag}] ${msg}`);
 
     // Resets the counter when the IST day has changed since the last call (live: process spanning days;
@@ -46,6 +54,7 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
             dayKey = k;
             if (n > 0 && enabled()) log(`Daily losing-switch counter reset (was ${n})`);
             n = 0;
+            nt = 0;
         }
     }
 
@@ -53,6 +62,13 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
     // can't answer (backtest ledger).
     async function restore() {
         dayKey = istDayKey(clock.now().getTime());
+        const since = new Date(istDayStartMs(clock.now().getTime())).toISOString();
+        if (tradesEnabled() && typeof db.countLosingTradesSince === "function") {
+            try {
+                nt = await db.countLosingTradesSince(context.tgPrefix, since);
+                if (nt > 0) log(`Losing trades today restored after restart: ${nt}/${maxT()}${nt >= maxT() ? " — limit reached, entries blocked for today" : ""}`);
+            } catch (err) { console.warn(`[${tag}] could not restore losing-trade counter: ${err.message}`); }
+        }
         if (!enabled() || typeof db.countLosingFlipExitsSince !== "function") return;
         try {
             n = await db.countLosingFlipExitsSince(context.tgPrefix, FLIP_REASONS, new Date(istDayStartMs(clock.now().getTime())).toISOString());
@@ -87,14 +103,37 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
         }
     }
 
-    // True when entries must not happen (limit exhausted for today). Checked before every entry.
-    function isLocked() {
-        if (!enabled()) return false;
+    // Every closed position (any exit reason) reports here through positions.close -> state.onClose.
+    function onClose(reason, pnl) {
+        if (!tradesEnabled() || !(pnl < 0)) return;
         rollDay();
-        return n > max();
+        nt += 1;
+        stats.losingTrades += 1;
+        log(`Losing trades today: ${nt}/${maxT()} (${reason}, pnl ${pnl.toFixed(2)})`);
+        if (nt === maxT()) {
+            const day = istDayKey(clock.now().getTime());
+            if (!stats.tradeLimitDays.includes(day)) stats.tradeLimitDays.push(day);
+            log("Daily losing-trade limit reached; no further entries today");
+        }
+    }
+    const prevOnClose = state.onClose;
+    state.onClose = (reason, pnl) => { if (typeof prevOnClose === "function") prevOnClose(reason, pnl); onClose(reason, pnl); };
+
+    function tradesLocked() { return tradesEnabled() && (rollDay(), nt >= maxT()); }
+    function reversalsLocked() { return enabled() && (rollDay(), n > max()); }
+
+    // True when entries must not happen (either limit exhausted for today). Checked before every entry.
+    function isLocked() { return reversalsLocked() || tradesLocked(); }
+
+    function lockMessage(side) {
+        if (tradesLocked()) {
+            stats.tradeBlocked += 1; stats.tradeBlockedDays.push(istDayKey(clock.now().getTime()));
+            return `${side} entry blocked — daily losing-trade limit reached (${nt}/${maxT()}); no entries until the next session`;
+        }
+        return `${side} entry blocked — daily losing-switch limit exhausted (${n}/${max()}); no entries until the next session`;
     }
 
-    return { restore, recordFlipExit, isLocked, isFlipReason, get count() { return n; }, get max() { return max(); }, stats };
+    return { restore, recordFlipExit, isLocked, lockMessage, isFlipReason, get count() { return n; }, get max() { return max(); }, get tradeCount() { return nt; }, stats };
 }
 
 module.exports = { createLosingSwitchGate, FLIP_REASONS };

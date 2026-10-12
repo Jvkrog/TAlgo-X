@@ -223,6 +223,7 @@ function buildContext(def, resolvedContract) {
         atrSlMult: null,
         // Hard stop-loss in rupees (null = off -> ATR stop). Either this or the ATR stop applies, never both.
         hardSlRupees: null,
+        maxLosingTradesPerDay: null,     // DSB family only: max losing trades (any exit reason) per IST day, then flat until next session (null = off)
         maxLosingSwitchesPerDay: null,   // DSB family only: max losing signal-driven reversals per IST day (null = off) — see losingSwitchGate.js
         // volumeGate.js's universal entry gate — only enter when current
         // volume is strictly above its own SMA. Off by default (opt-in,

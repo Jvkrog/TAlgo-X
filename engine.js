@@ -410,6 +410,11 @@ async function main() {
         const parsedLs = Number(process.env.MAX_LOSING_SWITCHES_OVERRIDE);
         context.maxLosingSwitchesPerDay = Number.isFinite(parsedLs) && parsedLs > 0 ? Math.floor(parsedLs) : null;
     }
+    if (process.env.MAX_LOSING_TRADES_OVERRIDE !== undefined && process.env.MAX_LOSING_TRADES_OVERRIDE !== "") {
+        const parsedLt = Number(process.env.MAX_LOSING_TRADES_OVERRIDE);
+        context.maxLosingTradesPerDay = Number.isFinite(parsedLt) && parsedLt > 0 ? Math.floor(parsedLt) : null;
+    }
+    if (context.maxLosingTradesPerDay) console.log(c.dim(`[${context.tgPrefix}] [DSB] losing-trade limit: ${context.maxLosingTradesPerDay} per day (then flat until next session)`));
     if (context.maxLosingSwitchesPerDay) console.log(c.dim(`[${context.tgPrefix}] [DSB] losing-reversal limit: ${context.maxLosingSwitchesPerDay} per day (then flat until next session)`));
     console.log(c.dim(`[${context.tgPrefix}] ${context.hardSlRupees ? `HARD SL: \u20b9${context.hardSlRupees} per position (ATR stop off)` : `ATR SL multiplier: ${context.atrSlMult ?? `${engineConfig.ATR_SL_MULT} (default)`}`}${context.strategy === "PURE_HA" ? `  |  flip confirm: ${context.flipConfirmCandles ?? 1} candle(s)` : ""}`));
 

@@ -1543,6 +1543,7 @@ function renderRiskList() {
     else if (inst.entryTime) badges.push(`<span class="mode-pill">entry \u2265 ${inst.entryTime}</span>`);
     if (inst.hardSlRupees) badges.push(`<span class="mode-pill">hard SL \u20b9${inst.hardSlRupees}</span>`);
     else if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
+    if (inst.maxLosingTrades) badges.push(`<span class="mode-pill">max ${inst.maxLosingTrades} losing trades/day</span>`);
     if (inst.maxLosingSwitches) badges.push(`<span class="mode-pill">max ${inst.maxLosingSwitches} losing flips/day</span>`);
     if (inst.maxDailyLoss) badges.push(`<span class="mode-pill">maxloss -₹${inst.maxDailyLoss}</span>`);
     row.innerHTML = `
@@ -1767,6 +1768,10 @@ function openEditModal(inst) {
       <div class="tb-form-label">Max losing reversals per day, then flat until next session (blank = off)</div>
       <input type="number" id="editMaxLosingSwitches" min="1" step="1" value="${inst.maxLosingSwitches ?? ""}">
     </div>
+    <div class="tb-form-row" style="${isDynamicBand ? "" : "display:none"}">
+      <div class="tb-form-label">Max losing trades per day (any exit: flip, stop-loss, target), then flat until next session (blank = off)</div>
+      <input type="number" id="editMaxLosingTrades" min="1" step="1" value="${inst.maxLosingTrades ?? ""}">
+    </div>
     <div class="tb-form-row" style="${isAlmaTriBand ? "" : "display:none"}">
       <label class="tb-form-row-inline"><input type="checkbox" id="editGreyExit" ${inst.greyExitEnabled ? "checked" : ""}><span>Exit on grey state instead of holding through it</span></label>
     </div>
@@ -1872,6 +1877,7 @@ function openEditModal(inst) {
     if (isDynamicBand) {
       body.bandStep = tbEditBody.querySelector("#editBandStep").value || null;
       body.maxLosingSwitches = tbEditBody.querySelector("#editMaxLosingSwitches").value || null;
+      body.maxLosingTrades = tbEditBody.querySelector("#editMaxLosingTrades").value || null;
     }
     if (isAlmaTriBand) {
       body.greyExitEnabled = tbEditBody.querySelector("#editGreyExit").checked;
@@ -2194,6 +2200,10 @@ function renderAddConfigStep() {
       <div class="tb-form-label">Max losing reversals per day, then flat until next session (Dynamic Step Band family only, blank = off)</div>
       <input type="number" id="addMaxLosingSwitches" min="1" step="1">
     </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">Max losing trades per day, any exit (Dynamic Step Band family only, blank = off)</div>
+      <input type="number" id="addMaxLosingTrades" min="1" step="1">
+    </div>
     <div class="tb-form-row" id="addGreyExitRow" style="display:none">
       <label class="tb-form-row-inline"><input type="checkbox" id="addGreyExit"><span>Exit on grey state instead of holding through it (ALMA_TRI_BAND only, default: hold)</span></label>
     </div>
@@ -2380,6 +2390,7 @@ function renderAddConfigStep() {
         almaChopFilterEnabled: (pickedStrategy === "ALMA_PRO_FAST" || pickedStrategy === "ALMA_PRO_SLOW") ? tbAddBody.querySelector("#addAlmaChop").checked : undefined,
         maxDailyLoss: tbAddBody.querySelector("#addMaxDailyLoss").value || undefined,
         maxLosingSwitches: tbAddBody.querySelector("#addMaxLosingSwitches").value || undefined,
+        maxLosingTrades: tbAddBody.querySelector("#addMaxLosingTrades").value || undefined,
         bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || (pickedStrategy === "DYNAMIC_MID_COLOR_HL" || pickedStrategy === "ALMA_DSB")) ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
         greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
         disableDoubleOrders: tbAddBody.querySelector("#addDisableDouble").checked,
@@ -2620,6 +2631,10 @@ async function renderBacktestParamsStep() {
       <input type="number" id="btMaxLosingSwitches" min="1" step="1">
     </div>
     <div class="tb-form-row">
+      <div class="tb-form-label">Max losing trades per day, any exit (Dynamic Step Band family only, blank = off)</div>
+      <input type="number" id="btMaxLosingTrades" min="1" step="1">
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">Session target in rupees, quits for the day once reached (blank = no ceiling)</div>
       <input type="number" id="btSessionTarget" min="0" step="any">
     </div>
@@ -2707,6 +2722,7 @@ async function renderBacktestParamsStep() {
       carryOvernight: tbBacktestBody.querySelector("#btCarry").checked,
       maxDailyLoss: tbBacktestBody.querySelector("#btMaxLoss").value || undefined,
       maxLosingSwitches: tbBacktestBody.querySelector("#btMaxLosingSwitches").value || undefined,
+      maxLosingTrades: tbBacktestBody.querySelector("#btMaxLosingTrades").value || undefined,
       sessionTargetRupees: tbBacktestBody.querySelector("#btSessionTarget").value || undefined,
       dailyHaGateEnabled: tbBacktestBody.querySelector("#btDailyHaGate").checked,
       htfGateEnabled: tbBacktestBody.querySelector("#btHtfGate").checked,
@@ -2736,7 +2752,7 @@ async function renderBacktestParamsStep() {
           <div class="tb-summary-cell"><div class="k">Max drawdown</div><div class="v">${fmtMoney(m.maxDrawdown)}</div></div>
           <div class="tb-summary-cell"><div class="k">Avg trade</div><div class="v">${fmtMoney(m.avgTrade)}</div></div>
         </div>
-        ${data.losingSwitch ? `<div class="tb-form-label" style="margin:8px 0">Losing-reversal limit ${data.losingSwitch.max}/day: ${data.losingSwitch.losingReversals} losing reversals · ${data.losingSwitch.blockedReversals} blocked · ${data.losingSwitch.daysExhausted} day(s) exhausted</div>` : ""}
+        ${data.losingSwitch ? `<div class="tb-form-label" style="margin:8px 0">${data.losingSwitch.max ? `Losing-reversal limit ${data.losingSwitch.max}/day: ${data.losingSwitch.losingReversals} losing reversals · ${data.losingSwitch.blockedReversals} blocked · ${data.losingSwitch.daysExhausted} day(s) exhausted` : ""}${data.losingSwitch.max && data.losingSwitch.maxTrades ? "<br>" : ""}${data.losingSwitch.maxTrades ? `Losing-trade limit ${data.losingSwitch.maxTrades}/day: reached on ${data.losingSwitch.tradeLimitDays} day(s) · ${data.losingSwitch.tradeBlocked} entries blocked` : ""}</div>` : ""}
         <a class="tb-report-link" href="${data.reportUrl}" target="_blank" rel="noopener">Open full report ↗</a>
         <button type="button" class="tb-submit-btn" id="btDeployFromBt" style="margin-top:10px;width:100%">Deploy instrument with this config</button>
         <div class="tb-bt-log-wrap">
@@ -2798,6 +2814,7 @@ function renderBtDeployView(bt) {
     ["Carry overnight", bt.carryOvernight ? "Yes" : "No"],
     ["Max daily loss", bt.maxDailyLoss ? "₹" + bt.maxDailyLoss : "—"],
     ...(bt.maxLosingSwitches ? [["Max losing reversals/day", bt.maxLosingSwitches]] : []),
+    ...(bt.maxLosingTrades ? [["Max losing trades/day", bt.maxLosingTrades]] : []),
     ...(bt.sessionTargetRupees ? [["Session target", "₹" + bt.sessionTargetRupees + " (backtest only — not applied on deploy)"]] : []),
     ...(bandStep ? [["Band step", bandStep]] : []),
     ...(almaFastLen ? [["ALMA fast length", almaFastLen]] : []),
@@ -2843,6 +2860,7 @@ function renderBtDeployView(bt) {
       timeframe: bt.timeframe,
       maxDailyLoss: bt.maxDailyLoss,
       maxLosingSwitches: bt.maxLosingSwitches,
+      maxLosingTrades: bt.maxLosingTrades,
       bandStep: bandStep || undefined,
       almaFastLen: bt.strategy === "ALMA_PRO_FAST" ? (almaFastLen || undefined) : undefined,
       almaBandLen: bt.strategy === "ALMA_PRO_FAST" ? (almaBandLen || undefined) : undefined,

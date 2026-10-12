@@ -43,6 +43,7 @@ async function close(context, state, db, tg, price, reason) {
         },
     });
     state.peakPnl = null; state.troughPnl = null;
+    if (typeof state.onClose === "function") { try { state.onClose(reason, pnl); } catch (e) { console.warn(`onClose hook failed: ${e.message}`); } }   // losingSwitchGate.js trade counter
     state.openTradeId = null;
     state.position     = null;
     state.entryPrice   = 0;
