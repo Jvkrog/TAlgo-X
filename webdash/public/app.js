@@ -2749,7 +2749,7 @@ async function renderBacktestParamsStep() {
           <div class="tb-summary-cell"><div class="k">Win rate</div><div class="v">${(m.winRate * 100).toFixed(1)}%</div></div>
           <div class="tb-summary-cell"><div class="k">Profit factor</div><div class="v">${m.profitFactor === null ? "-" : m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2)}</div></div>
           <div class="tb-summary-cell"><div class="k">Net pnl</div><div class="v">${fmtMoney(m.netPnL)}</div></div>
-          <div class="tb-summary-cell"><div class="k">Max drawdown</div><div class="v">${fmtMoney(m.maxDrawdown)}</div></div>
+          <div class="tb-summary-cell"><div class="k">Max drawdown</div><div class="v">${Math.round(Math.abs(m.maxDrawdown)).toLocaleString()}</div></div>
           <div class="tb-summary-cell"><div class="k">Avg trade</div><div class="v">${fmtMoney(m.avgTrade)}</div></div>
         </div>
         ${data.losingSwitch ? `<div class="tb-form-label" style="margin:8px 0">${data.losingSwitch.max ? `Losing-reversal limit ${data.losingSwitch.max}/day: ${data.losingSwitch.losingReversals} losing reversals · ${data.losingSwitch.blockedReversals} blocked · ${data.losingSwitch.daysExhausted} day(s) exhausted` : ""}${data.losingSwitch.max && data.losingSwitch.maxTrades ? "<br>" : ""}${data.losingSwitch.maxTrades ? `Losing-trade limit ${data.losingSwitch.maxTrades}/day: reached on ${data.losingSwitch.tradeLimitDays} day(s) · ${data.losingSwitch.tradeBlocked} entries blocked` : ""}</div>` : ""}
