@@ -1838,7 +1838,7 @@ function openEditModal(inst) {
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="editDailyHaGate" ${inst.dailyHaGateEnabled !== false ? "checked" : ""}><span>Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)</span></label>
-      <div class="tb-form-hint">On by default, applies universally regardless of strategy.</div>
+      <div class="tb-form-hint">Off by default; when on, applies universally regardless of strategy.</div>
     </div>
     <div id="editErrBox"></div>
     <button class="tb-submit-btn" id="editSubmit">Save changes (restarts the process)</button>
@@ -2247,22 +2247,22 @@ function renderAddConfigStep() {
       <div class="tb-form-hint">On by default. Existing SL/target/exit are never affected.</div>
       <input type="number" id="addLongCandleAtrPeriod" min="1" step="1" placeholder="ATR period, blank = default (14)">
       <input type="number" id="addLongCandleAtrMult" min="0" step="any" placeholder="ATR multiplier, blank = default (1.5)">
-      <input type="number" id="addLongCandleCooldown" min="0" step="1" placeholder="cooldown candles, blank = default (2)">
+      <input type="number" id="addLongCandleCooldown" min="0" step="1" value="0" placeholder="cooldown candles (default 0)">
     </div>
     <div class="tb-form-row">
       <div class="tb-form-label">Max daily loss in rupees, quits for the day if breached (blank = no floor)</div>
       <input type="number" id="addMaxDailyLoss" min="0" step="any">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addHtfGate" checked><span>Block entries when a higher timeframe is trending but price hasn't broken its band yet (default: ON)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="addHtfGate"><span>Block entries when a higher timeframe is trending but price hasn't broken its band yet (default: OFF)</span></label>
       <div class="tb-form-hint">Checks the instrument's own selected candle timeframe; period/max tune its Choppiness Index reading.</div>
       <input type="number" id="addHtfChopPeriod" min="1" step="1" placeholder="chop period, blank = default (9)">
       <input type="number" id="addHtfChopMax" min="0" step="any" placeholder="chop max, blank = default (58)">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addHtfBandBlock" checked><span>Also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="addHtfBandBlock"><span>Also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addDailyHaGate" checked><span>Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)</span></label>
-      <div class="tb-form-hint">On by default, applies universally regardless of strategy.</div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="addDailyHaGate"><span>Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)</span></label>
+      <div class="tb-form-hint">Off by default; when on, applies universally regardless of strategy.</div>
     </div>
     <div id="addErrBox"></div>
     <button class="tb-submit-btn" id="addSubmit">Start instrument</button>
@@ -2588,7 +2588,7 @@ async function renderBacktestParamsStep() {
       <label class="tb-form-row-inline"><input type="checkbox" id="btLcEnabled" checked><span>Block entries after an abnormally large candle (default Y)</span></label>
       <input type="number" id="btLcPeriod" placeholder="ATR period, default 14" min="1" step="1">
       <input type="number" id="btLcMult" placeholder="ATR multiplier, default 1.5" min="0" step="any">
-      <input type="number" id="btLcCooldown" placeholder="cooldown candles, default 2" min="0" step="1">
+      <input type="number" id="btLcCooldown" value="0" placeholder="cooldown candles, default 0" min="0" step="1">
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="btDoubleDisabled"><span>Disable double orders, blocks reversal re-entries only (default N)</span></label>
@@ -2639,13 +2639,13 @@ async function renderBacktestParamsStep() {
       <input type="number" id="btSessionTarget" min="0" step="any">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="btDailyHaGate" checked><span>Only allow entries matching the previous daily HA candle's color (green=long only, red=short only) (default Y)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="btDailyHaGate"><span>Only allow entries matching the previous daily HA candle's color (green=long only, red=short only) (default N)</span></label>
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="btHtfGate" checked><span>HTF gate \u2014 block entries while the higher-timeframe chop says trending but price is still inside its own ALMA band (default Y)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="btHtfGate"><span>HTF gate \u2014 block entries while the higher-timeframe chop says trending but price is still inside its own ALMA band (default N)</span></label>
       <input type="number" id="btHtfChopPeriod" min="1" step="1" placeholder="chop period, blank = default (9)">
       <input type="number" id="btHtfChopMax" min="0" step="any" placeholder="chop max, blank = default (58)">
-      <label class="tb-form-row-inline"><input type="checkbox" id="btHtfBandBlock" checked><span>Also require price still inside its own ALMA band (uncheck = block on chop alone)</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="btHtfBandBlock"><span>Also require price still inside its own ALMA band (uncheck = block on chop alone)</span></label>
     </div>
     <div id="btErrBox"></div>
     <div id="btResultBox"></div>
