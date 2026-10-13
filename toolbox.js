@@ -656,13 +656,13 @@ function buildProcessEnv(p, overrides = {}) {
     env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE = p.longCandleBodyAtrMult ? String(p.longCandleBodyAtrMult) : "";
     // htfGate.js — on by default, always written explicitly (both true AND
     // false), same write-asymmetry reasoning as LONG_CANDLE_FILTER_OVERRIDE.
-    env.HTF_GATE_ENABLED_OVERRIDE = p.htfGateEnabled === false ? "false" : "true";
+    env.HTF_GATE_ENABLED_OVERRIDE = "false";
     env.HTF_TIMEFRAME_OVERRIDE = p.htfTimeframe || "";
     env.HTF_CHOP_PERIOD_OVERRIDE = p.htfChopPeriod ? String(p.htfChopPeriod) : "";
     env.HTF_CHOP_MAX_OVERRIDE = p.htfChopMax ? String(p.htfChopMax) : "";
     // htfGate.js's ALMA-band clause — independently configurable since
     // Sep 2026, same write-asymmetry reasoning as the gate flags above.
-    env.HTF_BAND_BLOCK_ENABLED_OVERRIDE = p.htfBandBlockEnabled === false ? "false" : "true";
+    env.HTF_BAND_BLOCK_ENABLED_OVERRIDE = "false";
     // dailyHaGate.js's universal directional gate (orders.js) — on by
     // default, same write-asymmetry reasoning as the gate flags above.
     env.DAILY_HA_GATE_ENABLED_OVERRIDE = p.dailyHaGateEnabled === false ? "false" : "true";
@@ -1356,55 +1356,8 @@ async function riskManagement(procs) {
             }
         }
 
-        // htfGate.js's universal higher-timeframe confirmation gate — ON
-        // by default (opt-out, same posture as the long-candle filter
-        // above — see htfGate.js's header for the exact condition).
-        let htfGateEnabled = p.htfGateEnabled;
-        let htfTimeframe = p.htfTimeframe;
-        let htfChopPeriod = p.htfChopPeriod;
-        let htfChopMax = p.htfChopMax;
-        if (!isDailyHaBias) {
-            const htfGateDefault = p.htfGateEnabled !== false;
-            const htfGateInput = (await ask(`  Block entries when a higher timeframe is trending but hasn't broken its own ALMA band? [Y/n] (current: ${htfGateDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
-            if (htfGateInput) htfGateEnabled = htfGateInput !== "N";
-            if (htfGateEnabled) {
-                const htfPeriodDefault = htfChopPeriod !== null ? String(htfChopPeriod) : `${engineConfig.HTF_CHOP_LEN_DEFAULT} (default)`;
-                const htfPeriodInput = (await ask(`  Higher-timeframe Choppiness Index period (current: ${htfPeriodDefault}, "0"/"clear" for default, blank = keep): `)).trim();
-                if (htfPeriodInput) {
-                    if (htfPeriodInput === "0" || htfPeriodInput.toLowerCase() === "clear") htfChopPeriod = null;
-                    else {
-                        const parsed = Number(htfPeriodInput);
-                        if (Number.isFinite(parsed) && parsed > 0) htfChopPeriod = parsed;
-                        else console.log(c.yellow(`  "${htfPeriodInput}" isn't a valid positive number — period left unchanged (${htfPeriodDefault})`));
-                    }
-                }
-                const htfMaxDefault = htfChopMax !== null ? String(htfChopMax) : `${engineConfig.HTF_CHOP_MAX_DEFAULT} (default)`;
-                const htfMaxInput = (await ask(`  Higher-timeframe Choppiness Index max threshold, blocks below this (current: ${htfMaxDefault}, "0"/"clear" for default, blank = keep): `)).trim();
-                if (htfMaxInput) {
-                    if (htfMaxInput === "0" || htfMaxInput.toLowerCase() === "clear") htfChopMax = null;
-                    else {
-                        const parsed = Number(htfMaxInput);
-                        if (Number.isFinite(parsed) && parsed > 0) htfChopMax = parsed;
-                        else console.log(c.yellow(`  "${htfMaxInput}" isn't a valid positive number — max threshold left unchanged (${htfMaxDefault})`));
-                    }
-                }
-            } else {
-                console.log(c.dim(`  HTF gate off — entries will NOT be blocked by the higher-timeframe check`));
-            }
-        }
-
-        // htfGate.js's ALMA-band clause — independently configurable since
-        // Sep 2026 (previously fused unconditionally into the gate above).
-        // Only meaningful while the HTF gate itself is on.
-        let htfBandBlockEnabled = p.htfBandBlockEnabled;
-        if (htfGateEnabled && !isDailyHaBias) {
-            const htfBandDefault = p.htfBandBlockEnabled !== false;
-            const htfBandInput = (await ask(`  HTF gate: also require price still inside its own ALMA band (not just low chop)? [Y/n] (current: ${htfBandDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
-            if (htfBandInput) htfBandBlockEnabled = htfBandInput !== "N";
-            if (htfBandBlockEnabled === false) {
-                console.log(c.dim(`  HTF gate will block purely on low chop alone, for as long as it holds — not just until price breaks the band`));
-            }
-        }
+        // Higher-timeframe gate REMOVED (it kept engines flat) — never prompted, never enabled.
+        let htfGateEnabled = false, htfTimeframe = null, htfChopPeriod = null, htfChopMax = null, htfBandBlockEnabled = false;
 
         // dailyHaGate.js's universal directional gate (orders.js) — on by
         // default, opt-out. Applies to every strategy automatically (see
@@ -1943,34 +1896,8 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         console.log(c.dim(`  Long-candle filter off — entries will NOT be blocked after abnormally large candles`));
     }
 
-    // htfGate.js's universal higher-timeframe confirmation gate — ON by
-    // default (opt-out, same posture as the long-candle filter above).
-    const htfGateInput = (await ask(`  Block entries when a higher timeframe is trending but hasn't broken its own ALMA band? [Y/n] (default: Y): `)).trim().toUpperCase();
-    const htfGateEnabled = htfGateInput !== "N";
-    let htfTimeframe = null;
-    let htfChopPeriod = null;
-    let htfChopMax = null;
-    if (htfGateEnabled) {
-        const htfPeriodInput = (await ask(`  Higher-timeframe Choppiness Index period (blank = default ${engineConfig.HTF_CHOP_LEN_DEFAULT}): `)).trim();
-        if (htfPeriodInput) {
-            const parsed = Number(htfPeriodInput);
-            if (Number.isFinite(parsed) && parsed > 0) htfChopPeriod = parsed;
-            else console.log(c.yellow(`  "${htfPeriodInput}" isn't a valid positive number — using default (${engineConfig.HTF_CHOP_LEN_DEFAULT})`));
-        }
-        const htfMaxInput = (await ask(`  Higher-timeframe Choppiness Index max threshold, blocks below this (blank = default ${engineConfig.HTF_CHOP_MAX_DEFAULT}): `)).trim();
-        if (htfMaxInput) {
-            const parsed = Number(htfMaxInput);
-            if (Number.isFinite(parsed) && parsed > 0) htfChopMax = parsed;
-            else console.log(c.yellow(`  "${htfMaxInput}" isn't a valid positive number — using default (${engineConfig.HTF_CHOP_MAX_DEFAULT})`));
-        }
-    } else {
-        console.log(c.dim(`  HTF gate off — entries will NOT be blocked by the higher-timeframe check`));
-    }
-    let htfBandBlockEnabled = true;
-    if (htfGateEnabled) {
-        const htfBandInput = (await ask(`  HTF gate: also require price still inside its own ALMA band (not just low chop)? [Y/n] (default: Y): `)).trim().toUpperCase();
-        htfBandBlockEnabled = htfBandInput !== "N";
-    }
+    // Higher-timeframe gate REMOVED (it kept engines flat) — never prompted, never enabled.
+    const htfGateEnabled = false; let htfTimeframe = null, htfChopPeriod = null, htfChopMax = null, htfBandBlockEnabled = false;
 
     // Universal daily-HA directional gate (dailyHaGate.js) — on by default, opt-out.
     const dailyHaInput = (await ask(`  Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)? [Y/n] (default: Y): `)).trim().toUpperCase();

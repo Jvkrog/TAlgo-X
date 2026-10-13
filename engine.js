@@ -474,7 +474,7 @@ async function main() {
     // htfGate.js's universal higher-timeframe confirmation gate — on by
     // default (see context.js's htfGateEnabled comment).
     if (process.env.HTF_GATE_ENABLED_OVERRIDE !== undefined && process.env.HTF_GATE_ENABLED_OVERRIDE !== "") {
-        context.htfGateEnabled = process.env.HTF_GATE_ENABLED_OVERRIDE === "true";
+        context.htfGateEnabled = false;   // gate removed: stale HTF_GATE_ENABLED_OVERRIDE values in old PM2 envs are ignored
     }
     if (process.env.HTF_TIMEFRAME_OVERRIDE !== undefined && process.env.HTF_TIMEFRAME_OVERRIDE !== "") {
         context.htfTimeframe = process.env.HTF_TIMEFRAME_OVERRIDE;

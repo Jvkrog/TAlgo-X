@@ -55,6 +55,8 @@ const REFRESH_MS = { "1h": 30 * 60 * 1000, "1d": 12 * 60 * 60 * 1000 };
 // Pure decision shared by the live gate and the backtest replay: `bars` are CLOSED bars of the
 // instrument's own timeframe, oldest -> newest. True = block the entry.
 function evaluateHtf(bars, context, engineConfig) {
+    return false;   // REMOVED: the higher-timeframe gate kept engines flat; it never blocks any more.
+    // eslint-disable-next-line no-unreachable
     if (context.htfGateEnabled === false) return false;
     const period  = context.htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT;
     const almaLen = engineConfig.HTF_ALMA_LEN_DEFAULT;
@@ -121,6 +123,8 @@ function createHtfGate({ context, engineConfig, tg }) {
     }
 
     async function isBlocked() {
+        return false;   // REMOVED: never blocks (no Kite fetch either)
+        // eslint-disable-next-line no-unreachable
         if (context.htfGateEnabled === false) return false;
         // CHANGED Oct 2026 — no separate selector any more: the gate's chop/ALMA
         // reading runs on the instrument's OWN selected candle timeframe (15m, 30m...).

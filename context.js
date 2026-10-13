@@ -388,7 +388,7 @@ function buildContext(def, resolvedContract) {
         // period/max = engineConfig.HTF_CHOP_LEN_DEFAULT/
         // HTF_CHOP_MAX_DEFAULT, same "backtest-tunable without a strategy-
         // specific default" reasoning as chopPeriod/chopMax above.
-        htfGateEnabled: true,
+        htfGateEnabled: false,   // gate removed — never blocks (htfGate.js)
         htfTimeframe: "1h",
         htfChopPeriod: null,
         htfChopMax: null,

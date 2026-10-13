@@ -158,6 +158,8 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     // from the candle buffer exactly like live: chop below the limit and (optionally) price still inside the ALMA band.
     const htf = {
         isBlocked: async () => {
+            return false;   // HTF gate removed
+            // eslint-disable-next-line no-unreachable
             if (context.htfGateEnabled === false) return false;
             const src = feed.getSourceCandles ? feed.getSourceCandles() : feed.getRawCandles();
             return evaluateHtf(src.slice(-200), context, engineConfig);

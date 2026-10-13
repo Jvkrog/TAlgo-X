@@ -580,12 +580,12 @@ function buildProcessEnv(p, overrides = {}) {
     env.LONG_CANDLE_COOLDOWN_OVERRIDE = (p.longCandleCooldownCandles !== null && p.longCandleCooldownCandles !== undefined) ? String(p.longCandleCooldownCandles) : "";
     // Always written explicitly (both true AND false) — same
     // write-asymmetry reasoning as LONG_CANDLE_FILTER_OVERRIDE above.
-    env.HTF_GATE_ENABLED_OVERRIDE = p.htfGateEnabled === false ? "false" : "true";
+    env.HTF_GATE_ENABLED_OVERRIDE = "false";
     env.HTF_TIMEFRAME_OVERRIDE = p.htfTimeframe ? String(p.htfTimeframe) : "";
     env.HTF_CHOP_PERIOD_OVERRIDE = p.htfChopPeriod ? String(p.htfChopPeriod) : "";
     env.HTF_CHOP_MAX_OVERRIDE = p.htfChopMax ? String(p.htfChopMax) : "";
     // Same write-asymmetry reasoning as HTF_GATE_ENABLED_OVERRIDE above.
-    env.HTF_BAND_BLOCK_ENABLED_OVERRIDE = p.htfBandBlockEnabled === false ? "false" : "true";
+    env.HTF_BAND_BLOCK_ENABLED_OVERRIDE = "false";
     env.DAILY_HA_GATE_ENABLED_OVERRIDE = p.dailyHaGateEnabled === false ? "false" : "true";
     return { ...env, ...overrides };
 }
@@ -1448,7 +1448,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         }
         // Always written explicitly (both true AND false), same
         // write-asymmetry reasoning as LONG_CANDLE_FILTER_OVERRIDE above.
-        env.HTF_GATE_ENABLED_OVERRIDE = htfGateEnabled === false ? "false" : "true";
+        env.HTF_GATE_ENABLED_OVERRIDE = "false";
         if (htfTimeframe === "1h" || htfTimeframe === "1d") env.HTF_TIMEFRAME_OVERRIDE = htfTimeframe;
         if (htfChopPeriod !== undefined && htfChopPeriod !== null && htfChopPeriod !== "") {
             const parsedHtfPeriod = Number(htfChopPeriod);
@@ -1460,7 +1460,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         }
         // Always written explicitly (both true AND false), same
         // write-asymmetry reasoning as HTF_GATE_ENABLED_OVERRIDE above.
-        env.HTF_BAND_BLOCK_ENABLED_OVERRIDE = htfBandBlockEnabled === false ? "false" : "true";
+        env.HTF_BAND_BLOCK_ENABLED_OVERRIDE = "false";
         env.DAILY_HA_GATE_ENABLED_OVERRIDE = dailyHaGateEnabled === false ? "false" : "true";
 
         await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name, cwd: ROOT, env });

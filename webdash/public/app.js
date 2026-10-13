@@ -1550,7 +1550,6 @@ function renderRiskList() {
       `<span class="mode-pill ${inst.disableDoubleOrders ? "" : "live"}">double ${inst.disableDoubleOrders ? "off" : "on"}</span>`,
       `<span class="mode-pill ${inst.volumeFilterEnabled ? "live" : ""}">vol ${inst.volumeFilterEnabled ? `sma${inst.volumeSmaPeriod ?? 20}` : "off"}</span>`,
       `<span class="mode-pill ${inst.longCandleFilterEnabled !== false ? "live" : ""}">long-candle ${inst.longCandleFilterEnabled !== false ? "on" : "off"}</span>`,
-      `<span class="mode-pill ${inst.htfGateEnabled !== false ? "live" : ""}">htf ${inst.htfGateEnabled !== false ? (inst.timeframe || "tf") : "off"}</span>`,
       `<span class="mode-pill ${inst.dailyHaGateEnabled !== false ? "live" : ""}">dailyha ${inst.dailyHaGateEnabled !== false ? "on" : "off"}</span>`,
     ];
     if (inst.strategy === "PURE_HA") badges.push(`<span class="mode-pill">flip ${inst.flipConfirmCandles ?? 1}</span>`);
@@ -1864,13 +1863,6 @@ function openEditModal(inst) {
       <label class="tb-form-row-inline"><input type="checkbox" id="editCarry" ${inst.carryOvernight ? "checked" : ""}><span>Carry positions overnight past EOD, NRML-style</span></label>
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editHtfGate" ${inst.htfGateEnabled !== false ? "checked" : ""}><span>Block entries when a higher timeframe is trending but price hasn't broken its band yet</span></label>
-      <div class="tb-form-hint">On by default. Checks the instrument's own selected candle timeframe; period/max tune its Choppiness Index reading.</div>
-      <input type="number" id="editHtfChopPeriod" min="1" step="1" value="${inst.htfChopPeriod ?? ""}" placeholder="chop period, blank = default (9)">
-      <input type="number" id="editHtfChopMax" min="0" step="any" value="${inst.htfChopMax ?? ""}" placeholder="chop max, blank = default (58)">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editHtfBandBlock" ${inst.htfBandBlockEnabled !== false ? "checked" : ""}><span>Also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
-    </div>
-    <div class="tb-form-row">
       <div class="tb-form-label">Candle type</div>
       <div class="tb-form-hint">${candleText(inst)} — fixed at deploy (the state file and process are named after it). To run another candle type, deploy the same instrument again with a different candle.</div>
       ${inst.candleType === "RANGE" ? `<input type="number" id="editRangeSize" min="0" step="any" value="${inst.rangeSize ?? ""}" placeholder="range size, blank = ATR default">` : ""}
@@ -1948,10 +1940,6 @@ function openEditModal(inst) {
     body.longCandleAtrPeriod = tbEditBody.querySelector("#editLongCandleAtrPeriod").value || null;
     body.longCandleAtrMult = tbEditBody.querySelector("#editLongCandleAtrMult").value || null;
     body.longCandleCooldownCandles = tbEditBody.querySelector("#editLongCandleCooldown").value || null;
-    body.htfGateEnabled = tbEditBody.querySelector("#editHtfGate").checked;
-    body.htfChopPeriod = tbEditBody.querySelector("#editHtfChopPeriod").value || null;
-    body.htfChopMax = tbEditBody.querySelector("#editHtfChopMax").value || null;
-    body.htfBandBlockEnabled = tbEditBody.querySelector("#editHtfBandBlock").checked;
     body.dailyHaGateEnabled = tbEditBody.querySelector("#editDailyHaGate").checked;
     const editRange = tbEditBody.querySelector("#editRangeSize");
     if (editRange) body.rangeSize = editRange.value || null;
@@ -2312,13 +2300,6 @@ function renderAddConfigStep() {
       <input type="number" id="addMaxDailyLoss" min="0" step="any">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addHtfGate"><span>Block entries when a higher timeframe is trending but price hasn't broken its band yet (default: OFF)</span></label>
-      <div class="tb-form-hint">Checks the instrument's own selected candle timeframe; period/max tune its Choppiness Index reading.</div>
-      <input type="number" id="addHtfChopPeriod" min="1" step="1" placeholder="chop period, blank = default (9)">
-      <input type="number" id="addHtfChopMax" min="0" step="any" placeholder="chop max, blank = default (58)">
-      <label class="tb-form-row-inline"><input type="checkbox" id="addHtfBandBlock"><span>Also require price still inside its own ALMA band (uncheck = block on low chop alone)</span></label>
-    </div>
-    <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="addDailyHaGate"><span>Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)</span></label>
       <div class="tb-form-hint">Off by default; when on, applies universally regardless of strategy.</div>
     </div>
@@ -2468,10 +2449,6 @@ function renderAddConfigStep() {
         longCandleAtrPeriod: tbAddBody.querySelector("#addLongCandleAtrPeriod").value || undefined,
         longCandleAtrMult: tbAddBody.querySelector("#addLongCandleAtrMult").value || undefined,
         longCandleCooldownCandles: tbAddBody.querySelector("#addLongCandleCooldown").value || undefined,
-        htfGateEnabled: tbAddBody.querySelector("#addHtfGate").checked,
-        htfChopPeriod: tbAddBody.querySelector("#addHtfChopPeriod").value || undefined,
-        htfChopMax: tbAddBody.querySelector("#addHtfChopMax").value || undefined,
-        htfBandBlockEnabled: tbAddBody.querySelector("#addHtfBandBlock").checked,
         dailyHaGateEnabled: tbAddBody.querySelector("#addDailyHaGate").checked,
       };
       const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -2736,12 +2713,6 @@ async function renderBacktestParamsStep() {
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="btDailyHaGate"><span>Only allow entries matching the previous daily HA candle's color (green=long only, red=short only) (default N)</span></label>
     </div>
-    <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="btHtfGate"><span>HTF gate \u2014 block entries while the higher-timeframe chop says trending but price is still inside its own ALMA band (default N)</span></label>
-      <input type="number" id="btHtfChopPeriod" min="1" step="1" placeholder="chop period, blank = default (9)">
-      <input type="number" id="btHtfChopMax" min="0" step="any" placeholder="chop max, blank = default (58)">
-      <label class="tb-form-row-inline"><input type="checkbox" id="btHtfBandBlock"><span>Also require price still inside its own ALMA band (uncheck = block on chop alone)</span></label>
-    </div>
     <div id="btErrBox"></div>
     <div id="btResultBox"></div>
     <button class="tb-submit-btn" id="btSubmit">Run backtest</button>
@@ -2842,10 +2813,6 @@ async function renderBacktestParamsStep() {
       dsbExitMode: tbBacktestBody.querySelector("#btDsbExitMode").value,
       sessionTargetRupees: tbBacktestBody.querySelector("#btSessionTarget").value || undefined,
       dailyHaGateEnabled: tbBacktestBody.querySelector("#btDailyHaGate").checked,
-      htfGateEnabled: tbBacktestBody.querySelector("#btHtfGate").checked,
-      htfChopPeriod: tbBacktestBody.querySelector("#btHtfChopPeriod").value || undefined,
-      htfChopMax: tbBacktestBody.querySelector("#btHtfChopMax").value || undefined,
-      htfBandBlockEnabled: tbBacktestBody.querySelector("#btHtfBandBlock").checked,
     };
     try {
       const res = await fetch("/api/toolbox/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -2888,7 +2855,7 @@ async function renderBacktestParamsStep() {
         const keys = ["chopFilterEnabled", "chopPeriod", "chopMax", "longCandleFilterEnabled", "longCandleAtrPeriod", "longCandleAtrMult", "longCandleCooldownCandles",
           "disableDoubleOrders", "atrSlMult", "hardSlRupees", "dailyBiasEntryTime", "entryTime", "dailyBiasCandle", "volumeFilterEnabled", "volumeSmaPeriod", "carryOvernight",
           "maxDailyLoss", "maxLosingSwitches", "maxLosingTrades", "scalpTarget", "scalpStopDay", "scalpNext", "dsbExitMode", "sessionTargetRupees",
-          "dailyHaGateEnabled", "htfGateEnabled", "htfChopPeriod", "htfChopMax", "htfBandBlockEnabled"];
+          "dailyHaGateEnabled"];
         const payload = { name };
         keys.forEach(k => { if (k in body || body[k] === undefined) payload[k] = body[k] === undefined ? null : body[k]; });
         if (btState.strategy === "DAILY_HA_BIAS") delete payload.entryTime; else { delete payload.dailyBiasEntryTime; delete payload.dailyBiasCandle; }
@@ -2961,7 +2928,6 @@ function renderBtDeployView(bt) {
     ["Chop filter", onOff(bt.chopFilterEnabled, `period ${bt.chopPeriod || "default"}, max ${bt.chopMax || "default"}`)],
     ["Long-candle block", onOff(bt.longCandleFilterEnabled, `ATR ${bt.longCandleAtrPeriod || "def"} × ${bt.longCandleAtrMult || "def"}, cooldown ${bt.longCandleCooldownCandles || "def"}`)],
     ["Volume filter", onOff(bt.volumeFilterEnabled, `SMA ${bt.volumeSmaPeriod || "default"}`)],
-    ["HTF gate", onOff(bt.htfGateEnabled, `chop ${bt.htfChopPeriod || "def"}/${bt.htfChopMax || "def"}, band block ${bt.htfBandBlockEnabled ? "on" : "off"}`)],
     ["Daily HA gate", onOff(bt.dailyHaGateEnabled)],
     ["Double orders", bt.disableDoubleOrders ? "Disabled" : "Allowed"],
     ["Carry overnight", bt.carryOvernight ? "Yes" : "No"],
@@ -3029,8 +2995,6 @@ function renderBtDeployView(bt) {
       volumeFilterEnabled: !!bt.volumeFilterEnabled, volumeSmaPeriod: bt.volumeSmaPeriod,
       longCandleFilterEnabled: !!bt.longCandleFilterEnabled, longCandleAtrPeriod: bt.longCandleAtrPeriod,
       longCandleAtrMult: bt.longCandleAtrMult, longCandleCooldownCandles: bt.longCandleCooldownCandles,
-      htfGateEnabled: !!bt.htfGateEnabled, htfChopPeriod: bt.htfChopPeriod, htfChopMax: bt.htfChopMax,
-      htfBandBlockEnabled: !!bt.htfBandBlockEnabled,
       dailyHaGateEnabled: !!bt.dailyHaGateEnabled,
     };
     try {
