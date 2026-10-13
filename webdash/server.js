@@ -462,6 +462,11 @@ async function getEngineProcesses() {
             // DSB-family daily losing-reversal limit; null = off
             maxLosingSwitches: p.pm2_env.env?.MAX_LOSING_SWITCHES_OVERRIDE ? p.pm2_env.env.MAX_LOSING_SWITCHES_OVERRIDE : null,
             maxLosingTrades: p.pm2_env.env?.MAX_LOSING_TRADES_OVERRIDE ? p.pm2_env.env.MAX_LOSING_TRADES_OVERRIDE : null,
+            // Choppiness entry filter: an unset env var means OFF at runtime, so report it as such (never silently turn it on).
+            chopFilterEnabled: p.pm2_env.env?.CHOP_FILTER_OVERRIDE === "true",
+            chopPeriod: p.pm2_env.env?.CHOP_PERIOD_OVERRIDE ? Number(p.pm2_env.env.CHOP_PERIOD_OVERRIDE) : null,
+            chopMax: p.pm2_env.env?.CHOP_MAX_OVERRIDE ? Number(p.pm2_env.env.CHOP_MAX_OVERRIDE) : null,
+            sessionTargetRupees: p.pm2_env.env?.SESSION_TARGET_OVERRIDE ? Number(p.pm2_env.env.SESSION_TARGET_OVERRIDE) : null,
             scalpStopDay: p.pm2_env.env?.SCALP_STOP_DAY_OVERRIDE === "1",
             scalpNext: p.pm2_env.env?.SCALP_NEXT_OVERRIDE ? p.pm2_env.env.SCALP_NEXT_OVERRIDE : null,
             dsbExitMode: p.pm2_env.env?.DSB_EXIT_MODE_OVERRIDE === "SL" ? "SL" : "FLIP",
@@ -532,6 +537,13 @@ function buildProcessEnv(p, overrides = {}) {
     env.TARGET_POINTS_OVERRIDE = (p.targetPoints !== null && p.targetPoints !== undefined) ? String(p.targetPoints) : "";
     env.TARGET_MODE_OVERRIDE = p.targetMode === "adaptive" ? "adaptive" : "";
     env.BAND_STEP_OVERRIDE = (p.bandStep !== null && p.bandStep !== undefined) ? String(p.bandStep) : "";
+    if (p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW") {
+        // Written explicitly (true AND false): unset means OFF at runtime.
+        env.CHOP_FILTER_OVERRIDE = p.chopFilterEnabled === true ? "true" : "false";
+        env.CHOP_PERIOD_OVERRIDE = p.chopPeriod ? String(p.chopPeriod) : "";
+        env.CHOP_MAX_OVERRIDE = p.chopMax ? String(p.chopMax) : "";
+    }
+    env.SESSION_TARGET_OVERRIDE = p.sessionTargetRupees ? String(p.sessionTargetRupees) : "";
     env.SCALP_STOP_DAY_OVERRIDE = (p.scalpStopDay && p.scalpTarget) ? "1" : "";
     env.SCALP_NEXT_OVERRIDE = (p.scalpTarget && !p.scalpStopDay && SCALP_NEXT_RE.test(p.scalpNext || "")) ? p.scalpNext : "";
     env.DSB_EXIT_MODE_OVERRIDE = (p.dsbExitMode === "SL" && ["DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(p.strategy)) ? "SL" : "";
@@ -810,7 +822,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -988,6 +1000,15 @@ app.post("/api/toolbox/edit", async (req, res) => {
             }
         }
 
+        if (chopFilterEnabled !== undefined) updated.chopFilterEnabled = !!chopFilterEnabled;
+        if (carryOvernight !== undefined) updated.carryOvernight = !!carryOvernight;
+        for (const [key, val, int] of [["chopPeriod", chopPeriod, true], ["chopMax", chopMax, false], ["sessionTargetRupees", sessionTargetRupees, false]]) {
+            if (val === undefined) continue;
+            if (val === null || val === "" || val === "0" || val === "clear") { updated[key] = null; continue; }
+            const n = Number(val);
+            if (!Number.isFinite(n) || n <= 0 || (int && !Number.isInteger(n))) return res.status(400).json({ error: `invalid ${key} value` });
+            updated[key] = n;
+        }
         if (htfGateEnabled !== undefined) updated.htfGateEnabled = !!htfGateEnabled;
         if (htfTimeframe !== undefined) {
             if (htfTimeframe === null || htfTimeframe === "" || htfTimeframe === "clear") {

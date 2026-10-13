@@ -1852,6 +1852,18 @@ function openEditModal(inst) {
       <input type="number" id="editMaxDailyLoss" min="0" step="any" value="${inst.maxDailyLoss ?? ""}">
     </div>
     <div class="tb-form-row">
+      <div class="tb-form-label">Session profit ceiling in rupees, whole day (blank = none)</div>
+      <input type="number" id="editSessionTarget" min="0" step="any" value="${inst.sessionTargetRupees ?? ""}">
+    </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editChopEnabled" ${inst.chopFilterEnabled ? "checked" : ""}><span>Choppiness Index filter on every entry</span></label>
+      <input type="number" id="editChopPeriod" placeholder="period, default 9" min="1" step="1" value="${inst.chopPeriod ?? ""}">
+      <input type="number" id="editChopMax" placeholder="max threshold, default 58" min="0" step="any" value="${inst.chopMax ?? ""}">
+    </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editCarry" ${inst.carryOvernight ? "checked" : ""}><span>Carry positions overnight past EOD, NRML-style</span></label>
+    </div>
+    <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="editHtfGate" ${inst.htfGateEnabled !== false ? "checked" : ""}><span>Block entries when a higher timeframe is trending but price hasn't broken its band yet</span></label>
       <div class="tb-form-hint">On by default. Checks the instrument's own selected candle timeframe; period/max tune its Choppiness Index reading.</div>
       <input type="number" id="editHtfChopPeriod" min="1" step="1" value="${inst.htfChopPeriod ?? ""}" placeholder="chop period, blank = default (9)">
@@ -1914,6 +1926,11 @@ function openEditModal(inst) {
       body.greyExitEnabled = tbEditBody.querySelector("#editGreyExit").checked;
     }
     body.maxDailyLoss = tbEditBody.querySelector("#editMaxDailyLoss").value || null;
+    body.sessionTargetRupees = tbEditBody.querySelector("#editSessionTarget").value || null;
+    body.chopFilterEnabled = tbEditBody.querySelector("#editChopEnabled").checked;
+    body.chopPeriod = tbEditBody.querySelector("#editChopPeriod").value || null;
+    body.chopMax = tbEditBody.querySelector("#editChopMax").value || null;
+    body.carryOvernight = tbEditBody.querySelector("#editCarry").checked;
     body.disableDoubleOrders = tbEditBody.querySelector("#editDisableDouble").checked;
     body.atrSlMult = tbEditBody.querySelector("#editAtrSlMult").value || null;
     body.hardSlRupees = tbEditBody.querySelector("#editHardSl").value || null;
@@ -2493,7 +2510,7 @@ document.getElementById("tbBacktestSel").addEventListener("click", async () => {
   const inst = toolboxInstruments.find(i => i.name === names[0]);
   if (!inst) return;
   btState = { exchange: inst.exchange || "MCX", strategy: inst.strategy, underlying: inst.underlying, candleType: inst.candleType || null,
-              rangeSize: inst.rangeSize ?? null, defaultTimeframe: inst.timeframe || null, prefill: inst };
+              rangeSize: inst.rangeSize ?? null, defaultTimeframe: inst.timeframe || null, prefill: inst, sourceName: inst.name };
   tbBacktestBody.innerHTML = `<div class="tb-form-hint">Loading...</div>`;
   tbBacktestModal.classList.add("open");
   try {
@@ -2765,6 +2782,11 @@ async function renderBacktestParamsStep() {
     const pf = btState.prefill, setV = (id, v) => { const el = tbBacktestBody.querySelector(id); if (el && v !== null && v !== undefined && v !== "") el.value = v; };
     setV("#btLotMult", pf.lotMult);
     setV("#btMaxLosingSwitches", pf.maxLosingSwitches);
+    setV("#btMaxLoss", pf.maxDailyLoss);
+    setV("#btSessionTarget", pf.sessionTargetRupees);
+    setV("#btChopPeriod", pf.chopPeriod); setV("#btChopMax", pf.chopMax);
+    { const ce = tbBacktestBody.querySelector("#btChopEnabled"); if (ce) ce.checked = !!pf.chopFilterEnabled; }
+    { const cr = tbBacktestBody.querySelector("#btCarry"); if (cr) cr.checked = !!pf.carryOvernight; }
     setV("#btMaxLosingTrades", pf.maxLosingTrades);
     setV("#btScalpTarget", pf.scalpTarget);
     const sd = tbBacktestBody.querySelector("#btScalpStopDay"); if (sd && pf.scalpStopDay) sd.checked = true;
@@ -2851,6 +2873,7 @@ async function renderBacktestParamsStep() {
         <a class="tb-report-link" href="${data.reportUrl}" target="_blank" rel="noopener">Open full report ↗</a>
         <button type="button" class="btn btn-ghost" id="btAiBtn" style="margin-top:10px;width:100%">Analyse this backtest with AI</button>
         <div id="btAiOut"></div>
+        ${btState.sourceName ? `<button type="button" class="tb-submit-btn" id="btApplyToInst" style="margin-top:10px;width:100%">Apply these settings to ${btState.sourceName} (restarts it)</button><div id="btApplyOut"></div>` : ""}
         <button type="button" class="tb-submit-btn" id="btDeployFromBt" style="margin-top:10px;width:100%">Deploy instrument with this config</button>
         <div class="tb-bt-log-wrap">
           <button type="button" class="tb-bt-log-toggle" id="btLogToggle">▸ show full backtest log (${(data.logLines || []).length} lines)</button>
@@ -2858,6 +2881,28 @@ async function renderBacktestParamsStep() {
         </div>
       `;
       resultBox.querySelector("#btDeployFromBt").addEventListener("click", () => renderBtDeployView(body));
+      const applyBtn = resultBox.querySelector("#btApplyToInst");
+      if (applyBtn) applyBtn.addEventListener("click", async () => {
+        const name = btState.sourceName;
+        if (!confirm(`Apply these backtest settings to ${name}? This saves them and restarts the process (an open position is not touched by the save itself, but check it first).`)) return;
+        const keys = ["chopFilterEnabled", "chopPeriod", "chopMax", "longCandleFilterEnabled", "longCandleAtrPeriod", "longCandleAtrMult", "longCandleCooldownCandles",
+          "disableDoubleOrders", "atrSlMult", "hardSlRupees", "dailyBiasEntryTime", "entryTime", "dailyBiasCandle", "volumeFilterEnabled", "volumeSmaPeriod", "carryOvernight",
+          "maxDailyLoss", "maxLosingSwitches", "maxLosingTrades", "scalpTarget", "scalpStopDay", "scalpNext", "dsbExitMode", "sessionTargetRupees",
+          "dailyHaGateEnabled", "htfGateEnabled", "htfChopPeriod", "htfChopMax", "htfBandBlockEnabled"];
+        const payload = { name };
+        keys.forEach(k => { if (k in body || body[k] === undefined) payload[k] = body[k] === undefined ? null : body[k]; });
+        if (btState.strategy === "DAILY_HA_BIAS") delete payload.entryTime; else { delete payload.dailyBiasEntryTime; delete payload.dailyBiasCandle; }
+        if (btState.strategy === "ALMA_BAND") { delete payload.atrSlMult; delete payload.hardSlRupees; }
+        const out = resultBox.querySelector("#btApplyOut");
+        applyBtn.disabled = true; applyBtn.textContent = "Applying...";
+        try {
+          const r = await fetch("/api/toolbox/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+          const j = await r.json();
+          if (!r.ok) throw new Error(j.error || "Apply failed");
+          out.innerHTML = `<div class="tb-form-hint">Applied to ${name} — process restarted.</div>`;
+          applyBtn.textContent = "Applied"; setTimeout(loadToolboxList, 1200);
+        } catch (err) { out.innerHTML = `<div class="tb-err-box">${err.message}</div>`; applyBtn.disabled = false; applyBtn.textContent = `Apply these settings to ${name} (restarts it)`; }
+      });
       resultBox.querySelector("#btAiBtn").addEventListener("click", async e => {
         const btn = e.currentTarget, out = resultBox.querySelector("#btAiOut");
         btn.disabled = true; const label = btn.textContent; btn.textContent = "Analysing...";
