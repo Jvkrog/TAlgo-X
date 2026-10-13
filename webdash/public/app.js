@@ -2486,6 +2486,29 @@ tbBacktestModal.addEventListener("click", e => { if (e.target === tbBacktestModa
 
 let btState = {};
 
+// Bulk-bar Backtest: open the wizard already set to the selected instrument's strategy / underlying / exchange / candle type.
+document.getElementById("tbBacktestSel").addEventListener("click", async () => {
+  const names = getSelectedNames();
+  if (names.length !== 1) { alert(names.length === 0 ? "Select an instrument to backtest." : "Select just one instrument to backtest."); return; }
+  const inst = toolboxInstruments.find(i => i.name === names[0]);
+  if (!inst) return;
+  btState = { exchange: inst.exchange || "MCX", strategy: inst.strategy, underlying: inst.underlying, candleType: inst.candleType || null,
+              rangeSize: inst.rangeSize ?? null, defaultTimeframe: inst.timeframe || null, prefill: inst };
+  tbBacktestBody.innerHTML = `<div class="tb-form-hint">Loading...</div>`;
+  tbBacktestModal.classList.add("open");
+  try {
+    const stratData = await (await fetch("/api/toolbox/strategies")).json();
+    btState.strategies = stratData.strategies;
+    btState.timeframes = stratData.timeframes;
+    const s = btState.strategies.find(x => x.key === inst.strategy);
+    if (s && !btState.defaultTimeframe) btState.defaultTimeframe = s.timeframe;
+    if (s && !s.nativeCandle) btState.candleType = null;
+    renderBacktestParamsStep();
+  } catch (err) {
+    tbBacktestBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+  }
+});
+
 async function openBacktestModal() {
   btState = { exchange: "MCX" };
   tbBacktestBody.innerHTML = `<div class="tb-form-hint">Loading strategies...</div>`;
@@ -2736,6 +2759,19 @@ async function renderBacktestParamsStep() {
     row.innerHTML = `<div class="tb-form-label">${pd.label} (default ${pd.default})</div><input type="number" step="any" data-param="${pd.key}" placeholder="${pd.default}">`;
     paramsBox.appendChild(row);
   });
+
+  // Prefill from the selected instrument (bulk-bar Backtest): lot multiplier + the DSB limiter / scalp settings.
+  if (btState.prefill) {
+    const pf = btState.prefill, setV = (id, v) => { const el = tbBacktestBody.querySelector(id); if (el && v !== null && v !== undefined && v !== "") el.value = v; };
+    setV("#btLotMult", pf.lotMult);
+    setV("#btMaxLosingSwitches", pf.maxLosingSwitches);
+    setV("#btMaxLosingTrades", pf.maxLosingTrades);
+    setV("#btScalpTarget", pf.scalpTarget);
+    const sd = tbBacktestBody.querySelector("#btScalpStopDay"); if (sd && pf.scalpStopDay) sd.checked = true;
+    const [nm, nv] = String(pf.scalpNext || "").split(":");
+    if (nm) { setV("#btScalpNextMode", nm); setV("#btScalpNextValue", Number(nv) > 0 ? nv : ""); }
+    btState.prefill = null;
+  }
 
   tbBacktestBody.querySelector("#btSubmit").addEventListener("click", async () => {
     const errBox = tbBacktestBody.querySelector("#btErrBox");
