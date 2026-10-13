@@ -32,6 +32,8 @@ function cache() {
     });
     return cacheDb;
 }
+// Reviews written before times were switched to IST quote raw UTC stamps (2026-10-09T17:30:11Z) — regenerate those.
+const isStale = text => /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(text));
 const run = (db, sql, p = []) => new Promise((res, rej) => db.run(sql, p, function (e) { e ? rej(e) : res(this); }));
 const all = (db, sql, p = []) => new Promise((res, rej) => db.all(sql, p, (e, r) => e ? rej(e) : res(r || [])));
 
@@ -61,15 +63,16 @@ async function listTrades(limit = 60) {
     }
     out.sort((a, b) => String(b.exit_time || "").localeCompare(String(a.exit_time || "")));
     const top = out.slice(0, limit);
-    const reviews = await all(cache(), `SELECT journal, trade_id, status, review, error FROM ai_reviews`);
+    const reviews = await all(cache(), `SELECT journal, trade_id, status, review, error, created_at FROM ai_reviews`);
     const byKey = new Map(reviews.map(r => [`${r.journal}#${r.trade_id}`, r]));
     return top.map(t => {
         const facts = buildFacts(t);
         const rv = byKey.get(`${t.journal}#${t.id}`);
         return {
             journal: t.journal, id: t.id, facts,
-            review: rv && rv.status === "OK" ? JSON.parse(rv.review) : null,
+            review: rv && rv.status === "OK" && !isStale(rv.review) ? JSON.parse(rv.review) : null,
             reviewError: rv && rv.status === "FAILED" ? rv.error : null,
+            failedAt: rv && rv.status === "FAILED" ? rv.created_at : null,
         };
     });
 }
@@ -218,8 +221,8 @@ function validateReview(text) {
     catch { throw new Error("AI reply was not valid JSON"); }
     const r = {
         grade: GRADES.includes(j.grade) ? j.grade : null,
-        entry_assessment: str(j.entry_assessment), trade_behaviour: str(j.trade_behaviour), exit_assessment: str(j.exit_assessment),
-        evidence: strList(j.evidence), limitations: strList(j.limitations), takeaway: str(j.takeaway, 300),
+        entry_assessment: str(j.entry_assessment), trade_behaviour: str(j.trade_behaviour) || "", exit_assessment: str(j.exit_assessment),
+        evidence: strList(j.evidence) || [], limitations: strList(j.limitations) || [], takeaway: str(j.takeaway, 300),
         tags: Array.isArray(j.tags) ? [...new Set(j.tags.filter(x => TAGS.includes(x)))].slice(0, 4) : [],
     };
     const bad = Object.entries(r).filter(([, v]) => v === null).map(([k]) => k);
@@ -234,10 +237,13 @@ async function reviewTrade(journal, id, force = false) {
     const db = cache();
     if (!force) {
         const hit = (await all(db, `SELECT review FROM ai_reviews WHERE journal = ? AND trade_id = ? AND status = 'OK'`, [journal, id]))[0];
-        if (hit) return JSON.parse(hit.review);
+        if (hit && !isStale(hit.review)) return JSON.parse(hit.review);
     }
     try {
-        const review = validateReview(await callGemini(forModel(buildFacts(t))));
+        const facts = forModel(buildFacts(t));
+        let review;
+        try { review = validateReview(await callGemini(facts)); }
+        catch (e) { if (!/validation|valid JSON/.test(e.message)) throw e; review = validateReview(await callGemini(facts)); }   // one retry for a malformed reply
         await run(db, `INSERT OR REPLACE INTO ai_reviews (journal, trade_id, status, review, model) VALUES (?, ?, 'OK', ?, ?)`, [journal, id, JSON.stringify(review), MODEL]);
         return review;
     } catch (e) {

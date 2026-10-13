@@ -1528,7 +1528,7 @@ function renderRiskList() {
   riskList.innerHTML = "";
   riskInstruments.forEach(inst => {
     const row = document.createElement("div");
-    row.className = "tb-row";
+    row.className = "tb-row tb-row-risk";
     const chopOn = (inst.strategy === "ALMA_PRO_FAST" || inst.strategy === "ALMA_PRO_SLOW") ? inst.almaChopFilterEnabled !== false : inst.chopFilterEnabled !== false;
     const badges = [
       `<span class="mode-pill ${chopOn ? "live" : ""}">chop ${chopOn ? "on" : "off"}</span>`,
@@ -4252,14 +4252,14 @@ function aiReviewHtml(r) {
   return `<div class="tb-form-hint" style="margin-top:8px;border-top:1px solid rgba(255,255,255,.1);padding-top:8px">
     <div><b>AI commentary</b> — grade <b>${aiEsc(r.grade)}</b> (decision quality, not profit)</div>
     <div style="margin-top:4px"><b>Entry:</b> ${aiEsc(r.entry_assessment)}</div>
-    <div><b>Behaviour:</b> ${aiEsc(r.trade_behaviour)}</div>
+    ${r.trade_behaviour ? `<div><b>Behaviour:</b> ${aiEsc(r.trade_behaviour)}</div>` : ""}
     <div><b>Exit:</b> ${aiEsc(r.exit_assessment)}</div>
-    <div style="margin-top:4px"><b>Evidence</b>${list(r.evidence)}</div>
-    <div style="margin-top:4px"><b>Limitations</b>${list(r.limitations)}</div>
+    ${(r.evidence || []).length ? `<div style="margin-top:4px"><b>Evidence</b>${list(r.evidence)}</div>` : ""}
+    ${(r.limitations || []).length ? `<div style="margin-top:4px"><b>Limitations</b>${list(r.limitations)}</div>` : ""}
     ${(r.tags && r.tags.length) ? `<div style="margin-top:4px">${r.tags.map(t => `<span class="mode-pill">${aiEsc(t.replace(/_/g, " "))}</span>`).join(" ")}</div>` : ""}
     <div style="margin-top:4px"><b>Takeaway:</b> ${aiEsc(r.takeaway)}</div></div>`;
 }
-let aiSummaryDays = 7;
+let aiSummaryDays = 7;   // default window
 function aiTable(title, rows, cols) {
   if (!rows || !rows.length) return "";
   return `<div style="min-width:220px;flex:1"><div class="tb-form-hint" style="margin:6px 0 2px"><b>${aiEsc(title)}</b></div><table style="width:100%;font-size:11px;border-collapse:collapse">${rows.map(r => `<tr>${cols.map((c, i) => { const v = r[c]; const col = c === "pnl" ? (v >= 0 ? "var(--green,#3ddc84)" : "var(--red,#ff5c5c)") : "inherit"; return `<td style="padding:1px 6px 1px 0;${i ? "text-align:right;" : ""}color:${col}">${aiEsc(c === "winRate" ? v + "%" : c === "pnl" && v > 0 ? "+" + v : v)}</td>`; }).join("")}</tr>`).join("")}</table></div>`;

@@ -1787,7 +1787,15 @@ async function aiAutoTick() {
     aiAuto.running = true;
     try {
         const cutoff = Date.now() - 24 * 3600 * 1000;
-        const todo = (await aiReview.listTrades(40)).filter(t => !t.review && !t.reviewError && t.facts.exitTime && new Date(t.facts.exitTime).getTime() >= cutoff).slice(0, 3);
+        const retried = aiAuto.retried || (aiAuto.retried = new Set());
+        const todo = (await aiReview.listTrades(40)).filter(t => {
+            if (t.review || !t.facts.exitTime || new Date(t.facts.exitTime).getTime() < cutoff) return false;
+            if (!t.reviewError) return true;
+            // a failed review gets exactly one automatic retry (per server run) after 15 minutes
+            const key = t.journal + "#" + t.id, age = Date.now() - new Date(String(t.failedAt).replace(" ", "T") + "Z").getTime();
+            if (retried.has(key) || !(age > 15 * 60000)) return false;
+            retried.add(key); return true;
+        }).slice(0, 3);
         for (const t of todo) {
             try { await aiReview.reviewTrade(t.journal, t.id, false); aiAuto.reviewed++; aiAuto.lastError = null; }
             catch (err) { aiAuto.lastError = err.message; }
