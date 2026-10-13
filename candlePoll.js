@@ -93,10 +93,15 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
     async function checkTarget(price) {
         if (!price || !targetStore) return;
 
-        if (engineConfig.ENGINE_ENABLED && state.position && state.entryPrice && (context.targetPoints || context.targetMode === "adaptive")) {
+        if (engineConfig.ENGINE_ENABLED && state.position && state.entryPrice && (context.targetPoints || context.scalpTargetRupees || context.targetMode === "adaptive")) {
             const { target: armedTarget } = targetStore.getTarget();
             if (armedTarget === null) {
                 let points = context.targetPoints; // FIXED wins outright if set, regardless of targetMode
+                if (!points && context.scalpTargetRupees) {
+                    // Scalp target is in rupees: distance = rupees / (lotMult * lots), same arithmetic positions.close uses for P&L.
+                    points = context.scalpTargetRupees / ((context.lotMult || 1) * (context.lots || 1));
+                    console.log(c.dim(`[${context.tgPrefix}] [SCALP] target ₹${context.scalpTargetRupees} = ${points.toFixed(2)} points`));
+                }
 
                 if (!points && context.targetMode === "adaptive") {
                     // Restart-resume check FIRST — if this exact open position
@@ -179,6 +184,7 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                     tg(`⚠ Target order FAILED\nPosition still open — manual exit required immediately`);
                 } else {
                     await positionsClose(price, "SCALP_TP");
+                    const scalpMode = !!context.scalpTargetRupees && !context.targetPoints;
                     db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
                     slStore.clearTrail();
                     targetStore.clearTarget();
@@ -197,7 +203,11 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                     // Continuing (no exit) resumes exactly like any other
                     // clean exit — checkTarget re-arms on the next entry,
                     // same as it always does when no cooldown is active.
-                    if (state.pnl >= 0) {
+                    if (scalpMode) {
+                        // Scalp mode: each target hit is just one finished trade. Stay flat, keep running, wait for the strategy's next signal.
+                        tg(`🎯 Scalp target hit [${context.tgPrefix}] — flat, waiting for next signal (day net ${state.pnl >= 0 ? "+" : ""}${state.pnl.toFixed(2)})`);
+                        console.log(c.green(`*** SCALP TARGET HIT — flat, waiting for next strategy signal (day net ${state.pnl.toFixed(2)}) ***`));
+                    } else if (state.pnl >= 0) {
                         await tg(`✅ Target reached — day net ${state.pnl >= 0 ? "+" : ""}${state.pnl.toFixed(2)}, cooling down for the day [${context.tgPrefix}]`);
                         console.log(c.bold(`*** TARGET HIT — DAY NET +${state.pnl.toFixed(2)} — COOLDOWN, DONE FOR THE DAY ***`));
                         setTimeout(() => process.exit(0), 2000);

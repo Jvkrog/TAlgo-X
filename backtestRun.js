@@ -329,6 +329,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
         }
 
         if (!postEodBlackout && !circuitBreakerBlackout) {
+            await slCheck.checkTarget(currentCandle);   // scalp target on the carried position, before this candle's own signal
             await strategy.processCandle(currentCandle);
             await slCheck.checkSL(currentCandle);
 

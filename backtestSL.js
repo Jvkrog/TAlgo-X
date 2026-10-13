@@ -54,7 +54,27 @@ function createBacktestSL({ context, engineConfig, state, slStore, orders, posit
         slStore.clearTrail();
     }
 
-    return { checkSL };
+    // Scalp target (context.scalpTargetRupees, DSB family): intrabar high/low vs entry +/- rupees/(lotMult*lots). Run
+    // BEFORE the candle's own signal processing, for a position carried into this candle (a trade opened at this candle's
+    // close can't have hit a target inside it). Worst-case ordering as for SL: if the stop was also touched in this
+    // candle it wins and the target is skipped. Fills at the target price.
+    async function checkTarget(candle) {
+        if (!context.scalpTargetRupees || context.targetPoints || !engineConfig.ENGINE_ENABLED || !state.position || !state.entryPrice) return false;
+        const points = context.scalpTargetRupees / ((context.lotMult || 1) * (context.lots || 1));
+        const long = state.position === "LONG";
+        const level = long ? state.entryPrice + points : state.entryPrice - points;
+        const hit = long ? candle.high >= level : candle.low <= level;
+        if (!hit) return false;
+        const { trail } = slStore.getTrail();
+        if (trail !== null && (long ? candle.low < trail : candle.high > trail)) return false;   // stop touched first
+        tg(`🎯 ${state.position} SCALP TARGET @ ₹${level.toFixed(2)}`);
+        await positionsClose(level, "SCALP_TP");
+        db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+        slStore.clearTrail();
+        return true;
+    }
+
+    return { checkSL, checkTarget };
 }
 
 module.exports = { createBacktestSL };

@@ -195,6 +195,11 @@ async function main() {
         const parsedTarget = Number(process.env.TARGET_POINTS_OVERRIDE);
         context.targetPoints = Number.isFinite(parsedTarget) && parsedTarget > 0 ? parsedTarget : null;
     }
+    if (process.env.SCALP_TARGET_OVERRIDE !== undefined && process.env.SCALP_TARGET_OVERRIDE !== "") {
+        const parsedScalp = Number(process.env.SCALP_TARGET_OVERRIDE);
+        context.scalpTargetRupees = Number.isFinite(parsedScalp) && parsedScalp > 0 ? parsedScalp : null;
+    }
+    if (context.scalpTargetRupees) console.log(c.dim(`[${context.tgPrefix}] [SCALP] target: ₹${context.scalpTargetRupees} per trade (tick-monitored, then wait for the next strategy signal)`));
     // Target mode — "adaptive" only means anything once targetPoints itself
     // is unset (adaptive picks its own points per-position, see
     // adaptiveTarget.js); an explicit TARGET_POINTS_OVERRIDE still wins as

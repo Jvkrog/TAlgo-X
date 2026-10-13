@@ -167,6 +167,10 @@ function buildContext(def, resolvedContract) {
         // its own bespoke version of this (MA_SLOPE_TARGET_POINTS in
         // engineConfig.js — superseded, see that file).
         targetPoints: null,
+        // DSB-family SCALP target in rupees per trade (engine.js from SCALP_TARGET_OVERRIDE; null = off). Converted to
+        // points with lotMult*lots and armed like targetPoints (tick-monitored, candlePoll.checkTarget), but a hit only
+        // closes that trade (reason SCALP_TP) - no day shutdown - and the strategy re-enters on its own next signal.
+        scalpTargetRupees: null,
         // Overridden per-process by engine.js from TARGET_MODE_OVERRIDE
         // (toolbox prompt, asked alongside targetPoints above — only
         // meaningful when targetPoints is null, since ADAPTIVE mode picks
