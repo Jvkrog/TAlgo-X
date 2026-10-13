@@ -4161,6 +4161,11 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
     }
 
     async function doExit(side, livePrice, reason) {
+        // DSB exit mode "SL": ignore the strategy's own flip exit and hold the position until the stop-loss (or scalp target / EOD) closes it.
+        if (context.dsbExitMode === "SL" && lsGate.isFlipReason(reason)) {
+            console.log(`[DSB] ${side} flip exit ignored (${reason}) — exit mode is stop-loss only; holding until the stop`);
+            return false;
+        }
         const closed = await orders.exit(side);
         if (engineConfig.LIVE_ORDERS && closed === null) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} exit failed (${reason}) — will retry next candle`));
@@ -4583,6 +4588,11 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
     }
 
     async function doExit(side, livePrice, reason) {
+        // DSB exit mode "SL": ignore the strategy's own flip exit and hold the position until the stop-loss (or scalp target / EOD) closes it.
+        if (context.dsbExitMode === "SL" && lsGate.isFlipReason(reason)) {
+            console.log(`[DSB] ${side} flip exit ignored (${reason}) — exit mode is stop-loss only; holding until the stop`);
+            return false;
+        }
         const closed = await orders.exit(side);
         if (engineConfig.LIVE_ORDERS && closed === null) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} exit failed (${reason}) — will retry next candle`));
@@ -6648,6 +6658,11 @@ function createAlmaDsbStrategy({ context, engineConfig, state, db, candles, slSt
     }
 
     async function doExit(side, livePrice, reason) {
+        // DSB exit mode "SL": ignore the strategy's own flip exit and hold the position until the stop-loss (or scalp target / EOD) closes it.
+        if (context.dsbExitMode === "SL" && lsGate.isFlipReason(reason)) {
+            console.log(`[DSB] ${side} flip exit ignored (${reason}) — exit mode is stop-loss only; holding until the stop`);
+            return false;
+        }
         const closed = await orders.exit(side);
         if (engineConfig.LIVE_ORDERS && closed === null) {
             console.log(c.yellow(`[${context.tgPrefix}] ${side} exit failed (${reason}) — will retry next candle`));

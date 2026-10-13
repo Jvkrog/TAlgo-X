@@ -195,6 +195,8 @@ async function main() {
         const parsedTarget = Number(process.env.TARGET_POINTS_OVERRIDE);
         context.targetPoints = Number.isFinite(parsedTarget) && parsedTarget > 0 ? parsedTarget : null;
     }
+    context.dsbExitMode = process.env.DSB_EXIT_MODE_OVERRIDE === "SL" ? "SL" : null;
+    if (context.dsbExitMode) console.log(c.dim(`[${context.tgPrefix}] [DSB] exit mode: stop-loss only (flip signals are ignored while in a position)`));
     if (process.env.SCALP_TARGET_OVERRIDE !== undefined && process.env.SCALP_TARGET_OVERRIDE !== "") {
         const parsedScalp = Number(process.env.SCALP_TARGET_OVERRIDE);
         context.scalpTargetRupees = Number.isFinite(parsedScalp) && parsedScalp > 0 ? parsedScalp : null;

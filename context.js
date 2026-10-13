@@ -171,6 +171,8 @@ function buildContext(def, resolvedContract) {
         // points with lotMult*lots and armed like targetPoints (tick-monitored, candlePoll.checkTarget), but a hit only
         // closes that trade (reason SCALP_TP) - no day shutdown - and the strategy re-enters on its own next signal.
         scalpTargetRupees: null,
+        // DYNAMIC_MID_COLOR / _HL / ALMA_DSB only (engine.js from DSB_EXIT_MODE_OVERRIDE): "SL" = ignore the flip exit and hold until the stop-loss; null/"FLIP" = default (exit on the flip signal).
+        dsbExitMode: null,
         // Overridden per-process by engine.js from TARGET_MODE_OVERRIDE
         // (toolbox prompt, asked alongside targetPoints above — only
         // meaningful when targetPoints is null, since ADAPTIVE mode picks

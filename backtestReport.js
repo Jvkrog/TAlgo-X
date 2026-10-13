@@ -40,6 +40,7 @@ function describeSettings(context, engineConfig, extra = {}) {
     if (context.maxDailyLoss) rows.push(["Max daily loss", `\u20b9${context.maxDailyLoss}`]);
     if (context.sessionTargetRupees) rows.push(["Session target", `\u20b9${context.sessionTargetRupees}`]);
     if (context.bandStep != null) rows.push(["Band step", String(context.bandStep)]);
+    if (context.dsbExitMode === "SL") rows.push(["Exit mode", "stop-loss only (flip signals ignored)"]);
     if (context.scalpTargetRupees) rows.push(["Scalp target", `\u20b9${context.scalpTargetRupees} per trade, then wait for the next signal`]);
     if (context.maxLosingTradesPerDay) rows.push(["Losing-trade limit", `max ${context.maxLosingTradesPerDay} per day, then flat until next session`]);
     if (context.maxLosingSwitchesPerDay) rows.push(["Losing-reversal limit", `max ${context.maxLosingSwitchesPerDay} per day, then flat until next session`]);
