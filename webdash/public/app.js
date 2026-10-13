@@ -1544,7 +1544,7 @@ function renderRiskList() {
     if (inst.hardSlRupees) badges.push(`<span class="mode-pill">hard SL \u20b9${inst.hardSlRupees}</span>`);
     else if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
     if (inst.dsbExitMode === "SL") badges.push(`<span class="mode-pill live">exit: SL only</span>`);
-    if (inst.scalpTarget) badges.push(`<span class="mode-pill live">scalp \u20b9${inst.scalpTarget}</span>`);
+    if (inst.scalpTarget) badges.push(`<span class="mode-pill live">scalp \u20b9${inst.scalpTarget}${inst.scalpStopDay ? " · stop day" : ""}</span>`);
     if (inst.maxLosingTrades) badges.push(`<span class="mode-pill">max ${inst.maxLosingTrades} losing trades/day</span>`);
     if (inst.maxLosingSwitches) badges.push(`<span class="mode-pill">max ${inst.maxLosingSwitches} losing flips/day</span>`);
     if (inst.maxDailyLoss) badges.push(`<span class="mode-pill">maxloss -₹${inst.maxDailyLoss}</span>`);
@@ -1777,6 +1777,7 @@ function openEditModal(inst) {
     <div class="tb-form-row" style="${isDynamicBand ? "" : "display:none"}">
       <div class="tb-form-label">Scalp target in \u20b9 per trade: exits on the live tick, then waits for the next strategy signal (blank = off)</div>
       <input type="number" id="editScalpTarget" min="1" step="any" value="${inst.scalpTarget ?? ""}">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editScalpStopDay" ${inst.scalpStopDay ? "checked" : ""}><span>After a scalp target hit, take no more trades that day</span></label>
     </div>
     <div class="tb-form-row" style="${(inst.strategy === "DYNAMIC_MID_COLOR" || inst.strategy === "DYNAMIC_MID_COLOR_HL" || inst.strategy === "ALMA_DSB") ? "" : "display:none"}">
       <div class="tb-form-label">Exit on (Dynamic Mid / Mid HL / ALMA + Step Band): the colour/band flip signal, or only the stop-loss</div>
@@ -1889,6 +1890,7 @@ function openEditModal(inst) {
       body.maxLosingSwitches = tbEditBody.querySelector("#editMaxLosingSwitches").value || null;
       body.maxLosingTrades = tbEditBody.querySelector("#editMaxLosingTrades").value || null;
       body.scalpTarget = tbEditBody.querySelector("#editScalpTarget").value || null;
+      body.scalpStopDay = tbEditBody.querySelector("#editScalpStopDay").checked;
       body.dsbExitMode = tbEditBody.querySelector("#editDsbExitMode").value;
     }
     if (isAlmaTriBand) {
@@ -2219,6 +2221,7 @@ function renderAddConfigStep() {
     <div class="tb-form-row">
       <div class="tb-form-label">Scalp target in \u20b9 per trade: exits on the live tick, then waits for the next signal (Dynamic Step Band family only, blank = off)</div>
       <input type="number" id="addScalpTarget" min="1" step="any">
+      <label class="tb-form-row-inline"><input type="checkbox" id="addScalpStopDay"><span>After a scalp target hit, take no more trades that day</span></label>
     </div>
     <div class="tb-form-row">
       <div class="tb-form-label">Exit on (Dynamic Mid / Mid HL / ALMA + Step Band only): the flip signal, or only the stop-loss</div>
@@ -2412,6 +2415,7 @@ function renderAddConfigStep() {
         maxLosingSwitches: tbAddBody.querySelector("#addMaxLosingSwitches").value || undefined,
         maxLosingTrades: tbAddBody.querySelector("#addMaxLosingTrades").value || undefined,
         scalpTarget: tbAddBody.querySelector("#addScalpTarget").value || undefined,
+        scalpStopDay: tbAddBody.querySelector("#addScalpStopDay").checked,
         dsbExitMode: tbAddBody.querySelector("#addDsbExitMode").value,
         bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || (pickedStrategy === "DYNAMIC_MID_COLOR_HL" || pickedStrategy === "ALMA_DSB")) ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
         greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
@@ -2659,6 +2663,7 @@ async function renderBacktestParamsStep() {
     <div class="tb-form-row">
       <div class="tb-form-label">Scalp target in \u20b9 per trade, then wait for the next signal (Dynamic Step Band family only, blank = off). Backtest checks it against each candle's high/low.</div>
       <input type="number" id="btScalpTarget" min="1" step="any">
+      <label class="tb-form-row-inline"><input type="checkbox" id="btScalpStopDay"><span>After a scalp target hit, take no more trades that day</span></label>
     </div>
     <div class="tb-form-row">
       <div class="tb-form-label">Exit on (Dynamic Mid / Mid HL / ALMA + Step Band only): the flip signal, or only the stop-loss</div>
@@ -2754,6 +2759,7 @@ async function renderBacktestParamsStep() {
       maxLosingSwitches: tbBacktestBody.querySelector("#btMaxLosingSwitches").value || undefined,
       maxLosingTrades: tbBacktestBody.querySelector("#btMaxLosingTrades").value || undefined,
       scalpTarget: tbBacktestBody.querySelector("#btScalpTarget").value || undefined,
+      scalpStopDay: tbBacktestBody.querySelector("#btScalpStopDay").checked,
       dsbExitMode: tbBacktestBody.querySelector("#btDsbExitMode").value,
       sessionTargetRupees: tbBacktestBody.querySelector("#btSessionTarget").value || undefined,
       dailyHaGateEnabled: tbBacktestBody.querySelector("#btDailyHaGate").checked,
@@ -2784,7 +2790,7 @@ async function renderBacktestParamsStep() {
           <div class="tb-summary-cell"><div class="k">Max drawdown</div><div class="v">${Math.round(Math.abs(m.maxDrawdown)).toLocaleString()}</div></div>
           <div class="tb-summary-cell"><div class="k">Avg trade</div><div class="v">${fmtMoney(m.avgTrade)}</div></div>
         </div>
-        ${data.losingSwitch ? `<div class="tb-form-label" style="margin:8px 0">${data.losingSwitch.max ? `Losing-reversal limit ${data.losingSwitch.max}/day: ${data.losingSwitch.losingReversals} losing reversals · ${data.losingSwitch.blockedReversals} blocked · ${data.losingSwitch.daysExhausted} day(s) exhausted` : ""}${data.losingSwitch.max && data.losingSwitch.maxTrades ? "<br>" : ""}${data.losingSwitch.maxTrades ? `Losing-trade limit ${data.losingSwitch.maxTrades}/day: reached on ${data.losingSwitch.tradeLimitDays} day(s) · ${data.losingSwitch.tradeBlocked} entries blocked` : ""}</div>` : ""}
+        ${data.losingSwitch ? `<div class="tb-form-label" style="margin:8px 0">${data.losingSwitch.max ? `Losing-reversal limit ${data.losingSwitch.max}/day: ${data.losingSwitch.losingReversals} losing reversals · ${data.losingSwitch.blockedReversals} blocked · ${data.losingSwitch.daysExhausted} day(s) exhausted` : ""}${data.losingSwitch.max && data.losingSwitch.maxTrades ? "<br>" : ""}${data.losingSwitch.scalpStopDays != null ? `Scalp stop-for-day: hit on ${data.losingSwitch.scalpStopDays} day(s)<br>` : ""}${data.losingSwitch.maxTrades ? `Losing-trade limit ${data.losingSwitch.maxTrades}/day: reached on ${data.losingSwitch.tradeLimitDays} day(s) · ${data.losingSwitch.tradeBlocked} entries blocked` : ""}</div>` : ""}
         <a class="tb-report-link" href="${data.reportUrl}" target="_blank" rel="noopener">Open full report ↗</a>
         <button type="button" class="btn btn-ghost" id="btAiBtn" style="margin-top:10px;width:100%">Analyse this backtest with AI</button>
         <div id="btAiOut"></div>
@@ -2860,7 +2866,7 @@ function renderBtDeployView(bt) {
     ["Max daily loss", bt.maxDailyLoss ? "₹" + bt.maxDailyLoss : "—"],
     ...(bt.maxLosingSwitches ? [["Max losing reversals/day", bt.maxLosingSwitches]] : []),
     ...(bt.maxLosingTrades ? [["Max losing trades/day", bt.maxLosingTrades]] : []),
-    ...(bt.scalpTarget ? [["Scalp target", "\u20b9" + bt.scalpTarget + " per trade"]] : []),
+    ...(bt.scalpTarget ? [["Scalp target", "\u20b9" + bt.scalpTarget + " per trade" + (bt.scalpStopDay ? ", then done for the day" : "")]] : []),
     ...(bt.dsbExitMode === "SL" ? [["Exit mode", "Stop-loss only"]] : []),
     ...(bt.sessionTargetRupees ? [["Session target", "₹" + bt.sessionTargetRupees + " (backtest only — not applied on deploy)"]] : []),
     ...(bandStep ? [["Band step", bandStep]] : []),
@@ -2909,6 +2915,7 @@ function renderBtDeployView(bt) {
       maxLosingSwitches: bt.maxLosingSwitches,
       maxLosingTrades: bt.maxLosingTrades,
       scalpTarget: bt.scalpTarget,
+      scalpStopDay: bt.scalpStopDay,
       dsbExitMode: bt.dsbExitMode,
       bandStep: bandStep || undefined,
       almaFastLen: bt.strategy === "ALMA_PRO_FAST" ? (almaFastLen || undefined) : undefined,

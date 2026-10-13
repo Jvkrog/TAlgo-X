@@ -173,6 +173,7 @@ async function getEngineProcesses() {
             targetPoints: p.pm2_env.env?.TARGET_POINTS_OVERRIDE ? Number(p.pm2_env.env.TARGET_POINTS_OVERRIDE) : null,
             targetMode: p.pm2_env.env?.TARGET_MODE_OVERRIDE === "adaptive" ? "adaptive" : "fixed",
             bandStep: p.pm2_env.env?.BAND_STEP_OVERRIDE ? Number(p.pm2_env.env.BAND_STEP_OVERRIDE) : null,
+            scalpStopDay: p.pm2_env.env?.SCALP_STOP_DAY_OVERRIDE === "1",
             dsbExitMode: p.pm2_env.env?.DSB_EXIT_MODE_OVERRIDE === "SL" ? "SL" : "FLIP",
             scalpTarget: p.pm2_env.env?.SCALP_TARGET_OVERRIDE ? Number(p.pm2_env.env.SCALP_TARGET_OVERRIDE) : null,
             maxLosingTrades: p.pm2_env.env?.MAX_LOSING_TRADES_OVERRIDE ? Number(p.pm2_env.env.MAX_LOSING_TRADES_OVERRIDE) : null,
@@ -589,6 +590,7 @@ function buildProcessEnv(p, overrides = {}) {
     // only ever written as "adaptive" and never explicitly cleared.
     env.TARGET_MODE_OVERRIDE = p.targetMode === "adaptive" ? "adaptive" : "";
     env.BAND_STEP_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || (p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB")) && p.bandStep ? String(p.bandStep) : "";
+    env.SCALP_STOP_DAY_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.scalpTarget && p.scalpStopDay ? "1" : "";
     env.DSB_EXIT_MODE_OVERRIDE = (p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.dsbExitMode === "SL" ? "SL" : "";
     env.SCALP_TARGET_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.scalpTarget ? String(p.scalpTarget) : "";
     env.MAX_LOSING_TRADES_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.maxLosingTrades ? String(p.maxLosingTrades) : "";
@@ -825,6 +827,11 @@ async function editInstrument(procs) {
                 if (Number.isFinite(n) && n > 0) scalpTarget = n;
                 else console.log(c.yellow(`  "${stInput}" isn't a positive number — left unchanged`));
             }
+        }
+        let scalpStopDay = !!p.scalpStopDay;
+        if (scalpTarget && (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB")) {
+            const sdInput = (await ask(`  After a scalp target hit, stop for the day? [y/N] (current: ${scalpStopDay ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
+            if (sdInput === "Y") scalpStopDay = true; else if (sdInput === "N") scalpStopDay = false;
         }
         let maxLosingTrades = p.maxLosingTrades ?? null;
         if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") {
@@ -1066,7 +1073,7 @@ async function editInstrument(procs) {
             }
         }
 
-        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles };
+        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -2004,6 +2011,11 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
             else console.log(c.yellow(`  "${stInput}" isn't a positive number — scalp target left off`));
         }
     }
+    let scalpStopDay = false;
+    if (scalpTarget !== null) {
+        const sdInput = (await ask("  After a scalp target hit, stop for the day? [y/N]: ")).trim().toUpperCase();
+        scalpStopDay = sdInput === "Y";
+    }
     let maxLosingTrades = null;
     if (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB") {
         const ltInput = (await ask("  Max losing trades per day (any exit reason), then flat until next session (blank = off): ")).trim();
@@ -2128,6 +2140,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (htfChopMax !== null) env.HTF_CHOP_MAX_OVERRIDE = String(htfChopMax);
     if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || (strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB")) && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
     if (dsbExitMode === "SL") env.DSB_EXIT_MODE_OVERRIDE = "SL";
+    if (scalpTarget !== null && scalpStopDay) env.SCALP_STOP_DAY_OVERRIDE = "1";
     if (scalpTarget !== null) env.SCALP_TARGET_OVERRIDE = String(scalpTarget);
     if (maxLosingTrades !== null) env.MAX_LOSING_TRADES_OVERRIDE = String(maxLosingTrades);
     if (maxLosingSwitches !== null) env.MAX_LOSING_SWITCHES_OVERRIDE = String(maxLosingSwitches);

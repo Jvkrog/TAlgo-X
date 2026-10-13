@@ -16,16 +16,18 @@ engineConfig.CHOP_GATE_ALWAYS_FORCE = false; engineConfig.BAND_STEP_DEFAULT = 1;
 const IST = 5.5 * 3600000;
 const at = (day, hh, mm = 0) => new Date(Date.UTC(2026, 8, day, hh, mm) - IST);   // IST wall time on Sep <day>
 
-function rig({ max, maxTrades, ledger, exitFails = () => false } = {}) {
+function rig({ max, maxTrades, scalp, ledger, exitFails = () => false } = {}) {
     let now = at(11, 10);
     const clock = { now: () => now };
     ledger = ledger || createBacktestLedger({ clock });
     // the in-memory ledger has no journal query; same semantics as db.js's countLosingFlipExitsSince
     ledger.countLosingFlipExitsSince = async (engine, reasons, sinceIso) =>
         ledger.getAllTrades().filter(t => t.status === "CLOSED" && t.pnl < 0 && reasons.includes(t.exit_reason) && t.exit_time >= sinceIso).length;
+    ledger.countScalpTpSince = async (engine, sinceIso) =>
+        ledger.getAllTrades().filter(t => t.status === "CLOSED" && t.exit_reason === "SCALP_TP" && t.exit_time >= sinceIso).length;
     ledger.countLosingTradesSince = async (engine, sinceIso) =>
         ledger.getAllTrades().filter(t => t.status === "CLOSED" && t.pnl < 0 && t.exit_time >= sinceIso).length;
-    const context = { tgPrefix: "T", symbol: "T", token: 1, lots: 1, lotMult: 1, name: "T", strategy: "DYNAMIC_BAND", maxLosingSwitchesPerDay: max, maxLosingTradesPerDay: maxTrades,
+    const context = { tgPrefix: "T", symbol: "T", token: 1, lots: 1, lotMult: 1, name: "T", strategy: "DYNAMIC_BAND", maxLosingSwitchesPerDay: max, maxLosingTradesPerDay: maxTrades, scalpTargetRupees: scalp ? 2000 : null, scalpStopForDay: !!scalp,
         chopFilterEnabled: false, bandStep: 1, htfGateEnabled: false, dailyHaGateEnabled: false };
     const state = createState();
     let candle = null; const raw = [];
@@ -151,6 +153,29 @@ async function t(name, fn) { await fn(); passed++; console.log("ok  -", name); }
     await t("both limits together: whichever is hit first blocks entries", async () => {
         const r = rig({ max: 5, maxTrades: 2 }); await quiet(() => choppy(r));
         assert.strictEqual(exits(r).length, 2); assert.strictEqual(r.state.position, null);
+    });
+    // ── scalp target: stop for the day ──
+    await t("scalp stop-for-day: SCALP_TP closes then blocks entries the rest of the day", async () => {
+        const r = rig({ scalp: true });
+        await quiet(async () => { await r.feed(at(11, 10), 100, 102); await r.close(105, "SCALP_TP"); await r.feed(at(11, 10, 15), 105, 140); });
+        assert.strictEqual(r.state.position, null); assert.strictEqual(exits(r).length, 1);
+    });
+    await t("scalp stop-for-day: resets next IST day", async () => {
+        const r = rig({ scalp: true });
+        await quiet(async () => { await r.feed(at(11, 10), 100, 102); await r.close(105, "SCALP_TP"); await r.feed(at(12, 10), 105, 140); });
+        assert.strictEqual(r.state.position, "LONG");
+    });
+    await t("scalp stop-for-day: survives restart", async () => {
+        const a = rig({ scalp: true });
+        await quiet(async () => { await a.feed(at(11, 10), 100, 102); await a.close(105, "SCALP_TP"); });
+        const b = rig({ scalp: true, ledger: a.ledger });
+        await quiet(async () => { await b.strat.initSignals(); await b.feed(at(11, 13), 105, 150); });
+        assert.strictEqual(b.state.position, null);
+    });
+    await t("scalp without stop-for-day: re-enters after SCALP_TP", async () => {
+        const r = rig({}); r.context.scalpTargetRupees = 2000;
+        await quiet(async () => { await r.feed(at(11, 10), 100, 102); await r.close(105, "SCALP_TP"); await r.feed(at(11, 10, 15), 105, 140); });
+        assert.strictEqual(r.state.position, "LONG");
     });
     console.log(`\n${passed} scenarios passed`);
     process.exit(0);

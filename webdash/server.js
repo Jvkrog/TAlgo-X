@@ -461,6 +461,7 @@ async function getEngineProcesses() {
             // DSB-family daily losing-reversal limit; null = off
             maxLosingSwitches: p.pm2_env.env?.MAX_LOSING_SWITCHES_OVERRIDE ? p.pm2_env.env.MAX_LOSING_SWITCHES_OVERRIDE : null,
             maxLosingTrades: p.pm2_env.env?.MAX_LOSING_TRADES_OVERRIDE ? p.pm2_env.env.MAX_LOSING_TRADES_OVERRIDE : null,
+            scalpStopDay: p.pm2_env.env?.SCALP_STOP_DAY_OVERRIDE === "1",
             dsbExitMode: p.pm2_env.env?.DSB_EXIT_MODE_OVERRIDE === "SL" ? "SL" : "FLIP",
             scalpTarget: p.pm2_env.env?.SCALP_TARGET_OVERRIDE ? p.pm2_env.env.SCALP_TARGET_OVERRIDE : null,
             // undefined (not false) when unset, so buildProcessEnv can tell
@@ -529,6 +530,7 @@ function buildProcessEnv(p, overrides = {}) {
     env.TARGET_POINTS_OVERRIDE = (p.targetPoints !== null && p.targetPoints !== undefined) ? String(p.targetPoints) : "";
     env.TARGET_MODE_OVERRIDE = p.targetMode === "adaptive" ? "adaptive" : "";
     env.BAND_STEP_OVERRIDE = (p.bandStep !== null && p.bandStep !== undefined) ? String(p.bandStep) : "";
+    env.SCALP_STOP_DAY_OVERRIDE = (p.scalpStopDay && p.scalpTarget) ? "1" : "";
     env.DSB_EXIT_MODE_OVERRIDE = (p.dsbExitMode === "SL" && ["DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(p.strategy)) ? "SL" : "";
     env.SCALP_TARGET_OVERRIDE = (p.scalpTarget !== null && p.scalpTarget !== undefined && p.scalpTarget !== "") ? String(p.scalpTarget) : "";
     env.MAX_LOSING_TRADES_OVERRIDE = (p.maxLosingTrades !== null && p.maxLosingTrades !== undefined && p.maxLosingTrades !== "") ? String(p.maxLosingTrades) : "";
@@ -805,7 +807,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize } = req.body || {};
+    const { name, lots, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -844,6 +846,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.bandStep = parsedStep;
             }
         }
+        if (scalpStopDay !== undefined) updated.scalpStopDay = !!scalpStopDay;
         if (dsbExitMode !== undefined) {
             if (dsbExitMode !== "SL" && dsbExitMode !== "FLIP") return res.status(400).json({ error: "dsbExitMode must be FLIP or SL" });
             updated.dsbExitMode = dsbExitMode;
@@ -1246,7 +1249,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
@@ -1346,6 +1349,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             const parsedStep = Number(bandStep);
             if (Number.isFinite(parsedStep) && parsedStep > 0) env.BAND_STEP_OVERRIDE = String(parsedStep);
         }
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && scalpStopDay && scalpTarget) env.SCALP_STOP_DAY_OVERRIDE = "1";
         if (["DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && dsbExitMode === "SL") env.DSB_EXIT_MODE_OVERRIDE = "SL";
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && scalpTarget !== undefined && scalpTarget !== null && scalpTarget !== "") {
             const n = Number(scalpTarget);
@@ -1465,7 +1469,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // params (merged onto a per-run engineConfig by backtestRun.js,
         // same as the CLI's params.CHOP_GATE_ALWAYS_FORCE etc.) — everything
         // else mutates context directly, exactly like backtestFlow.js does.
-        chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches, maxLosingTrades, scalpTarget, dsbExitMode,
+        chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, dsbExitMode,
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
         disableDoubleOrders, atrSlMult, hardSlRupees, dailyBiasEntryTime, dailyBiasCandle, entryTime,
         volumeFilterEnabled, volumeSmaPeriod,
@@ -1620,6 +1624,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
             if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: "scalpTarget must be a rupee amount > 0 (blank = off)" });
             context.scalpTargetRupees = n;
         }
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && scalpStopDay && context.scalpTargetRupees) context.scalpStopForDay = true;
         if (["DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && dsbExitMode === "SL") context.dsbExitMode = "SL";
         if (carryOvernight !== undefined) context.carryOvernight = !!carryOvernight;
         if (maxDailyLoss !== undefined && maxDailyLoss !== null && maxDailyLoss !== "") {

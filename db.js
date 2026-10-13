@@ -270,6 +270,13 @@ function createDb(context) {
 
     // Losing signal-driven reversals since `sinceIso` (losingSwitchGate.js) — closed trades with one of the
     // given flip exit reasons and a negative P&L. Rebuilds the daily counter after a restart.
+    // Scalp-target exits since `sinceIso` (losingSwitchGate.js: stop trading for the day after a scalp TP).
+    function countScalpTpSince(engine, sinceIso) {
+        return new Promise((resolve, reject) => {
+            db.get(`SELECT COUNT(*) AS n FROM trades WHERE engine = ? AND status = 'CLOSED' AND exit_reason = 'SCALP_TP' AND exit_time >= ?`,
+                [engine, sinceIso], (err, row) => err ? reject(err) : resolve(row ? row.n : 0));
+        });
+    }
     // Attaches the entry-time snapshot (entrySnapshot.js) to an open trade row. Best-effort.
     function setEntryContext(id, obj) {
         if (!id || !obj) return Promise.resolve();
@@ -380,7 +387,7 @@ function createDb(context) {
 
     return {
         initDB, savePosition, loadPosition, saveRegime, loadRegime, clearAllPositions,
-        insertOpenTrade, closeTrade, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince, setEntryContext, logRiskEvent,
+        insertOpenTrade, closeTrade, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince, countScalpTpSince, setEntryContext, logRiskEvent,
     };
 }
 

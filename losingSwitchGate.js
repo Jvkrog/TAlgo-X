@@ -28,7 +28,7 @@ const istDayKey = ms => new Date(ms + IST_MS).toISOString().slice(0, 10);
 function createLosingSwitchGate({ context, state, db, clock = { now: () => new Date() }, tag = "DSB" }) {
     let n = 0;
     let dayKey = null;
-    const stats = state.losingSwitchStats = state.losingSwitchStats || { losingReversals: 0, blocked: 0, daysExhausted: 0, exhaustedDays: [], blockedDays: [], losingDays: [], losingTrades: 0, tradeLimitDays: [], tradeBlocked: 0, tradeBlockedDays: [] };
+    const stats = state.losingSwitchStats = state.losingSwitchStats || { scalpStopDays: [], scalpBlocked: 0, losingReversals: 0, blocked: 0, daysExhausted: 0, exhaustedDays: [], blockedDays: [], losingDays: [], losingTrades: 0, tradeLimitDays: [], tradeBlocked: 0, tradeBlockedDays: [] };
 
     const max = () => {
         const m = Number(context.maxLosingSwitchesPerDay);
@@ -43,6 +43,9 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
         return Number.isFinite(m) && m > 0 ? m : null;
     };
     const tradesEnabled = () => maxT() !== null;
+    // Third, independent lock: after a scalp-target (SCALP_TP) exit, take no more entries today (context.scalpStopForDay).
+    let nScalp = 0;
+    const scalpStopEnabled = () => !!context.scalpStopForDay && Number(context.scalpTargetRupees) > 0 && !context.targetPoints;
     // Persist a limiter event for the AI review (best-effort, never throws, no-op for the backtest ledger).
     const note = (kind, detail) => { try { if (typeof db.logRiskEvent === "function") db.logRiskEvent(context.tgPrefix, istDayKey(clock.now().getTime()), kind, detail); } catch { /* observer only */ } };
     const log = msg => console.log(`[${tag}] ${msg}`);
@@ -57,6 +60,7 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
             if (n > 0 && enabled()) log(`Daily losing-switch counter reset (was ${n})`);
             n = 0;
             nt = 0;
+            nScalp = 0;
         }
     }
 
@@ -70,6 +74,12 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
                 nt = await db.countLosingTradesSince(context.tgPrefix, since);
                 if (nt > 0) log(`Losing trades today restored after restart: ${nt}/${maxT()}${nt >= maxT() ? " — limit reached, entries blocked for today" : ""}`);
             } catch (err) { console.warn(`[${tag}] could not restore losing-trade counter: ${err.message}`); }
+        }
+        if (scalpStopEnabled() && typeof db.countScalpTpSince === "function") {
+            try {
+                nScalp = await db.countScalpTpSince(context.tgPrefix, since);
+                if (nScalp > 0) log("Scalp target already hit today (restored after restart) — no entries until the next session");
+            } catch (err) { console.warn(`[${tag}] could not restore scalp-stop state: ${err.message}`); }
         }
         if (!enabled() || typeof db.countLosingFlipExitsSince !== "function") return;
         try {
@@ -108,6 +118,14 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
 
     // Every closed position (any exit reason) reports here through positions.close -> state.onClose.
     function onClose(reason, pnl) {
+        if (scalpStopEnabled() && reason === "SCALP_TP") {
+            rollDay();
+            nScalp += 1;
+            const day = istDayKey(clock.now().getTime());
+            if (!stats.scalpStopDays.includes(day)) stats.scalpStopDays.push(day);
+            log(`Scalp target hit (${pnl >= 0 ? "+" : ""}${Number(pnl).toFixed(2)}) — done for the day, no further entries until the next session`);
+            note("SCALP_TP_DAY_DONE", { pnl });
+        }
         if (!tradesEnabled() || !(pnl < 0)) return;
         rollDay();
         nt += 1;
@@ -123,13 +141,18 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
     const prevOnClose = state.onClose;
     state.onClose = (reason, pnl) => { if (typeof prevOnClose === "function") prevOnClose(reason, pnl); onClose(reason, pnl); };
 
+    function scalpLocked() { return scalpStopEnabled() && (rollDay(), nScalp >= 1); }
     function tradesLocked() { return tradesEnabled() && (rollDay(), nt >= maxT()); }
     function reversalsLocked() { return enabled() && (rollDay(), n > max()); }
 
     // True when entries must not happen (either limit exhausted for today). Checked before every entry.
-    function isLocked() { return reversalsLocked() || tradesLocked(); }
+    function isLocked() { return reversalsLocked() || tradesLocked() || scalpLocked(); }
 
     function lockMessage(side) {
+        if (scalpLocked() && !tradesLocked() && !reversalsLocked()) {
+            stats.scalpBlocked += 1;
+            return `${side} entry blocked — scalp target already hit today; done for the day, no entries until the next session`;
+        }
         if (tradesLocked()) {
             stats.tradeBlocked += 1; stats.tradeBlockedDays.push(istDayKey(clock.now().getTime()));
             return `${side} entry blocked — daily losing-trade limit reached (${nt}/${maxT()}); no entries until the next session`;
