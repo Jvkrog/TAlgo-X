@@ -4398,9 +4398,12 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
                 await doEnter(replay.position, livePrice, atrVal, "HIST REPLAY ENTRY");
                 // Refused ONLY because it's before the configured entry time (boot happens before the open):
                 // remember the side and take it as soon as the entry time arrives, if history still implies it.
-                if (!state.position && dailyHa && dailyHa.lastBlockReason === "entry-time") {
+                // ANY refusal (entry time, chop / long-candle / daily-HA gate, failed order) keeps the replay side pending, so it
+                // is retried on the very next candle(s) instead of waiting for a fresh breakout. A daily-limit lock cancels it.
+                if (!state.position && !lsGate.isLocked()) {
                     state.pendingReplaySide = replay.position;
-                    console.log(c.yellow(`[${context.tgPrefix}] ${replay.position} replay entry held until the entry time — will take it then if history still implies ${replay.position}`));
+                    const why = dailyHa && dailyHa.lastBlockReason === "entry-time" ? "held until the entry time" : "refused for now — will retry on each new candle";
+                    console.log(c.yellow(`[${context.tgPrefix}] ${replay.position} replay entry ${why} — will take it if history still implies ${replay.position}`));
                 }
             }
             return; // this candle is fully accounted for by the replay above
@@ -4423,7 +4426,7 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
     // time has arrived, provided the band history still implies the same side and nothing else refuses it.
     async function retryPendingReplayEntry(rawCandles, atrVal, bandStep) {
         if (!state.pendingReplaySide) return;
-        if (state.position) { state.pendingReplaySide = null; return; }
+        if (state.position || lsGate.isLocked()) { state.pendingReplaySide = null; return; }
         const window = rawCandles.slice(-engineConfig.MAX_CANDLES);
         const implied = replayHistory(window, bandStep)?.position ?? null;
         if (implied !== state.pendingReplaySide) { state.pendingReplaySide = null; return; }   // moved on — normal breakout logic takes over
@@ -4433,7 +4436,7 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
         if (dailyHa && (await dailyHa.isBlocked(side)) && dailyHa.lastBlockReason === "entry-time") return;   // still before the entry time — wait quietly
         await doEnter(side, livePrice, atrVal, "HIST REPLAY ENTRY (entry time reached)");
         if (state.position) state.pendingReplaySide = null;
-        else if (dailyHa && dailyHa.lastBlockReason !== "entry-time") state.pendingReplaySide = null;   // refused for another reason — don't loop on it
+        // refused again (any reason): stay pending — retried on the next candle while history still implies this side
     }
 
     function replayHistory(rawCandles, bandStep) {
@@ -4787,9 +4790,12 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
             if (!state.resumedFromDb && engineConfig.ENGINE_ENABLED && replay?.position) {
                 const livePrice = candles.getLivePrice() ?? rawCandle.close;
                 await doEnter(replay.position, livePrice, atrVal, "HIST REPLAY ENTRY");
-                if (!state.position && dailyHa && dailyHa.lastBlockReason === "entry-time") {
+                // ANY refusal (entry time, chop / long-candle / daily-HA gate, failed order) keeps the replay side pending, so it
+                // is retried on the very next candle(s) instead of waiting for a fresh breakout. A daily-limit lock cancels it.
+                if (!state.position && !lsGate.isLocked()) {
                     state.pendingReplaySide = replay.position;
-                    console.log(c.yellow(`[${context.tgPrefix}] ${replay.position} replay entry held until the entry time — will take it then if history still implies ${replay.position}`));
+                    const why = dailyHa && dailyHa.lastBlockReason === "entry-time" ? "held until the entry time" : "refused for now — will retry on each new candle";
+                    console.log(c.yellow(`[${context.tgPrefix}] ${replay.position} replay entry ${why} — will take it if history still implies ${replay.position}`));
                 }
             }
             return;
@@ -4809,7 +4815,7 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
     // time has arrived, provided the band history still implies the same side and nothing else refuses it.
     async function retryPendingReplayEntry(rawCandles, atrVal, bandStep) {
         if (!state.pendingReplaySide) return;
-        if (state.position) { state.pendingReplaySide = null; return; }
+        if (state.position || lsGate.isLocked()) { state.pendingReplaySide = null; return; }
         const window = rawCandles.slice(-engineConfig.MAX_CANDLES);
         const implied = replayHistory(window, bandStep)?.position ?? null;
         if (implied !== state.pendingReplaySide) { state.pendingReplaySide = null; return; }   // moved on — normal breakout logic takes over
@@ -4819,7 +4825,7 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
         if (dailyHa && (await dailyHa.isBlocked(side)) && dailyHa.lastBlockReason === "entry-time") return;   // still before the entry time — wait quietly
         await doEnter(side, livePrice, atrVal, "HIST REPLAY ENTRY (entry time reached)");
         if (state.position) state.pendingReplaySide = null;
-        else if (dailyHa && dailyHa.lastBlockReason !== "entry-time") state.pendingReplaySide = null;   // refused for another reason — don't loop on it
+        // refused again (any reason): stay pending — retried on the next candle while history still implies this side
     }
 
     function replayHistory(rawCandles, bandStep) {
