@@ -689,6 +689,37 @@ function ts() {
   return new Date().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
 }
 
+// PM2 logs carry the engine's ANSI colour codes ("\x1b[32m ... \x1b[0m"); the ESC byte is often lost on the way, leaving
+// literal "[32m" / "[0m" in the text. Render them as real colours (ESC optional), escaping everything else.
+const ANSI_COLORS = { 30: "#6b7280", 31: "#f87171", 32: "#4ade80", 33: "#facc15", 34: "#60a5fa", 35: "#c084fc", 36: "#22d3ee", 37: "#e5e7eb",
+  90: "#9ca3af", 91: "#fca5a5", 92: "#86efac", 93: "#fde047", 94: "#93c5fd", 95: "#d8b4fe", 96: "#67e8f9", 97: "#ffffff" };
+function ansiHtml(text) {
+  const esc = String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  let open = false, color = null, bold = false, dim = false, out = "", last = 0;
+  const re = /\u001b?\[(\d{1,3}(?:;\d{1,3})*)m/g;
+  const flush = () => { if (open) { out += "</span>"; open = false; } };
+  const start = () => {
+    if (!color && !bold && !dim) return;
+    out += `<span style="${color ? "color:" + color + ";" : ""}${bold ? "font-weight:700;" : ""}${dim ? "opacity:.6;" : ""}">`; open = true;
+  };
+  let m;
+  while ((m = re.exec(esc))) {
+    out += esc.slice(last, m.index); last = re.lastIndex;
+    flush();
+    for (const code of m[1].split(";").map(Number)) {
+      if (code === 0) { color = null; bold = false; dim = false; }
+      else if (code === 1) bold = true;
+      else if (code === 2) dim = true;
+      else if (code === 22) { bold = false; dim = false; }
+      else if (code === 39) color = null;
+      else if (ANSI_COLORS[code]) color = ANSI_COLORS[code];
+    }
+    start();
+  }
+  out += esc.slice(last);
+  flush();
+  return out;
+}
 function escHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
@@ -1977,10 +2008,10 @@ async function openLogsModal(name) {
     const data = await (await fetch(`/api/toolbox/logs/${encodeURIComponent(name)}`)).json();
     if (data.error) { tbLogsBody.textContent = data.error; return; }
     let html = `<div class="tb-log-section-title">stdout — ${data.outLogPath || "Unknown path"}</div>`;
-    html += `<pre>${(data.out.join("\n") || "(empty)").replace(/</g, "&lt;")}</pre>`;
+    html += `<pre>${ansiHtml(data.out.join("\n") || "(empty)")}</pre>`;
     if (data.err && data.err.length) {
       html += `<div class="tb-log-section-title">stderr — ${data.errLogPath || "Unknown path"}</div>`;
-      html += `<pre class="err-line">${data.err.join("\n").replace(/</g, "&lt;")}</pre>`;
+      html += `<pre class="err-line">${ansiHtml(data.err.join("\n"))}</pre>`;
     }
     tbLogsBody.innerHTML = html;
   } catch (err) {
@@ -3650,7 +3681,7 @@ async function loadHedgePairsList() {
       btn.addEventListener("click", async () => {
         const data = await (await fetch(`/api/toolbox/hedgepairs/logs/${encodeURIComponent(btn.dataset.hpLogs)}`)).json();
         tbLogsTitle.textContent = btn.dataset.hpLogs;
-        tbLogsBody.innerHTML = `<div class="tb-log-pane"><div class="tb-log-label">Stdout</div><pre>${(data.out || []).join("\n") || "(empty)"}</pre></div><div class="tb-log-pane"><div class="tb-log-label">Stderr</div><pre>${(data.err || []).join("\n") || "(empty)"}</pre></div>`;
+        tbLogsBody.innerHTML = `<div class="tb-log-pane"><div class="tb-log-label">Stdout</div><pre>${ansiHtml((data.out || []).join("\n") || "(empty)")}</pre></div><div class="tb-log-pane"><div class="tb-log-label">Stderr</div><pre>${ansiHtml((data.err || []).join("\n") || "(empty)")}</pre></div>`;
         tbLogsModal.classList.add("open");
       });
     });
@@ -3879,7 +3910,7 @@ async function loadDualHedgeList() {
       btn.addEventListener("click", async () => {
         const data = await (await fetch(`/api/toolbox/dualhedge/logs/${encodeURIComponent(btn.dataset.dhLogs)}`)).json();
         tbLogsTitle.textContent = btn.dataset.dhLogs;
-        tbLogsBody.innerHTML = `<div class="tb-log-pane"><div class="tb-log-label">Stdout</div><pre>${(data.out || []).join("\n") || "(empty)"}</pre></div><div class="tb-log-pane"><div class="tb-log-label">Stderr</div><pre>${(data.err || []).join("\n") || "(empty)"}</pre></div>`;
+        tbLogsBody.innerHTML = `<div class="tb-log-pane"><div class="tb-log-label">Stdout</div><pre>${ansiHtml((data.out || []).join("\n") || "(empty)")}</pre></div><div class="tb-log-pane"><div class="tb-log-label">Stderr</div><pre>${ansiHtml((data.err || []).join("\n") || "(empty)")}</pre></div>`;
         tbLogsModal.classList.add("open");
       });
     });
