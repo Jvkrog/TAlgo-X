@@ -17,6 +17,7 @@
 // standard, deliberate backtesting assumption (see the architecture doc's
 // §6) — reversing it would optimistically bias every result.
 "use strict";
+const { scalpRules, rupeesToPoints } = require("./scalpRules");
 
 function createBacktestSL({ context, engineConfig, state, slStore, orders, positionsClose, db, tg }) {
     // Mirrors candlePoll.checkSL(price) exactly, except it's fed a candle's
@@ -60,8 +61,21 @@ function createBacktestSL({ context, engineConfig, state, slStore, orders, posit
     // candle it wins and the target is skipped. Fills at the target price.
     async function checkTarget(candle) {
         if (!context.scalpTargetRupees || context.targetPoints || !engineConfig.ENGINE_ENABLED || !state.position || !state.entryPrice) return false;
-        const points = context.scalpTargetRupees / ((context.lotMult || 1) * (context.lots || 1));
+        const sr = scalpRules(context, state);
         const long = state.position === "LONG";
+        // Post-scalp-hit fixed rupee stop (scalpNextMode "SL"): checked first, worst-case ordering (stop wins).
+        if (sr.slRupees) {
+            const sp = rupeesToPoints(context, sr.slRupees);
+            const stopLevel = long ? state.entryPrice - sp : state.entryPrice + sp;
+            if (long ? candle.low <= stopLevel : candle.high >= stopLevel) {
+                tg(`🛑 ${state.position} SCALP STOP ₹${sr.slRupees} @ ₹${stopLevel.toFixed(2)}`);
+                await positionsClose(stopLevel, "SCALP_SL");
+                db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                slStore.clearTrail();
+                return true;
+            }
+        }
+        const points = rupeesToPoints(context, sr.targetRupees);
         const level = long ? state.entryPrice + points : state.entryPrice - points;
         const hit = long ? candle.high >= level : candle.low <= level;
         if (!hit) return false;

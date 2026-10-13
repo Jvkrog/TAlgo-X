@@ -202,6 +202,12 @@ async function main() {
         context.scalpTargetRupees = Number.isFinite(parsedScalp) && parsedScalp > 0 ? parsedScalp : null;
     }
     context.scalpStopForDay = process.env.SCALP_STOP_DAY_OVERRIDE === "1";
+    context.scalpNextMode = null; context.scalpNextValue = null;
+    if (context.scalpTargetRupees && !context.scalpStopForDay && /^(TARGET|SL):\d+(\.\d+)?$/.test(process.env.SCALP_NEXT_OVERRIDE || "")) {
+        const [m, v] = process.env.SCALP_NEXT_OVERRIDE.split(":");
+        context.scalpNextMode = m; context.scalpNextValue = Number(v);
+        console.log(c.dim(`[${context.tgPrefix}] [SCALP] after the first scalp hit of the day: ${m === "TARGET" ? "next target" : "stop-loss"} = ₹${v}`));
+    }
     if (context.scalpTargetRupees && context.scalpStopForDay) console.log(c.dim(`[${context.tgPrefix}] [SCALP] after a scalp target hit: done for the day (no more entries until next session)`));
     if (context.scalpTargetRupees) console.log(c.dim(`[${context.tgPrefix}] [SCALP] target: ₹${context.scalpTargetRupees} per trade (tick-monitored, then wait for the next strategy signal)`));
     // Target mode — "adaptive" only means anything once targetPoints itself

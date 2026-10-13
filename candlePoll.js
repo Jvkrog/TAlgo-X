@@ -22,6 +22,7 @@
 
 const { KiteConnect } = require("kiteconnect");
 const c  = require("./c");
+const { scalpRules, rupeesToPoints } = require("./scalpRules");
 const { TIMEFRAME_TO_INTERVAL, TIMEFRAME_MINUTES } = require("./historicalFetch");
 const { toHA, atrSeries, dpi, choppinessIndex } = require("./indicators");
 const { selectAdaptiveTarget } = require("./adaptiveTarget");
@@ -93,14 +94,36 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
     async function checkTarget(price) {
         if (!price || !targetStore) return;
 
+        // Post-scalp-hit fixed rupee stop (context.scalpNextMode "SL"): tick-monitored, same arithmetic as the target.
+        if (engineConfig.ENGINE_ENABLED && state.position && state.entryPrice && context.scalpNextMode === "SL") {
+            const sr = scalpRules(context, state);
+            if (sr.slRupees) {
+                const pts = rupeesToPoints(context, sr.slRupees);
+                const stopped = state.position === "LONG" ? price <= state.entryPrice - pts : price >= state.entryPrice + pts;
+                if (stopped) {
+                    tg(`🛑 ${state.position} SCALP STOP ₹${sr.slRupees} @ ₹${price.toFixed(2)}`);
+                    const ordered = await orders.slExit(state.position);
+                    if (engineConfig.LIVE_ORDERS && ordered === null) {
+                        console.error(c.red(`Scalp stop order failed — position NOT cleared, manual exit required`));
+                    } else {
+                        await positionsClose(price, "SCALP_SL");
+                        db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                        slStore.clearTrail(); targetStore.clearTarget();
+                    }
+                    return;
+                }
+            }
+        }
+
         if (engineConfig.ENGINE_ENABLED && state.position && state.entryPrice && (context.targetPoints || context.scalpTargetRupees || context.targetMode === "adaptive")) {
             const { target: armedTarget } = targetStore.getTarget();
             if (armedTarget === null) {
                 let points = context.targetPoints; // FIXED wins outright if set, regardless of targetMode
                 if (!points && context.scalpTargetRupees) {
                     // Scalp target is in rupees: distance = rupees / (lotMult * lots), same arithmetic positions.close uses for P&L.
-                    points = context.scalpTargetRupees / ((context.lotMult || 1) * (context.lots || 1));
-                    console.log(c.dim(`[${context.tgPrefix}] [SCALP] target ₹${context.scalpTargetRupees} = ${points.toFixed(2)} points`));
+                    const sr = scalpRules(context, state);
+                    points = rupeesToPoints(context, sr.targetRupees);
+                    console.log(c.dim(`[${context.tgPrefix}] [SCALP] target ₹${sr.targetRupees}${sr.hits ? ` (after ${sr.hits} scalp hit${sr.hits > 1 ? "s" : ""} today)` : ""} = ${points.toFixed(2)} points`));
                 }
 
                 if (!points && context.targetMode === "adaptive") {

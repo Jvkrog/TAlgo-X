@@ -176,6 +176,7 @@ async function t(name, fn) { await fn(); passed++; console.log("ok  -", name); }
         const r = rig({}); r.context.scalpTargetRupees = 2000;
         await quiet(async () => { await r.feed(at(11, 10), 100, 102); await r.close(105, "SCALP_TP"); await r.feed(at(11, 10, 15), 105, 140); });
         assert.strictEqual(r.state.position, "LONG");
+        assert.strictEqual(r.state.scalpHitsToday, 1, "hit counted for the post-hit rule");
     });
     console.log(`\n${passed} scenarios passed`);
     process.exit(0);

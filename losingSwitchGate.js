@@ -45,6 +45,7 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
     const tradesEnabled = () => maxT() !== null;
     // Third, independent lock: after a scalp-target (SCALP_TP) exit, take no more entries today (context.scalpStopForDay).
     let nScalp = 0;
+    const scalpTracked = () => Number(context.scalpTargetRupees) > 0 && !context.targetPoints;
     const scalpStopEnabled = () => !!context.scalpStopForDay && Number(context.scalpTargetRupees) > 0 && !context.targetPoints;
     // Persist a limiter event for the AI review (best-effort, never throws, no-op for the backtest ledger).
     const note = (kind, detail) => { try { if (typeof db.logRiskEvent === "function") db.logRiskEvent(context.tgPrefix, istDayKey(clock.now().getTime()), kind, detail); } catch { /* observer only */ } };
@@ -60,7 +61,7 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
             if (n > 0 && enabled()) log(`Daily losing-switch counter reset (was ${n})`);
             n = 0;
             nt = 0;
-            nScalp = 0;
+            nScalp = 0; state.scalpHitsToday = 0;
         }
     }
 
@@ -75,10 +76,10 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
                 if (nt > 0) log(`Losing trades today restored after restart: ${nt}/${maxT()}${nt >= maxT() ? " — limit reached, entries blocked for today" : ""}`);
             } catch (err) { console.warn(`[${tag}] could not restore losing-trade counter: ${err.message}`); }
         }
-        if (scalpStopEnabled() && typeof db.countScalpTpSince === "function") {
+        if (scalpTracked() && typeof db.countScalpTpSince === "function") {
             try {
-                nScalp = await db.countScalpTpSince(context.tgPrefix, since);
-                if (nScalp > 0) log("Scalp target already hit today (restored after restart) — no entries until the next session");
+                nScalp = await db.countScalpTpSince(context.tgPrefix, since); state.scalpHitsToday = nScalp;
+                if (nScalp > 0) log(scalpStopEnabled() ? "Scalp target already hit today (restored after restart) — no entries until the next session" : `Scalp target already hit today (restored after restart)${context.scalpNextMode ? " — next trades use the post-hit " + (context.scalpNextMode === "TARGET" ? "target" : "stop-loss") : ""}`);
             } catch (err) { console.warn(`[${tag}] could not restore scalp-stop state: ${err.message}`); }
         }
         if (!enabled() || typeof db.countLosingFlipExitsSince !== "function") return;
@@ -118,13 +119,16 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
 
     // Every closed position (any exit reason) reports here through positions.close -> state.onClose.
     function onClose(reason, pnl) {
-        if (scalpStopEnabled() && reason === "SCALP_TP") {
+        if (scalpTracked() && reason === "SCALP_TP") {
             rollDay();
-            nScalp += 1;
-            const day = istDayKey(clock.now().getTime());
-            if (!stats.scalpStopDays.includes(day)) stats.scalpStopDays.push(day);
-            log(`Scalp target hit (${pnl >= 0 ? "+" : ""}${Number(pnl).toFixed(2)}) — done for the day, no further entries until the next session`);
-            note("SCALP_TP_DAY_DONE", { pnl });
+            nScalp += 1; state.scalpHitsToday = nScalp;
+            if (!scalpStopEnabled()) { if (context.scalpNextMode) log(`Scalp target hit — next trades today use ${context.scalpNextMode === "TARGET" ? "target" : "stop-loss"} ₹${context.scalpNextValue}`); }
+            else {
+                const day = istDayKey(clock.now().getTime());
+                if (!stats.scalpStopDays.includes(day)) stats.scalpStopDays.push(day);
+                log(`Scalp target hit (${pnl >= 0 ? "+" : ""}${Number(pnl).toFixed(2)}) — done for the day, no further entries until the next session`);
+                note("SCALP_TP_DAY_DONE", { pnl });
+            }
         }
         if (!tradesEnabled() || !(pnl < 0)) return;
         rollDay();

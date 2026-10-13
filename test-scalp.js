@@ -40,5 +40,16 @@ const quiet = async fn => { const l = console.log; console.log = () => {}; try {
     assert.strictEqual(await quiet(() => r.sl.checkTarget({ high: 500, low: 400 })), false, "fixed points target takes precedence");
     r = rig({ lots: 2 }); r.enter("LONG", 420);   // Rs 2000 / (1000*2) = 1.0 point
     assert.strictEqual(await quiet(() => r.sl.checkTarget({ high: 421, low: 419.5 })), true, "scales with lots");
-    console.log("scalp target: 6 scenarios passed"); process.exit(0);
+        // post-scalp-hit rules: after the first SCALP_TP of the day, next TARGET or fixed SL
+    r = rig({ scalpNextMode: "TARGET", scalpNextValue: 1000 }); r.enter("LONG", 420);
+    assert.strictEqual(await quiet(() => r.sl.checkTarget({ high: 421.0, low: 419.5 })), false, "first trade still uses the 2000 target");
+    await quiet(() => r.sl.checkTarget({ high: 422.0, low: 419.5 }));       // first hit
+    r.state.scalpHitsToday = 1; r.enter("LONG", 420);
+    assert.strictEqual(await quiet(() => r.sl.checkTarget({ high: 421.0, low: 419.5 })), true, "second trade uses the 1000 target");
+    r = rig({ scalpNextMode: "SL", scalpNextValue: 1500 }); r.state.scalpHitsToday = 1; r.enter("LONG", 420);
+    assert.strictEqual(await quiet(() => r.sl.checkTarget({ high: 420.5, low: 418.4 })), true, "fixed SL 1500 = 1.5 pts");
+    assert.ok(Math.abs(r.state.pnl + 1500) < 1e-6, "pnl -1500, got " + r.state.pnl);
+    r = rig({ scalpNextMode: "SL", scalpNextValue: 1500 }); r.enter("LONG", 420);   // no hit yet today: no SL
+    assert.strictEqual(await quiet(() => r.sl.checkTarget({ high: 420.5, low: 417 })), false, "no post-hit SL before the first hit");
+console.log("scalp target: 9 scenarios passed"); process.exit(0);
 })().catch(e => { console.error("FAIL", e); process.exit(1); });
