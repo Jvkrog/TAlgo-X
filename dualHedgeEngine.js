@@ -115,6 +115,8 @@
 // as a scoped follow-up, same as hedgePairEngine.js's own original
 // toolbox/webdash gap.
 "use strict";
+require("./plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
+
 
 // DH_STRATEGY selects the strategy this single PM2 entry point runs:
 //   DUAL (default) — the band-following dual hedge below

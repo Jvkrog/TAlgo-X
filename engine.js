@@ -7,6 +7,8 @@
 // the broker's live instrument dump. No file edit needed to run a new
 // instrument — see toolbox.js's "Add instrument" flow.
 "use strict";
+require("./plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
+
 
 const { getDefinition, buildContext, defaultEodFor } = require("./context");
 const { createCsvRepository }         = require("./csvRepository");

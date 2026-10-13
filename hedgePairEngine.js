@@ -86,6 +86,8 @@
 // strategy any more than engine.js's live model does; that's a separate
 // follow-up, same as the toolbox UI.
 "use strict";
+require("./plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
+
 
 const { KiteConnect } = require("kiteconnect");
 const engineConfig = require("./engineConfig");

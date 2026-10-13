@@ -3677,7 +3677,18 @@ async function deleteSelected(procs) {
 // ─── VIEW LOGS — reads straight from PM2's own tracked log file paths ─────
 const N_LOG_LINES = 30;
 
+// PM2's .log files are plain text (plainLog.js strips the colour codes); the coloured copy lives in a "-color.log"
+// sidecar. Viewers read the sidecar when it is the more recently written one, so they keep their colours.
+function colorLogFor(filePath) {
+    try {
+        if (!filePath) return filePath;
+        const side = String(filePath).replace(/\.log$/, "") + "-color.log";
+        if (fs.existsSync(side) && (!fs.existsSync(filePath) || fs.statSync(side).mtimeMs >= fs.statSync(filePath).mtimeMs - 2000)) return side;
+    } catch { /* fall back to the plain file */ }
+    return filePath;
+}
 function tailFile(filePath, n) {
+    filePath = colorLogFor(filePath);
     if (!filePath || !fs.existsSync(filePath)) return [c.dim(`(no log file yet: ${filePath || "unknown path"})`)];
     try {
         const text  = fs.readFileSync(filePath, "utf8");

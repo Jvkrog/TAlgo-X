@@ -32,6 +32,8 @@
 // Fills can lag the backtest by up to one poll; a late start takes the core on
 // the first poll after the entry time.
 "use strict";
+require("./plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
+
 
 const { KiteConnect } = require("kiteconnect");
 const engineConfig = require("./engineConfig");
