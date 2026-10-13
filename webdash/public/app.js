@@ -4250,7 +4250,7 @@ function aiEsc(v) { return String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp
 function aiReviewHtml(r) {
   const list = arr => arr.length ? `<ul style="margin:4px 0 0 18px;padding:0">${arr.map(x => `<li>${aiEsc(x)}</li>`).join("")}</ul>` : "";
   return `<div class="tb-form-hint" style="margin-top:8px;border-top:1px solid rgba(255,255,255,.1);padding-top:8px">
-    <div><b>AI commentary</b> — grade <b>${aiEsc(r.grade)}</b> (decision quality, not profit)</div>
+    <div><button type="button" class="btn btn-ghost ai-close" style="float:right;padding:2px 10px">Close ✕</button><b>AI commentary</b> — grade <b>${aiEsc(r.grade)}</b> (decision quality, not profit)</div>
     <div style="margin-top:4px"><b>Entry:</b> ${aiEsc(r.entry_assessment)}</div>
     ${r.trade_behaviour ? `<div><b>Behaviour:</b> ${aiEsc(r.trade_behaviour)}</div>` : ""}
     <div><b>Exit:</b> ${aiEsc(r.exit_assessment)}</div>
@@ -4266,12 +4266,13 @@ function aiTable(title, rows, cols) {
 }
 function aiNarrationHtml(n) {
   const li = a => `<ul style="margin:4px 0 0 18px;padding:0">${a.map(x => `<li>${aiEsc(x)}</li>`).join("")}</ul>`;
-  return `<div style="margin-top:8px;border-top:1px solid rgba(255,255,255,.1);padding-top:8px"><div><b>AI summary</b> — ${aiEsc(n.headline)}</div>
+  return `<div class="ai-narr" style="margin-top:8px;border-top:1px solid rgba(255,255,255,.1);padding-top:8px"><div><button type="button" class="btn btn-ghost ai-close-narr" style="float:right;padding:2px 10px">Close ✕</button><b>AI summary</b> — ${aiEsc(n.headline)}</div>
     <div style="margin-top:4px"><b>Patterns</b><ul style="margin:4px 0 0 18px;padding:0">${n.patterns.map(p => `<li>${aiEsc(p.finding)} <span class="tb-form-hint">(${aiEsc(p.evidence)})</span></li>`).join("")}</ul></div>
     <div style="margin-top:4px"><b>Limiter days:</b> ${aiEsc(n.limiter_assessment)}</div>
     <div style="margin-top:4px"><b>Worth testing</b>${li(n.suggestions)}</div>
     <div style="margin-top:4px"><b>Limitations</b>${li(n.limitations)}</div></div>`;
 }
+document.addEventListener("click", e => { const b = e.target.closest(".ai-close-narr"); if (b) b.closest(".ai-narr").remove(); });
 async function loadAiSummary(days) {
   aiSummaryDays = days;
   const box = document.getElementById("aiSummaryBox"), status = document.getElementById("aiStatus");
@@ -4333,6 +4334,11 @@ async function loadAiTrades() {
   box.querySelectorAll(".toolbox-row").forEach(row => {
     const t = data.trades[Number(row.dataset.i)];
     const btn = row.querySelector(".ai-review-btn");
+    const slot = row.querySelector(".ai-review-slot");
+    slot.addEventListener("click", e => {
+      if (e.target.closest(".ai-close")) slot.innerHTML = t.review ? `<button type="button" class="btn btn-ghost ai-show" style="margin-top:6px">Show review</button>` : "";
+      else if (e.target.closest(".ai-show") && t.review) slot.innerHTML = aiReviewHtml(t.review);
+    });
     btn.addEventListener("click", async () => {
       btn.disabled = true; const label = btn.textContent; btn.textContent = "Reviewing...";
       try {
