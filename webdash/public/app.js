@@ -2758,6 +2758,18 @@ async function renderBacktestParamsStep() {
     setV("#btChopPeriod", pf.chopPeriod); setV("#btChopMax", pf.chopMax);
     { const ce = tbBacktestBody.querySelector("#btChopEnabled"); if (ce) ce.checked = !!pf.chopFilterEnabled; }
     { const cr = tbBacktestBody.querySelector("#btCarry"); if (cr) cr.checked = !!pf.carryOvernight; }
+    // Every risk setting mirrors the instrument's own (what Edit shows), so the backtest runs what the engine runs.
+    const setC = (id, v) => { const el = tbBacktestBody.querySelector(id); if (el) el.checked = !!v; };
+    setC("#btLcEnabled", pf.longCandleFilterEnabled !== false);
+    setV("#btLcPeriod", pf.longCandleAtrPeriod); setV("#btLcMult", pf.longCandleAtrMult);
+    { const el = tbBacktestBody.querySelector("#btLcCooldown"); if (el) el.value = pf.longCandleCooldownCandles ?? 0; }
+    setC("#btDoubleDisabled", pf.disableDoubleOrders);
+    setV("#btAtrMult", pf.atrSlMult); setV("#btHardSl", pf.hardSlRupees);
+    { const el = tbBacktestBody.querySelector("#btEntryTime"); if (el) el.value = pf.entryTime || ""; }
+    setV("#btDhabEntry", pf.dailyBiasEntryTime); setV("#btDhabCandle", pf.dailyBiasCandle);
+    setC("#btVolEnabled", pf.volumeFilterEnabled); setV("#btVolPeriod", pf.volumeSmaPeriod);
+    setC("#btDailyHaGate", pf.dailyHaGateEnabled !== false);
+    setV("#btDsbExitMode", pf.dsbExitMode);
     setV("#btMaxLosingTrades", pf.maxLosingTrades);
     setV("#btScalpTarget", pf.scalpTarget);
     const sd = tbBacktestBody.querySelector("#btScalpStopDay"); if (sd && pf.scalpStopDay) sd.checked = true;
