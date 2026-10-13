@@ -42,7 +42,7 @@ function describeSettings(context, engineConfig, extra = {}) {
     if (context.bandStep != null) rows.push(["Band step", String(context.bandStep)]);
     if (context.dsbExitMode === "SL") rows.push(["Exit mode", "stop-loss only (flip signals ignored)"]);
     if (context.scalpTargetRupees) rows.push(["Scalp target", `\u20b9${context.scalpTargetRupees} per trade, ${context.scalpStopForDay ? "then done for the day" : "then wait for the next signal"}`]);
-    if (context.scalpTargetRupees && !context.scalpStopForDay && context.scalpNextMode) rows.push(["After first scalp hit", `${context.scalpNextMode === "TARGET" ? "next target" : "fixed stop-loss"} \u20b9${context.scalpNextValue} for the rest of the day`]);
+    if (context.scalpTargetRupees && !context.scalpStopForDay && context.scalpNextMode) rows.push(["After first scalp hit", `${context.scalpNextMode === "TARGET" ? (context.scalpNextValue > 0 ? "next target \u20b9" + context.scalpNextValue : "no target") : "fixed stop-loss \u20b9" + context.scalpNextValue} for the rest of the day`]);
     if (context.maxLosingTradesPerDay) rows.push(["Losing-trade limit", `max ${context.maxLosingTradesPerDay} per day, then flat until next session`]);
     if (context.maxLosingSwitchesPerDay) rows.push(["Losing-reversal limit", `max ${context.maxLosingSwitchesPerDay} per day, then flat until next session`]);
     if (context.carryOvernight) rows.push(["Carry overnight", "yes"]);

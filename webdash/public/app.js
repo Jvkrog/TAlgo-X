@@ -4,14 +4,14 @@ function scalpNextFields(prefix, cur) {
   const [m, v] = String(cur || "").split(":");
   return `<div class="tb-form-row-inline" style="gap:8px;flex-wrap:wrap">
         <span>After the first scalp hit of the day</span>
-        <select id="${prefix}ScalpNextMode"><option value="">same target</option><option value="TARGET"${m === "TARGET" ? " selected" : ""}>new target \u20b9</option><option value="SL"${m === "SL" ? " selected" : ""}>fixed stop-loss \u20b9</option></select>
-        <input type="number" id="${prefix}ScalpNextValue" min="1" step="any" style="width:110px" value="${v || ""}">
+        <select id="${prefix}ScalpNextMode"><option value="">same target</option><option value="TARGET"${m === "TARGET" ? " selected" : ""}>new target \u20b9 (blank = no target)</option><option value="SL"${m === "SL" ? " selected" : ""}>fixed stop-loss \u20b9</option></select>
+        <input type="number" id="${prefix}ScalpNextValue" min="1" step="any" style="width:110px" value="${Number(v) > 0 ? v : ""}">
       </div>`;
 }
 function scalpNextValue(root, prefix) {
   const m = root.querySelector("#" + prefix + "ScalpNextMode").value;
   const v = root.querySelector("#" + prefix + "ScalpNextValue").value;
-  return m && Number(v) > 0 ? m + ":" + v : "";
+  return m === "TARGET" ? "TARGET:" + (Number(v) > 0 ? v : 0) : (m && Number(v) > 0 ? m + ":" + v : "");
 }
 "use strict";
 
@@ -1559,7 +1559,7 @@ function renderRiskList() {
     if (inst.hardSlRupees) badges.push(`<span class="mode-pill">hard SL \u20b9${inst.hardSlRupees}</span>`);
     else if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
     if (inst.dsbExitMode === "SL") badges.push(`<span class="mode-pill live">exit: SL only</span>`);
-    if (inst.scalpTarget) badges.push(`<span class="mode-pill live">scalp \u20b9${inst.scalpTarget}${inst.scalpStopDay ? " · stop day" : (inst.scalpNext ? " · then " + inst.scalpNext.replace("TARGET:", "tgt \u20b9").replace("SL:", "SL \u20b9") : "")}</span>`);
+    if (inst.scalpTarget) badges.push(`<span class="mode-pill live">scalp \u20b9${inst.scalpTarget}${inst.scalpStopDay ? " · stop day" : (inst.scalpNext ? " · then " + (inst.scalpNext === "TARGET:0" ? "no target" : inst.scalpNext.replace("TARGET:", "tgt \u20b9").replace("SL:", "SL \u20b9")) : "")}</span>`);
     if (inst.maxLosingTrades) badges.push(`<span class="mode-pill">max ${inst.maxLosingTrades} losing trades/day</span>`);
     if (inst.maxLosingSwitches) badges.push(`<span class="mode-pill">max ${inst.maxLosingSwitches} losing flips/day</span>`);
     if (inst.maxDailyLoss) badges.push(`<span class="mode-pill">maxloss -₹${inst.maxDailyLoss}</span>`);
@@ -2887,7 +2887,7 @@ function renderBtDeployView(bt) {
     ["Max daily loss", bt.maxDailyLoss ? "₹" + bt.maxDailyLoss : "—"],
     ...(bt.maxLosingSwitches ? [["Max losing reversals/day", bt.maxLosingSwitches]] : []),
     ...(bt.maxLosingTrades ? [["Max losing trades/day", bt.maxLosingTrades]] : []),
-    ...(bt.scalpTarget ? [["Scalp target", "\u20b9" + bt.scalpTarget + " per trade" + (bt.scalpStopDay ? ", then done for the day" : (bt.scalpNext ? ", then " + bt.scalpNext.replace("TARGET:", "target \u20b9").replace("SL:", "stop-loss \u20b9") : ""))]] : []),
+    ...(bt.scalpTarget ? [["Scalp target", "\u20b9" + bt.scalpTarget + " per trade" + (bt.scalpStopDay ? ", then done for the day" : (bt.scalpNext ? ", then " + (bt.scalpNext === "TARGET:0" ? "no target" : bt.scalpNext.replace("TARGET:", "target \u20b9").replace("SL:", "stop-loss \u20b9")) : ""))]] : []),
     ...(bt.dsbExitMode === "SL" ? [["Exit mode", "Stop-loss only"]] : []),
     ...(bt.sessionTargetRupees ? [["Session target", "₹" + bt.sessionTargetRupees + " (backtest only — not applied on deploy)"]] : []),
     ...(bandStep ? [["Band step", bandStep]] : []),

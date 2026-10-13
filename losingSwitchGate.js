@@ -122,7 +122,7 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
         if (scalpTracked() && reason === "SCALP_TP") {
             rollDay();
             nScalp += 1; state.scalpHitsToday = nScalp;
-            if (!scalpStopEnabled()) { if (context.scalpNextMode) log(`Scalp target hit — next trades today use ${context.scalpNextMode === "TARGET" ? "target" : "stop-loss"} ₹${context.scalpNextValue}`); }
+            if (!scalpStopEnabled()) { if (context.scalpNextMode) log(`Scalp target hit — next trades today use ${context.scalpNextMode === "TARGET" ? (context.scalpNextValue > 0 ? "target ₹" + context.scalpNextValue : "no target") : "stop-loss ₹" + context.scalpNextValue}`); }
             else {
                 const day = istDayKey(clock.now().getTime());
                 if (!stats.scalpStopDays.includes(day)) stats.scalpStopDays.push(day);

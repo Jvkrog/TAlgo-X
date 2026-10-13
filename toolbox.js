@@ -592,7 +592,7 @@ function buildProcessEnv(p, overrides = {}) {
     env.TARGET_MODE_OVERRIDE = p.targetMode === "adaptive" ? "adaptive" : "";
     env.BAND_STEP_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || (p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB")) && p.bandStep ? String(p.bandStep) : "";
     env.SCALP_STOP_DAY_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.scalpTarget && p.scalpStopDay ? "1" : "";
-    env.SCALP_NEXT_OVERRIDE = (p.scalpTarget && !p.scalpStopDay && /^(TARGET|SL):\d+(\.\d+)?$/.test(p.scalpNext || "")) ? p.scalpNext : "";
+    env.SCALP_NEXT_OVERRIDE = (p.scalpTarget && !p.scalpStopDay && /^(TARGET:\d*(\.\d+)?|SL:\d+(\.\d+)?)$/.test(p.scalpNext || "")) ? p.scalpNext : "";
     env.DSB_EXIT_MODE_OVERRIDE = (p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.dsbExitMode === "SL" ? "SL" : "";
     env.SCALP_TARGET_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.scalpTarget ? String(p.scalpTarget) : "";
     env.MAX_LOSING_TRADES_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.maxLosingTrades ? String(p.maxLosingTrades) : "";
@@ -840,8 +840,9 @@ async function editInstrument(procs) {
             const nx = (await ask(`  After the first scalp hit of the day: [N]one / [T]arget / [S]top-loss (current: ${scalpNext || "none"}, blank = keep): `)).trim().toUpperCase();
             if (nx === "N") scalpNext = null;
             else if (nx === "T" || nx === "S") {
-                const v = Number((await ask(`  ${nx === "T" ? "Next target" : "Fixed stop-loss"} in rupees: `)).trim());
-                if (Number.isFinite(v) && v > 0) scalpNext = `${nx === "T" ? "TARGET" : "SL"}:${v}`;
+                const raw = (await ask(`  ${nx === "T" ? "Next target in rupees (blank = no target)" : "Fixed stop-loss in rupees"}: `)).trim();
+                const v = raw === "" ? 0 : Number(raw);
+                if (Number.isFinite(v) && (v > 0 || (nx === "T" && v === 0))) scalpNext = `${nx === "T" ? "TARGET" : "SL"}:${v}`;
                 else console.log(c.yellow("  not a positive number — unchanged"));
             }
         }
@@ -2032,8 +2033,9 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (scalpTarget !== null && !scalpStopDay) {
         const nx = (await ask("  After the first scalp hit of the day, change the next trades? [N]one / [T]arget / [S]top-loss: ")).trim().toUpperCase();
         if (nx === "T" || nx === "S") {
-            const v = Number((await ask(`  ${nx === "T" ? "Next target" : "Fixed stop-loss"} in rupees: `)).trim());
-            if (Number.isFinite(v) && v > 0) scalpNext = `${nx === "T" ? "TARGET" : "SL"}:${v}`;
+            const raw = (await ask(`  ${nx === "T" ? "Next target in rupees (blank = no target)" : "Fixed stop-loss in rupees"}: `)).trim();
+            const v = raw === "" ? 0 : Number(raw);
+            if (Number.isFinite(v) && (v > 0 || (nx === "T" && v === 0))) scalpNext = `${nx === "T" ? "TARGET" : "SL"}:${v}`;
             else console.log(c.yellow("  not a positive number — left off"));
         }
     }

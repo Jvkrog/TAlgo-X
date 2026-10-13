@@ -75,6 +75,7 @@ function createBacktestSL({ context, engineConfig, state, slStore, orders, posit
                 return true;
             }
         }
+        if (!sr.targetRupees) return false;   // post-hit rule "no target"
         const points = rupeesToPoints(context, sr.targetRupees);
         const level = long ? state.entryPrice + points : state.entryPrice - points;
         const hit = long ? candle.high >= level : candle.low <= level;

@@ -51,5 +51,8 @@ const quiet = async fn => { const l = console.log; console.log = () => {}; try {
     assert.ok(Math.abs(r.state.pnl + 1500) < 1e-6, "pnl -1500, got " + r.state.pnl);
     r = rig({ scalpNextMode: "SL", scalpNextValue: 1500 }); r.enter("LONG", 420);   // no hit yet today: no SL
     assert.strictEqual(await quiet(() => r.sl.checkTarget({ high: 420.5, low: 417 })), false, "no post-hit SL before the first hit");
-console.log("scalp target: 9 scenarios passed"); process.exit(0);
+    r = rig({ scalpNextMode: "TARGET", scalpNextValue: 0 }); r.state.scalpHitsToday = 1; r.enter("LONG", 420);
+    assert.strictEqual(await quiet(() => r.sl.checkTarget({ high: 440, low: 419 })), false, "blank next target = no target after the first hit");
+    assert.strictEqual(r.state.position, "LONG");
+console.log("scalp target: 10 scenarios passed"); process.exit(0);
 })().catch(e => { console.error("FAIL", e); process.exit(1); });

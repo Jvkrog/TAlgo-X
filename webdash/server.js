@@ -16,7 +16,7 @@
 // .db file, and its only side effect on a running engine is the PM2
 // lifecycle calls a human could otherwise make from toolbox.js directly.
 "use strict";
-const SCALP_NEXT_RE = /^(TARGET|SL):\d+(\.\d+)?$/;   // post-scalp-hit rule: next target OR fixed stop, in rupees
+const SCALP_NEXT_RE = /^(TARGET:\d*(\.\d+)?|SL:\d+(\.\d+)?)$/;   // post-scalp-hit rule: next target OR fixed stop, in rupees
 
 const path = require("path");
 const fs = require("fs");
@@ -852,7 +852,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
         if (scalpStopDay !== undefined) updated.scalpStopDay = !!scalpStopDay;
         if (scalpNext !== undefined) {
             if (scalpNext === null || scalpNext === "") updated.scalpNext = null;
-            else if (SCALP_NEXT_RE.test(String(scalpNext)) && Number(String(scalpNext).split(":")[1]) > 0) updated.scalpNext = String(scalpNext);
+            else if (SCALP_NEXT_RE.test(String(scalpNext)) && (String(scalpNext).startsWith("TARGET") || Number(String(scalpNext).split(":")[1]) > 0)) updated.scalpNext = String(scalpNext);
             else return res.status(400).json({ error: "invalid scalpNext (use TARGET:<rupees> or SL:<rupees>, or blank for off)" });
         }
         if (dsbExitMode !== undefined) {
@@ -1358,7 +1358,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             if (Number.isFinite(parsedStep) && parsedStep > 0) env.BAND_STEP_OVERRIDE = String(parsedStep);
         }
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && scalpStopDay && scalpTarget) env.SCALP_STOP_DAY_OVERRIDE = "1";
-        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && scalpTarget && !scalpStopDay && SCALP_NEXT_RE.test(scalpNext || "") && Number(scalpNext.split(":")[1]) > 0) env.SCALP_NEXT_OVERRIDE = scalpNext;
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && scalpTarget && !scalpStopDay && SCALP_NEXT_RE.test(scalpNext || "") && (scalpNext.startsWith("TARGET") || Number(scalpNext.split(":")[1]) > 0)) env.SCALP_NEXT_OVERRIDE = scalpNext;
         if (["DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && dsbExitMode === "SL") env.DSB_EXIT_MODE_OVERRIDE = "SL";
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && scalpTarget !== undefined && scalpTarget !== null && scalpTarget !== "") {
             const n = Number(scalpTarget);
@@ -1636,7 +1636,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && scalpStopDay && context.scalpTargetRupees) context.scalpStopForDay = true;
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && context.scalpTargetRupees && !context.scalpStopForDay && SCALP_NEXT_RE.test(scalpNext || "")) {
             const [nm, nv] = scalpNext.split(":");
-            if (Number(nv) > 0) { context.scalpNextMode = nm; context.scalpNextValue = Number(nv); }
+            if (nm === "TARGET" || Number(nv) > 0) { context.scalpNextMode = nm; context.scalpNextValue = Number(nv) || 0; }
         }
         if (["DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && dsbExitMode === "SL") context.dsbExitMode = "SL";
         if (carryOvernight !== undefined) context.carryOvernight = !!carryOvernight;

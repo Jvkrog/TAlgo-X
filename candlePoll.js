@@ -122,8 +122,12 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                 if (!points && context.scalpTargetRupees) {
                     // Scalp target is in rupees: distance = rupees / (lotMult * lots), same arithmetic positions.close uses for P&L.
                     const sr = scalpRules(context, state);
-                    points = rupeesToPoints(context, sr.targetRupees);
-                    console.log(c.dim(`[${context.tgPrefix}] [SCALP] target ₹${sr.targetRupees}${sr.hits ? ` (after ${sr.hits} scalp hit${sr.hits > 1 ? "s" : ""} today)` : ""} = ${points.toFixed(2)} points`));
+                    if (sr.targetRupees) {
+                        points = rupeesToPoints(context, sr.targetRupees);
+                        console.log(c.dim(`[${context.tgPrefix}] [SCALP] target ₹${sr.targetRupees}${sr.hits ? ` (after ${sr.hits} scalp hit${sr.hits > 1 ? "s" : ""} today)` : ""} = ${points.toFixed(2)} points`));
+                    } else {
+                        console.log(c.dim(`[${context.tgPrefix}] [SCALP] no target after ${sr.hits} scalp hit${sr.hits > 1 ? "s" : ""} today — exit by stop / signal only`));
+                    }
                 }
 
                 if (!points && context.targetMode === "adaptive") {
