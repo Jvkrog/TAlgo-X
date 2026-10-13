@@ -19,9 +19,6 @@ A local computer, VPS, or cloud instance can act as a TAlgo-X execution machine.
 
 npm is included with Node.js and need not to be installed seperately 
 
-For development and paper trading, a live broker account may not be required depending on the configured execution mode.
-
-
 ````
 ## 1. Clone the repository
 
