@@ -345,7 +345,7 @@
     if (S && S.posTimer) clearInterval(S.posTimer);
     stopDepth();
     S = null;
-    els.title.textContent = `${inst.underlying} · ${inst.strategy}${inst.candleType ? " · " + inst.candleType : ""}`;
+    els.title.textContent = `${inst.underlying} · ${inst.strategy}${" · " + (inst.candleType || (window.nativeCandleOf ? window.nativeCandleOf(inst.strategy) : ""))}`;
     els.status.textContent = "loading…";
     els.box.innerHTML = "";
     modal.classList.add("open");
@@ -354,6 +354,8 @@
       const r = await fetch(`/api/chart/${encodeURIComponent(inst.name)}`);
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "chart request failed");
+      // Open on the candle type the instrument actually trades: its override, else the strategy's own native type.
+      const effType = inst.candleType || (window.nativeCandleOf ? window.nativeCandleOf(inst.strategy) : "RAW");
       const bars = data.tfBars.map(toBar);
       const dayIdx = Math.max(0, bars.findIndex(b => istDay(b.t) === data.day));
       const chart = window.LightweightCharts.createChart(els.box, {
@@ -369,7 +371,7 @@
         wickUpColor: "#33ff88", wickDownColor: "#ff5266",
       });
       S = {
-        inst, data, bars, dayIdx, chart, series: sr, type: "raw", range: (inst.candleType === "RANGE" && inst.rangeSize) ? inst.rangeSize : data.suggestedRange, last: null,
+        inst, data, bars, dayIdx, chart, series: sr, type: "raw", range: (effType === "RANGE" && inst.rangeSize) ? inst.rangeSize : data.suggestedRange, last: null,
         overlay: data.overlay, blocks: (data.blocks || []).slice(), ind: false, filters: false, lineSeries: [], dispT: null, dispTimes: null,
         points: minutePoints(data.minuteBars.map(toBar)), isToday: data.day === istDay(Date.now()), timer: null, dirty: false, lastTime: 0,
       };
@@ -388,7 +390,7 @@
       els.range.value = S.range;
       modal.querySelectorAll(".chart-toggle").forEach(b => b.classList.toggle("active", b.dataset.toggle === "depth" && S.depthOn));
       info();
-      setType(inst.candleType === "HA" ? "ha" : inst.candleType === "RANGE" ? "range" : "raw");   // open on the series the instrument actually trades
+      setType(effType === "HA" ? "ha" : effType === "RANGE" ? "range" : "raw");   // open on the series the instrument actually trades
     } catch (err) {
       els.status.textContent = "error: " + err.message;
     }
