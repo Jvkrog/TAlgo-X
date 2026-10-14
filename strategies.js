@@ -7,6 +7,11 @@
 // picks one of these by context.strategy and hands back its instance
 // unchanged — engine.js, candlePoll.js, lifecycle.js need no changes.
 "use strict";
+
+// Status-line colour by P&L, not by trade side: red ONLY while the open trade is losing, green while it is in profit,
+// dim while flat — a profitable SHORT must not look like a loss. (The TICK event keeps its side colour for the chart.)
+const pnlColor = (uPnL, position) => (!position ? "dim" : uPnL < 0 ? "red" : "green");
+
 const { createLosingSwitchGate } = require("./losingSwitchGate");
 const { reportBlocks } = require("./blockReport");
 
@@ -4260,7 +4265,7 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session = (state.pnl || 0) + uPnL;
         const color   = directionColor(state.position);
-        console.log(c[color](`[${context.tgPrefix}] ${ts} DMIDC  ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  [${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        console.log(c[pnlColor(uPnL, state.position)](`[${context.tgPrefix}] ${ts} DMIDC  ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  [${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, color });
 
         if (!engineConfig.ENGINE_ENABLED) return;
@@ -4683,7 +4688,7 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session = (state.pnl || 0) + uPnL;
         const color   = directionColor(state.position);
-        console.log(c[color](`[${context.tgPrefix}] ${ts} DMIDHL ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  [${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        console.log(c[pnlColor(uPnL, state.position)](`[${context.tgPrefix}] ${ts} DMIDHL ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  [${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, color });
 
         if (!engineConfig.ENGINE_ENABLED) return;
@@ -5069,7 +5074,7 @@ function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, 
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session = (state.pnl || 0) + uPnL;
         const color   = stateColor(triState);
-        console.log(c[color](`[${context.tgPrefix}] ${ts} TRIB ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  ${stateLabel(triState)}`));
+        console.log(c[pnlColor(uPnL, state.position)](`[${context.tgPrefix}] ${ts} TRIB ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  ${stateLabel(triState)}`));
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, color });
 
         if (triState !== prevTriState) {
@@ -5396,7 +5401,7 @@ function createAlmaProFastStrategy({ context, engineConfig, state, db, candles, 
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session = (state.pnl || 0) + uPnL;
         const color   = stateColor(fastState);
-        console.log(c[color](`[${context.tgPrefix}] ${ts} APF ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  ${stateLabel(fastState)}`));
+        console.log(c[pnlColor(uPnL, state.position)](`[${context.tgPrefix}] ${ts} APF ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  ${stateLabel(fastState)}`));
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, color });
 
         if (fastState !== prevFastState) {
