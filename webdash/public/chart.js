@@ -44,13 +44,17 @@
           <div class="chart-seg">
             <button class="btn btn-ghost chart-toggle" data-toggle="indicator">Indicator</button>
             <button class="btn btn-ghost chart-toggle" data-toggle="filters">Filters</button>
+            <button class="btn btn-ghost chart-toggle active" data-toggle="depth">Order book</button>
           </div>
           <label class="chart-range" data-r="rangeWrap" style="display:none">range <input type="number" data-r="range" min="0.01" step="any"></label>
           <span class="chart-status" data-r="status"></span>
         </div>
         <div class="chart-legend" data-r="legend"></div>
         <div class="chart-info" data-r="info"></div>
-        <div class="chart-box" data-r="box"></div>
+        <div class="chart-main">
+          <div class="chart-box" data-r="box"></div>
+          <div class="depth-panel" data-r="depth"></div>
+        </div>
       </div>`;
     document.body.appendChild(modal);
     modal.querySelectorAll("[data-r]").forEach(e => { els[e.dataset.r] = e; });
@@ -65,6 +69,7 @@
     modal.classList.remove("open");
     if (S && S.chart) S.chart.remove();
     if (S && S.posTimer) clearInterval(S.posTimer);
+    if (S && S.depthTimer) clearInterval(S.depthTimer);
     S = null;
   }
 
@@ -160,6 +165,13 @@
 
   function toggle(which) {
     if (!S) return;
+    if (which === "depth") {
+      S.depthOn = !S.depthOn;
+      modal.querySelector('[data-toggle="depth"]').classList.toggle("active", S.depthOn);
+      els.depth.style.display = S.depthOn ? "" : "none";
+      if (S.depthOn) pollDepth(); else if (S.depthTimer) { clearInterval(S.depthTimer); S.depthTimer = null; }
+      return;
+    }
     S[which === "indicator" ? "ind" : "filters"] = !S[which === "indicator" ? "ind" : "filters"];
     modal.querySelector(`[data-toggle="${which}"]`).classList.toggle("active", S[which === "indicator" ? "ind" : "filters"]);
     drawOverlay(); drawMarkers(); info();
@@ -268,10 +280,47 @@
   }
 
   // ── open ──────────────────────────────────────────────────────────────────
+  // ── order book (market depth) side panel ─────────────────────────────────────────────
+  const fmtQ = n => (n === null || n === undefined ? "–" : Number(n).toLocaleString("en-IN"));
+  function drawDepth(d) {
+    if (!S || !els.depth) return;
+    const asks = (d.asks || []).slice(0, 5), bids = (d.bids || []).slice(0, 5);
+    const max = Math.max(1, ...asks.map(l => l.qty), ...bids.map(l => l.qty));
+    const row = (l, cls) => `<div class="depth-row ${cls}"><span class="depth-bar" style="width:${Math.round((l.qty / max) * 100)}%"></span><span class="depth-px">${l.price.toFixed(2)}</span><span class="depth-qty">${fmtQ(l.qty)}</span><span class="depth-ord">${l.orders}</span></div>`;
+    const tb = Number(d.totalBuy) || 0, ts = Number(d.totalSell) || 0, imb = tb + ts > 0 ? Math.round((tb / (tb + ts)) * 100) : null;
+    const spread = asks.length && bids.length ? (asks[0].price - bids[0].price) : null;
+    els.depth.innerHTML = `
+      <div class="depth-head"><span>Order book</span><span class="depth-sym">${d.symbol || ""}</span></div>
+      <div class="depth-cols"><span>Price</span><span>Qty</span><span>Ord</span></div>
+      ${asks.slice().reverse().map(l => row(l, "ask")).join("") || '<div class="depth-empty">no asks</div>'}
+      <div class="depth-mid"><b>${d.ltp !== undefined ? Number(d.ltp).toFixed(2) : "–"}</b><span>${spread !== null ? "spread " + spread.toFixed(2) : ""}</span></div>
+      ${bids.map(l => row(l, "bid")).join("") || '<div class="depth-empty">no bids</div>'}
+      <div class="depth-foot">
+        <div><span>Total bid</span><b class="bid-t">${fmtQ(d.totalBuy)}</b></div>
+        <div><span>Total ask</span><b class="ask-t">${fmtQ(d.totalSell)}</b></div>
+        ${imb !== null ? `<div class="depth-imb"><i style="width:${imb}%"></i></div><div class="depth-imb-l"><span>${imb}% bids</span><span>${100 - imb}% asks</span></div>` : ""}
+        ${d.volume !== null ? `<div><span>Volume</span><b>${fmtQ(d.volume)}</b></div>` : ""}
+        ${d.oi ? `<div><span>OI</span><b>${fmtQ(d.oi)}</b></div>` : ""}
+      </div>`;
+  }
+  async function pollDepth() {
+    if (!S || !S.depthOn) return;
+    const mine = S;
+    if (!S.depthTimer) S.depthTimer = setInterval(pollDepth, 1500);
+    try {
+      const r = await fetch(`/api/depth/${encodeURIComponent(S.inst.name)}`);
+      const d = await r.json();
+      if (S !== mine) return;
+      if (!r.ok) { els.depth.innerHTML = `<div class="depth-head"><span>Order book</span></div><div class="depth-empty">${d.error || "unavailable"}</div>`; return; }
+      drawDepth(d);
+    } catch { /* transient — the next poll retries */ }
+  }
+
   async function open(inst) {
     if (!modal) build();
     if (S && S.chart) S.chart.remove();
     if (S && S.posTimer) clearInterval(S.posTimer);
+    if (S && S.depthTimer) clearInterval(S.depthTimer);
     S = null;
     els.title.textContent = `${inst.underlying} · ${inst.strategy}${inst.candleType ? " · " + inst.candleType : ""}`;
     els.status.textContent = "loading…";
@@ -302,7 +351,10 @@
         points: minutePoints(data.minuteBars.map(toBar)), isToday: data.day === istDay(Date.now()), timer: null, dirty: false, lastTime: 0,
       };
       if (bars.length) S.last = bars[bars.length - 1].c;
-      S.hover = null; S.position = null;
+      S.hover = null; S.position = null; S.depthOn = true;
+      els.depth.style.display = "";
+      modal.querySelector('[data-toggle="depth"]').classList.add("active");
+      pollDepth();
       chart.subscribeCrosshairMove(param => {
         const d = param && param.seriesData ? param.seriesData.get(sr) : null;
         S.hover = d && d.open !== undefined ? d : null;
@@ -311,7 +363,7 @@
       refreshPosition();
       S.posTimer = setInterval(refreshPosition, 10000);
       els.range.value = S.range;
-      modal.querySelectorAll(".chart-toggle").forEach(b => b.classList.remove("active"));
+      modal.querySelectorAll(".chart-toggle").forEach(b => b.classList.toggle("active", b.dataset.toggle === "depth" && S.depthOn));
       info();
       setType(inst.candleType === "HA" ? "ha" : inst.candleType === "RANGE" ? "range" : "raw");   // open on the series the instrument actually trades
     } catch (err) {

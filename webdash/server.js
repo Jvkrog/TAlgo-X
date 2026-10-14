@@ -1157,6 +1157,39 @@ app.get("/api/chart/:name/overlay", async (req, res) => {
     }
 });
 
+// Market depth (the 5-level order book) for the chart's side panel. Kite's quote endpoint carries depth.buy/sell
+// (price, quantity, orders), total buy/sell quantity, volume and OI. Polled by the open chart (~1.5s); cached 1s per
+// instrument so several browsers / a fast poll never exceed Kite's 1 request/second quote limit.
+const depthCache = new Map();
+app.get("/api/depth/:name", async (req, res) => {
+    try {
+        const hit = depthCache.get(req.params.name);
+        if (hit && Date.now() - hit.at < 1000) return res.json(hit.data);
+        const procs = await getEngineProcesses();
+        const p = procs.find(x => x.name === req.params.name);
+        if (!p) return res.status(404).json({ error: "instrument not found" });
+        const exchange = p.exchange || "MCX";
+        const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
+        const def = getDefinition(p.underlying, exchange);
+        const { contract } = resolveCurrent(p.underlying, def, repo, pinStore);
+        const key = `${contract.exchange || exchange}:${contract.symbol}`;
+        const q = (await ensureToolboxKite().getQuote([key]))[key];
+        if (!q) return res.status(404).json({ error: `no quote returned for ${key}` });
+        const lvl = l => ({ price: Number(l.price), qty: Number(l.quantity), orders: Number(l.orders) });
+        const data = {
+            symbol: key, ltp: q.last_price, volume: q.volume ?? null, oi: q.oi ?? null,
+            totalBuy: q.buy_quantity ?? null, totalSell: q.sell_quantity ?? null,
+            bids: ((q.depth && q.depth.buy) || []).map(lvl).filter(l => l.price > 0 || l.qty > 0),
+            asks: ((q.depth && q.depth.sell) || []).map(lvl).filter(l => l.price > 0 || l.qty > 0),
+            at: Date.now(),
+        };
+        depthCache.set(req.params.name, { at: Date.now(), data });
+        res.json(data);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get("/api/chart/:name", async (req, res) => {
     try {
         const procs = await getEngineProcesses();
