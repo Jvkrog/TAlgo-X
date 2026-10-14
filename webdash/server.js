@@ -1127,6 +1127,45 @@ function chartOverlayFor(p, tfBars, day) {
         return { note: "indicator unavailable: " + err.message };
     }
 }
+// Colour the mid line by what the engine actually did: always-in-market strategies hold LONG (green) or SHORT (red), and
+// the trade journal records every side change. The band stepper alone depends on which bar its history starts from, so
+// its colours can disagree with the real position; where the journal covers a bar, its side wins (like a flip marker).
+function journalSides(p) {
+    return new Promise(resolve => {
+        try {
+            const dbPath = dbPathFor(p.underlying, p.strategy, p.candleType);
+            if (!fs.existsSync(dbPath)) return resolve([]);
+            const db = new sqlite3.Database(dbPath, sqlite3.OPEN_READONLY, err => {
+                if (err) return resolve([]);
+                db.all("SELECT side, entry_time, exit_time FROM trades WHERE engine = ? ORDER BY id DESC LIMIT 400", [p.underlying], (e, rows) => {
+                    db.close();
+                    resolve((rows || []).map(r => ({ side: r.side, in: Date.parse(r.entry_time), out: r.exit_time ? Date.parse(r.exit_time) : null }))
+                        .filter(r => Number.isFinite(r.in)).sort((a, b) => a.in - b.in));
+                });
+            });
+        } catch { resolve([]); }
+    });
+}
+async function applyJournalColors(p, ov, tfMinutes) {
+    try {
+        if (!ov || !ov.lines) return ov;
+        const trades = await journalSides(p);
+        if (!trades.length) return ov;
+        const slack = 90 * 1000, barMs = tfMinutes * 60000;
+        for (const l of ov.lines) {
+            if (!l.points.length || l.points[0].length < 3) continue;   // only the colour-coded mid line
+            l.points = l.points.map(pt => {
+                const closeMs = pt[0] + barMs;
+                let hit = null;
+                for (const t of trades) { if (t.in <= closeMs + slack) hit = t; else break; }
+                if (!hit || (hit.out !== null && hit.out < closeMs - slack)) return pt;   // not covered by the journal: keep the stepper colour
+                return [pt[0], pt[1], hit.side === "SHORT" ? "#ff5266" : "#33ff88"];
+            });
+        }
+        if (ov.label) ov.label += " · colours follow the engine's real position";
+    } catch { /* keep the stepper colours */ }
+    return ov;
+}
 // Stored BLOCK events + blocks parsed from the engine's PM2 log (covers the time before the
 // engine emitted BLOCK events). Log-derived ones are dropped when a stored event already
 // covers the same side within 30s.
@@ -1151,7 +1190,7 @@ app.get("/api/chart/:name/overlay", async (req, res) => {
         const now = Date.now();
         const tfBars = await fetchHistoricalCandles({ kc: ensureToolboxKite(), token: contract.token, timeframe: tf, from: new Date(now - (tf === "1d" ? 150 : 8) * 86400000), to: new Date(now) });
         const day = istDayStr(tfBars[tfBars.length - 1].date.getTime());
-        res.json({ overlay: chartOverlayFor(p, tfBars, day), blocks: blocksForDay(p.underlying, day, p.outLogPath, p.name) });
+        res.json({ overlay: await applyJournalColors(p, chartOverlayFor(p, tfBars, day), TIMEFRAME_MINUTES[tf]), blocks: blocksForDay(p.underlying, day, p.outLogPath, p.name) });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1224,7 +1263,7 @@ app.get("/api/chart/:name", async (req, res) => {
         res.json({
             name: p.name, underlying: p.underlying, exchange, timeframe: tf, tfMinutes: TIMEFRAME_MINUTES[tf], day,
             strategy: p.strategy,
-            overlay: chartOverlayFor(p, tfBars, day),
+            overlay: await applyJournalColors(p, chartOverlayFor(p, tfBars, day), TIMEFRAME_MINUTES[tf]),
             blocks: blocksForDay(p.underlying, day, p.outLogPath, p.name),
             tfBars: tfBars.map(row), minuteBars: mins.map(row),
             suggestedRange: a ? Math.max(0.05, Math.round(a * 20) / 20) : 1,
