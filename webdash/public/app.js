@@ -774,7 +774,7 @@ function connect() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   socket = new WebSocket(`${proto}//${location.host}/ws`);
 
-  socket.addEventListener("open", () => setConnStatus("live"));
+  socket.addEventListener("open", () => { setConnStatus("live"); if (window.chartOnSocketOpen) window.chartOnSocketOpen(); });
   socket.addEventListener("close", () => { setConnStatus("down"); setTimeout(connect, 3000); });
   socket.addEventListener("error", () => socket.close());
 
@@ -787,7 +787,10 @@ function connect() {
 
 let replayRemaining = 0;
 
+window.wdSend = obj => { try { if (socket && socket.readyState === 1) { socket.send(JSON.stringify(obj)); return true; } } catch { /* ignore */ } return false; };
+
 function handleEvent(msg) {
+  if (msg.type === "DEPTH" || msg.type === "DEPTH_ERR") { if (window.chartOnDepth) window.chartOnDepth(msg); return; }
   if (msg.type === "HELLO") {
     replayRemaining = msg.replaying || 0;
     return;

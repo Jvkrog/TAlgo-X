@@ -1161,6 +1161,17 @@ app.get("/api/chart/:name/overlay", async (req, res) => {
 // (price, quantity, orders), total buy/sell quantity, volume and OI. Polled by the open chart (~1.5s); cached 1s per
 // instrument so several browsers / a fast poll never exceed Kite's 1 request/second quote limit.
 const depthCache = new Map();
+async function resolveDepthTarget(name) {
+    const procs = await getEngineProcesses();
+    const p = procs.find(x => x.name === name);
+    if (!p) throw new Error("instrument not found");
+    const exchange = p.exchange || "MCX";
+    const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
+    const { contract } = resolveCurrent(p.underlying, getDefinition(p.underlying, exchange), repo, pinStore);
+    return { name, token: Number(contract.token), key: `${contract.exchange || exchange}:${contract.symbol}` };
+}
+const { createDepthHub } = require("./depthHub");
+const depthHub = createDepthHub({ getCreds: () => ({ apiKey: engineConfig.API_KEY, accessToken: engineConfig.getAccessToken() }) });
 app.get("/api/depth/:name", async (req, res) => {
     try {
         const hit = depthCache.get(req.params.name);
@@ -2938,6 +2949,17 @@ engineWss.on("connection", ws => {
 });
 
 dashWss.on("connection", ws => {
+    // Browser -> server: subscribe / unsubscribe the order-book stream for the open chart.
+    ws.on("message", async raw => {
+        let msg; try { msg = JSON.parse(raw.toString()); } catch { return; }
+        if (msg.type === "DEPTH_SUB" && msg.name) {
+            try { depthHub.subscribe(ws, await resolveDepthTarget(String(msg.name))); }
+            catch (err) { try { ws.send(JSON.stringify({ type: "DEPTH_ERR", name: msg.name, error: err.message })); } catch { /* gone */ } }
+        } else if (msg.type === "DEPTH_UNSUB") {
+            depthHub.dropSocket(ws);
+        }
+    });
+    ws.on("close", () => depthHub.dropSocket(ws));
     ws.send(JSON.stringify({ type: "HELLO", ts: Date.now(), replaying: ringBuffer.length }));
     for (const raw of ringBuffer) {
         if (ws.readyState === WebSocket.OPEN) ws.send(raw);

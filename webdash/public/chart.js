@@ -69,7 +69,7 @@
     modal.classList.remove("open");
     if (S && S.chart) S.chart.remove();
     if (S && S.posTimer) clearInterval(S.posTimer);
-    if (S && S.depthTimer) clearInterval(S.depthTimer);
+    stopDepth();
     S = null;
   }
 
@@ -169,7 +169,7 @@
       S.depthOn = !S.depthOn;
       modal.querySelector('[data-toggle="depth"]').classList.toggle("active", S.depthOn);
       els.depth.style.display = S.depthOn ? "" : "none";
-      if (S.depthOn) pollDepth(); else if (S.depthTimer) { clearInterval(S.depthTimer); S.depthTimer = null; }
+      if (S.depthOn) startDepth(); else stopDepth();
       return;
     }
     S[which === "indicator" ? "ind" : "filters"] = !S[which === "indicator" ? "ind" : "filters"];
@@ -303,10 +303,33 @@
         ${d.oi ? `<div><span>OI</span><b>${fmtQ(d.oi)}</b></div>` : ""}
       </div>`;
   }
+  // Streamed over the dashboard socket (server -> Kite WebSocket, "full" mode). REST polling is only a fallback:
+  // used when no streamed tick has arrived for a few seconds (stream unavailable, market closed, socket down).
+  function subscribeDepth() { if (S && S.depthOn) window.wdSend && window.wdSend({ type: "DEPTH_SUB", name: S.inst.name }); }
+  function onDepth(msg) {
+    if (!S || !S.depthOn || msg.name !== S.inst.name) return;
+    if (msg.type === "DEPTH_ERR") { S.depthErr = msg.error; return; }
+    S.depthStreamAt = Date.now();
+    drawDepth(msg.data);
+  }
+  function startDepth() {
+    if (!S || !S.depthOn) return;
+    S.depthStreamAt = 0;
+    subscribeDepth();
+    pollDepth();   // immediate first paint from a REST snapshot
+    if (S.depthTimer) clearInterval(S.depthTimer);
+    S.depthTimer = setInterval(() => {
+      if (!S || !S.depthOn) return;
+      if (Date.now() - (S.depthStreamAt || 0) > 5000) pollDepth();   // fallback only
+    }, 3000);
+  }
+  function stopDepth() {
+    if (S && S.depthTimer) { clearInterval(S.depthTimer); S.depthTimer = null; }
+    window.wdSend && window.wdSend({ type: "DEPTH_UNSUB" });
+  }
   async function pollDepth() {
     if (!S || !S.depthOn) return;
     const mine = S;
-    if (!S.depthTimer) S.depthTimer = setInterval(pollDepth, 1500);
     try {
       const r = await fetch(`/api/depth/${encodeURIComponent(S.inst.name)}`);
       const d = await r.json();
@@ -320,7 +343,7 @@
     if (!modal) build();
     if (S && S.chart) S.chart.remove();
     if (S && S.posTimer) clearInterval(S.posTimer);
-    if (S && S.depthTimer) clearInterval(S.depthTimer);
+    stopDepth();
     S = null;
     els.title.textContent = `${inst.underlying} · ${inst.strategy}${inst.candleType ? " · " + inst.candleType : ""}`;
     els.status.textContent = "loading…";
@@ -354,7 +377,7 @@
       S.hover = null; S.position = null; S.depthOn = true;
       els.depth.style.display = "";
       modal.querySelector('[data-toggle="depth"]').classList.add("active");
-      pollDepth();
+      startDepth();
       chart.subscribeCrosshairMove(param => {
         const d = param && param.seriesData ? param.seriesData.get(sr) : null;
         S.hover = d && d.open !== undefined ? d : null;
@@ -373,5 +396,7 @@
 
   window.openInstrumentChart = open;
   window.chartOnLtp = onLtp;
+  window.chartOnDepth = onDepth;
+  window.chartOnSocketOpen = subscribeDepth;   // re-subscribe after a socket reconnect
   window.chartOnBlock = onBlock;
 })();
