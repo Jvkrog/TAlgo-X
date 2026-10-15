@@ -406,12 +406,16 @@
     els.box.addEventListener("pointerdown", e => {
       if (e.pointerType !== "touch" || e.target.closest(".axis-zoom") || !S) return;
       const base = S.manual || visiblePriceRange();
-      if (base) d = { y: e.clientY, base: { ...base }, h: Math.max(1, els.box.clientHeight - 26) };
+      if (base) d = { x: e.clientX, y: e.clientY, base: { ...base }, h: Math.max(1, els.box.clientHeight - 26), mode: null, t: Date.now() };
     }, true);
     els.box.addEventListener("pointermove", e => {
       if (!d || e.pointerType !== "touch" || !S) return;
-      const dy = e.clientY - d.y;
-      if (Math.abs(dy) < 3 && !S.manual) return;
+      const dy = e.clientY - d.y, dx = e.clientX - d.x;
+      if (!d.mode) {   // decide once, after a few px: mostly-vertical drag pans prices; horizontal drag / press-and-hold (crosshair) leaves prices alone
+        if (Math.hypot(dx, dy) < 8) return;
+        d.mode = Date.now() - d.t > 350 ? "hold" : (Math.abs(dy) > Math.abs(dx) * 1.6 ? "v" : "h");
+      }
+      if (d.mode !== "v") return;
       const shift = dy * (d.base.max - d.base.min) / d.h;   // finger down -> chart down -> visible range moves up
       applyManual(d.base.min + shift, d.base.max + shift);
     }, true);
