@@ -246,7 +246,16 @@
     } catch { /* keep last */ }
   }
 
+  // Real last traded price (same number as the instrument card), drawn as its own line + axis label. On HA / range charts the
+  // candle series' own "last value" is the synthetic bar close, which differs from the traded price.
+  function drawLtpLine() {
+    if (!S || !Number.isFinite(S.last)) return;
+    const l = S.lastDisp, up = l ? l.c >= l.o : true, color = up ? "#33ff88" : "#ff5266";
+    if (!S.ltpLine) S.ltpLine = S.series.createPriceLine({ price: S.last, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "" });
+    else S.ltpLine.applyOptions({ price: S.last, color });
+  }
   function status() {
+    drawLtpLine();
     const live = S.isToday ? "LIVE" : "closed — last session";
     els.status.textContent = `${S.data.timeframe} · ${S.dispT && S.dispT.length > 1 && S.type !== "range" ? "last " + (S.data.timeframe === "1d" ? "5 months" : "month") : S.data.day} · ${live}${S.last !== null ? " · " + S.last.toFixed(2) : ""}`;
     legend(S.hover || null);
@@ -540,6 +549,7 @@
       const sr = chart.addCandlestickSeries({
         upColor: "#33ff88", downColor: "#ff5266", borderUpColor: "#33ff88", borderDownColor: "#ff5266",
         wickUpColor: "#33ff88", wickDownColor: "#ff5266",
+        priceLineVisible: false, lastValueVisible: false,   // the live-price line below shows the real traded price, not an HA / range-bar close
         autoscaleInfoProvider: orig => (S && S.manual ? { priceRange: { minValue: S.manual.min, maxValue: S.manual.max } } : orig()),
       });
       S = {
