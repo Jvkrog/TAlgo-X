@@ -460,7 +460,7 @@
         rightPriceScale: { borderColor: "rgba(70,255,150,0.25)" },
         timeScale: { borderColor: "rgba(70,255,150,0.25)", timeVisible: true, secondsVisible: false },
         crosshair: { mode: 0 },
-        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
         handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: true },
         kineticScroll: { touch: true, mouse: true },   // inertia after a flick / drag
       });
