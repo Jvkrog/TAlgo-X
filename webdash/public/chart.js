@@ -117,7 +117,13 @@
       displayedT = all.map(b => b.t);
       return all;
     }
-    const base = S.type === "ha" ? toHA(S.bars) : S.bars;
+    let base = S.type === "ha" ? toHA(S.bars) : S.bars;
+    if (S.type === "ha" && base.length && S.bars.length) {
+      // The candle still forming is drawn from the live price: body from the HA open to the last traded price, wicks from the
+      // raw high / low. Once the bar closes it becomes the true Heikin-Ashi candle the engine uses.
+      const raw = S.bars[S.bars.length - 1], ha = base[base.length - 1];
+      base = base.slice(0, -1).concat([{ t: ha.t, o: ha.o, c: raw.c, h: Math.max(raw.h, ha.o, raw.c), l: Math.min(raw.l, ha.o, raw.c) }]);
+    }
     displayedT = base.slice(S.dayIdx).map(b => b.t);
     return base.slice(S.dayIdx);
   }
