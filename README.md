@@ -168,7 +168,7 @@ Do not use a chart display, market-state profile, or AI narration as the sole ba
 
 ## Operational notes
 
-- Use `pm2 list` to inspect managed processes, `npm run logs` for coloured live logs (`npm run logs -- zinc` to filter, `-n 40` for more history; `pm2 logs` shows the same logs without colour because PM2's .log files are kept plain), and the CLI/WebDash controls to manage engines.
+- Use `pm2 list` to inspect managed processes, `npm run logs` for coloured live logs, or `source talgo-shell.sh` from ~/.bashrc so plain `pm2 logs` shows them (`npm run logs -- zinc` to filter, `-n 40` for more history; `pm2 logs` shows the same logs without colour because PM2's .log files are kept plain), and the CLI/WebDash controls to manage engines.
 - Each engine's trade/position journal is separate from the Market State Engine's database; this is an intentional failure boundary.
 - The WebDash event bridge is optional for engine operation. A dashboard outage should not be interpreted as proof that an engine stopped; inspect PM2 and broker state.
 - Kite access tokens expire and need to be refreshed according to Kite Connect's authentication lifecycle.
