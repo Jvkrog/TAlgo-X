@@ -1116,12 +1116,18 @@ function recordBlock(msg) {
 }
 const IST_MS = 5.5 * 60 * 60 * 1000;
 const istDayStr = ms => new Date(ms + IST_MS).toISOString().split("T")[0];
-// Overlay lines restricted to the displayed day (the full 8-day bar list is only the warm-up).
-function chartOverlayFor(p, tfBars, day) {
+// Chart window: the previous month of candles (daily charts: ~5 months), plus 8 extra days fetched only as indicator warm-up.
+function chartWindow(tf, now) {
+    const span = tf === "1d" ? 150 : 30;
+    const fromTs = Date.parse(istDayStr(now - span * 86400000) + "T00:00:00+05:30");
+    return { fromTs, fetchFrom: new Date(tf === "1d" ? fromTs : fromTs - 8 * 86400000) };
+}
+// Overlay lines restricted to the displayed window (the extra warm-up bars before it are not drawn).
+function chartOverlayFor(p, tfBars, fromTs) {
     try {
         const bars = tfBars.map(b => ({ t: b.date.getTime(), open: b.open, high: b.high, low: b.low, close: b.close }));
         const ov = computeOverlay(p.strategy, bars, { bandStep: p.bandStep ? Number(p.bandStep) : null, almaFastLen: p.almaFastLen || null, candleType: p.candleType || null }, engineConfig);
-        if (ov.lines) ov.lines.forEach(l => { l.points = l.points.filter(pt => istDayStr(pt[0]) === day); });
+        if (ov.lines) ov.lines.forEach(l => { l.points = l.points.filter(pt => pt[0] >= fromTs); });
         return ov;
     } catch (err) {
         return { note: "indicator unavailable: " + err.message };
@@ -1169,9 +1175,9 @@ async function applyJournalColors(p, ov, tfMinutes) {
 // Stored BLOCK events + blocks parsed from the engine's PM2 log (covers the time before the
 // engine emitted BLOCK events). Log-derived ones are dropped when a stored event already
 // covers the same side within 30s.
-function blocksForDay(engine, day, outLogPath, procName) {
-    const stored = (blockStore[procName] || blockStore[engine] || []).filter(b => istDayStr(b.ts) === day);
-    const fromLog = parseBlocksFromLog(outLogPath, day)
+function blocksForDay(engine, fromTs, outLogPath, procName) {
+    const stored = (blockStore[procName] || blockStore[engine] || []).filter(b => b.ts >= fromTs);
+    const fromLog = parseBlocksFromLog(outLogPath, istDayStr(fromTs), true)
         .filter(l => !stored.some(s => s.side === l.side && Math.abs(s.ts - l.ts) < 30000));
     return stored.concat(fromLog).sort((a, b) => a.ts - b.ts);
 }
@@ -1188,9 +1194,9 @@ app.get("/api/chart/:name/overlay", async (req, res) => {
         const { contract } = resolveCurrent(p.underlying, def, repo, pinStore);
         const tf = p.timeframe || STRATEGY_TIMEFRAME[p.strategy] || "15m";
         const now = Date.now();
-        const tfBars = await fetchHistoricalCandles({ kc: ensureToolboxKite(), token: contract.token, timeframe: tf, from: new Date(now - (tf === "1d" ? 150 : 8) * 86400000), to: new Date(now) });
-        const day = istDayStr(tfBars[tfBars.length - 1].date.getTime());
-        res.json({ overlay: await applyJournalColors(p, chartOverlayFor(p, tfBars, day), TIMEFRAME_MINUTES[tf]), blocks: blocksForDay(p.underlying, day, p.outLogPath, p.name) });
+        const win = chartWindow(tf, now);
+        const tfBars = await fetchHistoricalCandles({ kc: ensureToolboxKite(), token: contract.token, timeframe: tf, from: win.fetchFrom, to: new Date(now) });
+        res.json({ overlay: await applyJournalColors(p, chartOverlayFor(p, tfBars, win.fromTs), TIMEFRAME_MINUTES[tf]), blocks: blocksForDay(p.underlying, win.fromTs, p.outLogPath, p.name) });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1253,19 +1259,30 @@ app.get("/api/chart/:name", async (req, res) => {
         if (!TIMEFRAME_MINUTES[tf]) return res.status(400).json({ error: `unsupported timeframe ${tf}` });
         const kc = ensureToolboxKite();
         const now = Date.now();
-        const tfBars = await fetchHistoricalCandles({ kc, token: contract.token, timeframe: tf, from: new Date(now - (tf === "1d" ? 150 : 8) * 86400000), to: new Date(now) });
-        if (!tfBars.length) return res.status(404).json({ error: "no historical bars returned" });
-        // Displayed day = today if it has bars, else the latest trading day with bars.
-        const day = istDayStr(tfBars[tfBars.length - 1].date.getTime());
-        const mins = (await kc.getHistoricalData(contract.token, "minute", `${day} 00:00:00`, `${day} 23:59:59`)) || [];
+        const win = chartWindow(tf, now);
         const row = b => [new Date(b.date).getTime(), +b.open, +b.high, +b.low, +b.close];
+        // 1-minute bars of the whole window feed the range-bar builder; sent only when asked (they are the heavy part).
+        const loadMinutes = async () => {
+            const out = [];
+            for (let t = win.fromTs; t <= now; t += 25 * 86400000) {   // Kite caps 1-minute history per request
+                const a = istDayStr(t), z = istDayStr(Math.min(t + 24 * 86400000, now));
+                out.push(...((await kc.getHistoricalData(contract.token, "minute", `${a} 00:00:00`, `${z} 23:59:59`)) || []));
+            }
+            const seen = new Set();
+            return out.filter(m => { const k = new Date(m.date).getTime(); if (seen.has(k)) return false; seen.add(k); return true; });
+        };
+        if (req.query.only === "minutes") return res.json({ minuteBars: (await loadMinutes()).map(row) });
+        const tfBars = await fetchHistoricalCandles({ kc, token: contract.token, timeframe: tf, from: win.fetchFrom, to: new Date(now) });
+        if (!tfBars.length) return res.status(404).json({ error: "no historical bars returned" });
+        const day = istDayStr(tfBars[tfBars.length - 1].date.getTime());
+        const mins = req.query.minutes === "1" ? await loadMinutes() : [];
         const a = atrFn(tfBars.map(b => ({ open: b.open, high: b.high, low: b.low, close: b.close })), engineConfig.ST_ATR_LEN);
         res.json({
-            name: p.name, underlying: p.underlying, exchange, timeframe: tf, tfMinutes: TIMEFRAME_MINUTES[tf], day,
+            name: p.name, underlying: p.underlying, exchange, timeframe: tf, tfMinutes: TIMEFRAME_MINUTES[tf], day, fromTs: win.fromTs,
             strategy: p.strategy,
-            overlay: await applyJournalColors(p, chartOverlayFor(p, tfBars, day), TIMEFRAME_MINUTES[tf]),
-            blocks: blocksForDay(p.underlying, day, p.outLogPath, p.name),
-            tfBars: tfBars.map(row), minuteBars: mins.map(row),
+            overlay: await applyJournalColors(p, chartOverlayFor(p, tfBars, win.fromTs), TIMEFRAME_MINUTES[tf]),
+            blocks: blocksForDay(p.underlying, win.fromTs, p.outLogPath, p.name),
+            tfBars: tfBars.filter(b => b.date.getTime() >= win.fromTs - 8 * 86400000).map(row), minuteBars: mins.map(row),
             suggestedRange: a ? Math.max(0.05, Math.round(a * 20) / 20) : 1,
             bandStep: p.bandStep ? Number(p.bandStep) : null,
         });

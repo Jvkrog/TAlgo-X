@@ -33,7 +33,11 @@
       <div class="tb-modal-content chart-modal">
         <div class="tb-modal-head">
           <span data-r="title">Chart</span>
-          <button class="btn btn-ghost" data-r="close">Close</button>
+          <span class="chart-head-btns">
+            <select class="chart-pick" data-r="pick" style="display:none" title="Switch instrument"></select>
+            <button class="btn btn-ghost" data-r="popout" title="Open this chart in its own tab / window (e.g. for a second monitor)">Open in new tab</button>
+            <button class="btn btn-ghost" data-r="close">Close</button>
+          </span>
         </div>
         <div class="chart-controls">
           <div class="chart-seg">
@@ -59,7 +63,9 @@
     document.body.appendChild(modal);
     modal.querySelectorAll("[data-r]").forEach(e => { els[e.dataset.r] = e; });
     els.close.addEventListener("click", close);
-    modal.addEventListener("click", e => { if (e.target === modal) close(); });
+    els.popout.addEventListener("click", () => { if (S) window.open("/chart.html?name=" + encodeURIComponent(S.inst.name), "_blank"); });
+    els.pick.addEventListener("change", () => { const i = (window.chartInstruments || []).find(x => x.name === els.pick.value); if (i) { history.replaceState(null, "", "?name=" + encodeURIComponent(i.name)); open(i); } });
+    modal.addEventListener("click", e => { if (e.target === modal && !window.chartStandalone) close(); });
     modal.querySelectorAll(".chart-type").forEach(b => b.addEventListener("click", () => setType(b.dataset.type)));
     modal.querySelectorAll(".chart-toggle").forEach(b => b.addEventListener("click", () => toggle(b.dataset.toggle)));
     els.range.addEventListener("change", () => { if (S && S.type === "range") { S.range = Number(els.range.value) || S.range; render(true); } });
@@ -120,7 +126,11 @@
     S.series.setData(list);
     S.lastTime = list.length ? list[list.length - 1].time : 0;
     S.dispT = displayedT; S.dispTimes = list.map(x => x.time);
-    if (fit) S.chart.timeScale().fitContent();
+    if (fit) {
+      // A month of bars is loaded; open zoomed on the recent ones (scroll / zoom back for the rest).
+      const n = list.length;
+      if (n > 160) S.chart.timeScale().setVisibleLogicalRange({ from: n - 140, to: n + 6 }); else S.chart.timeScale().fitContent();
+    }
     drawOverlay(); drawMarkers();
     status();
   }
@@ -233,11 +243,29 @@
 
   function status() {
     const live = S.isToday ? "LIVE" : "closed — last session";
-    els.status.textContent = `${S.data.timeframe} · ${S.data.day} · ${live}${S.last !== null ? " · " + S.last.toFixed(2) : ""}`;
+    els.status.textContent = `${S.data.timeframe} · ${S.dispT && S.dispT.length > 1 && S.type !== "range" ? "last " + (S.data.timeframe === "1d" ? "5 months" : "month") : S.data.day} · ${live}${S.last !== null ? " · " + S.last.toFixed(2) : ""}`;
     legend(S.hover || null);
   }
 
-  function setType(type) {
+  async function ensureMinutes() {
+    if (!S || S.minutesLoaded || S.minutesLoading) return;
+    S.minutesLoading = true;
+    const mine = S;
+    els.status.textContent = "loading 1-minute history for range bars…";
+    try {
+      const r = await fetch(`/api/chart/${encodeURIComponent(mine.inst.name)}?only=minutes`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "minute history failed");
+      if (S !== mine) return;
+      const live = mine.points.filter(p => p.live);   // ticks already received while this loaded
+      mine.points = minutePoints(d.minuteBars.map(toBar)).concat(live);
+      mine.minutesLoaded = true;
+    } catch (err) { if (S === mine) els.status.textContent = "error: " + err.message; }
+    finally { mine.minutesLoading = false; }
+  }
+  async function setType(type) {
+    if (!S) return;
+    if (type === "range" && !S.minutesLoaded) await ensureMinutes();
     if (!S) return;
     S.type = type;
     modal.querySelectorAll(".chart-type").forEach(b => b.classList.toggle("active", b.dataset.type === type));
@@ -251,7 +279,7 @@
     const price = Number(msg.price), ts = msg.ts || Date.now();
     if (!Number.isFinite(price)) return;
     S.last = price;
-    S.points.push({ price, time: ts });
+    S.points.push({ price, time: ts, live: true });
     // fold into the instrument-timeframe bar for this slot (anchored on the day's first bar)
     const slot = S.data.tfMinutes * 60000, anchor = S.bars[S.dayIdx] ? S.bars[S.dayIdx].t : null;
     if (anchor !== null && ts >= anchor) {
@@ -348,16 +376,20 @@
     els.title.textContent = `${inst.underlying} · ${inst.strategy}${" · " + (inst.candleType || (window.nativeCandleOf ? window.nativeCandleOf(inst.strategy) : ""))}`;
     els.status.textContent = "loading…";
     els.box.innerHTML = "";
+    els.popout.style.display = window.chartStandalone ? "none" : "";
+    els.close.style.display = window.chartStandalone ? "none" : "";
+    els.pick.style.display = window.chartStandalone && (window.chartInstruments || []).length ? "" : "none";
+    if (window.chartStandalone) els.pick.value = inst.name;
     modal.classList.add("open");
     try {
       await ensureLibs();
-      const r = await fetch(`/api/chart/${encodeURIComponent(inst.name)}`);
+      const r = await fetch(`/api/chart/${encodeURIComponent(inst.name)}${(inst.candleType || (window.nativeCandleOf ? window.nativeCandleOf(inst.strategy) : "")) === "RANGE" ? "?minutes=1" : ""}`);
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "chart request failed");
       // Open on the candle type the instrument actually trades: its override, else the strategy's own native type.
       const effType = inst.candleType || (window.nativeCandleOf ? window.nativeCandleOf(inst.strategy) : "RAW");
       const bars = data.tfBars.map(toBar);
-      const dayIdx = Math.max(0, bars.findIndex(b => istDay(b.t) === data.day));
+      const dayIdx = Math.max(0, bars.findIndex(b => b.t >= data.fromTs));   // first bar of the 1-month window (earlier bars are indicator / HA warm-up)
       const chart = window.LightweightCharts.createChart(els.box, {
         autoSize: true,
         layout: { background: { color: "#050806" }, textColor: "#9fd8b6", fontFamily: "JetBrains Mono, monospace" },
@@ -373,7 +405,7 @@
       S = {
         inst, data, bars, dayIdx, chart, series: sr, type: "raw", range: (effType === "RANGE" && inst.rangeSize) ? inst.rangeSize : data.suggestedRange, last: null,
         overlay: data.overlay, blocks: (data.blocks || []).slice(), ind: false, filters: false, lineSeries: [], dispT: null, dispTimes: null,
-        points: minutePoints(data.minuteBars.map(toBar)), isToday: data.day === istDay(Date.now()), timer: null, dirty: false, lastTime: 0,
+        points: minutePoints(data.minuteBars.map(toBar)), minutesLoaded: data.minuteBars.length > 0, isToday: data.day === istDay(Date.now()), timer: null, dirty: false, lastTime: 0,
       };
       if (bars.length) S.last = bars[bars.length - 1].c;
       S.hover = null; S.position = null; S.depthOn = true;
@@ -390,13 +422,17 @@
       els.range.value = S.range;
       modal.querySelectorAll(".chart-toggle").forEach(b => b.classList.toggle("active", b.dataset.toggle === "depth" && S.depthOn));
       info();
-      setType(effType === "HA" ? "ha" : effType === "RANGE" ? "range" : "raw");   // open on the series the instrument actually trades
+      await setType(effType === "HA" ? "ha" : effType === "RANGE" ? "range" : "raw");   // open on the series the instrument actually trades
     } catch (err) {
       els.status.textContent = "error: " + err.message;
     }
   }
 
   window.openInstrumentChart = open;
+  window.chartFillPicker = list => {
+    if (!modal) build();
+    els.pick.innerHTML = list.map(i => `<option value="${i.name}">${i.underlying} · ${i.strategy}${i.candleType ? " · " + i.candleType : ""}</option>`).join("");
+  };
   window.chartOnLtp = onLtp;
   window.chartOnDepth = onDepth;
   window.chartOnSocketOpen = subscribeDepth;   // re-subscribe after a socket reconnect

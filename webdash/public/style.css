@@ -1550,3 +1550,15 @@ body {
 .depth-imb-l { display: flex; justify-content: space-between; font-size: 10px; }
 .depth-empty { color: var(--dim); padding: 6px 4px; }
 @media (max-width: 900px) { .chart-main { flex-direction: column; } .depth-panel { flex-basis: auto; height: auto; min-height: 0; } }
+
+/* ── chart pop-out page (chart.html): the chart fills the whole window ── */
+.chart-head-btns { display: inline-flex; gap: 8px; align-items: center; }
+.chart-pick { background: var(--panel-solid); color: inherit; border: 1px solid var(--border-strong); border-radius: 8px; padding: 6px 10px; font: inherit; }
+body.chart-page { margin: 0; background: #050806; }
+body.chart-page .tb-modal { padding: 0; background: #050806; backdrop-filter: none; }
+body.chart-page .chart-modal { width: 100vw; max-width: none; height: 100vh; max-height: none; border-radius: 0; border: 0; box-shadow: none; }
+body.chart-page .chart-main { flex: 1 1 auto; min-height: 0; }
+body.chart-page .chart-box { height: auto; min-height: 0; }
+body.chart-page .depth-panel { height: auto; }
+.chart-page-msg { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; color: #9fd8b6; font-family: "JetBrains Mono", monospace; z-index: 60; background: #050806; }
+.chart-page-msg a { color: #33ff88; margin: 0 6px; }

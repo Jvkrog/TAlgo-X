@@ -71,7 +71,7 @@ function parseBlocksFromText(text, mtimeMs) {
     }));
 }
 
-function parseBlocksFromLog(logPath, day) {
+function parseBlocksFromLog(logPath, day, sinceDay) {
     try {
         if (!logPath || !fs.existsSync(logPath)) return [];
         const st = fs.statSync(logPath);
@@ -82,7 +82,7 @@ function parseBlocksFromLog(logPath, day) {
         const buf = Buffer.alloc(len);
         fs.readSync(fd, buf, 0, len, st.size - len);
         fs.closeSync(fd);
-        return parseBlocksFromText(buf.toString("utf8"), st.mtimeMs).filter(b => istDay(b.ts) === day);
+        return parseBlocksFromText(buf.toString("utf8"), st.mtimeMs).filter(b => sinceDay ? istDay(b.ts) >= day : istDay(b.ts) === day);
     } catch { return []; }
 }
 
