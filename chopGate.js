@@ -49,6 +49,8 @@ const { choppinessIndex } = require("./indicators");
 // on vs off — force:true skips the chopFilterEnabled gate below and
 // always evaluates chop; every other behavior (period/max resolution,
 // the actual indicator call) is unchanged and shared with the normal path.
+// NOTE: the shipped default of CHOP_GATE_ALWAYS_FORCE is now false, so the per-instrument chopFilterEnabled setting decides
+// whether the check runs (the long explanation above describes the opt-in force:true behaviour).
 function isChopBlocked(context, engineConfig, candles, { force = false } = {}) {
     if (!force && !context.chopFilterEnabled) return false; // reached in live trading only if a caller ever passes force:false explicitly — no current call site does; reached routinely in backtests when CHOP_GATE_ALWAYS_FORCE is set false
     const chopPeriod = context.chopPeriod ?? engineConfig.CHOP_LEN;

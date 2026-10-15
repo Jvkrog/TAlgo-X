@@ -180,7 +180,7 @@ module.exports = {
     // these, since chopGate.js applies to every strategy now) via
     // STRATEGY_PARAMS-style engineConfig overrides — see backtestFlow.js.
     CHOP_GATE_MAX_DEFAULT:   58,    // chopGate.js's max threshold when context.chopMax is unset
-    CHOP_GATE_ALWAYS_FORCE:  true,  // live default: every entry always checks chop, see chopGate.js's header comment. Backtests can set this false to compare with/without.
+    CHOP_GATE_ALWAYS_FORCE:  false, // the per-instrument "Choppiness Index filter" setting decides (see chopGate.js); true would force the check on every entry regardless of it. Backtests choose this per run.
 
     // htfGate.js's universal higher-timeframe confirmation gate — on by
     // default (context.htfGateEnabled), opt-out via Edit Params/Risk
