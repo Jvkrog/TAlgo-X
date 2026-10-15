@@ -122,8 +122,11 @@
   }
 
   function render(fit) {
-    const list = series(displayed());
+    const disp = displayed();
+    S.lastDisp = disp[disp.length - 1] || null;
+    const list = series(disp);
     S.series.setData(list);
+    S.listLen = list.length;
     S.lastTime = list.length ? list[list.length - 1].time : 0;
     S.dispT = displayedT; S.dispTimes = list.map(x => x.time);
     if (fit) {
@@ -221,7 +224,7 @@
   function legend(hover) {
     if (!els.legend || !S) return;
     let k = hover || null;
-    if (!k) { const list = displayed(); const l = list[list.length - 1]; if (l) k = { open: l.o, high: l.h, low: l.l, close: l.c }; }
+    if (!k) { const l = S.lastDisp; if (l) k = { open: l.o, high: l.h, low: l.l, close: l.c }; }
     const f = v => Number(v).toFixed(2);
     const parts = [];
     if (k) parts.push(`O ${f(k.open)}  H ${f(k.high)}  L ${f(k.low)}  C ${f(k.close)}`);
@@ -289,17 +292,25 @@
       else if (start > lastBar.t) { S.bars.push({ t: start, o: price, h: price, l: price, c: price }); setTimeout(refreshOverlay, 4000); }
     }
     S.dirty = true;
-    if (!S.timer) S.timer = setTimeout(flush, 250);   // coalesce bursts
+    if (!S.timer) S.timer = setTimeout(flush, S.type === "range" ? 1000 : 250);   // coalesce bursts
   }
   function flush() {
     if (!S) return;
     S.timer = null;
     if (!S.dirty) return;
     S.dirty = false;
-    if (S.type === "range") { render(false); return; }
-    const list = displayed();
-    const last = list[list.length - 1];
+    const disp = displayed();
+    const last = disp[disp.length - 1];
     if (!last) return;
+    S.lastDisp = last;
+    if (S.type === "range") {
+      const list = series(disp);
+      if (list.length === S.listLen) S.series.update(list[list.length - 1]);   // same bar count: touch only the forming bar
+      else { S.series.setData(list); S.listLen = list.length; S.dispT = displayedT; S.dispTimes = list.map(x => x.time); drawMarkers(); }
+      S.lastTime = list.length ? list[list.length - 1].time : S.lastTime;
+      status();
+      return;
+    }
     const x = lw(last, undefined);
     if (x.time < S.lastTime) return;
     S.series.update(x);
@@ -397,7 +408,11 @@
         rightPriceScale: { borderColor: "rgba(70,255,150,0.25)" },
         timeScale: { borderColor: "rgba(70,255,150,0.25)", timeVisible: true, secondsVisible: false },
         crosshair: { mode: 0 },
+        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+        handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: true },
+        kineticScroll: { touch: true, mouse: true },   // inertia after a flick / drag
       });
+      chart.timeScale().applyOptions({ rightOffset: 6, barSpacing: 9, minBarSpacing: 1.5, fixLeftEdge: false, shiftVisibleRangeOnNewBar: true });
       const sr = chart.addCandlestickSeries({
         upColor: "#33ff88", downColor: "#ff5266", borderUpColor: "#33ff88", borderDownColor: "#ff5266",
         wickUpColor: "#33ff88", wickDownColor: "#ff5266",

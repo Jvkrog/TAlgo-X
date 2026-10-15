@@ -1562,3 +1562,21 @@ body.chart-page .chart-box { height: auto; min-height: 0; }
 body.chart-page .depth-panel { height: auto; }
 .chart-page-msg { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; color: #9fd8b6; font-family: "JetBrains Mono", monospace; z-index: 60; background: #050806; }
 .chart-page-msg a { color: #33ff88; margin: 0 6px; }
+
+/* order book + chart sizing */
+.chart-modal { overflow-y: auto; }
+.chart-main { min-height: 0; }
+@media (max-width: 900px) {
+  .chart-box, body.chart-page .chart-box { height: 58vh; min-height: 300px; flex: 0 0 auto; }
+  .depth-panel, body.chart-page .depth-panel { flex: 0 0 auto; width: 100%; box-sizing: border-box; font-size: 11px; padding: 6px; }
+  .depth-row, .depth-cols { grid-template-columns: 1.4fr 1fr 40px; padding: 1px 4px; }
+  .depth-mid { padding: 3px 4px; margin: 2px 0; }
+  .depth-foot { grid-template-columns: 1fr 1fr; gap: 2px 12px; }
+  .depth-foot .depth-imb, .depth-foot .depth-imb-l { grid-column: 1 / -1; }
+  body.chart-page .chart-modal { height: 100dvh; }
+}
+@media (min-width: 901px) {
+  .depth-panel { flex-basis: 250px; }
+  body.chart-page .chart-main { height: auto; }
+}
+.chart-box { touch-action: pan-y; }
