@@ -398,32 +398,67 @@
     S.series.applyOptions({ autoscaleInfoProvider: orig => (S && S.manual ? { priceRange: { minValue: S.manual.min, maxValue: S.manual.max } } : orig()) });
     S.chart.priceScale("right").applyOptions({ autoScale: true });
   }
-  // Vertical finger drag inside the plot: shift the visible price range (the library only pans prices itself with a mouse).
-  function attachVerticalPan() {
+  // Finger drag inside the plot pans freely in any direction (time and price together, diagonals included) with a little
+  // inertia. Done here rather than by the library, which on touch only pans along one axis at a time. Pinch stays with the
+  // library; a press-and-hold shows the crosshair instead of panning.
+  function attachTouchPan() {
     if (els.box._vp) return;   // the box element is reused across opens
     els.box._vp = true;
-    let d = null;
+    const touches = new Set();
+    let d = null, raf = 0;
+    const stopInertia = () => { if (raf) cancelAnimationFrame(raf); raf = 0; };
+    const panBy = (dx, dy, base) => {
+      if (!S) return;
+      const ts = S.chart.timeScale(), lr = ts.getVisibleLogicalRange();
+      if (lr && dx) {
+        const plotW = Math.max(1, els.box.clientWidth - 60), perPx = (lr.to - lr.from) / plotW;
+        ts.setVisibleLogicalRange({ from: lr.from - dx * perPx, to: lr.to - dx * perPx });
+      }
+      if (dy && base) {
+        const cur = S.manual || base, h = Math.max(1, els.box.clientHeight - 26);
+        const shift = dy * (cur.max - cur.min) / h;   // finger down -> chart down -> visible prices move up
+        applyManual(cur.min + shift, cur.max + shift);
+      }
+    };
     els.box.addEventListener("pointerdown", e => {
-      if (e.pointerType !== "touch" || e.target.closest(".axis-zoom") || !S) return;
-      const base = S.manual || visiblePriceRange();
-      if (base) d = { x: e.clientX, y: e.clientY, base: { ...base }, h: Math.max(1, els.box.clientHeight - 26), mode: null, t: Date.now() };
+      if (e.pointerType !== "touch" || !S) return;
+      touches.add(e.pointerId);
+      stopInertia();
+      if (touches.size > 1 || e.target.closest(".axis-zoom")) { d = null; return; }   // pinch / axis strip: not a pan
+      d = { id: e.pointerId, x: e.clientX, y: e.clientY, t: Date.now(), moved: false, hold: false, vx: 0, vy: 0, lt: Date.now() };
     }, true);
     els.box.addEventListener("pointermove", e => {
-      if (!d || e.pointerType !== "touch" || !S) return;
-      const dy = e.clientY - d.y, dx = e.clientX - d.x;
-      if (!d.mode) {   // decide once, after a few px: mostly-vertical drag pans prices; horizontal drag / press-and-hold (crosshair) leaves prices alone
-        if (Math.hypot(dx, dy) < 8) return;
-        d.mode = Date.now() - d.t > 350 ? "hold" : (Math.abs(dy) > Math.abs(dx) * 1.6 ? "v" : "h");
+      if (!d || e.pointerId !== d.id || !S || touches.size > 1) return;
+      if (!d.moved) {
+        if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 6) return;
+        d.hold = Date.now() - d.t > 450;   // press-and-hold then move = crosshair, leave it to the library
+        d.moved = true;
       }
-      if (d.mode !== "v") return;
-      const shift = dy * (d.base.max - d.base.min) / d.h;   // finger down -> chart down -> visible range moves up
-      applyManual(d.base.min + shift, d.base.max + shift);
+      if (d.hold) return;
+      if (!d.base) d.base = visiblePriceRange();
+      const dx = e.clientX - d.x, dy = e.clientY - d.y, now = Date.now(), dt = Math.max(1, now - d.lt);
+      d.vx = 0.8 * d.vx + 0.2 * (dx / dt); d.vy = 0.8 * d.vy + 0.2 * (dy / dt);
+      d.x = e.clientX; d.y = e.clientY; d.lt = now;
+      panBy(dx, dy, d.base);
     }, true);
-    const end = () => { d = null; };
+    const end = e => {
+      touches.delete(e.pointerId);
+      if (!d || e.pointerId !== d.id) return;
+      const v = d; d = null;
+      if (!v.moved || v.hold || Date.now() - v.lt > 80) return;
+      let vx = v.vx * 16, vy = v.vy * 16;   // px per frame
+      const step = () => {
+        vx *= 0.94; vy *= 0.94;
+        if (!S || (Math.abs(vx) < 0.3 && Math.abs(vy) < 0.3)) { raf = 0; return; }
+        panBy(vx, vy, visiblePriceRange());
+        raf = requestAnimationFrame(step);
+      };
+      raf = requestAnimationFrame(step);
+    };
     els.box.addEventListener("pointerup", end, true); els.box.addEventListener("pointercancel", end, true);
   }
   function attachPriceAxisZoom() {
-    attachVerticalPan();
+    attachTouchPan();
     const strip = document.createElement("div");
     strip.className = "axis-zoom";
     els.box.style.position = "relative";
@@ -485,7 +520,7 @@
         rightPriceScale: { borderColor: "rgba(70,255,150,0.25)" },
         timeScale: { borderColor: "rgba(70,255,150,0.25)", timeVisible: true, secondsVisible: false },
         crosshair: { mode: 0 },
-        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: false, vertTouchDrag: false },
         handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: true },
         kineticScroll: { touch: true, mouse: true },   // inertia after a flick / drag
       });
