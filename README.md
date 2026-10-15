@@ -1,822 +1,188 @@
-````markdown
-# TAlgo-X — Autonomous Trading Execution Platform
+# TAlgo-X — Trading Execution & Research Workstation
 
-> Production-grade deterministic trading infrastructure for deploying, operating, and monitoring autonomous trading engines through unified CLI and Web interfaces.
+TAlgo-X is a Node.js trading platform for strategy execution, market-data handling, risk controls, persistence/recovery, backtesting, and operator tooling. It evolved from the TAlgo strategy experiments into a multi-instrument runtime with a CLI toolbox and a browser-based WebDash.
 
+> **Important:** This is a research and engineering project, not financial advice. Trading can result in losses. Backtests and historical results do not guarantee future performance. Live execution depends on broker availability, network conditions, liquidity, and order handling.
 
-# Setup
+## What it includes
 
-TAlgo-X is designed to run on a local PC, VPS, or cloud VM. The execution environment is not tied to a specific cloud provider.
+### Execution runtime
+- Instrument-specific runtime contexts with configurable strategy, candle type/timeframe, lot sizing, risk settings, and execution mode.
+- Strategy and signal processing separated from broker order placement and position lifecycle handling.
+- Kite Connect integration for REST operations and WebSocket market data.
+- SQLite-backed positions, trades, risk events, and restart recovery.
+- PM2 process management and per-engine logs.
+- Telegram notifications and runtime observability.
+- Configurable entry gates and risk controls, depending on strategy/context: choppiness, volume, long-candle, higher-timeframe, daily Heikin-Ashi, stop-loss/target, daily-loss, and losing-trade/switch limits.
 
-A local computer, VPS, or cloud instance can act as a TAlgo-X execution machine.
+### CLI Toolbox
+The `talgox` command provides operator workflows for engine/instrument management, strategy and runtime configuration, credentials, backtesting, paper/live modes, PM2 controls, and diagnostics.
 
-## Prerequisites
+### WebDash
+The WebDash is an operator interface for monitoring and controlling running engines. It includes engine cards, position/P&L visibility, logs streamed from the runtime, configuration and credential workflows, market-state/watchlist views, hedge-pair and dual-hedge controls, backtesting screens, and AI trade-review tools.
 
-- [Node.js](https://nodejs.org/)
+The runtime-to-dashboard event bridge is deliberately best-effort: dashboard connectivity is for observability and must not be required for strategy execution or order placement.
+
+### Chart panel and order book
+The standalone chart page (`webdash/public/chart.html`) can be opened in a separate tab/window for a second-monitor workflow. It displays historical candles alongside live price updates and supports:
+- Raw candles, Heikin-Ashi, and Range Bars.
+- Instrument-specific chart overlays where supported by the strategy.
+- A configurable Range Bar size.
+- A market-depth/order-book panel with bid/ask prices and quantities, spread, displayed depth totals, volume, and open interest where provided by the feed.
+- Live order-book updates streamed through the dashboard WebSocket; REST is used as a fallback when the stream is unavailable/stale.
+- Historical chart data for context; Range Bars are rebuilt using the shared `rangeBars.js` builder so the chart and engine can use the same range-bar logic.
+
+The order book represents displayed liquidity, not guaranteed support/resistance or a standalone buy/sell signal. Historical candles and live market depth are different data types; the current implementation should not be interpreted as historical order-book replay.
+
+### Market State Engine
+A separate scanner/profiling path builds a market profile containing trend, volatility, participation, structure, and confidence fields. It maintains a watchlist independently of which instruments currently have engines running. Profiles and structure-state transitions are stored in a separate SQLite database; the client returns an UNKNOWN/unavailable profile when data is missing, stale, or errors, rather than treating stale data as current. This is a contextual/observability layer, not a replacement for the execution engine.
+
+### Hedge workflows
+- **Hedge pairs:** paired core/hedge processes with WebDash controls and backtesting support.
+- **Dual hedge:** a dedicated process for two separately configured Kite accounts, with one LONG-only leg and one SHORT-only leg driven by a shared Dynamic Step Band signal. Per-leg order placement uses that leg's own broker client. Optional gap-capture behavior is configured separately. Review the relevant engine/context files and runtime configuration before using this workflow live.
+
+These workflows have different lifecycle and risk semantics from a single strategy engine; do not assume their settings or exits are interchangeable.
+
+### Backtesting
+The backtesting tools fetch historical broker candles and replay supported strategy/candle configurations. Reports include trade and performance metrics and can be inspected from the CLI/WebDash. Results depend on the data window, assumptions, costs/slippage settings, and whether the simulation accurately represents live execution. Validate changes in backtests and paper mode before considering live deployment.
+
+### AI-assisted trade review (TAlgo-AI)
+- Reviews closed trades using facts computed deterministically from SQLite trade journals.
+- Uses Gemini to interpret trade evidence and produce schema-validated review output.
+- Aggregates trade history into summaries by instrument, exit reason, side, entry time, and other available metrics; can narrate aggregate summaries and saved backtest reports.
+- Caches reviews/summaries to avoid repeatedly requesting the same analysis.
+- The AI review and narration modules are **observer-only**: the trading engines do not import them, and AI output does not place, modify, or close orders.
+- Configure `GEMINI_API_KEY` through the supported WebDash credentials/settings flow or environment configuration. `GEMINI_MODEL` can override the default model.
+
+AI commentary can be wrong or incomplete. Treat it as a research aid, not an execution instruction or proof of a strategy's edge.
+
+## Architecture overview
+
+```text
+                    CLI Toolbox / WebDash
+                              |
+                              v
+                       Runtime controls
+                              |
+             +----------------+----------------+
+             |                |                |
+          Engine A         Engine B        Hedge runtimes
+        (instrument)     (instrument)      (where enabled)
+             |                |                |
+             +----------------+----------------+
+                              |
+                   Strategy / signal logic
+                              |
+                   Risk & position lifecycle
+                              |
+                       Broker orders
+                              |
+                       Kite Connect
+
+Kite REST/history --------------------> Backtests and chart history
+Kite market-data WebSocket -----------> Runtime / order-book stream
+Runtime event bridge -----------------> WebDash live telemetry
+SQLite journals ----------------------> Recovery, trade history, AI review
+Market scanner -----------------------> Separate market-profile database
+```
+
+The diagram is conceptual: the chart, scanner, hedge runtimes, and regular engine have distinct data and lifecycle paths. The dashboard is not the authority for placing orders; execution remains in the runtime.
+
+## Repository map
+
+The repository is intentionally split by responsibility. The exact tree evolves, but the main entry points and modules include:
+
+| Path | Responsibility |
+|---|---|
+| `toolbox.js` | Interactive CLI toolbox and runtime/operator workflows |
+| `engine.js` | Main instrument execution process and runtime wiring |
+| `strategies.js` | Strategy implementations and signal/risk orchestration |
+| `context.js`, `engineConfig.js` | Instrument/runtime definitions and configuration |
+| `orders.js`, `positions.js` | Broker order handling and position lifecycle helpers |
+| `db.js`, `state.js`, `dbDir.js` | Persistence, runtime state, and database paths |
+| `candlePoll.js`, `candleBuilder.js`, `rangeFeed.js`, `rangeBars.js` | Candle/history handling and Range Bar construction |
+| `historicalFetch.js`, `backtestRun.js`, `backtestFlow.js` | Historical data and backtesting |
+| `eventBridge.js` | Best-effort runtime-to-WebDash event stream |
+| `marketProfiler.js`, `marketStateClient.js`, `marketStateStore.js`, `marketWatchlist.js` | Market profiling, state persistence, and watchlist |
+| `hedgePairEngine.js`, `dualHedgeEngine.js` and related context/backtest modules | Separate hedge workflows |
+| `aiReview.js`, `aiSummary.js` | Observer-only AI review and aggregate narration |
+| `webdash/server.js` | HTTP/WebSocket server, API routes, authentication, chart/depth data and operator APIs |
+| `webdash/public/app.js` | Main WebDash frontend |
+| `webdash/public/chart.html`, `chart.js`, `chartpage.js` | Standalone chart page, rendering, and chart-page socket |
+| `package.json` | Dependencies and CLI/WebDash entry points |
+
+## Requirements
+
+- Node.js 18 or later
+- npm
 - Git
-- PM2
-- Kite Connect account for live execution
+- PM2 (installed as a project dependency)
+- Kite Connect credentials for broker-backed data and live execution
+- Optional Gemini API key for AI review/narration
+- Telegram bot configuration if Telegram alerts are wanted
 
-npm is included with Node.js and need not to be installed seperately 
-
-````
-## 1. Clone the repository
-
-```bash
-git clone https://github.com/Jvkrog/TAlgo-X
-````
-
----
-
-## 2. Enter the project directory
+## Installation
 
 ```bash
+git clone https://github.com/Jvkrog/TAlgo-X.git
 cd TAlgo-X
-```
-
----
-
-## 3. Install dependencies
-
-```bash
 npm install
-```
-
----
-
-## 4. PM2 (Process Manger)
-
-PM2 is used to manage long-running TAlgo-X execution processes.
-
-PM2 is installed automatically as a project dependency when you run:
-```bash
-npm install
-```
-Verify the installation:
-
-```bash
-pm2 --version
-```
-
----
-
-## 5. Setup the TAlgo-X CLI
-
-TAlgo-X exposes its operational toolbox through the `talgox` command.
-
-The package provides the CLI through the `bin` mapping:
-
-```json
-"bin": {
-  "talgox": "./toolbox.js"
-}
-```
-
-For local development, link the package:
-
-```bash
 npm link
 ```
 
-Verify:
+Verify the CLI:
 
 ```bash
 talgox
 ```
 
-The CLI provides access to:
-
-* Engine deployment
-* Instrument management
-* Backtesting
-* Runtime control
-* Configuration management
-* Paper execution
-* Live execution
-* Credentials management
-* System diagnostics
-
----
-
-# Broker Integration
-
-TAlgo-X currently supports **Kite Connect** as its broker integration.
-
-The broker integration is responsible for communicating with the broker's REST and WebSocket APIs.
-
-```text
-TAlgo-X
-   │
-   ▼
-Kite Connect
-   │
-   ├── REST API
-   │
-   └── WebSocket API
-```
-
-Additional broker integrations may be added in the future.
-
----
-
-# Configure Credentials
-
-TAlgo-X provides credential management through both operator interfaces:
-
-* **CLI Toolbox**
-* **Web Dashboard**
-
-At present, the credential system is designed for **Kite Connect**.
-
-```text
-                 TAlgo-X
-                    │
-          ┌─────────┴─────────┐
-          │                   │
-     CLI Toolbox        Web Dashboard
-          │                   │
-          └─────────┬─────────┘
-                    │
-              Kite Connect
-                    │
-          ┌─────────┴─────────┐
-          │                   │
-       API Key          Access Token
-```
-
-## API Key
-
-Configure the Kite Connect API key through the **Credentials** option in either the CLI Toolbox or Web Dashboard.
-
-The API key should never be:
-
-* Hardcoded into source code
-* Committed to Git
-* Exposed in logs
-* Stored in publicly accessible files
-
----
-
-## Access Token
-
-Kite Connect also requires an access token for authenticated API operations.
-
-The access token is **temporary and expires daily**.
-
-Therefore, TAlgo-X allows the access token to be updated through either:
-
-* CLI Toolbox
-* Web Dashboard
-
-When the existing access token expires:
-
-1. Generate a new Kite Connect access token.
-2. Open the TAlgo-X Credentials interface.
-3. Update the access token through the CLI or Web Dashboard.
-4. Restart the affected engine if required by the current runtime configuration.
-
-```text
-Kite Connect Login
-        │
-        ▼
-New Access Token
-        │
-        ▼
-TAlgo-X Credentials
-        │
-   ┌────┴────┐
-   │         │
- CLI       WebDash
-   │         │
-   └────┬────┘
-        │
-        ▼
-Running Engine
-```
-
-> **Important:** API keys and access tokens are sensitive credentials. Never commit them to the repository.
-
----
-
-# Runtime Configuration
-
-After configuring broker credentials, configure the execution environment.
-
-Configuration may include:
-
-* Instrument
-* Strategy
-* Execution mode
-* Risk parameters
-* Target configuration
-* Runtime settings
-* Notifications
-* Dashboard settings
-
-The recommended development sequence is:
-
-```text
-Credentials
-    ↓
-Instrument Configuration
-    ↓
-Strategy Configuration
-    ↓
-Risk Configuration
-    ↓
-Paper Execution
-```
-
----
-
-# Start with Paper Trading
-
-Always validate a new installation in paper mode before enabling live execution.
-
-Recommended workflow:
-
-```text
-Install
-   ↓
-Configure Credentials
-   ↓
-Configure Runtime
-   ↓
-Backtest
-   ↓
-Paper Trading
-   ↓
-Validate
-   ↓
-Live Execution
-```
-
-Paper trading allows runtime, strategy, target, recovery and execution behavior to be tested without placing live orders.
-
----
-
-## Verify PM2
-
-List running processes:
+Start the WebDash from the repository:
 
 ```bash
-pm2 list
+npm run webdash
 ```
 
-View logs:
+The default WebDash port is `4790`; open `http://localhost:4790` on the same machine. The server also supports a `WEBDASH_PORT` environment override.
 
-```bash
-pm2 logs
-```
+## Credentials and security
 
-Restart an engine:
+Configure credentials through the supported CLI/WebDash credential workflows or environment configuration. Secrets and runtime tokens must remain outside version control.
 
-```bash
-pm2 restart <process>
-```
+- Do not commit `.env`, Kite API secrets/access tokens, Gemini API keys, or account credentials.
+- WebDash uses a server-side PIN/session lock when `WEBDASH_PIN` is configured. On startup, it can prompt to set a PIN if one is missing; choosing a blank PIN explicitly leaves authentication disabled.
+- **Set a WebDash PIN before exposing the dashboard to any network.** A PIN is an operator-access safeguard, not a substitute for network isolation.
+- Keep the dashboard bound/reachable only where intended. Restrict cloud firewall/security-group rules; prefer localhost, an SSH tunnel, or a properly secured private network over direct public exposure.
+- Never expose broker credentials to browser-side JavaScript or logs.
+- Keep live and paper configuration clearly separated and verify the selected mode before starting an engine.
 
-Stop an engine:
+## Safe development workflow
 
-```bash
-pm2 stop <process>
-```
+1. Review the instrument, strategy, candle type, timeframe, and risk configuration.
+2. Run the relevant backtest over more than one market regime; include realistic costs/slippage where available.
+3. Validate in paper mode.
+4. Exercise failure paths: WebSocket disconnect/reconnect, process restart, stale/missing data, rejected orders, and position recovery.
+5. Inspect logs and compare persisted state with broker-side positions.
+6. Enable live execution only after verifying the exact configuration and account.
 
-Delete an engine:
+Do not use a chart display, market-state profile, or AI narration as the sole basis for a live order. Changes to strategy, risk, order handling, or recovery should be tested independently of UI changes.
 
-```bash
-pm2 delete <process>
-```
+## Operational notes
 
----
+- Use `pm2 list` to inspect managed processes, `pm2 logs` to view logs, and the CLI/WebDash controls to manage engines.
+- Each engine's trade/position journal is separate from the Market State Engine's database; this is an intentional failure boundary.
+- The WebDash event bridge is optional for engine operation. A dashboard outage should not be interpreted as proof that an engine stopped; inspect PM2 and broker state.
+- Kite access tokens expire and need to be refreshed according to Kite Connect's authentication lifecycle.
+- Current support is centered on Kite Connect; do not assume another broker is supported without a separate adapter.
 
-# Overview
+## Development principles
 
-TAlgo-X is the deployment and execution platform of the TAlgo ecosystem.
+- **Deterministic execution:** trading decisions should be reproducible from the relevant market inputs, strategy configuration, and state.
+- **Isolated runtime context:** instruments and hedge legs retain their own configuration/state.
+- **Explicit risk handling:** entries, exits, limits, and recovery are runtime concerns, not dashboard presentation logic.
+- **Observable behavior:** logs and persisted events should make decisions and failures inspectable.
+- **Failure boundaries:** optional analytics, market profiling, and the dashboard should not become dependencies of order execution.
+- **AI as an observer:** AI reviews describe evidence; they do not control live trading.
 
-Rather than building separate trading bots for each instrument, TAlgo-X separates trading intelligence from runtime orchestration, allowing a single deterministic execution brain to operate multiple instruments through isolated runtime contexts.
+## Disclaimer
 
-The platform provides two operator interfaces:
-
-* **CLI Toolbox** — deployment, configuration, backtesting and runtime management
-* **Web Dashboard** — real-time monitoring, observability and engine control
-
-TAlgo-X is designed around a machine-agnostic execution model. The same platform can operate on a development PC, VPS, or cloud VM.
-
----
-
-# Platform Architecture
-
-```text
-                         TAlgo-X
-                            │
-             ┌──────────────┴──────────────┐
-             │                             │
-        CLI Toolbox                  Web Dashboard
-             │                             │
-             └──────────────┬──────────────┘
-                            │
-                    Runtime Orchestrator
-                            │
-          ┌─────────────────┼─────────────────┐
-          │                 │                 │
-       NatGas             Zinc             Aluminium
-       Context            Context           Context
-          │                 │                 │
-          └─────────────────┼─────────────────┘
-                            │
-                    Deterministic Brain
-                            │
-               Market → Strategy → Risk → Orders
-```
-
----
-
-# Execution Pipeline
-
-```text
-Market Data
-      │
-      ▼
-Authoritative Candle Polling
-      │
-      ▼
-Market State Engine
-      │
-      ▼
-Strategy Selection
-      │
-      ▼
-Signal Validation
-      │
-      ▼
-Risk Management
-      │
-      ▼
-Order Execution
-      │
-      ▼
-SQLite Persistence
-      │
-      ▼
-Runtime Observability
-```
-
-TAlgo-X uses deterministic candle-driven execution for strategy decisions while real-time WebSocket data can be used for execution monitoring and target/exit handling.
-
----
-
-# One Brain, Multiple Contexts
-
-TAlgo-X follows a **One Brain, Multiple Contexts** architecture.
-
-```text
-                  Deterministic Brain
-                         │
-       ┌─────────────────┼─────────────────┐
-       │                 │                 │
-   NatGas Context    Zinc Context     Aluminium Context
-       │                 │                 │
-   State/Position    State/Position   State/Position
-   Config/Runtime    Config/Runtime   Config/Runtime
-```
-
-The execution brain remains shared while instrument-specific state, configuration, position information and runtime context remain isolated.
-
-This allows additional instruments to be introduced without creating completely independent trading applications.
-
----
-
-# Operator Interfaces
-
-## CLI Toolbox
-
-The CLI is the operational control center of TAlgo-X.
-
-Primary command:
-
-```bash
-talgox
-```
-
-Capabilities include:
-
-* Engine deployment
-* Instrument onboarding
-* Backtesting
-* Runtime lifecycle management
-* Configuration management
-* Credentials management
-* PM2 integration
-* Paper execution
-* Live execution
-* System diagnostics
-
----
-
-## Web Dashboard
-
-The Web Dashboard provides browser-based visibility and control over running engines.
-
-Features include:
-
-* Engine lifecycle management
-* Runtime telemetry
-* Position and PnL monitoring
-* Live execution logs
-* Broker connectivity status
-* Market state visualization
-* Multi-engine monitoring
-* Credentials management
-* Browser-based operator console
-
-The Web Dashboard is an operator interface and does not replace the deterministic execution engine.
-
----
-
-# Runtime
-
-The runtime coordinates live execution processes.
-
-Responsibilities include:
-
-* Deterministic candle synchronization
-* Execution scheduling
-* Order routing
-* Position lifecycle management
-* Restart recovery
-* SQLite persistence
-* Telegram notifications
-* Dashboard synchronization
-* Runtime health monitoring
-
-Each instrument runs inside an isolated runtime context while sharing the same execution architecture.
-
----
-
-# Trading Architecture
-
-Execution decisions are separated into independent layers:
-
-```text
-Market
-   │
-   ▼
-Market State
-   │
-   ▼
-Strategy Selection
-   │
-   ▼
-Signal Validation
-   │
-   ▼
-Risk Management
-   │
-   ▼
-Order Execution
-```
-
-This modular architecture allows strategies to evolve without requiring changes to the underlying execution infrastructure.
-
----
-
-# Persistence & Recovery
-
-SQLite provides lightweight runtime persistence.
-
-It is used for:
-
-* Active position storage
-* Execution state persistence
-* Runtime recovery
-* Crash recovery
-* Restart continuity
-* Position/state reconstruction
-
-The runtime is designed to recover persisted state after a process restart rather than treating every restart as a completely new execution session.
-
----
-
-# Observability
-
-TAlgo-X includes a built-in observability layer.
-
-Features include:
-
-* Live execution logs
-* Telegram notifications
-* Runtime telemetry
-* Dashboard monitoring
-* Position tracking
-* PnL tracking
-* Execution history
-* Engine health monitoring
-* Broker connectivity visibility
-
-Execution decisions are logged so runtime behavior can be inspected and explained.
-
----
-
-# Broker Architecture
-
-TAlgo-X currently uses **Kite Connect** for broker communication.
-
-```text
-                  TAlgo-X
-                     │
-                     ▼
-               Broker Layer
-                     │
-                     ▼
-                Kite Connect
-                     │
-          ┌──────────┴──────────┐
-          │                     │
-       REST API            WebSocket API
-          │                     │
-          └──────────┬──────────┘
-                     │
-                     ▼
-                  Broker
-```
-
-The broker layer keeps broker-specific communication separate from the core execution architecture.
-
-This allows future broker integrations to be added without redesigning the deterministic execution engine.
-
----
-
-# Machine-Agnostic Deployment
-
-TAlgo-X is not architecturally tied to AWS.
-
-The execution environment can be:
-
-```text
-                 TAlgo-X
-                    │
-        ┌───────────┼───────────┐
-        │           │           │
-     Local PC      VPS       Cloud VM
-        │           │           │
-      Runtime     Runtime     Runtime
-        │           │           │
-        └───────────┼───────────┘
-                    │
-                Broker API
-```
-
-Examples include:
-
-* Windows development PC
-* Linux workstation
-* VPS
-* AWS EC2
-* Other cloud virtual machines
-
-The machine simply provides the environment in which the TAlgo-X runtime operates.
-
----
-
-# Process Management
-
-PM2 manages long-running TAlgo-X processes.
-
-Common commands:
-
-```bash
-pm2 list
-```
-
-```bash
-pm2 logs
-```
-
-```bash
-pm2 restart <process>
-```
-
-```bash
-pm2 stop <process>
-```
-
-```bash
-pm2 delete <process>
-```
-
-PM2 provides process lifecycle management while TAlgo-X handles application-level state persistence and recovery.
-
----
-
-# Paper Trading
-
-Paper trading should be used before enabling live execution.
-
-The recommended workflow is:
-
-```text
-Backtesting
-    ↓
-Paper Trading
-    ↓
-Runtime Testing
-    ↓
-Recovery Testing
-    ↓
-Broker Connectivity Testing
-    ↓
-Live Execution
-```
-
-Paper mode allows changes to:
-
-* Strategy logic
-* Target logic
-* Risk management
-* Runtime behavior
-* Recovery mechanisms
-* Broker integration
-
-to be tested without placing live orders.
-
----
-
-# Live Execution
-
-Live execution requires valid broker/API authentication and appropriate account configuration.
-
-Before enabling live execution, verify:
-
-* Instrument configuration
-* Broker connectivity
-* Strategy configuration
-* Risk parameters
-* Position state
-* Target/exit behavior
-* Restart recovery
-* Paper-trading behavior
-
-TAlgo-X should maintain consistency between persisted runtime state and broker-side position state.
-
----
-
-# Security
-
-TAlgo-X interacts with infrastructure that can potentially access financial accounts.
-
-Therefore:
-
-* Never commit API keys.
-* Never commit access tokens.
-* Never commit broker passwords.
-* Never expose credentials in logs.
-* Never hardcode production credentials into source files.
-* Keep deployment-specific secrets outside Git.
-* Restrict access to the Web Dashboard.
-* Do not expose broker credentials to browser-side code.
-* Use appropriate separation between paper and live credentials.
-
----
-
-# Development Philosophy
-
-TAlgo-X is built around several principles.
-
-### One Brain
-
-A shared deterministic execution architecture instead of completely independent trading applications for every instrument.
-
-### Deterministic Execution
-
-The same market input should produce predictable execution behavior.
-
-### Isolated Contexts
-
-Each instrument maintains its own runtime and trading state.
-
-### Explainable Execution
-
-Execution decisions should be inspectable through structured logs and runtime state.
-
-### Failure Recovery
-
-A process failure should not automatically destroy knowledge of an existing position.
-
-### Operational Simplicity
-
-Deployment, monitoring and control should be accessible through unified operator interfaces.
-
-### Machine Independence
-
-The execution platform should not depend on a specific cloud provider or infrastructure vendor.
-
----
-
-# TAlgo vs TAlgo-X
-
-| TAlgo                   | TAlgo-X                 |
-| ----------------------- | ----------------------- |
-| Strategy research       | Execution platform      |
-| Experimental algorithms | Production deployment   |
-| Indicator development   | Runtime orchestration   |
-| Strategy evolution      | Multi-engine management |
-| Research environment    | Operator platform       |
-| Signal experimentation  | Paper/live execution    |
-
----
-
-# Current Development
-
-Current work focuses on:
-
-* One Brain architecture
-* Multi-instrument execution
-* CLI and Web operator interfaces
-* Market-state-driven execution
-* Runtime reliability
-* Deployment tooling
-* Explainable execution
-* Failure recovery
-* Adaptive execution logic
-* AI-assisted observability
-
----
-
-# Project Structure
-
-A simplified conceptual structure:
-
-```text
-TAlgo-X/
-│
-├── toolbox.js
-├── engine.js
-├── package.json
-│
-├── strategies/
-│
-├── runtime/
-│
-├── state/
-│
-├── webdash/
-│
-├── backtest/
-│
-├── config/
-│
-└── README.md
-```
-
-The exact directory structure may evolve as development continues.
-
----
-
-# Recommended Development Workflow
-
-```text
-                    Development
-                         │
-                         ▼
-                    Backtesting
-                         │
-                         ▼
-                   Paper Trading
-                         │
-                         ▼
-                  Runtime Testing
-                         │
-                         ▼
-                  Recovery Testing
-                         │
-                         ▼
-                 Broker Validation
-                         │
-                         ▼
-                  Live Execution
-```
-
-Changes to execution logic should be validated in paper mode before being deployed to a live trading environment.
-
----
-
-# Future Roadmap
-
-* Portfolio-level execution
-* Distributed runtime orchestration
-* Cloud deployment platform
-* User-managed VPS deployment
-* AI-assisted operational insights
-* Multi-broker support
-* Plugin-based strategy framework
-* Multi-user SaaS execution infrastructure
-
----
-
-# Disclaimer
-
-TAlgo-X is a research and educational project focused on autonomous trading infrastructure, deterministic execution systems, and backend engineering.
-
-Live deployment credentials, proprietary configurations, and sensitive operational data are intentionally excluded from the repository.
-
-Trading involves financial risk. TAlgo-X does not guarantee profitability or successful execution.
+TAlgo-X is provided for research and educational purposes. It is not financial advice, does not guarantee profitability, and may contain defects. Live trading involves market, execution, liquidity, connectivity, and operational risks. You are responsible for reviewing code, validating configurations, and understanding the consequences before enabling live orders.
