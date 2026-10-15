@@ -398,7 +398,28 @@
     S.series.applyOptions({ autoscaleInfoProvider: orig => (S && S.manual ? { priceRange: { minValue: S.manual.min, maxValue: S.manual.max } } : orig()) });
     S.chart.priceScale("right").applyOptions({ autoScale: true });
   }
+  // Vertical finger drag inside the plot: shift the visible price range (the library only pans prices itself with a mouse).
+  function attachVerticalPan() {
+    if (els.box._vp) return;   // the box element is reused across opens
+    els.box._vp = true;
+    let d = null;
+    els.box.addEventListener("pointerdown", e => {
+      if (e.pointerType !== "touch" || e.target.closest(".axis-zoom") || !S) return;
+      const base = S.manual || visiblePriceRange();
+      if (base) d = { y: e.clientY, base: { ...base }, h: Math.max(1, els.box.clientHeight - 26) };
+    }, true);
+    els.box.addEventListener("pointermove", e => {
+      if (!d || e.pointerType !== "touch" || !S) return;
+      const dy = e.clientY - d.y;
+      if (Math.abs(dy) < 3 && !S.manual) return;
+      const shift = dy * (d.base.max - d.base.min) / d.h;   // finger down -> chart down -> visible range moves up
+      applyManual(d.base.min + shift, d.base.max + shift);
+    }, true);
+    const end = () => { d = null; };
+    els.box.addEventListener("pointerup", end, true); els.box.addEventListener("pointercancel", end, true);
+  }
   function attachPriceAxisZoom() {
+    attachVerticalPan();
     const strip = document.createElement("div");
     strip.className = "axis-zoom";
     els.box.style.position = "relative";
@@ -460,7 +481,7 @@
         rightPriceScale: { borderColor: "rgba(70,255,150,0.25)" },
         timeScale: { borderColor: "rgba(70,255,150,0.25)", timeVisible: true, secondsVisible: false },
         crosshair: { mode: 0 },
-        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
         handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: true },
         kineticScroll: { touch: true, mouse: true },   // inertia after a flick / drag
       });
