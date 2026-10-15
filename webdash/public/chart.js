@@ -296,6 +296,16 @@
     S.dirty = true;
     if (!S.timer) S.timer = setTimeout(flush, S.type === "range" ? 1000 : 250);   // coalesce bursts
   }
+  // After a manual price pan/zoom the library no longer auto-fits, so a live price that moves out of the chosen range would
+  // vanish off the chart. While the newest bar is on screen, widen the range just enough to keep the live price visible.
+  function keepLiveVisible(price) {
+    if (!S || !S.manual || !Number.isFinite(price)) return;
+    const lr = S.chart.timeScale().getVisibleLogicalRange();
+    if (!lr || lr.to < (S.listLen || 0) - 2) return;   // scrolled back in history: leave the range alone
+    const pad = (S.manual.max - S.manual.min) * 0.06;
+    if (price > S.manual.max - pad) applyManual(S.manual.min, price + pad);
+    else if (price < S.manual.min + pad) applyManual(price - pad, S.manual.max);
+  }
   function flush() {
     if (!S) return;
     S.timer = null;
@@ -305,6 +315,8 @@
     const last = disp[disp.length - 1];
     if (!last) return;
     S.lastDisp = last;
+    keepLiveVisible(last.c);
+    keepLiveVisible(last.h); keepLiveVisible(last.l);
     if (S.type === "range") {
       const list = series(disp);
       if (list.length === S.listLen) S.series.update(list[list.length - 1]);   // same bar count: touch only the forming bar
