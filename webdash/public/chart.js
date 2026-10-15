@@ -75,6 +75,7 @@
     modal.classList.remove("open");
     if (S && S.chart) S.chart.remove();
     if (S && S.posTimer) clearInterval(S.posTimer);
+    if (S && S.axisTimer) clearInterval(S.axisTimer);
     stopDepth();
     S = null;
   }
@@ -129,6 +130,7 @@
     S.listLen = list.length;
     S.lastTime = list.length ? list[list.length - 1].time : 0;
     S.dispT = displayedT; S.dispTimes = list.map(x => x.time);
+    if (fit && S.manual) resetManual();
     if (fit) {
       // A month of bars is loaded; open zoomed on the recent ones (scroll / zoom back for the rest).
       const n = list.length;
@@ -378,10 +380,60 @@
     } catch { /* transient — the next poll retries */ }
   }
 
+  // ── price-axis zoom: drag a finger / the mouse up-down on the price scale, or wheel over it, to zoom the price range
+  // (double-tap / double-click resets to auto-fit). One handler for touch and mouse so desktop behaves the same as phone.
+  function visiblePriceRange() {
+    const h = els.box.clientHeight - (S.chart.timeScale().height ? S.chart.timeScale().height() : 26);
+    const top = S.series.coordinateToPrice(0), bot = S.series.coordinateToPrice(Math.max(1, h));
+    return top === null || bot === null ? null : { min: Math.min(top, bot), max: Math.max(top, bot) };
+  }
+  function applyManual(min, max) {
+    if (!S) return;
+    S.manual = { min, max };
+    S.series.applyOptions({ autoscaleInfoProvider: orig => (S && S.manual ? { priceRange: { minValue: S.manual.min, maxValue: S.manual.max } } : orig()) });
+  }
+  function resetManual() {
+    if (!S) return;
+    S.manual = null;
+    S.series.applyOptions({ autoscaleInfoProvider: orig => (S && S.manual ? { priceRange: { minValue: S.manual.min, maxValue: S.manual.max } } : orig()) });
+    S.chart.priceScale("right").applyOptions({ autoScale: true });
+  }
+  function attachPriceAxisZoom() {
+    const strip = document.createElement("div");
+    strip.className = "axis-zoom";
+    els.box.style.position = "relative";
+    els.box.appendChild(strip);
+    const place = () => {
+      if (!S) return;
+      const w = (S.chart.priceScale("right").width && S.chart.priceScale("right").width()) || 64;
+      strip.style.width = Math.max(48, w) + "px";
+      strip.style.bottom = ((S.chart.timeScale().height && S.chart.timeScale().height()) || 26) + "px";
+    };
+    place();
+    S.axisTimer = setInterval(place, 1000);
+    let drag = null;
+    const zoomBy = (base, f) => { const mid = (base.min + base.max) / 2, r = Math.max((base.max - base.min) * f, 1e-6); applyManual(mid - r / 2, mid + r / 2); };
+    strip.addEventListener("pointerdown", e => {
+      const base = S.manual || visiblePriceRange();
+      if (!base) return;
+      drag = { y: e.clientY, base: { ...base } };
+      strip.setPointerCapture(e.pointerId);
+      e.preventDefault();
+    });
+    strip.addEventListener("pointermove", e => { if (drag) zoomBy(drag.base, Math.exp((e.clientY - drag.y) / 180)); });   // drag up = zoom in, down = zoom out
+    const end = () => { drag = null; };
+    strip.addEventListener("pointerup", end); strip.addEventListener("pointercancel", end);
+    strip.addEventListener("wheel", e => { e.preventDefault(); const base = S.manual || visiblePriceRange(); if (base) zoomBy(base, Math.exp(Math.max(-200, Math.min(200, e.deltaY)) / 600)); }, { passive: false });
+    strip.addEventListener("dblclick", resetManual);
+    let lastTap = 0;
+    strip.addEventListener("pointerup", e => { if (e.pointerType === "touch") { const now = Date.now(); if (now - lastTap < 320) resetManual(); lastTap = now; } });
+  }
+
   async function open(inst) {
     if (!modal) build();
     if (S && S.chart) S.chart.remove();
     if (S && S.posTimer) clearInterval(S.posTimer);
+    if (S && S.axisTimer) clearInterval(S.axisTimer);
     stopDepth();
     S = null;
     els.title.textContent = `${inst.underlying} · ${inst.strategy}${" · " + (inst.candleType || (window.nativeCandleOf ? window.nativeCandleOf(inst.strategy) : ""))}`;
@@ -416,6 +468,7 @@
       const sr = chart.addCandlestickSeries({
         upColor: "#33ff88", downColor: "#ff5266", borderUpColor: "#33ff88", borderDownColor: "#ff5266",
         wickUpColor: "#33ff88", wickDownColor: "#ff5266",
+        autoscaleInfoProvider: orig => (S && S.manual ? { priceRange: { minValue: S.manual.min, maxValue: S.manual.max } } : orig()),
       });
       S = {
         inst, data, bars, dayIdx, chart, series: sr, type: "raw", range: (effType === "RANGE" && inst.rangeSize) ? inst.rangeSize : data.suggestedRange, last: null,
@@ -423,6 +476,7 @@
         points: minutePoints(data.minuteBars.map(toBar)), minutesLoaded: data.minuteBars.length > 0, isToday: data.day === istDay(Date.now()), timer: null, dirty: false, lastTime: 0,
       };
       if (bars.length) S.last = bars[bars.length - 1].c;
+      attachPriceAxisZoom();
       S.hover = null; S.position = null; S.depthOn = true;
       els.depth.style.display = "";
       modal.querySelector('[data-toggle="depth"]').classList.add("active");

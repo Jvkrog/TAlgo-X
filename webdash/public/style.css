@@ -1580,3 +1580,5 @@ body.chart-page .depth-panel { height: auto; }
   body.chart-page .chart-main { height: auto; }
 }
 .chart-box { touch-action: pan-y; }
+
+.axis-zoom { position: absolute; top: 0; right: 0; z-index: 5; touch-action: none; cursor: ns-resize; }
