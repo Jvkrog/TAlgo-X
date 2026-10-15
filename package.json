@@ -9,7 +9,8 @@
   },
   "main": "engine.js",
   "scripts": {
-    "webdash": "node webdash/server.js"
+    "webdash": "node webdash/server.js",
+    "logs": "node logs.js"
   },
   "engines": {
     "node": ">=18"
