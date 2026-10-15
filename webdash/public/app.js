@@ -484,14 +484,25 @@ async function control(name, action, cardEl) {
   }
 }
 
+let instLoadFails = 0, instRetryTimer = null;
 async function loadInstruments() {
   try {
-    instruments = await (await fetch("/api/instruments")).json();
+    const res = await fetch("/api/instruments");
+    if (res.status === 401) return;   // locked: the session is re-validated on unlock, which reloads everything
+    if (!res.ok) throw new Error(`server returned ${res.status}`);
+    instruments = await res.json();
+    instLoadFails = 0;
     renderInstruments();
   } catch (err) {
-    appendLog({ type: "ERROR", text: `failed to load instrument list: ${err.message}` });
+    // Network-level failure (server restarting, phone asleep / network switch): retry quietly, log only the first time.
+    if (instLoadFails++ === 0) appendLog({ type: "ERROR", text: `failed to load instrument list: ${err.message} — retrying` });
+    clearTimeout(instRetryTimer);
+    instRetryTimer = setTimeout(loadInstruments, Math.min(2000 * instLoadFails, 15000));
   }
 }
+// Coming back to the tab (or the network returning) refreshes straight away instead of waiting for the next poll.
+document.addEventListener("visibilitychange", () => { if (!document.hidden && appStarted) { loadInstruments(); } });
+window.addEventListener("online", () => { if (appStarted) { loadInstruments(); } });
 
 refreshBtn.addEventListener("click", () => { loadInstruments(); loadHedgePairs(); loadDualHedges(); });
 
@@ -1265,7 +1276,10 @@ function reapplySavedLayoutIfAny() {
 // ── boot (behind the PIN lock) ──────────────────────────────────────────
 let appStarted = false;
 function startApp() {
-  if (appStarted) return; // re-locking doesn't tear down the live WS/polling — just re-covers the UI
+  if (appStarted) {   // re-locking doesn't tear down the live WS/polling — just re-covers the UI; on unlock, refresh what the locked session could not fetch
+    loadInstruments(); loadHedgePairs(); loadDualHedges();
+    return;
+  }
   appStarted = true;
   appendLog({ type: "SYS", text: `[dashboard] booting...` });
   loadInstruments();
