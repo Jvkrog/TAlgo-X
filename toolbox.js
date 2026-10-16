@@ -341,14 +341,31 @@ function wrapText(text, indent = "      ") {
 }
 
 // ─── SCREENS ──────────────────────────────────────────────────────────────────
-const BOX_WIDTH = 94;
-// Computed fresh on every call (not cached) so a mid-session terminal
-// resize is picked up naturally rather than centering against stale
-// dimensions. Gracefully degrades to 0 (flush-left, today's old behavior)
-// on a terminal narrower than the box itself — never a negative pad.
+const BOX_MAX_WIDTH = 94;
+const BOX_MIN_WIDTH = 34;
+// Box width follows the terminal: full size on a wide screen, shrinking to
+// (columns - 1) on a phone so nothing wraps. Computed on every call so a
+// mid-session resize (rotate the phone, resize a window) is picked up on the
+// next redraw. The spare column avoids terminals that auto-wrap at the edge.
+function boxWidth() {
+    const cols = process.stdout.columns || 80;
+    return Math.max(BOX_MIN_WIDTH, Math.min(BOX_MAX_WIDTH, cols - 1));
+}
 function boxLeftPad() {
     const cols = process.stdout.columns || 80;
-    return " ".repeat(Math.max(0, Math.floor((cols - BOX_WIDTH) / 2)));
+    return " ".repeat(Math.max(0, Math.floor((cols - boxWidth()) / 2)));
+}
+// Cuts a string to `max` visible characters while keeping ANSI colour codes
+// intact (and closing the colour so it can't bleed past the box edge).
+function clipAnsi(text, max) {
+    let out = "", vis = 0, i = 0, cut = false;
+    while (i < text.length) {
+        const m = /^\x1b\[[0-9;]*m/.exec(text.slice(i));
+        if (m) { out += m[0]; i += m[0].length; continue; }
+        if (vis >= max) { cut = true; break; }
+        out += text[i]; vis++; i++;
+    }
+    return cut ? out + "\x1b[0m" : out;
 }
 // Return strings rather than print directly — renderMenu() collects a full
 // screen's worth of lines first, so it can choose to print them all at once
@@ -356,22 +373,20 @@ function boxLeftPad() {
 // the very first render, right after the boot animation, so the box
 // doesn't just instantly pop in under the smoothly-revealed banner above it).
 function boxLine(text = "") {
+    const inner = boxWidth() - 4;
     const plain = text.replace(/\x1b\[[0-9;]*m/g, "");   // strip ANSI codes for length math
-    const pad   = Math.max(0, BOX_WIDTH - 4 - plain.length);
+    if (plain.length > inner) { text = clipAnsi(text, inner); }
+    const pad   = Math.max(0, inner - Math.min(plain.length, inner));
     return `${boxLeftPad()}│ ${text}${" ".repeat(pad)} │`;
 }
-function boxDivider(ch = "─") { return `${boxLeftPad()}├${ch.repeat(BOX_WIDTH - 2)}┤`; }
-function boxTop()    { return `${boxLeftPad()}┌${"─".repeat(BOX_WIDTH - 2)}┐`; }
-function boxBottom() { return `${boxLeftPad()}└${"─".repeat(BOX_WIDTH - 2)}┘`; }
+function boxDivider(ch = "─") { return `${boxLeftPad()}├${ch.repeat(boxWidth() - 2)}┤`; }
+function boxTop()    { return `${boxLeftPad()}┌${"─".repeat(boxWidth() - 2)}┐`; }
+function boxBottom() { return `${boxLeftPad()}└${"─".repeat(boxWidth() - 2)}┘`; }
 
 // Real column alignment via padEnd, not hand-counted spaces — hand-spacing
 // broke the moment two labels in the same column had different lengths
 // (e.g. "start" vs "live/paper"), which is exactly what happened before.
 const HELP_CELL_WIDTH = 21;
-function helpCell(key, label) {
-    if (!key) return "".padEnd(HELP_CELL_WIDTH);
-    return (key.padEnd(4) + label).padEnd(HELP_CELL_WIDTH);
-}
 const HELP_ROWS = [
     [["A", "Add"], ["1-9", "Toggle"], ["S", "Start"], ["X", "Stop"]],
     [["R", "Restart"], ["D", "Remove"], ["C", "Roll"], ["M", "Live/Paper"]],
@@ -380,12 +395,22 @@ const HELP_ROWS = [
     [["U", "Custom Strategy"], ["V", "Risk Mgmt"], ["H", "Hedge Pairs"], ["O", "Options"]],
     [["G", "Dual Hedge"], null, null, null],
 ];
-function renderMenuHelpLines() {
-    return HELP_ROWS.map(row => {
-        const line = row.map(cell => cell ? helpCell(cell[0], cell[1]) : helpCell(null)).join("");
-        return boxLine(c.dim(`  ${line}`));
-    });
+// Re-flows the key legend into as many columns as the current box fits
+// (4 on desktop, 2-3 on a tablet, 1-2 on a phone). Cell order is kept
+// row-major, so the keys read the same way at every width.
+function helpLines(helpRows) {
+    const inner  = boxWidth() - 4 - 2;                      // minus the 2-space lead-in
+    const perRow = Math.max(1, Math.min(helpRows[0].length, Math.floor(inner / HELP_CELL_WIDTH)));
+    const cells  = helpRows.flat().filter(Boolean);
+    const out = [];
+    for (let i = 0; i < cells.length; i += perRow) {
+        const row = cells.slice(i, i + perRow)
+            .map(cell => (cell[0].padEnd(4) + cell[1]).padEnd(HELP_CELL_WIDTH)).join("");
+        out.push(boxLine(c.dim(`  ${row}`)));
+    }
+    return out;
 }
+function renderMenuHelpLines() { return helpLines(HELP_ROWS); }
 
 // Sub-screen shell — same look as renderMenu(): clear, banner, boxed body,
 // boxed key legend, prompt underneath (so any prompts/output an action prints
@@ -398,10 +423,7 @@ function renderScreenBox(title, bodyLines, helpRows) {
     lines.push(boxDivider("═"));
     bodyLines.forEach(l => lines.push(boxLine(l)));
     lines.push(boxDivider("═"));
-    helpRows.forEach(row => {
-        const line = row.map(cell => cell ? helpCell(cell[0], cell[1]) : helpCell(null)).join("");
-        lines.push(boxLine(c.dim(`  ${line}`)));
-    });
+    lines.push(...helpLines(helpRows));
     lines.push(boxBottom());
     if (!PLAIN_MODE) console.clear();
     renderStaticBanner({ topMargin: 2, bottomMargin: 1 });
@@ -444,11 +466,19 @@ async function renderMenu() {
         // actually sits above the instrument names below it, not offset
         // from them (previously hardcoded literal spacing on the header
         // only, which drifted from the row's own padEnd-built prefix).
+        // Column widths shrink with the box: full layout on a wide screen,
+        // then MULT is dropped, then INSTRUMENT is squeezed, so a row never
+        // exceeds the box on a phone.
         const ROW_PREFIX_WIDTH = 8;
-        const INST_COL_WIDTH   = 30;
-        const LOTS_COL_WIDTH   = 9;
-        const MULT_COL_WIDTH   = 9;
-        const MODE_COL_WIDTH   = 11;
+        const innerW           = boxWidth() - 4;
+        const wide             = innerW >= 8 + 30 + 9 + 9 + 11 + 14;
+        const showMult         = innerW >= 8 + 22 + 5 + 7 + 7 + 12;
+        const LOTS_COL_WIDTH   = wide ? 9 : 5;
+        const MULT_COL_WIDTH   = showMult ? (wide ? 9 : 7) : 0;
+        const MODE_COL_WIDTH   = wide ? 11 : 7;
+        const STATUS_MIN       = wide ? 14 : 8;
+        const INST_COL_WIDTH   = Math.max(12, Math.min(30, innerW - ROW_PREFIX_WIDTH - LOTS_COL_WIDTH - MULT_COL_WIDTH - MODE_COL_WIDTH - STATUS_MIN));
+        const fitInst = t => t.length > INST_COL_WIDTH - 1 ? t.slice(0, INST_COL_WIDTH - 2) + "…" : t;
         // Pads the PLAIN text to width before handing it to the color
         // function — padding an already-ANSI-colored string would count
         // the invisible escape codes as visible characters and throw the
@@ -458,7 +488,7 @@ async function renderMenu() {
             `  #`.padEnd(ROW_PREFIX_WIDTH) +
             "INSTRUMENT".padEnd(INST_COL_WIDTH) +
             "LOTS".padEnd(LOTS_COL_WIDTH) +
-            "MULT".padEnd(MULT_COL_WIDTH) +
+            (MULT_COL_WIDTH ? "MULT".padEnd(MULT_COL_WIDTH) : "") +
             "MODE".padEnd(MODE_COL_WIDTH) +
             "STATUS"
         )));
@@ -468,9 +498,9 @@ async function renderMenu() {
             const num  = String(i + 1).padStart(2);
             const stratShort = (STRATEGY_INFO[p.strategy] || { short: p.strategy }).short;
             const candleShort = p.candleType && p.candleType !== nativeCandleType(p.strategy) ? `·${p.candleType === "RANGE" ? "RNG" : p.candleType}` : "";
-            const inst = `${p.underlying}/${stratShort}${candleShort}`.padEnd(INST_COL_WIDTH);
+            const inst = fitInst(`${p.underlying}/${stratShort}${candleShort}`).padEnd(INST_COL_WIDTH);
             const lots = String(p.lots).padEnd(LOTS_COL_WIDTH);
-            const mult = String(p.lotMult ?? "-").padEnd(MULT_COL_WIDTH);
+            const mult = MULT_COL_WIDTH ? String(p.lotMult ?? "-").padEnd(MULT_COL_WIDTH) : "";
             const mode = p.live ? colorPad("LIVE", MODE_COL_WIDTH, c.red) : colorPad("PAPER", MODE_COL_WIDTH, c.cyan);
 
             let statusStr;
