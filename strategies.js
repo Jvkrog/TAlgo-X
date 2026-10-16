@@ -6899,40 +6899,40 @@ const STRATEGY_INFO = {
 // resolves to — so switching an instrument to ALMA_BAND automatically polls
 // hourly instead of every 15 minutes, no separate toggle needed.
 const STRATEGY_TIMEFRAME = {
-    DPI_TREND_MEANREV: "15m",
+    DPI_TREND_MEANREV: "1h",
     ALMA_BAND:          "1h",
     // Pine script doesn't pin a timeframe (uses timeframe.period — whatever
     // chart it's applied to), so this defaults to 15m rather than assuming
     // it should match ALMA_BAND's 1h. Flagging this — easy one-line change
     // here if 1h (or something else) was actually intended.
-    ALMA_FAST:          "15m",
+    ALMA_FAST:          "1h",
     // See this strategy's own header comment above — 15m picked to match
     // the other 15m strategies, not derived from anything strategy-specific.
-    DUAL_ST_CHOP:       "15m",
+    DUAL_ST_CHOP:       "1h",
     // Pine script has no fixed timeframe (works on whatever chart it's
     // applied to) — 15m picked to match the other default-cadence
     // strategies, same reasoning as ALMA_FAST/DUAL_ST_CHOP above. Easy
     // one-line change here if a different cadence was actually intended.
-    DPI_SMA5_EXIT:      "15m",
-    ALMA_DUAL_BAND_SMA5: "15m",
+    DPI_SMA5_EXIT:      "1h",
+    ALMA_DUAL_BAND_SMA5: "1h",
     // Pine script has no fixed timeframe either (applies to whatever chart
     // it's on) — 15m again picked to match the platform's default cadence.
-    MA_SLOPE:            "15m",
+    MA_SLOPE:            "1h",
     // Same reasoning as MA_SLOPE above (Pine script has no fixed timeframe) —
     // scalping benefits from a fast entry cadence anyway, so 15m stays the
     // pick here too rather than going faster; easy to change if you want
     // this on 5m instead.
-    MA_SLOPE_SCALP:      "15m",
-    MA_SLOPE_PURE:       "15m",
+    MA_SLOPE_SCALP:      "1h",
+    MA_SLOPE_PURE:       "1h",
     // Same entry cadence as MA_SLOPE_PURE (identical entry logic) — no
     // strategy-specific reason to pick a different one.
-    MA_SLOPE_HM:          "15m",
+    MA_SLOPE_HM:          "1h",
     // No timeframe guidance from the Pine script itself (author didn't
     // specify one) — 15m for consistency with everything else in this file.
-    ADAPTIVE_TREND:       "15m",
+    ADAPTIVE_TREND:       "1h",
     // Same 15m as DPI_TREND_MEANREV always ran at — unchanged, this is the
     // same combo logic, just under its own key now.
-    DPI_MEANREV:          "15m",
+    DPI_MEANREV:          "1h",
     // Closed-candle-only by design (see this strategy's own header) — 15m
     // matches the platform default cadence; no strategy-specific reason to
     // pick otherwise, easy to override per-instrument via TIMEFRAME_OVERRIDE.
@@ -6944,18 +6944,18 @@ const STRATEGY_TIMEFRAME = {
     DYNAMIC_MID_COLOR_HL: "1h",
     // Pine source has no fixed chart timeframe (reuses whatever the chart
     // is on) — 15m matches the platform default, adjustable as usual.
-    ALMA_TRI_BAND:        "15m",
-    ALMA_PRO_FAST:        "15m",
-    ALMA_PRO_SLOW:        "15m",
+    ALMA_TRI_BAND:        "1h",
+    ALMA_PRO_FAST:        "1h",
+    ALMA_PRO_SLOW:        "1h",
     // Finer granularity than the platform default — delta/CVD/absorption
     // signals are inherently a shorter-horizon read on order flow than the
     // trend-following strategies above default to; adjustable per
     // instrument via TIMEFRAME_OVERRIDE same as everything else here.
-    VOLUME_DELTA_CVD:     "5m",
+    VOLUME_DELTA_CVD:     "1h",
     // No indicator, no lookback, no strategy-specific reason to pick
     // otherwise — 15m matches the platform default, adjustable per
     // instrument via TIMEFRAME_OVERRIDE same as everything else here.
-    PURE_HA:              "15m",
+    PURE_HA:              "1h",
     // 15m (was 5m until Oct 2026): the once-a-day decision fires on the
     // first 15m candle at/after the configurable entry time (see this
     // strategy's own header) — the actual signal
@@ -6963,7 +6963,7 @@ const STRATEGY_TIMEFRAME = {
     // this timeframe at all; also what makes context.js's defaultEodFor()
     // resolve this instrument's EOD to 23:15 IST, matching the spec's
     // "close at 11:15" exactly with zero extra config.
-    DAILY_HA_BIAS:        "15m",   // trades on 15m candles — the decision fires on the first 15m candle at/after the configurable entry time
+    DAILY_HA_BIAS:        "1h",   // trades on 15m candles — the decision fires on the first 15m candle at/after the configurable entry time
 };
 
 const DEFAULT_STRATEGY = "DPI_TREND_MEANREV";
