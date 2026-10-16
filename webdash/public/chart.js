@@ -448,7 +448,8 @@
       }
     };
     els.box.addEventListener("pointerdown", e => {
-      if (e.pointerType !== "touch" || !S) return;
+      if (!S || (e.pointerType === "mouse" && e.button !== 0)) return;
+      if (e.pointerType === "mouse") { try { els.box.setPointerCapture(e.pointerId); } catch { /* ignore */ } }
       touches.add(e.pointerId);
       stopInertia();
       if (touches.size > 1 || e.target.closest(".axis-zoom")) { d = null; return; }   // pinch / axis strip: not a pan
@@ -456,10 +457,12 @@
     }, true);
     els.box.addEventListener("pointermove", e => {
       if (!d || e.pointerId !== d.id || !S || touches.size > 1) return;
+      if (e.pointerType === "mouse" && !(e.buttons & 1)) return;
       if (!d.moved) {
         if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 6) return;
-        d.hold = Date.now() - d.t > 450;   // press-and-hold then move = crosshair, leave it to the library
+        d.hold = e.pointerType === "touch" && Date.now() - d.t > 450;   // touch press-and-hold then move = crosshair, leave it to the library
         d.moved = true;
+        if (!d.hold) S.chart.applyOptions({ crosshair: { mode: 2 } });   // hide the crosshair while dragging (2 = hidden)
       }
       if (d.hold) return;
       if (!d.base) d.base = visiblePriceRange();
@@ -472,6 +475,7 @@
       touches.delete(e.pointerId);
       if (!d || e.pointerId !== d.id) return;
       const v = d; d = null;
+      if (S) S.chart.applyOptions({ crosshair: { mode: 0 } });
       if (!v.moved || v.hold || Date.now() - v.lt > 80) return;
       let vx = v.vx * 16, vy = v.vy * 16;   // px per frame
       const step = () => {
@@ -547,7 +551,7 @@
         rightPriceScale: { borderColor: "rgba(70,255,150,0.25)" },
         timeScale: { borderColor: "rgba(70,255,150,0.25)", timeVisible: true, secondsVisible: false },
         crosshair: { mode: 0 },
-        handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: false, vertTouchDrag: false },
+        handleScroll: { mouseWheel: true, pressedMouseMove: false, horzTouchDrag: false, vertTouchDrag: false },
         handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: { time: true, price: true }, axisDoubleClickReset: true },
         kineticScroll: { touch: true, mouse: true },   // inertia after a flick / drag
       });
