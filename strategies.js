@@ -3916,7 +3916,8 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
         const lineColor = !state.position
             ? c.white
             : uPnL > 0 ? c.green : uPnL < 0 ? c.red : c.white;
-        console.log(lineColor(`[${context.tgPrefix}] ${ts} DBAND ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  [${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        console.log(lineColor(`[${context.tgPrefix}] ${ts} DBAND ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}`));
+        console.log(lineColor(`      band [${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null });
 
         if (!engineConfig.ENGINE_ENABLED) return;
@@ -4265,7 +4266,8 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session = (state.pnl || 0) + uPnL;
         const color   = directionColor(state.position);
-        console.log(c[pnlColor(uPnL, state.position)](`[${context.tgPrefix}] ${ts} DMIDC  ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  [${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        console.log(c[pnlColor(uPnL, state.position)](`[${context.tgPrefix}] ${ts} DMIDC  ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}`));
+        console.log(c[pnlColor(uPnL, state.position)](`      band [${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, color });
 
         if (!engineConfig.ENGINE_ENABLED) return;
@@ -4688,7 +4690,8 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
         const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session = (state.pnl || 0) + uPnL;
         const color   = directionColor(state.position);
-        console.log(c[pnlColor(uPnL, state.position)](`[${context.tgPrefix}] ${ts} DMIDHL ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  [${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        console.log(c[pnlColor(uPnL, state.position)](`[${context.tgPrefix}] ${ts} DMIDHL ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}`));
+        console.log(c[pnlColor(uPnL, state.position)](`      band [${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, color });
 
         if (!engineConfig.ENGINE_ENABLED) return;
@@ -6745,7 +6748,8 @@ function createAlmaDsbStrategy({ context, engineConfig, state, db, candles, slSt
         const fmt = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
         const session = (state.pnl || 0) + uPnL;
         const tickColor = dsbColor === "red" ? "red" : "green";
-        console.log(c[tickColor](`[${context.tgPrefix}] ${ts} ADSB  ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}  ALMA:[${almaLow.toFixed(2)},${almaHigh.toFixed(2)}] DSB:${dsbColor}`));
+        console.log(c[tickColor](`[${context.tgPrefix}] ${ts} ADSB  ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}`));
+        console.log(c[tickColor](`      ALMA:[${almaLow.toFixed(2)},${almaHigh.toFixed(2)}] DSB:${dsbColor}`));
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, color: tickColor });
 
         if (!engineConfig.ENGINE_ENABLED) return;
