@@ -260,12 +260,22 @@
     if (!S.ltpLine) S.ltpLine = S.series.createPriceLine({ price: S.last, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: "" });
     else S.ltpLine.applyOptions({ price: S.last, color });
   }
+  // History actually loaded, from the real first / last bar (IST), e.g. "17 Sep – 16 Oct · 412 bars".
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const dmy = ms => { const d = new Date(ms + IST_S * 1000); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]}`; };
+  function histSpan() {
+    const first = S.bars[S.dayIdx], last = S.bars[S.bars.length - 1];
+    if (!first || !last) return S.data.day;
+    const n = S.bars.length - S.dayIdx;
+    const span = dmy(first.t) === dmy(last.t) ? dmy(last.t) : `${dmy(first.t)} \u2013 ${dmy(last.t)}`;
+    return S.type === "range" ? span : `${span} \u00b7 ${n} bars`;
+  }
   function status() {
     drawLtpLine();
     const live = S.isToday ? "LIVE" : "closed — last session";
     const dc = window.dayChangeFor && S.last !== null ? window.dayChangeFor(S.inst.name, S.last) : null;
     els.status.classList.toggle("up", !!dc && dc.pts > 0); els.status.classList.toggle("down", !!dc && dc.pts < 0);
-    els.status.textContent = `${S.data.timeframe} · ${S.dispT && S.dispT.length > 1 && S.type !== "range" ? "last " + (S.data.timeframe === "1d" ? "5 months" : "month") : S.data.day} · ${live}${S.last !== null ? " · " + S.last.toFixed(2) : ""}${dc ? "  " + window.fmtDayChange(dc) : ""}`;
+    els.status.textContent = `${S.data.timeframe} · ${histSpan()} · ${live}${S.last !== null ? " · " + S.last.toFixed(2) : ""}${dc ? "  " + window.fmtDayChange(dc) : ""}`;
     legend(S.hover || null);
   }
 
