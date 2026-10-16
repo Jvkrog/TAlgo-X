@@ -1582,3 +1582,10 @@ body.chart-page .depth-panel { height: auto; }
 .chart-box, .chart-box canvas { touch-action: none; }
 
 .axis-zoom { position: absolute; top: 0; right: 0; z-index: 5; touch-action: none; cursor: ns-resize; }
+
+/* day change colouring (vs previous close) */
+.card-price.up, .card-chg.up { color: var(--green, #33ff88); }
+.card-price.down, .card-chg.down { color: var(--red, #ff5266); }
+.card-chg { margin-left: 10px; font-size: 13px; font-weight: 600; align-self: center; white-space: nowrap; }
+.card-chg.flat { color: var(--dim, #8aa); }
+.chart-status.up { color: var(--green, #33ff88); } .chart-status.down { color: var(--red, #ff5266); }

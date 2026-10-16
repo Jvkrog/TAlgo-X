@@ -1217,6 +1217,36 @@ async function resolveDepthTarget(name) {
 }
 const { createDepthHub } = require("./depthHub");
 const depthHub = createDepthHub({ getCreds: () => ({ apiKey: engineConfig.API_KEY, accessToken: engineConfig.getAccessToken() }) });
+// Previous-day close per instrument (what Kite's watchlist measures the day change against), one batched quote call,
+// cached 30s. The dashboard combines it with the live price for the red / green colour and the points / percent change.
+let dayChangeCache = { at: 0, data: {} };
+app.get("/api/daychange", async (req, res) => {
+    try {
+        if (Date.now() - dayChangeCache.at < 30000) return res.json(dayChangeCache.data);
+        const procs = await getEngineProcesses();
+        const keyByName = {};
+        for (const p of procs) {
+            try {
+                const exchange = p.exchange || "MCX";
+                const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
+                const { contract } = resolveCurrent(p.underlying, getDefinition(p.underlying, exchange), repo, pinStore);
+                keyByName[p.name] = `${contract.exchange || exchange}:${contract.symbol}`;
+            } catch { /* instrument not resolvable right now: no day change for it */ }
+        }
+        const keys = [...new Set(Object.values(keyByName))];
+        const quotes = keys.length ? await ensureToolboxKite().getQuote(keys) : {};
+        const data = {};
+        for (const [name, key] of Object.entries(keyByName)) {
+            const q = quotes[key];
+            const prev = q && q.ohlc ? Number(q.ohlc.close) : NaN;
+            if (Number.isFinite(prev) && prev > 0) data[name] = { prevClose: prev, open: q.ohlc.open != null ? Number(q.ohlc.open) : null };
+        }
+        dayChangeCache = { at: Date.now(), data };
+        res.json(data);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 app.get("/api/depth/:name", async (req, res) => {
     try {
         const hit = depthCache.get(req.params.name);

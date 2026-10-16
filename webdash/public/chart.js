@@ -263,7 +263,9 @@
   function status() {
     drawLtpLine();
     const live = S.isToday ? "LIVE" : "closed — last session";
-    els.status.textContent = `${S.data.timeframe} · ${S.dispT && S.dispT.length > 1 && S.type !== "range" ? "last " + (S.data.timeframe === "1d" ? "5 months" : "month") : S.data.day} · ${live}${S.last !== null ? " · " + S.last.toFixed(2) : ""}`;
+    const dc = window.dayChangeFor && S.last !== null ? window.dayChangeFor(S.inst.name, S.last) : null;
+    els.status.classList.toggle("up", !!dc && dc.pts > 0); els.status.classList.toggle("down", !!dc && dc.pts < 0);
+    els.status.textContent = `${S.data.timeframe} · ${S.dispT && S.dispT.length > 1 && S.type !== "range" ? "last " + (S.data.timeframe === "1d" ? "5 months" : "month") : S.data.day} · ${live}${S.last !== null ? " · " + S.last.toFixed(2) : ""}${dc ? "  " + window.fmtDayChange(dc) : ""}`;
     legend(S.hover || null);
   }
 

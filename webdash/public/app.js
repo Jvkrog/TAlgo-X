@@ -68,6 +68,35 @@ function candleOhlcText(k) {
 }
 function cardId(inst) { return `card-${inst.name}`; }
 
+// ── day change (vs previous close, like Kite's watchlist) ───────────────────
+const dayRef = {};   // process name -> previous close
+async function loadDayRef() {
+  try {
+    const r = await fetch("/api/daychange");
+    if (!r.ok) return;
+    const d = await r.json();
+    Object.keys(dayRef).forEach(k => delete dayRef[k]);
+    Object.assign(dayRef, d);
+    instruments.forEach(i => { const el = document.getElementById(cardId(i)); const pe = el && el.querySelector('[data-role="price"]'); if (pe && Number.isFinite(Number(pe.textContent))) paintPrice(el, i, Number(pe.textContent)); });
+  } catch { /* best effort */ }
+}
+// Day change of a price: { pts, pct, up } or null when the previous close isn't known.
+window.dayChangeFor = (name, price) => {
+  const ref = dayRef[name] && dayRef[name].prevClose;
+  if (!Number.isFinite(ref) || !Number.isFinite(price)) return null;
+  const pts = price - ref;
+  return { pts, pct: ref ? (pts / ref) * 100 : 0, up: pts >= 0 };
+};
+window.fmtDayChange = c => c ? `${c.up ? "▲" : "▼"} ${c.pts >= 0 ? "+" : ""}${c.pts.toFixed(2)} (${c.pct >= 0 ? "+" : ""}${c.pct.toFixed(2)}%)` : "";
+function paintPrice(el, inst, price) {
+  const pe = el.querySelector('[data-role="price"]'), ce = el.querySelector('[data-role="chg"]');
+  pe.textContent = Number(price).toFixed(2);
+  const c = window.dayChangeFor(inst.name, Number(price));
+  const cl = c ? (c.pts === 0 ? "flat" : c.up ? "up" : "down") : "";
+  pe.classList.remove("up", "down", "flat"); if (cl) pe.classList.add(cl);
+  if (ce) { ce.textContent = window.fmtDayChange(c); ce.className = `card-chg ${cl}`; }
+}
+
 let renderedInstrumentNames = null; // null = never rendered yet
 
 function buildCard(inst) {
@@ -88,6 +117,7 @@ function buildCard(inst) {
     <div class="card-price-row">
       <span class="state-marker flat" data-role="marker">●</span>
       <span class="card-price" data-role="price">—</span>
+      <span class="card-chg" data-role="chg"></span>
     </div>
     <div class="pnl-row">
       <div class="pnl-box">
@@ -811,8 +841,7 @@ function handleEvent(msg) {
     if (window.chartOnLtp) window.chartOnLtp(msg);
     cardsForEvent(msg.engine, msg.proc).forEach(i => {
       const el = document.getElementById(cardId(i));
-      const pe = el && el.querySelector('[data-role="price"]');
-      if (pe) pe.textContent = Number(msg.price).toFixed(2);
+      if (el) paintPrice(el, i, Number(msg.price));
       if (el && Number.isFinite(msg.uPnl)) {
         el.dataset.tickSeen = "1";
         const uEl = el.querySelector('[data-role="upnl"]');
@@ -854,7 +883,7 @@ function handleEvent(msg) {
       const el = document.getElementById(cardId(i));
       if (!el) return;
       el.dataset.tickSeen = "1";
-      el.querySelector('[data-role="price"]').textContent = Number(msg.price).toFixed(2);
+      paintPrice(el, i, Number(msg.price));
       const mEl = el.querySelector('[data-role="marker"]');
       mEl.textContent = marker;
       mEl.className = `state-marker ${markerCls}`;
@@ -1285,6 +1314,7 @@ function startApp() {
   loadInstruments();
   loadHedgePairs();
   loadDualHedges();
+  loadDayRef(); setInterval(loadDayRef, 60000);
   connect();
   refreshTokenStatus();
   handleTokenRedirectParams();

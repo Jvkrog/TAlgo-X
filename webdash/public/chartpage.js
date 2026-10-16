@@ -25,6 +25,18 @@
     });
   }
 
+  // Day change vs previous close (same numbers as the dashboard cards).
+  const dayRef = {};
+  const loadDayRef = () => fetch("/api/daychange").then(r => (r.ok ? r.json() : {})).then(d => { Object.keys(dayRef).forEach(k => delete dayRef[k]); Object.assign(dayRef, d); }).catch(() => {});
+  window.dayChangeFor = (name, price) => {
+    const ref = dayRef[name] && dayRef[name].prevClose;
+    if (!Number.isFinite(ref) || !Number.isFinite(price)) return null;
+    const pts = price - ref;
+    return { pts, pct: ref ? (pts / ref) * 100 : 0, up: pts >= 0 };
+  };
+  window.fmtDayChange = c => c ? `${c.up ? "\u25B2" : "\u25BC"} ${c.pts >= 0 ? "+" : ""}${c.pts.toFixed(2)} (${c.pct >= 0 ? "+" : ""}${c.pct.toFixed(2)}%)` : "";
+  loadDayRef(); setInterval(loadDayRef, 60000);
+
   async function init() {
     try {
       const st = await (await fetch("/api/auth/status")).json();
