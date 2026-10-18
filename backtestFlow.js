@@ -510,6 +510,34 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         if (carryInput) context.carryOvernight = carryInput === "Y";
     }
 
+    // Scalp target (Dynamic Step Band family) — rupees per trade, checked against each candle's high/low
+    // (backtestSL.js checkTarget, same fields the live engine and the dashboard backtest use). After a hit the
+    // run either stays flat for the rest of the day (the "cooldown", context.scalpStopForDay) or carries on
+    // with the same / a new target / a fixed stop (context.scalpNextMode/Value).
+    if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategyKey)) {
+        const scalpInput = (await ask(`  Scalp target in rupees per trade, exits when a candle reaches it (blank = off): `)).trim();
+        if (scalpInput) {
+            const parsed = Number(scalpInput);
+            if (Number.isFinite(parsed) && parsed > 0) {
+                context.scalpTargetRupees = parsed;
+                const coolInput = (await ask(`  After a target hit, cool down: take no more trades that day? [y/N]: `)).trim().toUpperCase();
+                if (coolInput === "Y") {
+                    context.scalpStopForDay = true;
+                } else {
+                    const nextInput = (await ask(`  After the first hit of the day: [S] same target (default)  [T] new target  [L] fixed stop-loss: `)).trim().toUpperCase();
+                    if (nextInput === "T" || nextInput === "L") {
+                        const label = nextInput === "T" ? "New target in rupees (blank = no target)" : "Fixed stop-loss in rupees";
+                        const valInput = (await ask(`  ${label}: `)).trim();
+                        const v = Number(valInput);
+                        if (nextInput === "T" && (!valInput || v === 0)) { context.scalpNextMode = "TARGET"; context.scalpNextValue = 0; }
+                        else if (Number.isFinite(v) && v > 0) { context.scalpNextMode = nextInput === "T" ? "TARGET" : "SL"; context.scalpNextValue = v; }
+                        else console.log(c.yellow(`  invalid value, keeping the same target after the first hit`));
+                    }
+                }
+            } else console.log(c.yellow(`  invalid value for scalp target, none applied`));
+        }
+    }
+
     // Max daily loss circuit breaker — universal, every strategy.
     const maxLossInput = await ask(`  Max daily loss in rupees, quits for the day if breached (blank = no floor): `);
     if (maxLossInput) {
@@ -561,7 +589,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     if (strategyKey === "DAILY_HA_BIAS") console.log(`  Daily candle: ${context.dailyBiasCandle === "CURRENT" ? "CURRENT (today's forming daily HA candle)" : "PREVIOUS (yesterday's completed daily HA candle)"}`);
     console.log(`  Range:      ${from.toISOString().split("T")[0]} -> ${to.toISOString().split("T")[0]}`);
     console.log(`  Params:     ${Object.keys(params).length ? JSON.stringify(params) : "(all defaults)"}`);
-    console.log(`  Risk:       chop:${isShortHold ? "n/a" : (params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on")} lc:${isShortHold ? "n/a" : (context.longCandleFilterEnabled === false ? "off" : "on")} double:${isShortHold ? "n/a" : (context.disableDoubleOrders ? "off" : "on")} vol:${isShortHold ? "n/a" : (context.volumeFilterEnabled ? "on" : "off")} atr:${strategyKey === "ALMA_BAND" ? "n/a (band SL)" : isShortHold ? "n/a (no SL)" : context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"}${isShortHold ? " (forced)" : ""} maxloss:${context.maxDailyLoss ?? "none"} sessionTarget:${context.sessionTargetRupees ?? "none"} dailyha:${context.dailyHaGateEnabled === false ? "off" : "on"}${isShortHold ? " (forced)" : ""}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);
+    console.log(`  Risk:       chop:${isShortHold ? "n/a" : (params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on")} lc:${isShortHold ? "n/a" : (context.longCandleFilterEnabled === false ? "off" : "on")} double:${isShortHold ? "n/a" : (context.disableDoubleOrders ? "off" : "on")} vol:${isShortHold ? "n/a" : (context.volumeFilterEnabled ? "on" : "off")} atr:${strategyKey === "ALMA_BAND" ? "n/a (band SL)" : isShortHold ? "n/a (no SL)" : context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"}${isShortHold ? " (forced)" : ""} maxloss:${context.maxDailyLoss ?? "none"} sessionTarget:${context.sessionTargetRupees ?? "none"}${context.scalpTargetRupees ? ` scalp:₹${context.scalpTargetRupees}${context.scalpStopForDay ? " (cooldown: done for the day)" : context.scalpNextMode ? ` (then ${context.scalpNextMode === "TARGET" ? (context.scalpNextValue > 0 ? "target ₹" + context.scalpNextValue : "no target") : "stop ₹" + context.scalpNextValue})` : ""}` : ""} dailyha:${context.dailyHaGateEnabled === false ? "off" : "on"}${isShortHold ? " (forced)" : ""}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);
     const confirm = (await ask("  Proceed? (Y/N): ")).trim().toUpperCase();
     if (confirm !== "Y") { console.log(c.dim("  cancelled")); await pauseForReview(); return; }
 
