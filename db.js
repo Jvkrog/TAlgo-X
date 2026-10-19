@@ -228,6 +228,12 @@ function createDb(context) {
         });
     }
 
+    // Live: replace the signal-price entry with the broker's actual entry fill.
+    function updateTradeEntry(id, entryPrice) {
+        if (!id || !Number.isFinite(entryPrice)) return Promise.resolve();
+        return new Promise(resolve => db.run(`UPDATE trades SET entry_price = ? WHERE id = ?`, [entryPrice, id], () => resolve()));
+    }
+
     function getOpenTrade(engine) {
         return new Promise(resolve => {
             db.get(
@@ -387,7 +393,7 @@ function createDb(context) {
 
     return {
         initDB, savePosition, loadPosition, saveRegime, loadRegime, clearAllPositions,
-        insertOpenTrade, closeTrade, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince, countScalpTpSince, setEntryContext, logRiskEvent,
+        insertOpenTrade, closeTrade, updateTradeEntry, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince, countScalpTpSince, setEntryContext, logRiskEvent,
     };
 }
 

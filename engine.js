@@ -551,7 +551,33 @@ async function main() {
           return id;
       }; }
 
-    const positionsClose      = (price, reason) => positions.close(context, state, db, tg, price, reason);
+    // Live: book the trade at the broker's actual fills (entry order + exit order) instead of the signal prices.
+    // Falls back to the signal price (with a warning) if a fill can't be read, and does nothing different in paper mode.
+    // A fill more than 3% away from the signal is treated as unreadable rather than booked.
+    const positionsClose = async (price, reason) => {
+        let exitPx = price, entryPx = null, signalPx = null;
+        if (engineConfig.LIVE_ORDERS && state.position) {
+            try {
+                const ex = orders.getLastExit(), en = orders.getLastEntry();
+                const sane = (fill, ref) => Number.isFinite(fill) && fill > 0 && Math.abs(fill - ref) / ref <= 0.03;
+                if (ex) {
+                    const f = await orders.fillPriceFor(ex.id);
+                    if (sane(f, price)) { signalPx = price; exitPx = f; }
+                    else console.log(c.yellow(`[${context.tgPrefix}] exit fill price unavailable — booking at signal price ${price.toFixed(2)}`));
+                }
+                if (en && en.side === state.position) {
+                    const f = await orders.fillPriceFor(en.id);
+                    if (sane(f, state.entryPrice)) {
+                        entryPx = f;
+                        if (f !== state.entryPrice) await db.updateTradeEntry(state.openTradeId, f);
+                    }
+                }
+            } catch (e) { console.log(c.yellow(`[${context.tgPrefix}] fill lookup failed (${e.message}) — booking at signal price`)); }
+        }
+        const pnl = await positions.close(context, state, db, tg, exitPx, reason, entryPx, signalPx);
+        orders.clearTrade();
+        return pnl;
+    };
     const positionsUnrealised = (price)          => positions.unrealised(context, state, price);
 
     const preloadInstance   = createPreload({ context, engineConfig, candles, tg });

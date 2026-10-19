@@ -24,11 +24,12 @@ function unrealised(context, state, price) {
     return (price - state.entryPrice) * dir * context.lotMult * context.lots;
 }
 
-async function close(context, state, db, tg, price, reason) {
+// entryOverride (optional): the broker's actual entry fill — used instead of state.entryPrice for P&L (live only).
+async function close(context, state, db, tg, price, reason, entryOverride = null, signalPrice = null) {
     if (!state.position) return;
     const dir   = state.position === "LONG" ? 1 : -1;
-    const pnl   = (price - state.entryPrice) * dir * context.lotMult * context.lots;
-    const entry = state.entryPrice;
+    const entry = entryOverride ?? state.entryPrice;
+    const pnl   = (price - entry) * dir * context.lotMult * context.lots;
     const pos   = state.position;
 
     state.pnl    += pnl;
@@ -54,11 +55,11 @@ async function close(context, state, db, tg, price, reason) {
     const action = reason.includes("SL") ? "STOP" : "EXIT";
     const col    = pnl > 0 ? c.green : pnl < 0 ? c.red : c.white;
     console.log();
-    console.log(col(`${pos} ${action} @ ${price.toFixed(2)}`));
+    console.log(col(`${pos} ${action} @ ${price.toFixed(2)}${signalPrice !== null && signalPrice !== price ? `  (signal ${signalPrice.toFixed(2)}, filled)` : ""}`));
     console.log(col(`    reason: ${reason}  entry: ${entry.toFixed(2)}`));
     console.log(col(`    pnl: ${pnlStr(pnl)}  session: ${pnlStr(state.pnl)}`));
     console.log();
-    tg(`${pos} ${action} (${reason})\n@ ₹${price.toFixed(2)}  entry ₹${entry.toFixed(2)}\nPnL: ${pnlStr(pnl)}  session: ${pnlStr(state.pnl)}`);
+    tg(`${pos} ${action} (${reason})\n@ ₹${price.toFixed(2)}${signalPrice !== null && signalPrice !== price ? ` (signal ₹${signalPrice.toFixed(2)})` : ""}  entry ₹${entry.toFixed(2)}\nPnL: ${pnlStr(pnl)}  session: ${pnlStr(state.pnl)}`);
     emitEvent(context.tgPrefix, "EXIT", { side: pos, action, price, entry, reason, pnl, session: state.pnl });
     return pnl;
 }

@@ -57,6 +57,30 @@ function createOrders(context, tg, kcOverride) {
     // Prevents signal → network retry → signal again → double order.
     let _inFlight = false;
 
+    // ─── FILL TRACKING — live P&L is computed from what the broker actually filled, not the signal price ──
+    // fills: order id -> average fill price. lastEntry / lastExit: the most recent entry / exit order of the open
+    // trade (cleared by clearTrade() once positions.close has booked it). An exit placed in the last EXIT_GUARD_MS
+    // and not yet booked blocks a second exit order, because booking now waits for the fill and a tick arriving
+    // in that window must not fire a duplicate exit.
+    const fills = new Map();
+    let lastEntry = null, lastExit = null;
+    const EXIT_GUARD_MS = 8000;
+    async function fillPriceFor(id, timeoutMs = 4000) {
+        if (!id) return null;
+        if (fills.has(id)) return fills.get(id);
+        const until = Date.now() + timeoutMs;
+        while (Date.now() < until) {
+            try {
+                const history = await kc.getOrderHistory(id);
+                const last = history[history.length - 1];
+                if (last?.status === "COMPLETE" && Number(last.average_price) > 0) { fills.set(id, Number(last.average_price)); return fills.get(id); }
+                if (last && ["REJECTED", "CANCELLED"].includes(last.status)) return null;
+            } catch { /* keep polling */ }
+            await new Promise(r => setTimeout(r, 400));
+        }
+        return null;
+    }
+
     // ─── B. ORDER ACKNOWLEDGEMENT LOG ────────────────────────────────────────
     // CHANGED: split from one long line into two shorter ones — the single-line
     // version wrapped awkwardly on a mobile SSH terminal's narrow width.
@@ -84,6 +108,12 @@ function createOrders(context, tg, kcOverride) {
         // C. Duplicate guard — block if an order for this instrument is in flight
         if (_inFlight) {
             console.log(c.yellow(`ORDER  [${context.tgPrefix}] ${signal} skipped — order already in flight`));
+            return null;
+        }
+
+        const isExit = signal !== "TALGO_EN";
+        if (isExit && lastExit && Date.now() - lastExit.ts < EXIT_GUARD_MS) {
+            console.log(c.yellow(`ORDER  [${context.tgPrefix}] ${signal} skipped — an exit order was just placed and is still being booked`));
             return null;
         }
 
@@ -136,6 +166,8 @@ function createOrders(context, tg, kcOverride) {
             });
 
             const id = order.order_id;
+            if (isExit) lastExit = { id, ts: Date.now() };
+            else lastEntry = { id, side: transaction_type === "BUY" ? "LONG" : "SHORT", ts: Date.now() };
 
             // B. Acknowledgement log — accepted by exchange
             _logOrder(signal, id, "PLACED", quantity, price);
@@ -154,6 +186,7 @@ function createOrders(context, tg, kcOverride) {
                         tg(`⚠ Order not filled [${context.tgPrefix}]\n${signal}  id:${id}\nStatus: ${status}\nManual check required.`);
                     } else {
                         const fillPx = last.average_price ?? "n/a";
+                        if (Number(last.average_price) > 0) fills.set(id, Number(last.average_price));
                         _logOrder(signal, id, "FILLED", quantity, fillPx);
                     }
                 } catch (e) {
@@ -254,7 +287,10 @@ function createOrders(context, tg, kcOverride) {
         return await _place(_exitSide(side), context.lots, "TALGO_TP", opts);
     }
 
-    return { enter, exit, slExit, targetExit, reconcile, dailyHaGate };
+    // Called by positions-close wiring once the trade is booked.
+    function clearTrade() { lastEntry = null; lastExit = null; }
+    return { enter, exit, slExit, targetExit, reconcile, dailyHaGate, fillPriceFor, clearTrade,
+             getLastEntry: () => lastEntry, getLastExit: () => lastExit };
 }
 
 module.exports = { createOrders };
