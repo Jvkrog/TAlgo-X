@@ -830,6 +830,29 @@ async function editInstrument(procs) {
             }
         }
 
+        // Timeframe — the candle size the strategy runs on. Saving restarts the process on it; EOD follows the
+        // timeframe unless it was set by hand. Not meant to be changed with a position open.
+        const tfList = Object.keys(TIMEFRAME_TO_INTERVAL);
+        const tfDefault = p.timeframe || STRATEGY_TIMEFRAME[p.strategy] || "15m";
+        const tfInput = (await ask(`  Timeframe (${tfList.join("/")}, current: ${tfDefault}, blank = keep): `)).trim().toLowerCase();
+        let timeframe = p.timeframe;
+        if (tfInput) {
+            if (!TIMEFRAME_TO_INTERVAL[tfInput]) console.log(c.yellow(`  "${tfInput}" isn't a known timeframe — left unchanged (${tfDefault})`));
+            else {
+                timeframe = tfInput;
+                if (tfInput !== tfDefault) console.log(c.dim(`  Timeframe changes ${tfDefault} -> ${tfInput}: avoid doing this while a position is open (stops/signals rebuild on the new candles)`));
+            }
+        }
+
+        // Lot multiplier — price move x this = P&L per lot.
+        const lotMultInput = (await ask(`  Lot multiplier (current: ${p.lotMult ?? "instrument default"}, blank = keep): `)).trim();
+        let lotMult = p.lotMult;
+        if (lotMultInput) {
+            const parsedMult = Number(lotMultInput);
+            if (!Number.isFinite(parsedMult) || parsedMult <= 0) console.log(c.yellow(`  "${lotMultInput}" isn't a valid positive number — lot multiplier left unchanged`));
+            else lotMult = String(parsedMult);
+        }
+
         // Strategy-specific fields — only asked for the strategy actually
         // running, same conditions as configureAndStartInstrument.
         let bandStep = p.bandStep;
@@ -1116,7 +1139,7 @@ async function editInstrument(procs) {
             }
         }
 
-        const updatedP = { ...p, lots, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles };
+        const updatedP = { ...p, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
