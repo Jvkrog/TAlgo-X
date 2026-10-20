@@ -262,7 +262,14 @@ function createOrders(context, tg, kcOverride) {
     // ─── PUBLIC API ───────────────────────────────────────────────────────────
     // Each returns the broker order id on success, or null on failure/skip —
     // callers MUST check this before mutating internal position state.
+    // Set by lifecycle.js when EOD begins: from then on no entry order may be placed, whatever the strategy wants.
+    let entriesBlocked = false;
+    function blockEntries() { entriesBlocked = true; }
     async function enter(side, opts) {
+        if (entriesBlocked) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} entry blocked — end of day, no new entries`));
+            return null;
+        }
         // Universal — applies to every strategy without needing to be
         // wired into strategies.js/customStrategyRuntime.js individually.
         // Same "return null on block" contract every caller already
@@ -289,7 +296,7 @@ function createOrders(context, tg, kcOverride) {
 
     // Called by positions-close wiring once the trade is booked.
     function clearTrade() { lastEntry = null; lastExit = null; }
-    return { enter, exit, slExit, targetExit, reconcile, dailyHaGate, fillPriceFor, clearTrade,
+    return { enter, exit, slExit, targetExit, reconcile, dailyHaGate, fillPriceFor, clearTrade, blockEntries,
              getLastEntry: () => lastEntry, getLastExit: () => lastExit };
 }
 

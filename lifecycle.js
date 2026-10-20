@@ -36,6 +36,15 @@ function createLifecycle({ context, engineConfig, state, db, candles, slStore, t
 
     function isShutdown() { return _shutdown; }
 
+    // True from the moment EOD begins, and from the EOD time itself (the check below only runs every 30s, so a
+    // candle that closes exactly on the EOD time, e.g. the 23:00 close of a 1h bar, can be processed first).
+    // The replay/strategy layer uses this to take NO new entries once EOD is reached.
+    function eodReached(now = new Date()) {
+        if (state.eodStarted) return true;
+        const { hours, minutes } = istParts(now);
+        return hours === context.eodHour && minutes >= context.eodMinute;
+    }
+
     function startLifecycle() {
         const interval = setInterval(async () => {
             const now   = new Date();
@@ -45,6 +54,8 @@ function createLifecycle({ context, engineConfig, state, db, candles, slStore, t
             const { hours: istHour, minutes: istMinute } = istParts(now);
             if (istHour === context.eodHour && istMinute >= context.eodMinute && !shutdownDone) {
                 shutdownDone = true;
+                state.eodStarted = true;                      // no new entries from here on (see eodReached)
+                if (orders && orders.blockEntries) orders.blockEntries();
                 const mins  = Math.round((Date.now() - sessionStart) / 60000);
                 const today = now.toISOString().split("T")[0];
 
@@ -130,7 +141,7 @@ function createLifecycle({ context, engineConfig, state, db, candles, slStore, t
         }, 30000);
     }
 
-    return { startLifecycle, isShutdown };
+    return { startLifecycle, isShutdown, eodReached };
 }
 
 module.exports = { createLifecycle };

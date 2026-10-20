@@ -596,7 +596,15 @@ async function main() {
     });
     // Remember the candle each decision is made on, so ENTRY/EXIT events can carry its OHLC for the dashboard log.
     { const rawProcess = signalsInstance.processCandle;
-      signalsInstance.processCandle = async function (candle, ...rest) { setCurrentCandle(candle); return rawProcess.call(this, candle, ...rest); }; }
+      signalsInstance.processCandle = async function (candle, ...rest) {
+          // End of day reached and flat: a candle closing right on the EOD time (e.g. the 23:00 close of a 1h bar) must not
+          // open a position the EOD routine has just closed. Open positions still go through, so exits keep working.
+          if (!state.position && lifecycleInstance.eodReached()) {
+              console.log(c.dim(`[${context.tgPrefix}] end of day reached — no new entries, candle skipped`));
+              return;
+          }
+          setCurrentCandle(candle); return rawProcess.call(this, candle, ...rest);
+      }; }
     const rangeKc = candleMode.view === "RANGE" ? new KiteConnect({ api_key: engineConfig.API_KEY }) : null;
     if (rangeKc) rangeKc.setAccessToken(ACCESS_TOKEN);
     const rangeFeed = rangeKc ? createRangeFeed({ context, engineConfig, kc: rangeKc, candles, tg }) : null;
