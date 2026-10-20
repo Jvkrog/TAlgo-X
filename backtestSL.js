@@ -18,8 +18,12 @@
 // §6) — reversing it would optimistically bias every result.
 "use strict";
 const { scalpRules, rupeesToPoints } = require("./scalpRules");
+const { selectAdaptiveTarget } = require("./adaptiveTarget");
+const { toHA, atrSeries, dpi, choppinessIndex } = require("./indicators");
 
-function createBacktestSL({ context, engineConfig, state, slStore, orders, positionsClose, db, tg }) {
+function createBacktestSL({ context, engineConfig, state, slStore, orders, positionsClose, db, tg, candles }) {
+    // Frozen target of the open position (fixed or adaptive), keyed by trade so it is sized once and never re-decided.
+    let armed = null;
     // Mirrors candlePoll.checkSL(price) exactly, except it's fed a candle's
     // high/low instead of a single tick price, and picks whichever of the
     // two represents "the SL got touched" for the current side.
@@ -59,7 +63,50 @@ function createBacktestSL({ context, engineConfig, state, slStore, orders, posit
     // BEFORE the candle's own signal processing, for a position carried into this candle (a trade opened at this candle's
     // close can't have hit a target inside it). Worst-case ordering as for SL: if the stop was also touched in this
     // candle it wins and the target is skipped. Fills at the target price.
+    // Fixed / adaptive take-profit (context.targetPoints or targetMode "adaptive"), mirroring candlePoll.checkTarget:
+    // armed once per position (adaptive sized from CHOP + |DPI efficiency| on the candles BEFORE the current one, so
+    // there is no look-ahead), then checked against each later candle's high/low. Returns "DAY_TARGET" on a hit so
+    // the replay can apply live's rule (day net >= 0 -> done for the day, else keep trading).
+    async function checkPointsTarget(candle) {
+        const key = `${state.openTradeId}|${state.position}|${state.entryPrice}`;
+        if (!armed || armed.key !== key) {
+            armed = null;
+            let points = context.targetPoints ? Number(context.targetPoints) : null, regime = null;
+            if (!points && context.targetMode === "adaptive") {
+                const raw = candles.getRawCandles().slice(0, -1);   // exclude the candle being replayed
+                const need = Math.max(engineConfig.DPI_LEN, engineConfig.ST_ATR_LEN, engineConfig.CHOP_LEN) + 5;
+                if (raw.length < need) return false;                // live waits too: stays unarmed until enough history
+                const ha = toHA(raw);
+                const dpiResult = dpi(ha, atrSeries(ha, engineConfig.ST_ATR_LEN), engineConfig.DPI_LEN, engineConfig.DPI_STREAK_MULT, engineConfig.DPI_STREAK_CAP);
+                const chopArr = choppinessIndex(raw, engineConfig.CHOP_LEN);
+                const chopVal = chopArr[chopArr.length - 1];
+                const decision = selectAdaptiveTarget({ chop: chopVal, efficiency: dpiResult ? dpiResult.efficiency : null }, engineConfig);
+                points = decision.points; regime = decision.regime;
+                console.log(`[${context.tgPrefix}] [ADAPTIVE TARGET] REGIME: ${regime}  TARGET: ${points} points  CHOP: ${chopVal != null ? chopVal.toFixed(1) : "n/a"}  EFFICIENCY: ${dpiResult ? dpiResult.efficiency.toFixed(2) : "n/a"}`);
+            }
+            if (!points) return false;
+            const long0 = state.position === "LONG";
+            armed = { key, points, regime, level: long0 ? state.entryPrice + points : state.entryPrice - points };
+            console.log(`[${context.tgPrefix}] [TARGET ARMED]  POSITION: ${state.position}  ENTRY: ${state.entryPrice.toFixed(2)}  TARGET_POINTS: ${points}  TARGET_PRICE: ${armed.level.toFixed(2)}${regime ? "  (" + regime + ")" : ""}`);
+        }
+        const long = state.position === "LONG";
+        const hit = long ? candle.high >= armed.level : candle.low <= armed.level;
+        if (!hit) return false;
+        const { trail } = slStore.getTrail();
+        if (trail !== null && (long ? candle.low < trail : candle.high > trail)) return false;   // stop touched first (worst case)
+        tg(`🎯 ${state.position} TARGET @ ₹${armed.level.toFixed(2)}`);
+        await positionsClose(armed.level, "SCALP_TP");   // same reason code live uses for every target exit
+        db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+        slStore.clearTrail();
+        armed = null;
+        return "DAY_TARGET";
+    }
+
     async function checkTarget(candle) {
+        const scalpActive = !!context.scalpTargetRupees && !context.targetPoints;
+        if (engineConfig.ENGINE_ENABLED && state.position && state.entryPrice && !scalpActive && (context.targetPoints || context.targetMode === "adaptive")) {
+            return await checkPointsTarget(candle);
+        }
         if (!context.scalpTargetRupees || context.targetPoints || !engineConfig.ENGINE_ENABLED || !state.position || !state.entryPrice) return false;
         const sr = scalpRules(context, state);
         const long = state.position === "LONG";

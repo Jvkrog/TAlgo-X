@@ -1649,7 +1649,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // params (merged onto a per-run engineConfig by backtestRun.js,
         // same as the CLI's params.CHOP_GATE_ALWAYS_FORCE etc.) — everything
         // else mutates context directly, exactly like backtestFlow.js does.
-        chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode,
+        chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches, maxLosingTrades, targetPoints, targetMode, scalpTarget, scalpStopDay, scalpNext, dsbExitMode,
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
         disableDoubleOrders, atrSlMult, hardSlRupees, dailyBiasEntryTime, dailyBiasCandle, entryTime,
         volumeFilterEnabled, volumeSmaPeriod,
@@ -1798,6 +1798,15 @@ app.post("/api/toolbox/backtest", async (req, res) => {
             const n = Number(maxLosingTrades);
             if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "maxLosingTrades must be a whole number >= 1 (blank = off)" });
             context.maxLosingTradesPerDay = n;
+        }
+        // Take-profit in points, fixed or adaptive (any strategy). Fixed wins; adaptive is sized once at entry
+        // (backtestSL.js). The scalp target below takes precedence over both when set, as live does.
+        if (targetPoints !== undefined && targetPoints !== null && targetPoints !== "") {
+            const n = Number(targetPoints);
+            if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: "targetPoints must be a number > 0 (blank = none)" });
+            context.targetPoints = n;
+        } else if (targetMode === "adaptive") {
+            context.targetMode = "adaptive";
         }
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && scalpTarget !== undefined && scalpTarget !== null && scalpTarget !== "") {
             const n = Number(scalpTarget);

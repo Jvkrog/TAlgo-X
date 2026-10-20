@@ -1589,3 +1589,8 @@ body.chart-page .depth-panel { height: auto; }
 .card-chg { margin-left: 10px; font-size: 13px; font-weight: 600; align-self: center; white-space: nowrap; }
 .card-chg.flat { color: var(--dim, #8aa); }
 .chart-status.up { color: var(--green, #33ff88); } .chart-status.down { color: var(--red, #ff5266); }
+
+/* take-profit line on instrument cards (TARGET event / configured fixed target) */
+.card-target{ margin:2px 0 8px; font-size:12px; letter-spacing:.02em; color:var(--green,#35F58A); font-family:inherit; opacity:.9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.card-target[data-mode="adaptive"]{ color:var(--amber,#E8C468); }
+.card-target[hidden]{ display:none; }

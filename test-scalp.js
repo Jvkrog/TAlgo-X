@@ -37,7 +37,10 @@ const quiet = async fn => { const l = console.log; console.log = () => {}; try {
     r = rig({ scalpTargetRupees: null }); r.enter("LONG", 420);
     assert.strictEqual(await quiet(() => r.sl.checkTarget({ high: 500, low: 400 })), false, "off = no-op");
     r = rig({ targetPoints: 5 }); r.enter("LONG", 420);
-    assert.strictEqual(await quiet(() => r.sl.checkTarget({ high: 500, low: 400 })), false, "fixed points target takes precedence");
+    // A fixed points target is now backtested (backtestSL.js checkPointsTarget): it exits at entry + points and the scalp
+    // rupee target stays inactive (live ignores the scalp target whenever targetPoints is set).
+    assert.strictEqual(await quiet(() => r.sl.checkTarget({ high: 500, low: 400 })), "DAY_TARGET", "fixed points target takes precedence and is applied");
+    assert.strictEqual(r.state.position, null);
     r = rig({ lots: 2 }); r.enter("LONG", 420);   // Rs 2000 / (1000*2) = 1.0 point
     assert.strictEqual(await quiet(() => r.sl.checkTarget({ high: 421, low: 419.5 })), true, "scales with lots");
         // post-scalp-hit rules: after the first SCALP_TP of the day, next TARGET or fixed SL

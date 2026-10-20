@@ -99,6 +99,26 @@ function paintPrice(el, inst, price) {
 
 let renderedInstrumentNames = null; // null = never rendered yet
 
+// Target line on the instrument card: the armed take-profit level, its size in points, and (adaptive) the regime that
+// picked it. Fed by the engine's TARGET event; a fixed target is also derived from the card's own config + the TICK's
+// entry price, so it still shows after a dashboard reload. Hidden when flat.
+function setCardTarget(inst, t) {
+  const el = document.getElementById(cardId(inst));
+  const te = el && el.querySelector('[data-role="target"]');
+  if (!te) return;
+  if (!t) { te.hidden = true; te.textContent = ""; delete te.dataset.mode; return; }
+  const mode = t.mode === "adaptive" ? "adaptive" : t.mode === "scalp" ? "scalp" : "fixed";
+  te.dataset.mode = mode;
+  const pts = Number(t.points);
+  te.textContent = `\u{1F3AF} ${Number(t.level).toFixed(2)}  \u00b7  ${Number.isFinite(pts) ? (Math.round(pts * 100) / 100) + " pts" : ""}  \u00b7  ${mode}${t.regime ? " " + t.regime : ""}`;
+  te.hidden = false;
+}
+function targetFromConfig(inst, side, entry) {
+  const pts = Number(inst.targetPoints);
+  if (!side || !Number.isFinite(Number(entry)) || !(pts > 0)) return null;
+  return { mode: "fixed", points: pts, level: side === "LONG" ? Number(entry) + pts : Number(entry) - pts };
+}
+
 function buildCard(inst) {
   const el = document.createElement("div");
   el.className = "card";
@@ -119,6 +139,7 @@ function buildCard(inst) {
       <span class="card-price" data-role="price">—</span>
       <span class="card-chg" data-role="chg"></span>
     </div>
+    <div class="card-target" data-role="target" hidden></div>
     <div class="pnl-row">
       <div class="pnl-box">
         <span class="pnl-label">Unrealized</span>
@@ -887,6 +908,10 @@ function handleEvent(msg) {
       const mEl = el.querySelector('[data-role="marker"]');
       mEl.textContent = marker;
       mEl.className = `state-marker ${markerCls}`;
+      // flat -> no target; in a position with a configured fixed target and no TARGET event seen yet, derive it
+      const tEl = el.querySelector('[data-role="target"]');
+      if (!msg.position) setCardTarget(i, null);
+      else if (tEl && tEl.hidden) setCardTarget(i, targetFromConfig(i, msg.position, msg.entryPrice));
     });
     updateCardPnl(msg.engine, msg.uPnl, msg.session, msg.proc);
     updateHedgePairLeg(msg.engine, msg.uPnl, msg.session);
@@ -909,6 +934,22 @@ function handleEvent(msg) {
         ["lf-price", Number(msg.price).toFixed(2)],
         ["lf-num", fmtSigned(msg.uPnl)],
         ["lf-num lf-num-session", fmtSigned(msg.session)],
+      ],
+    });
+    return;
+  }
+
+  if (msg.type === "TARGET") {
+    cardsForEvent(msg.engine, msg.proc).forEach(i => setCardTarget(i, msg));
+    appendLog({
+      type: "ENTRY",
+      instant: isReplay,
+      segments: [
+        ["lf-engine", msg.engine],
+        ["lf-time", time],
+        ["lf-tag", `\u{1F3AF} ${msg.mode === "adaptive" ? "ADAPTIVE " : msg.mode === "scalp" ? "SCALP " : ""}TARGET`],
+        ["lf-price", `@ ${Number(msg.level).toFixed(2)}`],
+        ["lf-meta", `${Math.round(Number(msg.points) * 100) / 100} pts${msg.regime ? " " + msg.regime : ""}`],
       ],
     });
     return;
@@ -937,6 +978,7 @@ function handleEvent(msg) {
   }
 
   if (msg.type === "EXIT") {
+    cardsForEvent(msg.engine, msg.proc).forEach(i => setCardTarget(i, null));
     if (!isReplay) flashCards(msg.engine, msg.pnl >= 0 ? 1 : -1, msg.proc);
     updateHedgePairLeg(msg.engine, 0, msg.session);
     updateDualHedgeLeg(msg.engine, 0, msg.session);
@@ -2792,6 +2834,11 @@ async function renderBacktestParamsStep() {
       <input type="number" id="btMaxLosingTrades" min="1" step="1">
     </div>
     <div class="tb-form-row">
+      <div class="tb-form-label">Profit target in points (blank = none). Backtest checks it against each candle's high/low; after a hit the day ends if the day's net is \u2265 0, otherwise trading continues.</div>
+      <input type="number" id="btTarget" min="0" step="any">
+      <label class="tb-form-row-inline"><input type="checkbox" id="btAdaptive"><span>Use adaptive target sizing instead (CHOP + DPI efficiency) \u2014 only applies while the target above is blank. The scalp target below overrides both.</span></label>
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">Scalp target in \u20b9 per trade, then wait for the next signal (Dynamic Step Band family only, blank = off). Backtest checks it against each candle's high/low.</div>
       <input type="number" id="btScalpTarget" min="1" step="any">
       <label class="tb-form-row-inline"><input type="checkbox" id="btScalpStopDay"><span>After a scalp target hit, take no more trades that day</span></label>
@@ -2867,6 +2914,8 @@ async function renderBacktestParamsStep() {
     setV("#btDsbExitMode", pf.dsbExitMode);
     setV("#btMaxLosingTrades", pf.maxLosingTrades);
     setV("#btScalpTarget", pf.scalpTarget);
+    setV("#btTarget", pf.targetPoints);
+    { const ad = tbBacktestBody.querySelector("#btAdaptive"); if (ad) ad.checked = pf.targetMode === "adaptive" && !pf.targetPoints; }
     const sd = tbBacktestBody.querySelector("#btScalpStopDay"); if (sd && pf.scalpStopDay) sd.checked = true;
     const [nm, nv] = String(pf.scalpNext || "").split(":");
     if (nm) { setV("#btScalpNextMode", nm); setV("#btScalpNextValue", Number(nv) > 0 ? nv : ""); }
@@ -2914,6 +2963,8 @@ async function renderBacktestParamsStep() {
       maxDailyLoss: tbBacktestBody.querySelector("#btMaxLoss").value || undefined,
       maxLosingSwitches: tbBacktestBody.querySelector("#btMaxLosingSwitches").value || undefined,
       maxLosingTrades: tbBacktestBody.querySelector("#btMaxLosingTrades").value || undefined,
+      targetPoints: tbBacktestBody.querySelector("#btTarget").value || undefined,
+      targetMode: tbBacktestBody.querySelector("#btAdaptive").checked ? "adaptive" : undefined,
       scalpTarget: tbBacktestBody.querySelector("#btScalpTarget").value || undefined,
       scalpStopDay: tbBacktestBody.querySelector("#btScalpStopDay").checked,
       scalpNext: scalpNextValue(tbBacktestBody, "bt") || undefined,
@@ -2961,7 +3012,7 @@ async function renderBacktestParamsStep() {
         if (!confirm(`Apply these backtest settings to ${name}? This saves them and restarts the process (an open position is not touched by the save itself, but check it first).`)) return;
         const keys = ["chopFilterEnabled", "chopPeriod", "chopMax", "longCandleFilterEnabled", "longCandleAtrPeriod", "longCandleAtrMult", "longCandleCooldownCandles",
           "disableDoubleOrders", "atrSlMult", "hardSlRupees", "dailyBiasEntryTime", "entryTime", "dailyBiasCandle", "volumeFilterEnabled", "volumeSmaPeriod", "carryOvernight",
-          "maxDailyLoss", "maxLosingSwitches", "maxLosingTrades", "scalpTarget", "scalpStopDay", "scalpNext", "dsbExitMode", "sessionTargetRupees",
+          "maxDailyLoss", "maxLosingSwitches", "maxLosingTrades", "targetPoints", "targetMode", "scalpTarget", "scalpStopDay", "scalpNext", "dsbExitMode", "sessionTargetRupees",
           "dailyHaGateEnabled"];
         const payload = { name };
         keys.forEach(k => { if (k in body || body[k] === undefined) payload[k] = body[k] === undefined ? null : body[k]; });
@@ -3041,6 +3092,7 @@ function renderBtDeployView(bt) {
     ["Max daily loss", bt.maxDailyLoss ? "₹" + bt.maxDailyLoss : "—"],
     ...(bt.maxLosingSwitches ? [["Max losing reversals/day", bt.maxLosingSwitches]] : []),
     ...(bt.maxLosingTrades ? [["Max losing trades/day", bt.maxLosingTrades]] : []),
+    ...(bt.targetPoints ? [["Target", bt.targetPoints + " points, then done for the day if day net \u2265 0"]] : bt.targetMode === "adaptive" ? [["Target", "Adaptive (sized at entry from CHOP + DPI efficiency)"]] : []),
     ...(bt.scalpTarget ? [["Scalp target", "\u20b9" + bt.scalpTarget + " per trade" + (bt.scalpStopDay ? ", then done for the day" : (bt.scalpNext ? ", then " + (bt.scalpNext === "TARGET:0" ? "no target" : bt.scalpNext.replace("TARGET:", "target \u20b9").replace("SL:", "stop-loss \u20b9")) : ""))]] : []),
     ...(bt.dsbExitMode === "SL" ? [["Exit mode", "Stop-loss only"]] : []),
     ...(bt.sessionTargetRupees ? [["Session target", "₹" + bt.sessionTargetRupees + " (backtest only — not applied on deploy)"]] : []),
@@ -3089,6 +3141,8 @@ function renderBtDeployView(bt) {
       maxDailyLoss: bt.maxDailyLoss,
       maxLosingSwitches: bt.maxLosingSwitches,
       maxLosingTrades: bt.maxLosingTrades,
+      targetPoints: bt.targetPoints,
+      targetMode: bt.targetMode,
       scalpTarget: bt.scalpTarget,
       scalpStopDay: bt.scalpStopDay,
       scalpNext: bt.scalpNext,

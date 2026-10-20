@@ -147,7 +147,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     const positionsClose      = (price, reason) => positions.close(context, state, ledger, tg, price, reason);
     const positionsUnrealised = (price) => positions.unrealised(context, state, price);
 
-    const slCheck = createBacktestSL({ context, engineConfig, state, slStore, orders: broker, positionsClose, db: ledger, tg });
+    const slCheck = createBacktestSL({ context, engineConfig, state, slStore, orders: broker, positionsClose, db: ledger, tg, candles: feed });
 
     // htfGate.js fetches LIVE data from Kite on a timer — meaningless
     // replaying a backdated candle feed, and backtests have no live
@@ -276,6 +276,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     let circuitBreakerDate     = null;
 
     let processed = 0;
+    const targetDoneDays = [];   // days ended early by a fixed/adaptive target hit with day net >= 0
     while (feed.hasNext()) {
         currentCandle = feed.advance();
 
@@ -331,7 +332,18 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
         }
 
         if (!postEodBlackout && !circuitBreakerBlackout) {
-            await slCheck.checkTarget(currentCandle);   // scalp target on the carried position, before this candle's own signal
+            const targetHit = await slCheck.checkTarget(currentCandle);   // target on the carried position, before this candle's own signal
+            // Fixed/adaptive target hit — same rule as live (candlePoll.js): done for the day only if the day's net is >= 0.
+            if (targetHit === "DAY_TARGET") {
+                if (state.pnl >= 0) {
+                    circuitBreakerBlackout = true;
+                    circuitBreakerDate     = dayKey;
+                    targetDoneDays.push(dayKey);
+                    console.log(c.bold(`*** TARGET HIT — DAY NET +${state.pnl.toFixed(2)} — COOLDOWN, DONE FOR THE DAY ***`));
+                } else {
+                    console.log(c.yellow(`*** TARGET HIT — day net ${state.pnl.toFixed(2)}, still recovering — continuing ***`));
+                }
+            }
             await strategy.processCandle(currentCandle);
             await slCheck.checkSL(currentCandle);
 
@@ -454,6 +466,11 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     });
 
     if (losingSwitch) report.losingSwitch = losingSwitch;
+    if (context.targetPoints || context.targetMode === "adaptive") {
+        const fromDay = new Date(from.getTime() + 5.5 * 3600000).toISOString().slice(0, 10);
+        report.targetCooldownDays = targetDoneDays.filter(d => d >= fromDay).length;
+        console.log(`[TARGET] ${context.targetPoints ? "Fixed " + context.targetPoints + " pts" : "Adaptive"} target — day ended early (cooldown) on ${report.targetCooldownDays} day(s)`);
+    }
     const paths = saveReport(report);
     return { report, paths };
 }

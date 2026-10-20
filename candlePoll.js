@@ -119,11 +119,13 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
             const { target: armedTarget } = targetStore.getTarget();
             if (armedTarget === null) {
                 let points = context.targetPoints; // FIXED wins outright if set, regardless of targetMode
+                let armedKind = points ? "fixed" : null, armedRegime = null;   // for the dashboard's TARGET event
                 if (!points && context.scalpTargetRupees) {
                     // Scalp target is in rupees: distance = rupees / (lotMult * lots), same arithmetic positions.close uses for P&L.
                     const sr = scalpRules(context, state);
                     if (sr.targetRupees) {
                         points = rupeesToPoints(context, sr.targetRupees);
+                        armedKind = "scalp";
                         console.log(c.dim(`[${context.tgPrefix}] [SCALP] target ₹${sr.targetRupees}${sr.hits ? ` (after ${sr.hits} scalp hit${sr.hits > 1 ? "s" : ""} today)` : ""} = ${points.toFixed(2)} points`));
                     } else {
                         console.log(c.dim(`[${context.tgPrefix}] [SCALP] no target after ${sr.hits} scalp hit${sr.hits > 1 ? "s" : ""} today — exit by stop / signal only`));
@@ -139,6 +141,7 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                     const saved = await db.loadPosition(context.tgPrefix, context.token);
                     if (saved && saved.position === state.position && saved.target_points) {
                         points = saved.target_points;
+                        armedKind = "adaptive"; armedRegime = saved.target_regime || null;
                         console.log(c.dim(`[${context.tgPrefix}] [TARGET] MODE: ADAPTIVE (resumed)  REGIME: ${saved.target_regime}  TARGET: ${points} points`));
                     } else {
                         const rawCandles = candles.getRawCandles();
@@ -163,6 +166,7 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                             engineConfig
                         );
                         points = decision.points;
+                        armedKind = "adaptive"; armedRegime = decision.regime;
 
                         console.log(c.dim(`[${context.tgPrefix}] [ADAPTIVE TARGET]`));
                         console.log(c.dim(`  MODE: ADAPTIVE`));
@@ -194,6 +198,7 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                         : state.entryPrice - points;
                     targetStore.setTarget(level, dir);
                     console.log(c.dim(`[${context.tgPrefix}] [TARGET ARMED]  POSITION: ${state.position}  ENTRY: ${state.entryPrice.toFixed(2)}  TARGET_POINTS: ${points}  TARGET_PRICE: ${level.toFixed(2)}`));
+                    emitEvent(context.tgPrefix, "TARGET", { side: state.position, entry: state.entryPrice, points, level, mode: armedKind || "fixed", regime: armedRegime });
                 }
             }
         }

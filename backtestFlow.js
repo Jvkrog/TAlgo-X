@@ -510,6 +510,20 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         if (carryInput) context.carryOvernight = carryInput === "Y";
     }
 
+    // Profit target in points (any strategy), fixed or adaptive — same arming rule as live: a fixed value wins; adaptive
+    // sizes once at entry from CHOP + DPI efficiency. A hit ends the day if the day's net is >= 0 (cooldown), else the
+    // run keeps trading. The scalp target below takes precedence over both when set (live does the same).
+    const targetInput = (await ask(`  Profit target in points, exits when a candle reaches it (blank = none): `)).trim();
+    if (targetInput) {
+        const parsed = Number(targetInput);
+        if (Number.isFinite(parsed) && parsed > 0) context.targetPoints = parsed;
+        else console.log(c.yellow(`  invalid value for target points, none applied`));
+    }
+    if (!context.targetPoints) {
+        const adaptiveInput = (await ask(`  Adaptive target sizing (CHOPPY ${engineConfig.ADAPTIVE_TARGET_CHOPPY} / NORMAL ${engineConfig.ADAPTIVE_TARGET_NORMAL} / STRONG ${engineConfig.ADAPTIVE_TARGET_STRONG} points)? [y/N]: `)).trim().toUpperCase();
+        if (adaptiveInput === "Y") context.targetMode = "adaptive";
+    }
+
     // Scalp target (Dynamic Step Band family) — rupees per trade, checked against each candle's high/low
     // (backtestSL.js checkTarget, same fields the live engine and the dashboard backtest use). After a hit the
     // run either stays flat for the rest of the day (the "cooldown", context.scalpStopForDay) or carries on
@@ -589,7 +603,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     if (strategyKey === "DAILY_HA_BIAS") console.log(`  Daily candle: ${context.dailyBiasCandle === "CURRENT" ? "CURRENT (today's forming daily HA candle)" : "PREVIOUS (yesterday's completed daily HA candle)"}`);
     console.log(`  Range:      ${from.toISOString().split("T")[0]} -> ${to.toISOString().split("T")[0]}`);
     console.log(`  Params:     ${Object.keys(params).length ? JSON.stringify(params) : "(all defaults)"}`);
-    console.log(`  Risk:       chop:${isShortHold ? "n/a" : (params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on")} lc:${isShortHold ? "n/a" : (context.longCandleFilterEnabled === false ? "off" : "on")} double:${isShortHold ? "n/a" : (context.disableDoubleOrders ? "off" : "on")} vol:${isShortHold ? "n/a" : (context.volumeFilterEnabled ? "on" : "off")} atr:${strategyKey === "ALMA_BAND" ? "n/a (band SL)" : isShortHold ? "n/a (no SL)" : context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"}${isShortHold ? " (forced)" : ""} maxloss:${context.maxDailyLoss ?? "none"} sessionTarget:${context.sessionTargetRupees ?? "none"}${context.scalpTargetRupees ? ` scalp:₹${context.scalpTargetRupees}${context.scalpStopForDay ? " (cooldown: done for the day)" : context.scalpNextMode ? ` (then ${context.scalpNextMode === "TARGET" ? (context.scalpNextValue > 0 ? "target ₹" + context.scalpNextValue : "no target") : "stop ₹" + context.scalpNextValue})` : ""}` : ""} dailyha:${context.dailyHaGateEnabled === false ? "off" : "on"}${isShortHold ? " (forced)" : ""}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);
+    console.log(`  Risk:       chop:${isShortHold ? "n/a" : (params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on")} lc:${isShortHold ? "n/a" : (context.longCandleFilterEnabled === false ? "off" : "on")} double:${isShortHold ? "n/a" : (context.disableDoubleOrders ? "off" : "on")} vol:${isShortHold ? "n/a" : (context.volumeFilterEnabled ? "on" : "off")} atr:${strategyKey === "ALMA_BAND" ? "n/a (band SL)" : isShortHold ? "n/a (no SL)" : context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"}${isShortHold ? " (forced)" : ""} maxloss:${context.maxDailyLoss ?? "none"} target:${context.targetPoints ? context.targetPoints + "pts" : context.targetMode === "adaptive" ? "adaptive" : "none"} sessionTarget:${context.sessionTargetRupees ?? "none"}${context.scalpTargetRupees ? ` scalp:₹${context.scalpTargetRupees}${context.scalpStopForDay ? " (cooldown: done for the day)" : context.scalpNextMode ? ` (then ${context.scalpNextMode === "TARGET" ? (context.scalpNextValue > 0 ? "target ₹" + context.scalpNextValue : "no target") : "stop ₹" + context.scalpNextValue})` : ""}` : ""} dailyha:${context.dailyHaGateEnabled === false ? "off" : "on"}${isShortHold ? " (forced)" : ""}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);
     const confirm = (await ask("  Proceed? (Y/N): ")).trim().toUpperCase();
     if (confirm !== "Y") { console.log(c.dim("  cancelled")); await pauseForReview(); return; }
 

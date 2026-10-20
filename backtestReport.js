@@ -36,7 +36,8 @@ function describeSettings(context, engineConfig, extra = {}) {
     rows.push(["Daily HA gate", context.dailyHaGateEnabled === false ? "off" : "ON"]);
     rows.push(["Double orders", context.disableDoubleOrders ? "reversal re-entries blocked" : "allowed"]);
     rows.push(["Stop-loss", context.hardSlRupees ? `HARD \u20b9${context.hardSlRupees} per position` : `ATR ${context.atrSlMult ?? engineConfig.ATR_SL_MULT}x (ATR length ${engineConfig.ST_ATR_LEN})`]);
-    rows.push(["Target", context.targetPoints ? `${context.targetPoints} points` : "off"]);
+    rows.push(["Target", context.targetPoints ? `${context.targetPoints} points, then done for the day if day net \u2265 0`
+        : (context.targetMode === "adaptive" && !context.scalpTargetRupees) ? `adaptive: ${engineConfig.ADAPTIVE_TARGET_CHOPPY} / ${engineConfig.ADAPTIVE_TARGET_NORMAL} / ${engineConfig.ADAPTIVE_TARGET_STRONG} points (choppy / normal / strong trend), sized once at entry; done for the day if day net \u2265 0` : "off"]);
     if (context.maxDailyLoss) rows.push(["Max daily loss", `\u20b9${context.maxDailyLoss}`]);
     if (context.sessionTargetRupees) rows.push(["Session target", `\u20b9${context.sessionTargetRupees}`]);
     if (context.bandStep != null) rows.push(["Band step", String(context.bandStep)]);
