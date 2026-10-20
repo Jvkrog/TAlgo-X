@@ -833,7 +833,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight } = req.body || {};
+    const { name, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
 
     try {
@@ -847,6 +847,15 @@ app.post("/api/toolbox/edit", async (req, res) => {
             const parsedLots = Number(lots);
             if (!Number.isFinite(parsedLots) || parsedLots <= 0) return res.status(400).json({ error: "invalid lots value" });
             updated.lots = parsedLots;
+        }
+        if (timeframe !== undefined && timeframe !== null && timeframe !== "") {
+            if (!TIMEFRAME_TO_INTERVAL[timeframe]) return res.status(400).json({ error: `unsupported timeframe ${timeframe} (use ${Object.keys(TIMEFRAME_TO_INTERVAL).join(", ")})` });
+            updated.timeframe = timeframe;
+        }
+        if (lotMult !== undefined && lotMult !== null && lotMult !== "") {
+            const parsedMult = Number(lotMult);
+            if (!Number.isFinite(parsedMult) || parsedMult <= 0) return res.status(400).json({ error: "invalid lotMult value" });
+            updated.lotMult = parsedMult;
         }
 
         // "0"/"clear" (string) resets to unset, same convention

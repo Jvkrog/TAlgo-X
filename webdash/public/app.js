@@ -1835,6 +1835,18 @@ function openEditModal(inst) {
       <input type="number" id="editLots" value="${inst.lots === "default" ? 1 : inst.lots}" min="1" step="1">
     </div>
     <div class="tb-form-row">
+      <div class="tb-form-label">Timeframe (candle size the strategy runs on)</div>
+      <select id="editTimeframe">
+        ${!inst.timeframe ? `<option value="" selected>strategy default (keep)</option>` : ""}
+        ${(addState.allTimeframes || ["5m", "15m", "30m", "1h", "1d"]).map(tf => `<option value="${tf}" ${tf === inst.timeframe ? "selected" : ""}>${tf}${tf === inst.timeframe ? " (current)" : ""}</option>`).join("")}
+      </select>
+      <div class="tb-form-hint">Saving restarts the process on the new timeframe. Avoid changing it while a position is open: stops and signals are rebuilt on the new candles. The end-of-day exit time follows the timeframe unless it was set by hand.</div>
+    </div>
+    <div class="tb-form-row">
+      <div class="tb-form-label">Lot multiplier \u2014 price move \u00d7 this = P&amp;L per lot (blank = keep)</div>
+      <input type="number" id="editLotMult" min="0" step="any" value="${inst.lotMult ?? ""}" placeholder="${inst.lotMult ? "" : "instrument default"}">
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">Profit target in points (blank = none, "0"/"clear" to remove)</div>
       <input type="number" id="editTarget" min="0" step="any" value="${inst.targetPoints !== null && inst.targetPoints !== undefined ? inst.targetPoints : ""}">
     </div>
@@ -1976,6 +1988,10 @@ function openEditModal(inst) {
       targetPoints: tbEditBody.querySelector("#editTarget").value || null,
       targetMode: tbEditBody.querySelector("#editAdaptive").checked ? "adaptive" : "fixed",
     };
+    const tfVal = tbEditBody.querySelector("#editTimeframe").value;
+    if (tfVal) body.timeframe = tfVal;
+    const lmVal = tbEditBody.querySelector("#editLotMult").value;
+    if (lmVal) body.lotMult = lmVal;
     if (isAlmaProFast) {
       body.almaBandEnabled = tbEditBody.querySelector("#editAlmaBand").checked;
       body.almaFastLen = tbEditBody.querySelector("#editAlmaFastLen").value || undefined;
