@@ -4449,8 +4449,8 @@ function renderDualHedgeBacktestForm() {
     <div class="tb-form-row"><div class="tb-form-label">lot multiplier (blank = context.js override)</div><input type="number" id="dbLotMult" min="0" step="any"></div>
     <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dbBandStep" min="0" step="any"></div>
     <div id="dbDual">
-      <div class="tb-form-row"><div class="tb-form-label">Signal</div><select id="dbSignal"><option value="RANGE">Range bars + Dynamic Step Band (live engine)</option><option value="HA">Heikin-Ashi from Kite's own bars</option></select></div>
-      <div class="tb-form-row" id="dbHaRow" style="display:none"><div class="tb-form-label">HA timeframe</div><select id="dbHaTf"><option>5m</option><option>15m</option><option>30m</option><option selected>1h</option><option>1d</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Signal</div><select id="dbSignal"><option value="HA">Heikin-Ashi from Kite's own bars</option></select></div>
+      <div class="tb-form-row" id="dbHaRow"><div class="tb-form-label">HA timeframe</div><select id="dbHaTf"><option>5m</option><option>15m</option><option>30m</option><option selected>1h</option><option>1d</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Stop type</div><select id="dbSlMode"><option value="RUPEES">Rupees (loss on the leg)</option><option value="ATR">ATR multiple from entry</option></select></div>
       <div id="dbAtrRows" style="display:none">
         <div class="tb-form-row"><div class="tb-form-label">ATR stop multiplier (blank = default)</div><input type="number" id="dbAtrMult" min="0" step="any" placeholder="Default"></div>
@@ -4477,7 +4477,7 @@ function renderDualHedgeBacktestForm() {
     const bias = q("#dbStrategy").value === "BIAS";
     q("#dbDual").style.display = bias ? "none" : "";
     q("#dbBias").style.display = bias ? "" : "none";
-    q("#dbHaRow").style.display = !bias && q("#dbSignal").value === "HA" ? "" : "none";
+    q("#dbHaRow").style.display = bias ? "none" : "";
     const atrMode = q("#dbSlMode").value === "ATR";
     q("#dbAtrRows").style.display = atrMode ? "" : "none";
     q("#dbMaxLossLabel").textContent = atrMode ? "Rupee backstop while ATR isn't available yet \u20b9" : "Stop \u20b9";

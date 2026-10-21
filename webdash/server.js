@@ -2691,7 +2691,7 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
             opts.entryHour = entry.hour; opts.entryMinute = entry.minute; opts.eodHour = eod.hour; opts.eodMinute = eod.minute;
             if (b.bandStepOverride) opts.bandStepOverride = Number(b.bandStepOverride);
         } else {
-            opts.signalSource = String(b.signalSource || "RANGE").toUpperCase();
+            opts.signalSource = String(b.signalSource || "HA").toUpperCase();
             if (opts.signalSource !== "RANGE" && opts.signalSource !== "HA") return res.status(400).json({ error: "SignalSource must be RANGE or HA" });
             if (opts.signalSource === "HA") {
                 opts.haTimeframe = String(b.haTimeframe || "1h").toLowerCase();
