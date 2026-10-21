@@ -3153,10 +3153,9 @@ dashWss.on("connection", ws => {
         console.error("webdash: failed to connect to PM2 —", err.message);
         console.error("webdash: starting anyway (instrument list / controls will be unavailable until PM2 is reachable)");
     }
-    // CHANGED (security audit): without a PIN, only listen on loopback.
-    // With a PIN, keep the old all-interfaces default (remote access still
-    // works) unless WEBDASH_HOST says otherwise (e.g. 127.0.0.1 + SSH tunnel).
-    const HOST = process.env.WEBDASH_HOST || (WEBDASH_PIN ? "0.0.0.0" : "127.0.0.1");
+    // CHANGED (security audit): loopback only by default (use an SSH tunnel).
+    // Set WEBDASH_HOST=0.0.0.0 in .env to expose it on all interfaces.
+    const HOST = process.env.WEBDASH_HOST || "127.0.0.1";
     server.listen(PORT, HOST, () => {
         console.log(`webdash server listening on ${HOST}:${PORT}`);
         if (WEBDASH_PIN && HOST !== "127.0.0.1" && HOST !== "::1") console.warn("webdash: serving plain HTTP on a public interface — put HTTPS in front or set WEBDASH_HOST=127.0.0.1 and use an SSH tunnel.");
