@@ -375,7 +375,7 @@ function authRequired(req, res, next) {
     if (!WEBDASH_PIN) return next(); // auth disabled
     const cookies = parseCookies(req.headers.cookie);
     if (isValidSession(cookies[SESSION_COOKIE])) return next();
-    res.status(401).json({ error: "unauthorized" });
+    res.status(401).json({ error: "Unauthorized" });
 }
 
 // Same parsing rule as toolbox.js's extractRequestToken — accepts either a
@@ -703,7 +703,7 @@ app.use(express.static(path.join(__dirname, "public")));
 // CSRF defence in depth on top of SameSite=Lax: any state-changing /api call
 // from a browser must come from this dashboard's own origin.
 app.use("/api", (req, res, next) => {
-    if (req.method !== "GET" && req.method !== "HEAD" && !originOk(req)) return res.status(403).json({ error: "cross-origin request blocked" });
+    if (req.method !== "GET" && req.method !== "HEAD" && !originOk(req)) return res.status(403).json({ error: "Cross-origin request blocked" });
     next();
 });
 
@@ -728,7 +728,7 @@ app.post("/api/auth/verify", (req, res) => {
     const att = attemptsFor(req);
     const lockedUntil = att.lockedUntil;
     if (Date.now() < lockedUntil) {
-        return res.status(429).json({ error: "too many attempts", lockedForMs: lockedUntil - Date.now() });
+        return res.status(429).json({ error: "Too many attempts", lockedForMs: lockedUntil - Date.now() });
     }
 
     const { pin } = req.body || {};
@@ -746,9 +746,9 @@ app.post("/api/auth/verify", (req, res) => {
             att.strikes++;
             att.lockedUntil = Date.now() + ms;
             att.fails = 0;
-            return res.status(429).json({ error: "too many attempts", lockedForMs: ms });
+            return res.status(429).json({ error: "Too many attempts", lockedForMs: ms });
         }
-        return res.status(401).json({ error: "incorrect pin", attemptsLeft: 5 - att.fails });
+        return res.status(401).json({ error: "Incorrect pin", attemptsLeft: 5 - att.fails });
     }
 
     att.fails = 0; att.strikes = 0;
@@ -785,7 +785,7 @@ app.get("/api/state/:underlying/:strategy", async (req, res) => {
 app.post("/api/control", async (req, res) => {
     const { name, action } = req.body || {};
     if (!name || !["start", "stop", "restart"].includes(action)) {
-        return res.status(400).json({ error: "name and a valid action (start|stop|restart) are required" });
+        return res.status(400).json({ error: "Name and a valid action (start|stop|restart) are required" });
     }
     try {
         // "start" on an already-PM2-registered-but-stopped process is just
@@ -811,7 +811,7 @@ app.post("/api/control", async (req, res) => {
 app.post("/api/toolbox/delete", async (req, res) => {
     const { names } = req.body || {};
     if (!Array.isArray(names) || names.length === 0) {
-        return res.status(400).json({ error: "names (array) is required" });
+        return res.status(400).json({ error: "Names (array) is required" });
     }
     const results = {};
     for (const name of names) {
@@ -825,7 +825,7 @@ app.get("/api/toolbox/logs/:name", async (req, res) => {
     try {
         const procs = await getEngineProcesses();
         const p = procs.find(x => x.name === req.params.name);
-        if (!p) return res.status(404).json({ error: "process not found" });
+        if (!p) return res.status(404).json({ error: "Process not found" });
         const out = tailFile(p.outLogPath, N_LOG_LINES);
         const err = tailFile(p.errLogPath, N_LOG_LINES);
         res.json({ outLogPath: p.outLogPath || null, errLogPath: p.errLogPath || null, out, err });
@@ -840,15 +840,15 @@ app.get("/api/toolbox/logs/:name", async (req, res) => {
 app.post("/api/toolbox/mode", async (req, res) => {
     const { name, live, carryOvernight, confirmLive } = req.body || {};
     if (!name || typeof live !== "boolean") {
-        return res.status(400).json({ error: "name and live (boolean) are required" });
+        return res.status(400).json({ error: "Name and live (boolean) are required" });
     }
     if (live && confirmLive !== "LIVE") {
-        return res.status(400).json({ error: 'switching to LIVE requires confirmLive: "LIVE" (typed, not assumed)' });
+        return res.status(400).json({ error: 'Switching to LIVE requires confirmLive: "LIVE" (typed, not assumed)' });
     }
     try {
         const procs = await getEngineProcesses();
         const p = procs.find(x => x.name === name);
-        if (!p) return res.status(404).json({ error: "process not found" });
+        if (!p) return res.status(404).json({ error: "Process not found" });
 
         await pm2RestartWithConfig({
             script: "engine.js",
@@ -880,27 +880,27 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
     const { name, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight } = req.body || {};
-    if (!name) return res.status(400).json({ error: "name is required" });
+    if (!name) return res.status(400).json({ error: "Name is required" });
 
     try {
         const procs = await getEngineProcesses();
         const p = procs.find(x => x.name === name);
-        if (!p) return res.status(404).json({ error: "process not found" });
+        if (!p) return res.status(404).json({ error: "Process not found" });
 
         const updated = { ...p };
 
         if (lots !== undefined && lots !== null && lots !== "") {
             const parsedLots = Number(lots);
-            if (!Number.isFinite(parsedLots) || parsedLots <= 0) return res.status(400).json({ error: "invalid lots value" });
+            if (!Number.isFinite(parsedLots) || parsedLots <= 0) return res.status(400).json({ error: "Invalid lots value" });
             updated.lots = parsedLots;
         }
         if (timeframe !== undefined && timeframe !== null && timeframe !== "") {
-            if (!TIMEFRAME_TO_INTERVAL[timeframe]) return res.status(400).json({ error: `unsupported timeframe ${timeframe} (use ${Object.keys(TIMEFRAME_TO_INTERVAL).join(", ")})` });
+            if (!TIMEFRAME_TO_INTERVAL[timeframe]) return res.status(400).json({ error: `Unsupported timeframe ${timeframe} (use ${Object.keys(TIMEFRAME_TO_INTERVAL).join(", ")})` });
             updated.timeframe = timeframe;
         }
         if (lotMult !== undefined && lotMult !== null && lotMult !== "") {
             const parsedMult = Number(lotMult);
-            if (!Number.isFinite(parsedMult) || parsedMult <= 0) return res.status(400).json({ error: "invalid lotMult value" });
+            if (!Number.isFinite(parsedMult) || parsedMult <= 0) return res.status(400).json({ error: "Invalid lotMult value" });
             updated.lotMult = parsedMult;
         }
 
@@ -911,7 +911,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.targetPoints = null;
             } else {
                 const parsedTarget = Number(targetPoints);
-                if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) return res.status(400).json({ error: "invalid targetPoints value" });
+                if (!Number.isFinite(parsedTarget) || parsedTarget <= 0) return res.status(400).json({ error: "Invalid targetPoints value" });
                 updated.targetPoints = parsedTarget;
             }
         }
@@ -923,7 +923,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.bandStep = null;
             } else {
                 const parsedStep = Number(bandStep);
-                if (!Number.isFinite(parsedStep) || parsedStep <= 0) return res.status(400).json({ error: "invalid bandStep value" });
+                if (!Number.isFinite(parsedStep) || parsedStep <= 0) return res.status(400).json({ error: "Invalid bandStep value" });
                 updated.bandStep = parsedStep;
             }
         }
@@ -931,17 +931,17 @@ app.post("/api/toolbox/edit", async (req, res) => {
         if (scalpNext !== undefined) {
             if (scalpNext === null || scalpNext === "") updated.scalpNext = null;
             else if (SCALP_NEXT_RE.test(String(scalpNext)) && (String(scalpNext).startsWith("TARGET") || Number(String(scalpNext).split(":")[1]) > 0)) updated.scalpNext = String(scalpNext);
-            else return res.status(400).json({ error: "invalid scalpNext (use TARGET:<rupees> or SL:<rupees>, or blank for off)" });
+            else return res.status(400).json({ error: "Invalid scalpNext (use TARGET:<rupees> or SL:<rupees>, or blank for off)" });
         }
         if (dsbExitMode !== undefined) {
-            if (dsbExitMode !== "SL" && dsbExitMode !== "FLIP") return res.status(400).json({ error: "dsbExitMode must be FLIP or SL" });
+            if (dsbExitMode !== "SL" && dsbExitMode !== "FLIP") return res.status(400).json({ error: "DsbExitMode must be FLIP or SL" });
             updated.dsbExitMode = dsbExitMode;
         }
         if (scalpTarget !== undefined) {
             if (scalpTarget === null || scalpTarget === "" || scalpTarget === "0" || scalpTarget === "clear") updated.scalpTarget = null;
             else {
                 const n = Number(scalpTarget);
-                if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: "invalid scalpTarget value (rupees > 0, or blank for off)" });
+                if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: "Invalid scalpTarget value (rupees > 0, or blank for off)" });
                 updated.scalpTarget = n;
             }
         }
@@ -949,7 +949,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
             if (maxLosingTrades === null || maxLosingTrades === "" || maxLosingTrades === "0" || maxLosingTrades === "clear") updated.maxLosingTrades = null;
             else {
                 const n = Number(maxLosingTrades);
-                if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "invalid maxLosingTrades value (whole number >= 1, or blank for off)" });
+                if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "Invalid maxLosingTrades value (whole number >= 1, or blank for off)" });
                 updated.maxLosingTrades = n;
             }
         }
@@ -957,7 +957,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
             if (maxLosingSwitches === null || maxLosingSwitches === "" || maxLosingSwitches === "0" || maxLosingSwitches === "clear") updated.maxLosingSwitches = null;
             else {
                 const n = Number(maxLosingSwitches);
-                if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "invalid maxLosingSwitches value (whole number >= 1, or blank for off)" });
+                if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "Invalid maxLosingSwitches value (whole number >= 1, or blank for off)" });
                 updated.maxLosingSwitches = n;
             }
         }
@@ -970,7 +970,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.atrSlMult = null;
             } else {
                 const parsedAtrMult = Number(atrSlMult);
-                if (!Number.isFinite(parsedAtrMult) || parsedAtrMult <= 0) return res.status(400).json({ error: "invalid atrSlMult value" });
+                if (!Number.isFinite(parsedAtrMult) || parsedAtrMult <= 0) return res.status(400).json({ error: "Invalid atrSlMult value" });
                 updated.atrSlMult = parsedAtrMult;
             }
         }
@@ -979,7 +979,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.hardSlRupees = null;
             } else {
                 const hv = Number(hardSlRupees);
-                if (!Number.isFinite(hv) || hv <= 0) return res.status(400).json({ error: "invalid hardSlRupees value" });
+                if (!Number.isFinite(hv) || hv <= 0) return res.status(400).json({ error: "Invalid hardSlRupees value" });
                 updated.hardSlRupees = hv;
             }
         }
@@ -988,7 +988,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.flipConfirmCandles = null;
             } else {
                 const parsedConfirm = Number(flipConfirmCandles);
-                if (!Number.isInteger(parsedConfirm) || parsedConfirm < 1) return res.status(400).json({ error: "invalid flipConfirmCandles value" });
+                if (!Number.isInteger(parsedConfirm) || parsedConfirm < 1) return res.status(400).json({ error: "Invalid flipConfirmCandles value" });
                 updated.flipConfirmCandles = parsedConfirm;
             }
         }
@@ -997,7 +997,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.dailyBiasEntryTime = null;
             } else {
                 const t = normEntryTime(dailyBiasEntryTime);
-                if (!t) return res.status(400).json({ error: "dailyBiasEntryTime must be HH:MM (IST)" });
+                if (!t) return res.status(400).json({ error: "DailyBiasEntryTime must be HH:MM (IST)" });
                 updated.dailyBiasEntryTime = t;
             }
         }
@@ -1005,7 +1005,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
             if (entryTime === null || entryTime === "" || entryTime === "clear") updated.entryTime = null;
             else {
                 const t = normEntryTime(entryTime);
-                if (!t) return res.status(400).json({ error: "entryTime must be HH:MM (IST)" });
+                if (!t) return res.status(400).json({ error: "EntryTime must be HH:MM (IST)" });
                 updated.entryTime = t;
             }
         }
@@ -1013,7 +1013,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
             if (dailyBiasCandle === null || dailyBiasCandle === "") updated.dailyBiasCandle = null;
             else {
                 const v = String(dailyBiasCandle).toUpperCase();
-                if (v !== "PREVIOUS" && v !== "CURRENT") return res.status(400).json({ error: "dailyBiasCandle must be PREVIOUS or CURRENT" });
+                if (v !== "PREVIOUS" && v !== "CURRENT") return res.status(400).json({ error: "DailyBiasCandle must be PREVIOUS or CURRENT" });
                 updated.dailyBiasCandle = v;
             }
         }
@@ -1023,7 +1023,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.volumeSmaPeriod = null;
             } else {
                 const parsedVolPeriod = Number(volumeSmaPeriod);
-                if (!Number.isFinite(parsedVolPeriod) || parsedVolPeriod <= 0) return res.status(400).json({ error: "invalid volumeSmaPeriod value" });
+                if (!Number.isFinite(parsedVolPeriod) || parsedVolPeriod <= 0) return res.status(400).json({ error: "Invalid volumeSmaPeriod value" });
                 updated.volumeSmaPeriod = parsedVolPeriod;
             }
         }
@@ -1033,7 +1033,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.longCandleAtrPeriod = null;
             } else {
                 const parsedLcPeriod = Number(longCandleAtrPeriod);
-                if (!Number.isFinite(parsedLcPeriod) || parsedLcPeriod <= 0) return res.status(400).json({ error: "invalid longCandleAtrPeriod value" });
+                if (!Number.isFinite(parsedLcPeriod) || parsedLcPeriod <= 0) return res.status(400).json({ error: "Invalid longCandleAtrPeriod value" });
                 updated.longCandleAtrPeriod = parsedLcPeriod;
             }
         }
@@ -1042,7 +1042,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.longCandleAtrMult = null;
             } else {
                 const parsedLcMult = Number(longCandleAtrMult);
-                if (!Number.isFinite(parsedLcMult) || parsedLcMult <= 0) return res.status(400).json({ error: "invalid longCandleAtrMult value" });
+                if (!Number.isFinite(parsedLcMult) || parsedLcMult <= 0) return res.status(400).json({ error: "Invalid longCandleAtrMult value" });
                 updated.longCandleAtrMult = parsedLcMult;
             }
         }
@@ -1051,7 +1051,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.longCandleCooldownCandles = null;
             } else {
                 const parsedLcCooldown = Number(longCandleCooldownCandles);
-                if (!Number.isInteger(parsedLcCooldown) || parsedLcCooldown < 0) return res.status(400).json({ error: "invalid longCandleCooldownCandles value" });
+                if (!Number.isInteger(parsedLcCooldown) || parsedLcCooldown < 0) return res.status(400).json({ error: "Invalid longCandleCooldownCandles value" });
                 updated.longCandleCooldownCandles = parsedLcCooldown;
             }
         }
@@ -1061,7 +1061,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.maxDailyLoss = null;
             } else {
                 const parsedLoss = Number(maxDailyLoss);
-                if (!Number.isFinite(parsedLoss) || parsedLoss <= 0) return res.status(400).json({ error: "invalid maxDailyLoss value" });
+                if (!Number.isFinite(parsedLoss) || parsedLoss <= 0) return res.status(400).json({ error: "Invalid maxDailyLoss value" });
                 updated.maxDailyLoss = parsedLoss;
             }
         }
@@ -1072,7 +1072,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
             if (val === undefined) continue;
             if (val === null || val === "" || val === "0" || val === "clear") { updated[key] = null; continue; }
             const n = Number(val);
-            if (!Number.isFinite(n) || n <= 0 || (int && !Number.isInteger(n))) return res.status(400).json({ error: `invalid ${key} value` });
+            if (!Number.isFinite(n) || n <= 0 || (int && !Number.isInteger(n))) return res.status(400).json({ error: `Invalid ${key} value` });
             updated[key] = n;
         }
         if (htfGateEnabled !== undefined) updated.htfGateEnabled = !!htfGateEnabled;
@@ -1080,7 +1080,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
             if (htfTimeframe === null || htfTimeframe === "" || htfTimeframe === "clear") {
                 updated.htfTimeframe = null;
             } else if (htfTimeframe !== "1h" && htfTimeframe !== "1d") {
-                return res.status(400).json({ error: 'invalid htfTimeframe value — must be "1h" or "1d"' });
+                return res.status(400).json({ error: 'Invalid htfTimeframe value — must be "1h" or "1d"' });
             } else {
                 updated.htfTimeframe = htfTimeframe;
             }
@@ -1090,7 +1090,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.htfChopPeriod = null;
             } else {
                 const parsedHtfPeriod = Number(htfChopPeriod);
-                if (!Number.isFinite(parsedHtfPeriod) || parsedHtfPeriod <= 0) return res.status(400).json({ error: "invalid htfChopPeriod value" });
+                if (!Number.isFinite(parsedHtfPeriod) || parsedHtfPeriod <= 0) return res.status(400).json({ error: "Invalid htfChopPeriod value" });
                 updated.htfChopPeriod = parsedHtfPeriod;
             }
         }
@@ -1099,7 +1099,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.htfChopMax = null;
             } else {
                 const parsedHtfMax = Number(htfChopMax);
-                if (!Number.isFinite(parsedHtfMax) || parsedHtfMax <= 0) return res.status(400).json({ error: "invalid htfChopMax value" });
+                if (!Number.isFinite(parsedHtfMax) || parsedHtfMax <= 0) return res.status(400).json({ error: "Invalid htfChopMax value" });
                 updated.htfChopMax = parsedHtfMax;
             }
         }
@@ -1115,7 +1115,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.almaFastLen = null;
             } else {
                 const parsedFastLen = Number(almaFastLen);
-                if (!Number.isFinite(parsedFastLen) || parsedFastLen <= 0) return res.status(400).json({ error: "invalid almaFastLen value" });
+                if (!Number.isFinite(parsedFastLen) || parsedFastLen <= 0) return res.status(400).json({ error: "Invalid almaFastLen value" });
                 updated.almaFastLen = parsedFastLen;
             }
         }
@@ -1124,7 +1124,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.almaBandLen = null;
             } else {
                 const parsedBandLen = Number(almaBandLen);
-                if (!Number.isFinite(parsedBandLen) || parsedBandLen <= 0) return res.status(400).json({ error: "invalid almaBandLen value" });
+                if (!Number.isFinite(parsedBandLen) || parsedBandLen <= 0) return res.status(400).json({ error: "Invalid almaBandLen value" });
                 updated.almaBandLen = parsedBandLen;
             }
         }
@@ -1242,7 +1242,7 @@ app.get("/api/chart/:name/overlay", async (req, res) => {
     try {
         const procs = await getEngineProcesses();
         const p = procs.find(x => x.name === req.params.name);
-        if (!p) return res.status(404).json({ error: "instrument not found" });
+        if (!p) return res.status(404).json({ error: "Instrument not found" });
         const exchange = p.exchange || "MCX";
         const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
         const def = getDefinition(p.underlying, exchange);
@@ -1308,14 +1308,14 @@ app.get("/api/depth/:name", async (req, res) => {
         if (hit && Date.now() - hit.at < 1000) return res.json(hit.data);
         const procs = await getEngineProcesses();
         const p = procs.find(x => x.name === req.params.name);
-        if (!p) return res.status(404).json({ error: "instrument not found" });
+        if (!p) return res.status(404).json({ error: "Instrument not found" });
         const exchange = p.exchange || "MCX";
         const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
         const def = getDefinition(p.underlying, exchange);
         const { contract } = resolveCurrent(p.underlying, def, repo, pinStore);
         const key = `${contract.exchange || exchange}:${contract.symbol}`;
         const q = (await ensureToolboxKite().getQuote([key]))[key];
-        if (!q) return res.status(404).json({ error: `no quote returned for ${key}` });
+        if (!q) return res.status(404).json({ error: `No quote returned for ${key}` });
         const lvl = l => ({ price: Number(l.price), qty: Number(l.quantity), orders: Number(l.orders) });
         const data = {
             symbol: key, ltp: q.last_price, volume: q.volume ?? null, oi: q.oi ?? null,
@@ -1335,13 +1335,13 @@ app.get("/api/chart/:name", async (req, res) => {
     try {
         const procs = await getEngineProcesses();
         const p = procs.find(x => x.name === req.params.name);
-        if (!p) return res.status(404).json({ error: "instrument not found" });
+        if (!p) return res.status(404).json({ error: "Instrument not found" });
         const exchange = p.exchange || "MCX";
         const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
         const def = getDefinition(p.underlying, exchange);
         const { contract } = resolveCurrent(p.underlying, def, repo, pinStore);
         const tf = p.timeframe || STRATEGY_TIMEFRAME[p.strategy] || "15m";
-        if (!TIMEFRAME_MINUTES[tf]) return res.status(400).json({ error: `unsupported timeframe ${tf}` });
+        if (!TIMEFRAME_MINUTES[tf]) return res.status(400).json({ error: `Unsupported timeframe ${tf}` });
         const kc = ensureToolboxKite();
         const now = Date.now();
         const win = chartWindow(tf, now);
@@ -1358,7 +1358,7 @@ app.get("/api/chart/:name", async (req, res) => {
         };
         if (req.query.only === "minutes") return res.json({ minuteBars: (await loadMinutes()).map(row) });
         const tfBars = await fetchHistoricalCandles({ kc, token: contract.token, timeframe: tf, from: win.fetchFrom, to: new Date(now) });
-        if (!tfBars.length) return res.status(404).json({ error: "no historical bars returned" });
+        if (!tfBars.length) return res.status(404).json({ error: "No historical bars returned" });
         const day = istDayStr(tfBars[tfBars.length - 1].date.getTime());
         const mins = req.query.minutes === "1" ? await loadMinutes() : [];
         const a = atrFn(tfBars.map(b => ({ open: b.open, high: b.high, low: b.low, close: b.close })), engineConfig.ST_ATR_LEN);
@@ -1426,13 +1426,13 @@ app.get("/api/strategy-builder/custom-strategies", async (req, res) => {
 app.post("/api/strategy-builder/custom-strategies", async (req, res) => {
     const { name, candleType, timeframe, indicators, entryLong, entryShort, exitConfig } = req.body || {};
     if (!name || !candleType || !timeframe || !Array.isArray(indicators) || indicators.length === 0) {
-        return res.status(400).json({ error: "name, candleType, timeframe, and at least one indicator are required" });
+        return res.status(400).json({ error: "Name, candleType, timeframe, and at least one indicator are required" });
     }
     try {
         const id = await customStrategyDb.saveStrategy({ name, candleType, timeframe, indicators, entryLong, entryShort, exitConfig });
         res.json({ id, name });
     } catch (err) {
-        res.status(400).json({ error: err.message.includes("UNIQUE") ? "a strategy named that already exists" : err.message });
+        res.status(400).json({ error: err.message.includes("UNIQUE") ? "A strategy named that already exists" : err.message });
     }
 });
 
@@ -1477,10 +1477,10 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
-    if (!underlying) return res.status(400).json({ error: "underlying is required" });
-    if (!/^[A-Za-z0-9&_-]{1,30}$/.test(String(underlying))) return res.status(400).json({ error: "underlying may only contain letters, digits, & _ -" });
+    if (!underlying) return res.status(400).json({ error: "Underlying is required" });
+    if (!/^[A-Za-z0-9&_-]{1,30}$/.test(String(underlying))) return res.status(400).json({ error: "Underlying may only contain letters, digits, & _ -" });
     if (live && confirmLive !== "LIVE") {
-        return res.status(400).json({ error: 'switching to LIVE requires confirmLive: "LIVE" (typed, not assumed)' });
+        return res.status(400).json({ error: 'Switching to LIVE requires confirmLive: "LIVE" (typed, not assumed)' });
     }
 
     // CHANGED: strategy could now be a custom strategy name, not just a
@@ -1499,13 +1499,13 @@ app.post("/api/toolbox/instrument", async (req, res) => {
                 stratKey = strategy;
                 customStratTimeframe = custom.timeframe;
             } else {
-                return res.status(400).json({ error: `unknown strategy "${strategy}"` });
+                return res.status(400).json({ error: `Unknown strategy "${strategy}"` });
             }
         }
     }
     const tf = timeframe || customStratTimeframe || STRATEGY_TIMEFRAME[stratKey] || "15m";
     const lotsVal = lots !== undefined && lots !== null && lots !== "" ? Number(lots) : 1;
-    if (!Number.isFinite(lotsVal) || lotsVal <= 0) return res.status(400).json({ error: "invalid lots value" });
+    if (!Number.isFinite(lotsVal) || lotsVal <= 0) return res.status(400).json({ error: "Invalid lots value" });
 
     try {
         const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
@@ -1522,7 +1522,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             const parsed = Number(lotMultOverride);
             if (!lotMultOverride || !Number.isFinite(parsed) || parsed <= 0) {
                 return res.status(400).json({
-                    error: `lot multiplier required for ${underlying} — broker lot_size (${resolved.lotSize}) is a contract count, not the real price multiplier; provide lotMultOverride`,
+                    error: `Lot multiplier required for ${underlying} — broker lot_size (${resolved.lotSize}) is a contract count, not the real price multiplier; provide lotMultOverride`,
                 });
             }
             lotMult = parsed;
@@ -1603,22 +1603,22 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         }
         if (hardSlRupees !== undefined && hardSlRupees !== null && hardSlRupees !== "") {
             const hv = Number(hardSlRupees);
-            if (!Number.isFinite(hv) || hv <= 0) return res.status(400).json({ error: "hardSlRupees must be a positive number" });
+            if (!Number.isFinite(hv) || hv <= 0) return res.status(400).json({ error: "HardSlRupees must be a positive number" });
             env.HARD_SL_RUPEES_OVERRIDE = String(hv);
         }
         if (stratKey === "DAILY_HA_BIAS" && dailyBiasEntryTime !== undefined && dailyBiasEntryTime !== null && dailyBiasEntryTime !== "") {
             const t = normEntryTime(dailyBiasEntryTime);
-            if (!t) return res.status(400).json({ error: "dailyBiasEntryTime must be HH:MM (IST)" });
+            if (!t) return res.status(400).json({ error: "DailyBiasEntryTime must be HH:MM (IST)" });
             env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = t;
         }
         if (stratKey !== "DAILY_HA_BIAS" && entryTime !== undefined && entryTime !== null && entryTime !== "") {
             const t = normEntryTime(entryTime);
-            if (!t) return res.status(400).json({ error: "entryTime must be HH:MM (IST)" });
+            if (!t) return res.status(400).json({ error: "EntryTime must be HH:MM (IST)" });
             env.ENTRY_TIME_OVERRIDE = t;
         }
         if (stratKey === "DAILY_HA_BIAS" && dailyBiasCandle !== undefined && dailyBiasCandle !== null && dailyBiasCandle !== "") {
             const v = String(dailyBiasCandle).toUpperCase();
-            if (v !== "PREVIOUS" && v !== "CURRENT") return res.status(400).json({ error: "dailyBiasCandle must be PREVIOUS or CURRENT" });
+            if (v !== "PREVIOUS" && v !== "CURRENT") return res.status(400).json({ error: "DailyBiasCandle must be PREVIOUS or CURRENT" });
             env.DAILY_BIAS_CANDLE_OVERRIDE = v;
         }
         if (stratKey === "PURE_HA" && flipConfirmCandles !== undefined && flipConfirmCandles !== null && flipConfirmCandles !== "") {
@@ -1680,7 +1680,7 @@ app.get("/api/toolbox/backtest/params/:strategy", async (req, res) => {
     // saved indicators/conditions), so an empty params list is correct,
     // not a 404, as long as the name actually exists and is backtestable.
     const custom = await customStrategyDb.getStrategyByName(key);
-    if (!custom || (!custom.entryLong && !custom.entryShort)) return res.status(404).json({ error: "unknown strategy" });
+    if (!custom || (!custom.entryLong && !custom.entryShort)) return res.status(404).json({ error: "Unknown strategy" });
     res.json([]);
 });
 
@@ -1704,19 +1704,19 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         htfGateEnabled, htfChopPeriod, htfChopMax, htfBandBlockEnabled,
     } = req.body || {};
 
-    if (!underlying) return res.status(400).json({ error: "underlying is required" });
+    if (!underlying) return res.status(400).json({ error: "Underlying is required" });
     // Same fallback as Add Instrument (line ~890) and runBacktest.js — a
     // strategy name not in the hardcoded STRATEGIES registry might be a
     // user-built one saved via customStrategyDb; only reject if it's in
     // neither, closing the "custom strategies not wired to backtesting" gap.
     let strategyLabel = strategy;
-    if (!strategy) return res.status(400).json({ error: "a valid strategy is required" });
+    if (!strategy) return res.status(400).json({ error: "A valid strategy is required" });
     if (STRATEGIES[strategy]) {
         strategyLabel = (STRATEGY_INFO[strategy] || {}).label || strategy;
     } else {
         const custom = await customStrategyDb.getStrategyByName(strategy);
         if (!custom || (!custom.entryLong && !custom.entryShort)) {
-            return res.status(400).json({ error: `unknown strategy "${strategy}" — not in STRATEGIES, and no backtestable custom_strategies row by that name` });
+            return res.status(400).json({ error: `Unknown strategy "${strategy}" — not in STRATEGIES, and no backtestable custom_strategies row by that name` });
         }
         strategyLabel = `${custom.name} (custom)`;
     }
@@ -1729,10 +1729,10 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         from = new Date(isDay(fromStr) ? `${fromStr}T00:00:00+05:30` : fromStr);
     } else {
         const d = days ? Number(days) : 30;
-        if (!Number.isFinite(d) || d <= 0) return res.status(400).json({ error: "invalid days value" });
+        if (!Number.isFinite(d) || d <= 0) return res.status(400).json({ error: "Invalid days value" });
         from = new Date(to.getTime() - d * 24 * 60 * 60 * 1000);
     }
-    if (isNaN(from.getTime()) || isNaN(to.getTime())) return res.status(400).json({ error: "invalid date range" });
+    if (isNaN(from.getTime()) || isNaN(to.getTime())) return res.status(400).json({ error: "Invalid date range" });
 
     try {
         const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
@@ -1747,7 +1747,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         if (!context.lotMult) {
             const parsed = Number(lotMultOverride);
             if (!lotMultOverride || !Number.isFinite(parsed) || parsed <= 0) {
-                return res.status(400).json({ error: `lot multiplier required for ${underlying} — provide lotMultOverride` });
+                return res.status(400).json({ error: `Lot multiplier required for ${underlying} — provide lotMultOverride` });
             }
             context.lotMult = parsed;
         }
@@ -1818,17 +1818,17 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // DAILY_HA_BIAS trade entry time (IST "HH:MM"), same field the live engine reads.
         if (dailyBiasEntryTime !== undefined && dailyBiasEntryTime !== null && dailyBiasEntryTime !== "") {
             const t = parseHHMM(dailyBiasEntryTime);
-            if (!t) return res.status(400).json({ error: "dailyBiasEntryTime must be HH:MM (IST)" });
+            if (!t) return res.status(400).json({ error: "DailyBiasEntryTime must be HH:MM (IST)" });
             context.dailyBiasEntryHour = t.hour; context.dailyBiasEntryMinute = t.minute;
         }
         if (entryTime !== undefined && entryTime !== null && entryTime !== "") {
             const t = parseHHMM(entryTime);
-            if (!t) return res.status(400).json({ error: "entryTime must be HH:MM (IST)" });
+            if (!t) return res.status(400).json({ error: "EntryTime must be HH:MM (IST)" });
             context.entryTimeHour = t.hour; context.entryTimeMinute = t.minute;
         }
         if (dailyBiasCandle !== undefined && dailyBiasCandle !== null && dailyBiasCandle !== "") {
             const v = String(dailyBiasCandle).toUpperCase();
-            if (v !== "PREVIOUS" && v !== "CURRENT") return res.status(400).json({ error: "dailyBiasCandle must be PREVIOUS or CURRENT" });
+            if (v !== "PREVIOUS" && v !== "CURRENT") return res.status(400).json({ error: "DailyBiasCandle must be PREVIOUS or CURRENT" });
             context.dailyBiasCandle = v;
         }
         if (volumeFilterEnabled !== undefined) context.volumeFilterEnabled = !!volumeFilterEnabled;
@@ -1838,26 +1838,26 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         }
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && maxLosingSwitches !== undefined && maxLosingSwitches !== null && maxLosingSwitches !== "") {
             const n = Number(maxLosingSwitches);
-            if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "maxLosingSwitches must be a whole number >= 1 (blank = off)" });
+            if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "MaxLosingSwitches must be a whole number >= 1 (blank = off)" });
             context.maxLosingSwitchesPerDay = n;
         }
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && maxLosingTrades !== undefined && maxLosingTrades !== null && maxLosingTrades !== "") {
             const n = Number(maxLosingTrades);
-            if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "maxLosingTrades must be a whole number >= 1 (blank = off)" });
+            if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "MaxLosingTrades must be a whole number >= 1 (blank = off)" });
             context.maxLosingTradesPerDay = n;
         }
         // Take-profit in points, fixed or adaptive (any strategy). Fixed wins; adaptive is sized once at entry
         // (backtestSL.js). The scalp target below takes precedence over both when set, as live does.
         if (targetPoints !== undefined && targetPoints !== null && targetPoints !== "") {
             const n = Number(targetPoints);
-            if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: "targetPoints must be a number > 0 (blank = none)" });
+            if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: "TargetPoints must be a number > 0 (blank = none)" });
             context.targetPoints = n;
         } else if (targetMode === "adaptive") {
             context.targetMode = "adaptive";
         }
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && scalpTarget !== undefined && scalpTarget !== null && scalpTarget !== "") {
             const n = Number(scalpTarget);
-            if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: "scalpTarget must be a rupee amount > 0 (blank = off)" });
+            if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: "ScalpTarget must be a rupee amount > 0 (blank = off)" });
             context.scalpTargetRupees = n;
         }
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && scalpStopDay && context.scalpTargetRupees) context.scalpStopForDay = true;
@@ -2022,7 +2022,7 @@ app.get("/api/ai/trades", async (req, res) => {
 });
 app.post("/api/ai/review", async (req, res) => {
     const { journal, id, force } = req.body || {};
-    if (typeof journal !== "string" || !Number.isInteger(Number(id))) return res.status(400).json({ error: "journal and id required" });
+    if (typeof journal !== "string" || !Number.isInteger(Number(id))) return res.status(400).json({ error: "Journal and id required" });
     if (!geminiKeyFromEnvFile()) return res.status(400).json({ error: "Gemini API key not set — add GEMINI_API_KEY in Settings" });
     try { res.json({ review: await aiReview.reviewTrade(journal, Number(id), !!force) }); }
     catch (err) { res.status(err.status || 502).json({ error: err.message }); }
@@ -2045,10 +2045,10 @@ app.post("/api/ai/summary/narrate", async (req, res) => {
 app.post("/api/ai/backtest", async (req, res) => {
     if (!geminiKeyFromEnvFile()) return res.status(400).json({ error: "Gemini API key not set — add GEMINI_API_KEY in Settings" });
     const file = path.basename(String((req.body || {}).file || ""));
-    if (!/^[\w.\-]+\.json$/.test(file)) return res.status(400).json({ error: "a backtest .json report file is required" });
+    if (!/^[\w.\-]+\.json$/.test(file)) return res.status(400).json({ error: "A backtest .json report file is required" });
     let report;
     try { report = JSON.parse(fs.readFileSync(path.join(ROOT, "backtests", file), "utf8")); }
-    catch { return res.status(404).json({ error: "backtest report not found" }); }
+    catch { return res.status(404).json({ error: "Backtest report not found" }); }
     try { res.json({ narration: await aiSummary.narrateBacktest(report, !!(req.body || {}).force) }); }
     catch (err) { res.status(err.status || 502).json({ error: err.message }); }
 });
@@ -2164,8 +2164,8 @@ app.get("/api/toolbox/watchlist", async (req, res) => {
 
 app.post("/api/toolbox/watchlist", (req, res) => {
     const { underlying, exchange = "MCX" } = req.body || {};
-    if (!underlying) return res.status(400).json({ error: "underlying is required" });
-    if (!/^[A-Za-z0-9&_-]{1,30}$/.test(String(underlying))) return res.status(400).json({ error: "invalid underlying" });
+    if (!underlying) return res.status(400).json({ error: "Underlying is required" });
+    if (!/^[A-Za-z0-9&_-]{1,30}$/.test(String(underlying))) return res.status(400).json({ error: "Invalid underlying" });
     marketWatchlist.add(underlying, exchange);
     res.json({ ok: true });
 });
@@ -2189,7 +2189,7 @@ app.post("/api/toolbox/scanner/stop", async (req, res) => {
         await pm2Stop(SCANNER_PROCESS_NAME);
         res.json({ ok: true });
     } catch (err) {
-        res.status(500).json({ error: `failed to stop scanner (is it running?): ${err.message}` });
+        res.status(500).json({ error: `Failed to stop scanner (is it running?): ${err.message}` });
     }
 });
 
@@ -2256,18 +2256,18 @@ app.post("/api/toolbox/hedgepairs/backtest", async (req, res) => {
     const b = req.body || {};
     try {
         const { coreUnderlying, hedgeUnderlying } = b;
-        if (!coreUnderlying || !hedgeUnderlying) return res.status(400).json({ error: "coreUnderlying and hedgeUnderlying are required" });
-        if (coreUnderlying === hedgeUnderlying) return res.status(400).json({ error: "core and hedge must be different underlyings" });
+        if (!coreUnderlying || !hedgeUnderlying) return res.status(400).json({ error: "CoreUnderlying and hedgeUnderlying are required" });
+        if (coreUnderlying === hedgeUnderlying) return res.status(400).json({ error: "Core and hedge must be different underlyings" });
         const unwindMode = String(b.unwindMode || "HA_FLIP").toUpperCase();
-        if (unwindMode !== "HA_FLIP" && unwindMode !== "EOD_ONLY") return res.status(400).json({ error: "unwindMode must be HA_FLIP or EOD_ONLY" });
+        if (unwindMode !== "HA_FLIP" && unwindMode !== "EOD_ONLY") return res.status(400).json({ error: "UnwindMode must be HA_FLIP or EOD_ONLY" });
         const from = new Date(b.from), to = new Date(b.to);
-        if (isNaN(from) || isNaN(to)) return res.status(400).json({ error: "from and to must be YYYY-MM-DD" });
-        if (to < from) return res.status(400).json({ error: "to must not be before from" });
+        if (isNaN(from) || isNaN(to)) return res.status(400).json({ error: "From and to must be YYYY-MM-DD" });
+        if (to < from) return res.status(400).json({ error: "To must not be before from" });
         for (const [l, v] of [["coreLots", b.coreLots], ["hedgeLots", b.hedgeLots], ["coreLotMultOverride", b.coreLotMultOverride], ["hedgeLotMultOverride", b.hedgeLotMultOverride]]) {
             if (v !== undefined && v !== null && v !== "" && !(Number(v) > 0)) return res.status(400).json({ error: `${l} must be a positive number` });
         }
         for (const [u, ov] of [[coreUnderlying, b.coreLotMultOverride], [hedgeUnderlying, b.hedgeLotMultOverride]]) {
-            if (getDefinition(u, "MCX").lotMult === null && !ov) return res.status(400).json({ error: `lot multiplier is required for ${u} (no context.js override on file)` });
+            if (getDefinition(u, "MCX").lotMult === null && !ov) return res.status(400).json({ error: `Lot multiplier is required for ${u} (no context.js override on file)` });
         }
         const kc = ensureDualHedgeBacktestKite();
         setEmitSuppressed(true);
@@ -2305,22 +2305,22 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
     } = req.body || {};
 
     if (!coreUnderlying || !hedgeUnderlying) {
-        return res.status(400).json({ error: "coreUnderlying and hedgeUnderlying are both required" });
+        return res.status(400).json({ error: "CoreUnderlying and hedgeUnderlying are both required" });
     }
     const resolvedUnwindMode = unwindMode === "EOD_ONLY" ? "EOD_ONLY" : "HA_FLIP";
     // Same rule toolbox.js/instrument mode enforce: going live requires the
     // literal word "LIVE" server-side too, not just a client-side checkbox.
     if (live && confirmLive !== "LIVE") {
-        return res.status(400).json({ error: 'going live requires confirmLive: "LIVE"' });
+        return res.status(400).json({ error: 'Going live requires confirmLive: "LIVE"' });
     }
 
     const coreDef  = getDefinition(coreUnderlying, "MCX");
     const hedgeDef = getDefinition(hedgeUnderlying, "MCX");
     if (coreDef.lotMult === null && !coreLotMultOverride) {
-        return res.status(400).json({ error: `coreLotMultOverride is required for ${coreUnderlying} (no context.js override on file)` });
+        return res.status(400).json({ error: `CoreLotMultOverride is required for ${coreUnderlying} (no context.js override on file)` });
     }
     if (hedgeDef.lotMult === null && !hedgeLotMultOverride) {
-        return res.status(400).json({ error: `hedgeLotMultOverride is required for ${hedgeUnderlying} (no context.js override on file)` });
+        return res.status(400).json({ error: `HedgeLotMultOverride is required for ${hedgeUnderlying} (no context.js override on file)` });
     }
 
     const name = `${getShortName(coreUnderlying)}${getShortName(hedgeUnderlying)}HedgePair`;
@@ -2342,7 +2342,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
 
 app.post("/api/toolbox/hedgepairs/start", async (req, res) => {
     const { name } = req.body || {};
-    if (!name) return res.status(400).json({ error: "name is required" });
+    if (!name) return res.status(400).json({ error: "Name is required" });
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name, cwd: ROOT });
         res.json({ ok: true });
@@ -2353,7 +2353,7 @@ app.post("/api/toolbox/hedgepairs/start", async (req, res) => {
 
 app.post("/api/toolbox/hedgepairs/stop", async (req, res) => {
     const { name } = req.body || {};
-    if (!name) return res.status(400).json({ error: "name is required" });
+    if (!name) return res.status(400).json({ error: "Name is required" });
     try {
         await pm2Stop(name);
         res.json({ ok: true });
@@ -2375,7 +2375,7 @@ app.get("/api/toolbox/hedgepairs/logs/:name", async (req, res) => {
     try {
         const pairs = await getHedgePairProcesses();
         const p = pairs.find(x => x.name === req.params.name);
-        if (!p) return res.status(404).json({ error: "process not found" });
+        if (!p) return res.status(404).json({ error: "Process not found" });
         const out = tailFile(p.outLogPath, N_LOG_LINES);
         const err = tailFile(p.errLogPath, N_LOG_LINES);
         res.json({ outLogPath: p.outLogPath || null, errLogPath: p.errLogPath || null, out, err });
@@ -2511,7 +2511,7 @@ app.get("/api/toolbox/dualhedge/users/:name/login-url", (req, res) => {
 app.post("/api/toolbox/dualhedge/users", (req, res) => {
     const { name, apiKey, apiSecret } = req.body || {};
     if (!name || !apiKey || !apiSecret) {
-        return res.status(400).json({ error: "name, apiKey and apiSecret are all required" });
+        return res.status(400).json({ error: "Name, apiKey and apiSecret are all required" });
     }
     try {
         const saved = dualHedgeUsers.saveUserCredentials(name, { apiKey, apiSecret });
@@ -2536,7 +2536,7 @@ app.delete("/api/toolbox/dualhedge/users/:name", (req, res) => {
 // engineConfig's.
 app.post("/api/toolbox/dualhedge/users/token", async (req, res) => {
     const { name, requestToken: rawInput } = req.body || {};
-    if (!name || !rawInput) return res.status(400).json({ error: "name and requestToken are both required" });
+    if (!name || !rawInput) return res.status(400).json({ error: "Name and requestToken are both required" });
     try {
         await exchangeUserToken(name, rawInput);
         res.json({ ok: true });
@@ -2555,12 +2555,12 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     } = req.body || {};
 
     const strategy = String(strategyIn || "DUAL").toUpperCase();
-    if (strategy !== "DUAL" && strategy !== "BIAS") return res.status(400).json({ error: "strategy must be DUAL or BIAS" });
+    if (strategy !== "DUAL" && strategy !== "BIAS") return res.status(400).json({ error: "Strategy must be DUAL or BIAS" });
     if (!underlying || !longUser || !shortUser) {
-        return res.status(400).json({ error: "underlying, longUser and shortUser are all required" });
+        return res.status(400).json({ error: "Underlying, longUser and shortUser are all required" });
     }
     if (longUser === shortUser) {
-        return res.status(400).json({ error: "longUser and shortUser must be different accounts" });
+        return res.status(400).json({ error: "LongUser and shortUser must be different accounts" });
     }
     const users = dualHedgeUsers.listUsers();
     for (const [label, name] of [["longUser", longUser], ["shortUser", shortUser]]) {
@@ -2570,21 +2570,21 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         }
     }
     if (live && confirmLive !== "LIVE") {
-        return res.status(400).json({ error: 'going live requires confirmLive: "LIVE"' });
+        return res.status(400).json({ error: 'Going live requires confirmLive: "LIVE"' });
     }
 
     const def = getDefinition(underlying, "MCX");
     if (def.lotMult === null && !lotMultOverride) {
-        return res.status(400).json({ error: `lotMultOverride is required for ${underlying} (no context.js override on file)` });
+        return res.status(400).json({ error: `LotMultOverride is required for ${underlying} (no context.js override on file)` });
     }
     for (const [label, v] of [["takeProfitRupees", takeProfitRupees], ["rangeSize", rangeSize], ["bandStepOverride", bandStepOverride], ["atrSlMult", atrSlMult]]) {
         if (v !== undefined && v !== null && v !== "" && !(Number(v) > 0)) return res.status(400).json({ error: `${label} must be a positive number` });
     }
     // Stop-loss type (DUAL only) — rupees (default) or ATR multiple from entry, see dualHedgeAtr.js.
     const slMode = String(slModeIn || "RUPEES").toUpperCase();
-    if (!DH_SL_MODES.includes(slMode)) return res.status(400).json({ error: `slMode must be one of ${DH_SL_MODES.join("/")}` });
+    if (!DH_SL_MODES.includes(slMode)) return res.status(400).json({ error: `SlMode must be one of ${DH_SL_MODES.join("/")}` });
     const atrTimeframe = String(atrTfIn || "15m").toLowerCase();
-    if (slMode === "ATR" && !DH_ATR_TIMEFRAMES.includes(atrTimeframe)) return res.status(400).json({ error: `atrTimeframe must be one of ${DH_ATR_TIMEFRAMES.join("/")}` });
+    if (slMode === "ATR" && !DH_ATR_TIMEFRAMES.includes(atrTimeframe)) return res.status(400).json({ error: `AtrTimeframe must be one of ${DH_ATR_TIMEFRAMES.join("/")}` });
 
     const name = strategy === "BIAS" ? `${getShortName(underlying)}DualBias` : `${getShortName(underlying)}DualHedge`;
     const conflict = await findAccountConflict(underlying, [longUser, shortUser], name);
@@ -2602,16 +2602,16 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
 
     if (strategy === "BIAS") {
         const unwind = String(unwindIn || "BAND_FLIP").toUpperCase();
-        if (unwind !== "BAND_FLIP" && unwind !== "EOD_ONLY") return res.status(400).json({ error: "unwindMode must be BAND_FLIP or EOD_ONLY" });
+        if (unwind !== "BAND_FLIP" && unwind !== "EOD_ONLY") return res.status(400).json({ error: "UnwindMode must be BAND_FLIP or EOD_ONLY" });
         const tf = String(bandTfIn || "15m").toLowerCase();
-        if (!BIAS_BAND_TIMEFRAMES.includes(tf)) return res.status(400).json({ error: `bandTimeframe must be one of ${BIAS_BAND_TIMEFRAMES.join("/")}` });
-        if (gapCapture) return res.status(400).json({ error: "gap capture is not available for the BIAS strategy (no overnight carry)" });
+        if (!BIAS_BAND_TIMEFRAMES.includes(tf)) return res.status(400).json({ error: `BandTimeframe must be one of ${BIAS_BAND_TIMEFRAMES.join("/")}` });
+        if (gapCapture) return res.status(400).json({ error: "Gap capture is not available for the BIAS strategy (no overnight carry)" });
         const entry = parseHHMM(entryTime, "10:00");
-        if (!entry) return res.status(400).json({ error: "entryTime must be HH:MM (IST)" });
+        if (!entry) return res.status(400).json({ error: "EntryTime must be HH:MM (IST)" });
         const dEod = defaultEodFor(tf, "MCX");
         const eod = eodTime ? parseHHMM(eodTime) : { hour: dEod.eodHour, minute: dEod.eodMinute };
-        if (!eod) return res.status(400).json({ error: "eodTime must be HH:MM (IST)" });
-        if (eod.hour * 60 + eod.minute <= entry.hour * 60 + entry.minute) return res.status(400).json({ error: "entryTime must be before EOD" });
+        if (!eod) return res.status(400).json({ error: "EodTime must be HH:MM (IST)" });
+        if (eod.hour * 60 + eod.minute <= entry.hour * 60 + entry.minute) return res.status(400).json({ error: "EntryTime must be before EOD" });
         env.DH_UNWIND_MODE = unwind;
         env.DH_BAND_TIMEFRAME = tf;
         env.DH_ENTRY_HOUR_OVERRIDE = String(entry.hour); env.DH_ENTRY_MINUTE_OVERRIDE = String(entry.minute);
@@ -2621,9 +2621,9 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         if (gapCapture) {
             gcE = parseHHMM(gcEntry, "23:20");
             gcX = parseHHMM(gcExit, "23:25");
-            if (!gcE || !gcX) return res.status(400).json({ error: "gap capture times must be HH:MM (IST)" });
+            if (!gcE || !gcX) return res.status(400).json({ error: "Gap capture times must be HH:MM (IST)" });
             if (gcX.hour < gcE.hour || (gcX.hour === gcE.hour && gcX.minute <= gcE.minute)) {
-                return res.status(400).json({ error: "gap capture quit time must be after the gap capture time" });
+                return res.status(400).json({ error: "Gap capture quit time must be after the gap capture time" });
             }
         }
         env.DH_MAX_LOSS_RUPEES_OVERRIDE = String(maxLossRupees || 3000);   // ATR mode: only the backstop while ATR isn't available
@@ -2663,39 +2663,39 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
     const b = req.body || {};
     try {
         const strategy = String(b.strategy || "DUAL").toUpperCase();
-        if (strategy !== "DUAL" && strategy !== "BIAS") return res.status(400).json({ error: "strategy must be DUAL or BIAS" });
-        if (!b.underlying) return res.status(400).json({ error: "underlying is required" });
+        if (strategy !== "DUAL" && strategy !== "BIAS") return res.status(400).json({ error: "Strategy must be DUAL or BIAS" });
+        if (!b.underlying) return res.status(400).json({ error: "Underlying is required" });
         const from = new Date(b.from), to = new Date(b.to);
-        if (isNaN(from) || isNaN(to)) return res.status(400).json({ error: "from and to must be YYYY-MM-DD" });
-        if (to < from) return res.status(400).json({ error: "to must not be before from" });
+        if (isNaN(from) || isNaN(to)) return res.status(400).json({ error: "From and to must be YYYY-MM-DD" });
+        if (to < from) return res.status(400).json({ error: "To must not be before from" });
         const pos = (label, v) => { if (v !== undefined && v !== null && v !== "" && !(Number(v) > 0)) throw Object.assign(new Error(`${label} must be a positive number`), { status: 400 }); };
         for (const [l, v] of [["lots", b.lots], ["lotMultOverride", b.lotMultOverride], ["bandStepOverride", b.bandStepOverride], ["rangeSizeOverride", b.rangeSizeOverride], ["takeProfit", b.takeProfit], ["maxLoss", b.maxLoss], ["atrSlMult", b.atrSlMult]]) pos(l, v);
         const slip = b.slippagePoints === undefined || b.slippagePoints === "" ? 0 : Number(b.slippagePoints);
-        if (!Number.isFinite(slip) || slip < 0) return res.status(400).json({ error: "slippagePoints must be >= 0" });
+        if (!Number.isFinite(slip) || slip < 0) return res.status(400).json({ error: "SlippagePoints must be >= 0" });
         const exchange = "MCX";
         const def = getDefinition(b.underlying, exchange);
-        if (def.lotMult === null && !b.lotMultOverride) return res.status(400).json({ error: `lotMultOverride is required for ${b.underlying}` });
+        if (def.lotMult === null && !b.lotMultOverride) return res.status(400).json({ error: `LotMultOverride is required for ${b.underlying}` });
 
         const opts = { strategy };
         if (strategy === "BIAS") {
             opts.unwindMode = String(b.unwindMode || "BAND_FLIP").toUpperCase();
-            if (opts.unwindMode !== "BAND_FLIP" && opts.unwindMode !== "EOD_ONLY") return res.status(400).json({ error: "unwindMode must be BAND_FLIP or EOD_ONLY" });
+            if (opts.unwindMode !== "BAND_FLIP" && opts.unwindMode !== "EOD_ONLY") return res.status(400).json({ error: "UnwindMode must be BAND_FLIP or EOD_ONLY" });
             opts.bandTimeframe = String(b.bandTimeframe || "15m").toLowerCase();
-            if (!BIAS_BAND_TIMEFRAMES.includes(opts.bandTimeframe)) return res.status(400).json({ error: `bandTimeframe must be one of ${BIAS_BAND_TIMEFRAMES.join("/")}` });
+            if (!BIAS_BAND_TIMEFRAMES.includes(opts.bandTimeframe)) return res.status(400).json({ error: `BandTimeframe must be one of ${BIAS_BAND_TIMEFRAMES.join("/")}` });
             const entry = parseHHMM(b.entryTime, "10:00");
-            if (!entry) return res.status(400).json({ error: "entryTime must be HH:MM (IST)" });
+            if (!entry) return res.status(400).json({ error: "EntryTime must be HH:MM (IST)" });
             const dEod = defaultEodFor(opts.bandTimeframe, exchange);
             const eod = b.eodTime ? parseHHMM(b.eodTime) : { hour: dEod.eodHour, minute: dEod.eodMinute };
-            if (!eod) return res.status(400).json({ error: "eodTime must be HH:MM (IST)" });
-            if (eod.hour * 60 + eod.minute <= entry.hour * 60 + entry.minute) return res.status(400).json({ error: "entryTime must be before EOD" });
+            if (!eod) return res.status(400).json({ error: "EodTime must be HH:MM (IST)" });
+            if (eod.hour * 60 + eod.minute <= entry.hour * 60 + entry.minute) return res.status(400).json({ error: "EntryTime must be before EOD" });
             opts.entryHour = entry.hour; opts.entryMinute = entry.minute; opts.eodHour = eod.hour; opts.eodMinute = eod.minute;
             if (b.bandStepOverride) opts.bandStepOverride = Number(b.bandStepOverride);
         } else {
             opts.signalSource = String(b.signalSource || "RANGE").toUpperCase();
-            if (opts.signalSource !== "RANGE" && opts.signalSource !== "HA") return res.status(400).json({ error: "signalSource must be RANGE or HA" });
+            if (opts.signalSource !== "RANGE" && opts.signalSource !== "HA") return res.status(400).json({ error: "SignalSource must be RANGE or HA" });
             if (opts.signalSource === "HA") {
                 opts.haTimeframe = String(b.haTimeframe || "1h").toLowerCase();
-                if (!["5m", "15m", "30m", "1h", "1d"].includes(opts.haTimeframe)) return res.status(400).json({ error: "haTimeframe must be 5m/15m/30m/1h/1d" });
+                if (!["5m", "15m", "30m", "1h", "1d"].includes(opts.haTimeframe)) return res.status(400).json({ error: "HaTimeframe must be 5m/15m/30m/1h/1d" });
             } else {
                 if (b.bandStepOverride) opts.bandStepOverride = Number(b.bandStepOverride);
                 if (b.rangeSizeOverride) opts.rangeSizeOverride = Number(b.rangeSizeOverride);
@@ -2703,16 +2703,16 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
             opts.takeProfit = Number(b.takeProfit) || 3000;
             opts.maxLoss = Number(b.maxLoss) || 3000;
             opts.slMode = String(b.slMode || "RUPEES").toUpperCase();
-            if (!DH_SL_MODES.includes(opts.slMode)) return res.status(400).json({ error: `slMode must be one of ${DH_SL_MODES.join("/")}` });
+            if (!DH_SL_MODES.includes(opts.slMode)) return res.status(400).json({ error: `SlMode must be one of ${DH_SL_MODES.join("/")}` });
             if (opts.slMode === "ATR") {
                 opts.atrSlMult = b.atrSlMult ? Number(b.atrSlMult) : null;   // null -> engineConfig.ATR_SL_MULT
                 opts.atrTimeframe = String(b.atrTimeframe || "15m").toLowerCase();
-                if (!DH_ATR_TIMEFRAMES.includes(opts.atrTimeframe)) return res.status(400).json({ error: `atrTimeframe must be one of ${DH_ATR_TIMEFRAMES.join("/")}` });
+                if (!DH_ATR_TIMEFRAMES.includes(opts.atrTimeframe)) return res.status(400).json({ error: `AtrTimeframe must be one of ${DH_ATR_TIMEFRAMES.join("/")}` });
             }
             if (b.gapCapture) {
                 const g = parseHHMM(b.gcEntry, "23:20"), q = parseHHMM(b.gcExit, "23:25");
-                if (!g || !q) return res.status(400).json({ error: "gap capture times must be HH:MM (IST)" });
-                if (q.hour * 60 + q.minute <= g.hour * 60 + g.minute) return res.status(400).json({ error: "gap capture quit time must be after the gap capture time" });
+                if (!g || !q) return res.status(400).json({ error: "Gap capture times must be HH:MM (IST)" });
+                if (q.hour * 60 + q.minute <= g.hour * 60 + g.minute) return res.status(400).json({ error: "Gap capture quit time must be after the gap capture time" });
                 opts.gapCapture = true; opts.gcHour = g.hour; opts.gcMinute = g.minute; opts.gcQuitHour = q.hour; opts.gcQuitMinute = q.minute;
             }
         }
@@ -2746,7 +2746,7 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
 
 app.post("/api/toolbox/dualhedge/start", async (req, res) => {
     const { name } = req.body || {};
-    if (!name) return res.status(400).json({ error: "name is required" });
+    if (!name) return res.status(400).json({ error: "Name is required" });
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: ROOT });
         res.json({ ok: true });
@@ -2757,7 +2757,7 @@ app.post("/api/toolbox/dualhedge/start", async (req, res) => {
 
 app.post("/api/toolbox/dualhedge/stop", async (req, res) => {
     const { name } = req.body || {};
-    if (!name) return res.status(400).json({ error: "name is required" });
+    if (!name) return res.status(400).json({ error: "Name is required" });
     try {
         await pm2Stop(name);
         res.json({ ok: true });
@@ -2779,7 +2779,7 @@ app.get("/api/toolbox/dualhedge/logs/:name", async (req, res) => {
     try {
         const deployments = await getDualHedgeProcesses();
         const p = deployments.find(x => x.name === req.params.name);
-        if (!p) return res.status(404).json({ error: "process not found" });
+        if (!p) return res.status(404).json({ error: "Process not found" });
         const out = tailFile(p.outLogPath, N_LOG_LINES);
         const err = tailFile(p.errLogPath, N_LOG_LINES);
         res.json({ outLogPath: p.outLogPath || null, errLogPath: p.errLogPath || null, out, err });
@@ -2838,7 +2838,7 @@ app.get("/api/toolbox/roll/preview/:underlying", async (req, res) => {
             const siblings = procs.filter(sib => sib.underlying === underlying);
         const affectedPairs = hedgePairs.filter(hp => hp.coreUnderlying === underlying || hp.hedgeUnderlying === underlying);
         const affectedDuals = dualHedges.filter(dh => dh.underlying === underlying);
-        if (siblings.length === 0 && affectedPairs.length === 0 && affectedDuals.length === 0) return res.status(404).json({ error: `no running processes for ${underlying}` });
+        if (siblings.length === 0 && affectedPairs.length === 0 && affectedDuals.length === 0) return res.status(404).json({ error: `No running processes for ${underlying}` });
 
         const exchange = siblings[0]?.exchange || affectedPairs[0]?.exchange || affectedDuals[0]?.exchange;
         const def = getDefinition(underlying, exchange);
@@ -2879,7 +2879,7 @@ app.get("/api/toolbox/roll/preview/:underlying", async (req, res) => {
 
 app.post("/api/toolbox/roll/apply", async (req, res) => {
     const { underlying, manualEntry, restart } = req.body || {};
-    if (!underlying) return res.status(400).json({ error: "underlying is required" });
+    if (!underlying) return res.status(400).json({ error: "Underlying is required" });
 
     try {
         const procs = await getEngineProcesses();
@@ -2888,7 +2888,7 @@ app.post("/api/toolbox/roll/apply", async (req, res) => {
             const siblings = procs.filter(sib => sib.underlying === underlying);
         const affectedPairs = hedgePairs.filter(hp => hp.coreUnderlying === underlying || hp.hedgeUnderlying === underlying);
         const affectedDuals = dualHedges.filter(dh => dh.underlying === underlying);
-        if (siblings.length === 0 && affectedPairs.length === 0 && affectedDuals.length === 0) return res.status(404).json({ error: `no running processes for ${underlying}` });
+        if (siblings.length === 0 && affectedPairs.length === 0 && affectedDuals.length === 0) return res.status(404).json({ error: `No running processes for ${underlying}` });
 
         const exchange = siblings[0]?.exchange || affectedPairs[0]?.exchange || affectedDuals[0]?.exchange;
         const def = getDefinition(underlying, exchange);
@@ -2901,15 +2901,15 @@ app.post("/api/toolbox/roll/apply", async (req, res) => {
         if (manualEntry && manualEntry.symbol) {
             const token = Number(manualEntry.token);
             const lotSize = manualEntry.lotSize ? Number(manualEntry.lotSize) : current.lotSize;
-            if (!Number.isFinite(token) || token <= 0) return res.status(400).json({ error: "invalid manual token" });
-            if (!Number.isFinite(lotSize) || lotSize <= 0) return res.status(400).json({ error: "invalid manual lot size" });
+            if (!Number.isFinite(token) || token <= 0) return res.status(400).json({ error: "Invalid manual token" });
+            if (!Number.isFinite(lotSize) || lotSize <= 0) return res.status(400).json({ error: "Invalid manual lot size" });
             next = { symbol: manualEntry.symbol, token, lotSize, tickSize: current.tickSize };
             isManual = true;
         } else {
             const allFutures = repo.findFuturesFor(underlying);
             const currentIdx = allFutures.findIndex(f => f.token === current.token);
             next = currentIdx >= 0 ? allFutures[currentIdx + 1] : null;
-            if (!next) return res.status(400).json({ error: "next contract not found in the instrument dump — resubmit with manualEntry" });
+            if (!next) return res.status(400).json({ error: "Next contract not found in the instrument dump — resubmit with manualEntry" });
         }
 
         const pin = isManual
@@ -3021,7 +3021,7 @@ app.get("/api/token/login-url", (req, res) => {
 app.post("/api/token/exchange", async (req, res) => {
     const input = (req.body && req.body.input) || "";
     const requestToken = extractRequestToken(input);
-    if (!requestToken) return res.status(400).json({ error: "no token found in that input" });
+    if (!requestToken) return res.status(400).json({ error: "No token found in that input" });
     try {
         const session = await exchangeToken(requestToken);
         res.json({ ok: true, userId: session.user_id || null });

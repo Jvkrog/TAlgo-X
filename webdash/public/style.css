@@ -1594,3 +1594,7 @@ body.chart-page .depth-panel { height: auto; }
 .card-target{ margin:2px 0 8px; font-size:12px; letter-spacing:.02em; color:var(--green,#35F58A); font-family:inherit; opacity:.9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .card-target[data-mode="adaptive"]{ color:var(--amber,#E8C468); }
 .card-target[hidden]{ display:none; }
+
+/* Capitalise the first letter of short lowercase pills/labels */
+.status-pill, .mode-pill, .token-link, .tb-row-pills .mode-pill { text-transform: capitalize; }
+.status-pill::first-letter, .mode-pill::first-letter { text-transform: uppercase; }

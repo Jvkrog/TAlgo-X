@@ -205,7 +205,7 @@ function renderInstruments() {
     statusEl.textContent = inst.status;
     statusEl.className = `status-pill ${inst.status === "online" ? "online" : "offline"}`;
     const modeEl = el.querySelector('[data-role="mode"]');
-    modeEl.textContent = inst.live ? "live" : "paper";
+    modeEl.textContent = inst.live ? "Live" : "Paper";
     modeEl.className = `mode-pill ${inst.live ? "live" : ""}`;
   });
 }
@@ -523,13 +523,13 @@ async function control(name, action, cardEl) {
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      appendLog({ type: "ERROR", text: `control failed (${name} ${action}): ${err.error || res.statusText}` });
+      appendLog({ type: "ERROR", text: `Control failed (${name} ${action}): ${err.error || res.statusText}` });
     } else {
       appendLog({ type: "SYS", text: `${name} — ${action} sent` });
       setTimeout(loadInstruments, 1500);
     }
   } catch (err) {
-    appendLog({ type: "ERROR", text: `control failed (${name} ${action}): ${err.message}` });
+    appendLog({ type: "ERROR", text: `Control failed (${name} ${action}): ${err.message}` });
   } finally {
     cardEl.style.opacity = "1";
   }
@@ -546,7 +546,7 @@ async function loadInstruments() {
     renderInstruments();
   } catch (err) {
     // Network-level failure (server restarting, phone asleep / network switch): retry quietly, log only the first time.
-    if (instLoadFails++ === 0) appendLog({ type: "ERROR", text: `failed to load instrument list: ${err.message} — retrying` });
+    if (instLoadFails++ === 0) appendLog({ type: "ERROR", text: `Failed to load instrument list: ${err.message} — retrying` });
     clearTimeout(instRetryTimer);
     instRetryTimer = setTimeout(loadInstruments, Math.min(2000 * instLoadFails, 15000));
   }
@@ -612,7 +612,7 @@ function renderTokenAccountRow(acc) {
     </div>
     <div class="token-account-panel" id="tokenGenPanel-${acc.key}" style="display:none">
       <div class="token-panel-row">
-        <input type="text" id="tokenGenInput-${acc.key}" class="token-input" placeholder="request_token or redirect URL">
+        <input type="text" id="tokenGenInput-${acc.key}" class="token-input" placeholder="Paste request_token or redirect URL">
         <button class="btn btn-restart" data-token-exchange="${acc.key}">Exchange</button>
       </div>
       <div id="tokenGenErr-${acc.key}"></div>
@@ -636,7 +636,7 @@ async function refreshTokenStatus() {
     } else {
       tokenDot.className = "token-dot unset";
       tokenLabel.textContent = needsAttention.length === 1 && needsAttention[0].key === "global"
-        ? (tokenGlobalSet ? "token stale" : "generate token")
+        ? (tokenGlobalSet ? "Token stale" : "Generate token")
         : `${needsAttention.length} stale`;
     }
 
@@ -1488,7 +1488,7 @@ async function submitPin() {
     }
     shakeAndClear();
     showLockError(
-      data.attemptsLeft != null ? `incorrect pin — ${data.attemptsLeft} attempt(s) left` : "incorrect pin"
+      data.attemptsLeft != null ? `Incorrect pin — ${data.attemptsLeft} attempt(s) left` : "Incorrect pin"
     );
   } catch (err) {
     shakeAndClear();
@@ -1652,7 +1652,7 @@ async function loadRiskList() {
     riskInstruments = await (await fetch("/api/instruments")).json();
     renderRiskList();
   } catch (err) {
-    riskList.innerHTML = `<div class="empty-state">failed to load: ${escHtml(err.message)}</div>`;
+    riskList.innerHTML = `<div class="empty-state">Failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -1763,7 +1763,7 @@ async function loadToolboxList() {
     toolboxInstruments = await (await fetch("/api/instruments")).json();
     renderToolboxList();
   } catch (err) {
-    toolboxList.innerHTML = `<div class="empty-state">failed to load: ${escHtml(err.message)}</div>`;
+    toolboxList.innerHTML = `<div class="empty-state">Failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -1977,7 +1977,7 @@ function openEditModal(inst) {
       <div class="tb-form-hint">On by default. Range >= ATR x multiplier blocks new entries/reversals for a cooldown; existing SL/target/exit are never affected.</div>
       <input type="number" id="editLongCandleAtrPeriod" min="1" step="1" value="${inst.longCandleAtrPeriod ?? ""}" placeholder="ATR period, blank = default (14)">
       <input type="number" id="editLongCandleAtrMult" min="0" step="any" value="${inst.longCandleAtrMult ?? ""}" placeholder="ATR multiplier, blank = default (1.5)">
-      <input type="number" id="editLongCandleCooldown" min="0" step="1" value="${inst.longCandleCooldownCandles ?? ""}" placeholder="cooldown candles, blank = default (2)">
+      <input type="number" id="editLongCandleCooldown" min="0" step="1" value="${inst.longCandleCooldownCandles ?? ""}" placeholder="Cooldown candles, blank = default (2)">
     </div>
     <div class="tb-form-row">
       <div class="tb-form-label">Max daily loss in rupees (blank = no floor)</div>
@@ -1989,8 +1989,8 @@ function openEditModal(inst) {
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="editChopEnabled" ${inst.chopFilterEnabled ? "checked" : ""}><span>Choppiness Index filter on every entry</span></label>
-      <input type="number" id="editChopPeriod" placeholder="period, default 9" min="1" step="1" value="${inst.chopPeriod ?? ""}">
-      <input type="number" id="editChopMax" placeholder="max threshold, default 58" min="0" step="any" value="${inst.chopMax ?? ""}">
+      <input type="number" id="editChopPeriod" placeholder="Period, default 9" min="1" step="1" value="${inst.chopPeriod ?? ""}">
+      <input type="number" id="editChopMax" placeholder="Max threshold, default 58" min="0" step="any" value="${inst.chopMax ?? ""}">
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="editCarry" ${inst.carryOvernight ? "checked" : ""}><span>Carry positions overnight past EOD, NRML-style</span></label>
@@ -1998,7 +1998,7 @@ function openEditModal(inst) {
     <div class="tb-form-row">
       <div class="tb-form-label">Candle type</div>
       <div class="tb-form-hint">${candleText(inst)} — fixed at deploy (the state file and process are named after it). To run another candle type, deploy the same instrument again with a different candle.</div>
-      ${inst.candleType === "RANGE" ? `<input type="number" id="editRangeSize" min="0" step="any" value="${inst.rangeSize ?? ""}" placeholder="range size, blank = ATR default">` : ""}
+      ${inst.candleType === "RANGE" ? `<input type="number" id="editRangeSize" min="0" step="any" value="${inst.rangeSize ?? ""}" placeholder="Range size, blank = ATR default">` : ""}
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="editDailyHaGate" ${inst.dailyHaGateEnabled !== false ? "checked" : ""}><span>Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)</span></label>
@@ -2121,7 +2121,7 @@ async function openLogsModal(name) {
     }
     tbLogsBody.innerHTML = html;
   } catch (err) {
-    tbLogsBody.textContent = `failed to load logs: ${err.message}`;
+    tbLogsBody.textContent = `Failed to load logs: ${err.message}`;
   }
 }
 tbLogsClose.addEventListener("click", () => tbLogsModal.classList.remove("open"));
@@ -2151,7 +2151,7 @@ function openModeModal(names) {
       </label>
       <div class="tb-confirm-live" id="tbConfirmLive">
         <div class="tb-confirm-live-warn">⚠ switching to LIVE places real orders. type LIVE to confirm:</div>
-        <input type="text" id="tbConfirmLiveInput" placeholder="type LIVE">
+        <input type="text" id="tbConfirmLiveInput" placeholder="Type LIVE">
       </div>
       <button class="tb-mode-submit" id="tbModeSubmit" disabled>Apply</button>
     </div>
@@ -2259,7 +2259,7 @@ function renderAddSearchStep() {
       const data = await (await fetch(`/api/toolbox/instruments?exchange=${addState.exchange}&q=${encodeURIComponent(q)}`)).json();
       if (data.error) { hint.textContent = data.error; return; }
       if (data.matches.length === 0) { hint.textContent = "No matches"; return; }
-      hint.textContent = data.truncated ? `showing 500 of ${data.total} — narrow your search` : `${data.matches.length} match(es)`;
+      hint.textContent = data.truncated ? `Showing 500 of ${data.total} — narrow your search` : `${data.matches.length} match(es)`;
       data.matches.forEach(u => {
         const btn = document.createElement("button");
         btn.className = "tb-pick-item";
@@ -2268,7 +2268,7 @@ function renderAddSearchStep() {
         pickList.appendChild(btn);
       });
     } catch (err) {
-      hint.textContent = `search failed: ${escHtml(err.message)}`;
+      hint.textContent = `Search failed: ${escHtml(err.message)}`;
     }
   }
   tbAddBody.querySelector("#addSearchBtn").addEventListener("click", runSearch);
@@ -2278,7 +2278,7 @@ function renderAddSearchStep() {
 
 async function selectAddUnderlying(underlying) {
   addState.underlying = underlying;
-  tbAddBody.innerHTML = `<div class="tb-form-hint">resolving ${underlying}...</div>`;
+  tbAddBody.innerHTML = `<div class="tb-form-hint">Resolving ${underlying}...</div>`;
   try {
     const preview = await (await fetch(`/api/toolbox/instruments/${encodeURIComponent(underlying)}/preview?exchange=${addState.exchange}`)).json();
     if (preview.error) {
@@ -2293,7 +2293,7 @@ async function selectAddUnderlying(underlying) {
     addState.allTimeframes = stratData.timeframes;
     renderAddConfigStep();
   } catch (err) {
-    tbAddBody.innerHTML = `<div class="tb-err-box">failed: ${escHtml(err.message)}</div>`;
+    tbAddBody.innerHTML = `<div class="tb-err-box">Failed: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -2320,7 +2320,7 @@ function renderAddConfigStep() {
         <option value="RANGE">Range bars</option>
       </select>
       <div class="tb-form-label" id="addRangeRowLabel" style="display:none;margin-top:6px">Range bar size (blank = ATR default)</div>
-      <input type="number" id="addRangeSize" min="0" step="any" placeholder="price units, e.g. 1.5" style="display:none">
+      <input type="number" id="addRangeSize" min="0" step="any" placeholder="Price units, e.g. 1.5" style="display:none">
       <div class="tb-warn-box" id="addCandleWarn" style="display:none"></div>
     </div>
     <div class="tb-form-row">
@@ -2343,7 +2343,7 @@ function renderAddConfigStep() {
       </div>
       <div class="tb-confirm-live" id="addConfirmLive">
         <div class="tb-confirm-live-warn">⚠ this will place REAL orders. type LIVE to confirm:</div>
-        <input type="text" id="addConfirmLiveInput" placeholder="type LIVE">
+        <input type="text" id="addConfirmLiveInput" placeholder="Type LIVE">
       </div>
     </div>
     <label class="tb-form-row-inline"><input type="checkbox" id="addCarry"><span>Carry position overnight instead of EOD close</span></label>
@@ -2430,7 +2430,7 @@ function renderAddConfigStep() {
       <div class="tb-form-hint">On by default. Existing SL/target/exit are never affected.</div>
       <input type="number" id="addLongCandleAtrPeriod" min="1" step="1" placeholder="ATR period, blank = default (14)">
       <input type="number" id="addLongCandleAtrMult" min="0" step="any" placeholder="ATR multiplier, blank = default (1.5)">
-      <input type="number" id="addLongCandleCooldown" min="0" step="1" value="0" placeholder="cooldown candles (default 0)">
+      <input type="number" id="addLongCandleCooldown" min="0" step="1" value="0" placeholder="Cooldown candles (default 0)">
     </div>
     <div class="tb-form-row">
       <div class="tb-form-label">Max daily loss in rupees, quits for the day if breached (blank = no floor)</div>
@@ -2597,7 +2597,7 @@ function renderAddConfigStep() {
         return;
       }
       tbAddModal.classList.remove("open");
-      appendLog({ type: "SYS", text: `started ${data.name} — ${isLive ? "LIVE" : "PAPER"} — ${pickedStrategy} @ ${data.timeframe}` });
+      appendLog({ type: "SYS", text: `Started ${data.name} — ${isLive ? "LIVE" : "PAPER"} — ${pickedStrategy} @ ${data.timeframe}` });
       loadToolboxList();
     } catch (err) {
       errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
@@ -2636,7 +2636,7 @@ document.getElementById("tbBacktestSel").addEventListener("click", async () => {
     if (s && !s.nativeCandle) btState.candleType = null;
     renderBacktestParamsStep();
   } catch (err) {
-    tbBacktestBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
+    tbBacktestBody.innerHTML = `<div class="tb-err-box">Failed to load: ${escHtml(err.message)}</div>`;
   }
 });
 
@@ -2650,7 +2650,7 @@ async function openBacktestModal() {
     btState.timeframes = stratData.timeframes;
     renderBacktestStrategyStep();
   } catch (err) {
-    tbBacktestBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
+    tbBacktestBody.innerHTML = `<div class="tb-err-box">Failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -2664,7 +2664,7 @@ function renderBacktestStrategyStep() {
         <option value="HA">Heikin-Ashi</option>
         <option value="RANGE">Range bars</option>
       </select>
-      <input type="number" id="btRangeSize" min="0" step="any" placeholder="range size, blank = ATR default" style="display:none;margin-top:6px">
+      <input type="number" id="btRangeSize" min="0" step="any" placeholder="Range size, blank = ATR default" style="display:none;margin-top:6px">
       <div class="tb-form-hint">Picking a type the strategy wasn't designed for overrides it — you'll see the warning when you pick the strategy.</div>
     </div>
     <div class="tb-form-row"><div id="btStrategyList"></div></div>`;
@@ -2704,7 +2704,7 @@ function renderBacktestInstrumentStep() {
       </div>
     </div>
     <div class="tb-search-row">
-      <input type="text" id="btSearchInput" placeholder="search underlying...">
+      <input type="text" id="btSearchInput" placeholder="Search underlying...">
       <button id="btSearchBtn">Search</button>
     </div>
     <div class="tb-pick-list" id="btPickList"></div>
@@ -2728,7 +2728,7 @@ function renderBacktestInstrumentStep() {
       const data = await (await fetch(`/api/toolbox/instruments?exchange=${btState.exchange}&q=${encodeURIComponent(q)}`)).json();
       if (data.error) { hint.textContent = data.error; return; }
       if (data.matches.length === 0) { hint.textContent = "No matches"; return; }
-      hint.textContent = data.truncated ? `showing 500 of ${data.total} — narrow your search` : `${data.matches.length} match(es)`;
+      hint.textContent = data.truncated ? `Showing 500 of ${data.total} — narrow your search` : `${data.matches.length} match(es)`;
       data.matches.forEach(u => {
         const btn = document.createElement("button");
         btn.className = "tb-pick-item";
@@ -2737,7 +2737,7 @@ function renderBacktestInstrumentStep() {
         pickList.appendChild(btn);
       });
     } catch (err) {
-      hint.textContent = `search failed: ${escHtml(err.message)}`;
+      hint.textContent = `Search failed: ${escHtml(err.message)}`;
     }
   }
   tbBacktestBody.querySelector("#btSearchBtn").addEventListener("click", runSearch);
@@ -2780,14 +2780,14 @@ async function renderBacktestParamsStep() {
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="btChopEnabled" checked><span>Choppiness Index filter on every entry (default Y)</span></label>
-      <input type="number" id="btChopPeriod" placeholder="period, default 9" min="1" step="1">
-      <input type="number" id="btChopMax" placeholder="max threshold, default 58" min="0" step="any">
+      <input type="number" id="btChopPeriod" placeholder="Period, default 9" min="1" step="1">
+      <input type="number" id="btChopMax" placeholder="Max threshold, default 58" min="0" step="any">
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="btLcEnabled" checked><span>Block entries after an abnormally large candle (default Y)</span></label>
       <input type="number" id="btLcPeriod" placeholder="ATR period, default 14" min="1" step="1">
       <input type="number" id="btLcMult" placeholder="ATR multiplier, default 1.5" min="0" step="any">
-      <input type="number" id="btLcCooldown" value="0" placeholder="cooldown candles, default 0" min="0" step="1">
+      <input type="number" id="btLcCooldown" value="0" placeholder="Cooldown candles, default 0" min="0" step="1">
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="btDoubleDisabled"><span>Disable double orders, blocks reversal re-entries only (default N)</span></label>
@@ -3163,7 +3163,7 @@ function renderBtDeployView(bt) {
       const data = await res.json();
       if (!res.ok) { err.innerHTML = `<div class="tb-err-box">${esc(data.error || "Failed")}</div>`; btn.disabled = false; btn.textContent = "Deploy"; return; }
       tbBacktestModal.classList.remove("open");
-      appendLog({ type: "SYS", text: `started ${data.name} — ${isLive ? "LIVE" : "PAPER"} — ${bt.strategy} @ ${data.timeframe}` });
+      appendLog({ type: "SYS", text: `Started ${data.name} — ${isLive ? "LIVE" : "PAPER"} — ${bt.strategy} @ ${data.timeframe}` });
       loadToolboxList();
     } catch (e) {
       err.innerHTML = `<div class="tb-err-box">${esc(e.message)}</div>`; btn.disabled = false; btn.textContent = "Deploy";
@@ -3216,7 +3216,7 @@ async function openCredentialsModal() {
           return;
         }
         msgBox.innerHTML = data.changed > 0
-          ? `<div class="tb-form-hint">saved ${data.changed} value(s) — ${data.note}</div>`
+          ? `<div class="tb-form-hint">Saved ${data.changed} value(s) — ${data.note}</div>`
           : `<div class="tb-form-hint">Nothing changed</div>`;
         submitBtn.disabled = false;
         submitBtn.textContent = "Save";
@@ -3227,7 +3227,7 @@ async function openCredentialsModal() {
       }
     });
   } catch (err) {
-    tbCredsBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
+    tbCredsBody.innerHTML = `<div class="tb-err-box">Failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -3310,7 +3310,7 @@ async function runTrendingScan(confirmAll) {
         let evt;
         try { evt = JSON.parse(line); } catch { continue; }
         if (evt.type === "progress") {
-          if (scanBtn) scanBtn.textContent = `scanning... ${evt.done}/${evt.total} (${evt.underlying})`;
+          if (scanBtn) scanBtn.textContent = `Scanning... ${evt.done}/${evt.total} (${evt.underlying})`;
         } else if (evt.type === "result") {
           finalData = evt;
         } else if (evt.type === "error") {
@@ -3464,7 +3464,7 @@ async function loadMarketStatus() {
         </span>
       </div>
       <div class="tb-search-row" style="margin-bottom:10px">
-        <input type="text" id="marketAddInput" placeholder="add underlying to watchlist...">
+        <input type="text" id="marketAddInput" placeholder="Add underlying to watchlist...">
         <button id="marketAddBtn">Add</button>
       </div>
       <div id="marketAddHint" class="tb-form-hint"></div>
@@ -3542,13 +3542,13 @@ async function loadMarketStatus() {
           addPickList.appendChild(btn);
         });
       } catch (err) {
-        addHint.textContent = `search failed: ${escHtml(err.message)}`;
+        addHint.textContent = `Search failed: ${escHtml(err.message)}`;
       }
     }
     tbMarketBody.querySelector("#marketAddBtn").addEventListener("click", runMarketSearch);
     addInput.addEventListener("keydown", e => { if (e.key === "Enter") runMarketSearch(); });
   } catch (err) {
-    tbMarketBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
+    tbMarketBody.innerHTML = `<div class="tb-err-box">Failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -3715,9 +3715,9 @@ function renderRollConfirmStep(preview) {
         btn.textContent = "Apply roll";
         return;
       }
-      let resultHtml = `<div class="tb-form-hint">rolled ${data.oldSymbol} → ${data.newSymbol}${data.manual ? " (manual pin)" : ""}</div>`;
-      if (data.restarted && data.restarted.length) resultHtml += `<div class="tb-form-hint">restarted: ${data.restarted.join(", ")}</div>`;
-      if (data.restartFailed && data.restartFailed.length) resultHtml += `<div class="tb-err-box">restart failed: ${data.restartFailed.map(f => `${f.name} (${f.error})`).join(", ")}</div>`;
+      let resultHtml = `<div class="tb-form-hint">Rolled ${data.oldSymbol} → ${data.newSymbol}${data.manual ? " (manual pin)" : ""}</div>`;
+      if (data.restarted && data.restarted.length) resultHtml += `<div class="tb-form-hint">Restarted: ${data.restarted.join(", ")}</div>`;
+      if (data.restartFailed && data.restartFailed.length) resultHtml += `<div class="tb-err-box">Restart failed: ${data.restartFailed.map(f => `${f.name} (${f.error})`).join(", ")}</div>`;
       if (data.note) resultHtml += `<div class="tb-warn-box">${data.note}</div>`;
       resultBox.innerHTML = resultHtml;
       btn.style.display = "none";
@@ -3804,7 +3804,7 @@ async function loadHedgePairsList() {
       });
     });
   } catch (err) {
-    tbHedgePairsBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
+    tbHedgePairsBody.innerHTML = `<div class="tb-err-box">Failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -3816,7 +3816,7 @@ function renderHedgePairSearchStep(label, onPick) {
     <button class="tb-back-link" id="hpBack">\u2039 back</button>
     <div class="tb-form-hint" style="margin:8px 0">${label}</div>
     <div class="tb-search-row">
-      <input type="text" id="hpSearchInput" placeholder="search underlying...">
+      <input type="text" id="hpSearchInput" placeholder="Search underlying...">
       <button id="hpSearchBtn">Search</button>
     </div>
     <div id="hpSearchHint" class="tb-form-hint"></div>
@@ -3846,7 +3846,7 @@ function renderHedgePairSearchStep(label, onPick) {
         list.appendChild(btn);
       });
     } catch (err) {
-      hint.textContent = `search failed: ${escHtml(err.message)}`;
+      hint.textContent = `Search failed: ${escHtml(err.message)}`;
     }
   }
   tbHedgePairsBody.querySelector("#hpSearchBtn").addEventListener("click", runSearch);
@@ -4033,7 +4033,7 @@ async function loadDualHedgeList() {
       });
     });
   } catch (err) {
-    tbDualHedgeBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
+    tbDualHedgeBody.innerHTML = `<div class="tb-err-box">Failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -4077,7 +4077,7 @@ async function renderDualHedgeUsers() {
           <div class="tb-form-hint" id="dhTokenPanel-${u.name}" style="display:none;margin:4px 0 12px 4px">
             <div style="margin-bottom:4px">after logging in as ${u.name}, paste the request_token (or the full redirect URL) here:</div>
             <div class="tb-search-row">
-              <input type="text" id="dhTokenInput-${u.name}" placeholder="request_token or redirect URL">
+              <input type="text" id="dhTokenInput-${u.name}" placeholder="Paste request_token or redirect URL">
               <button data-dh-token-exchange="${u.name}">Exchange</button>
             </div>
             <div id="dhTokenErr-${u.name}"></div>
@@ -4176,7 +4176,7 @@ async function renderDualHedgeUsers() {
       }
     });
   } catch (err) {
-    tbDualHedgeBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
+    tbDualHedgeBody.innerHTML = `<div class="tb-err-box">Failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -4188,7 +4188,7 @@ function renderDualHedgeAddUnderlyingPicker() {
     <button class="tb-back-link" id="dhBack">\u2039 back</button>
     <div class="tb-form-hint" style="margin:8px 0">Underlying (both accounts trade this same instrument, opposite directions)</div>
     <div class="tb-search-row">
-      <input type="text" id="dhSearchInput" placeholder="search underlying...">
+      <input type="text" id="dhSearchInput" placeholder="Search underlying...">
       <button id="dhSearchBtn">Search</button>
     </div>
     <div id="dhSearchHint" class="tb-form-hint"></div>
@@ -4215,7 +4215,7 @@ function renderDualHedgeAddUnderlyingPicker() {
         list.appendChild(btn);
       });
     } catch (err) {
-      hint.textContent = `search failed: ${escHtml(err.message)}`;
+      hint.textContent = `Search failed: ${escHtml(err.message)}`;
     }
   }
   tbDualHedgeBody.querySelector("#dhSearchBtn").addEventListener("click", runSearch);
@@ -4257,7 +4257,7 @@ async function renderDualHedgeAddForm() {
     <div id="dhDualOnly">
     <div class="tb-form-row"><div class="tb-form-label">Stop type</div><select id="dhSlMode"><option value="RUPEES">Rupees (loss on the leg)</option><option value="ATR">ATR multiple from entry</option></select></div>
     <div id="dhAtrRows" style="display:none">
-      <div class="tb-form-row"><div class="tb-form-label">ATR stop multiplier (blank = default)</div><input type="number" id="dhAtrMult" min="0" step="any" placeholder="default"></div>
+      <div class="tb-form-row"><div class="tb-form-label">ATR stop multiplier (blank = default)</div><input type="number" id="dhAtrMult" min="0" step="any" placeholder="Default"></div>
       <div class="tb-form-row"><div class="tb-form-label">ATR timeframe</div><select id="dhAtrTf"><option>5m</option><option selected>15m</option><option>30m</option><option>1h</option></select></div>
       <div class="tb-form-hint">A flipped leg exits once price moves this many ATRs against its entry (ATR taken at entry, fixed after). The rupee figure below is then only a backstop while ATR isn't available yet.</div>
     </div>
@@ -4396,7 +4396,7 @@ async function renderHedgePairBacktestForm() {
   q("#hbBack").addEventListener("click", renderHedgePairAddHedgePicker);
   q("#hbSubmit").addEventListener("click", async () => {
     q("#hbErrBox").innerHTML = ""; q("#hbResult").innerHTML = "";
-    if (!q("#hbFrom").value || !q("#hbTo").value) { q("#hbErrBox").innerHTML = `<div class="tb-err-box">pick a from and to date</div>`; return; }
+    if (!q("#hbFrom").value || !q("#hbTo").value) { q("#hbErrBox").innerHTML = `<div class="tb-err-box">Pick a from and to date</div>`; return; }
     const btn = q("#hbSubmit"); btn.disabled = true; btn.textContent = "Running...";
     try {
       const res = await fetch("/api/toolbox/hedgepairs/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
@@ -4438,7 +4438,7 @@ function renderDualHedgeBacktestForm() {
       <div class="tb-form-row" id="dbHaRow" style="display:none"><div class="tb-form-label">HA timeframe</div><select id="dbHaTf"><option>5m</option><option>15m</option><option>30m</option><option selected>1h</option><option>1d</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Stop type</div><select id="dbSlMode"><option value="RUPEES">Rupees (loss on the leg)</option><option value="ATR">ATR multiple from entry</option></select></div>
       <div id="dbAtrRows" style="display:none">
-        <div class="tb-form-row"><div class="tb-form-label">ATR stop multiplier (blank = default)</div><input type="number" id="dbAtrMult" min="0" step="any" placeholder="default"></div>
+        <div class="tb-form-row"><div class="tb-form-label">ATR stop multiplier (blank = default)</div><input type="number" id="dbAtrMult" min="0" step="any" placeholder="Default"></div>
         <div class="tb-form-row"><div class="tb-form-label">ATR timeframe</div><select id="dbAtrTf"><option>5m</option><option selected>15m</option><option>30m</option><option>1h</option></select></div>
       </div>
       <div class="tb-form-row"><div class="tb-form-label" id="dbMaxLossLabel">Stop \u20b9</div><input type="number" id="dbMaxLoss" min="1" value="3000"></div>
@@ -4473,7 +4473,7 @@ function renderDualHedgeBacktestForm() {
   q("#dbSubmit").addEventListener("click", async () => {
     const errBox = q("#dbErrBox");
     errBox.innerHTML = ""; q("#dbResult").innerHTML = "";
-    if (!q("#dbFrom").value || !q("#dbTo").value) { errBox.innerHTML = `<div class="tb-err-box">pick a from and to date</div>`; return; }
+    if (!q("#dbFrom").value || !q("#dbTo").value) { errBox.innerHTML = `<div class="tb-err-box">Pick a from and to date</div>`; return; }
     const body = {
       underlying: dhAddState.underlying, strategy: q("#dbStrategy").value,
       lots: q("#dbLots").value || 1, lotMultOverride: q("#dbLotMult").value || undefined,
@@ -4596,7 +4596,7 @@ async function loadAiTrades() {
     return `<div class="toolbox-row" style="display:block;padding:10px 16px" data-i="${i}">
       <div><b>${aiEsc(f.instrument)}</b> ${aiEsc(f.side)} · ${aiEsc(f.strategy || "")} ${aiEsc(f.timeframe || "")} · <span style="color:${pnlCol}">${f.pnlRupees >= 0 ? "+" : ""}${f.pnlRupees}</span></div>
       <div class="tb-form-hint">${aiEsc(f.entryPrice)} → ${aiEsc(f.exitPrice)} (${f.points >= 0 ? "+" : ""}${f.points} pts) · ${exc}${f.durationMinutes ?? "?"} min · exit: ${aiEsc(f.exitReason || "")} · ${aiEsc(when)}</div>
-      ${f.entryContext ? `<div class="tb-form-hint">entry ${aiEsc(f.entryContext.entryTimeIst)} IST${f.entryContext.priceVsBand ? " · " + aiEsc(f.entryContext.priceVsBand) : ""}${f.entryContext.chop != null ? " · chop " + f.entryContext.chop : ""}${f.dayContext ? " · trade #" + f.dayContext.tradeNumberToday + " today" + (f.dayContext.consecutiveLossesBefore ? " (" + f.dayContext.consecutiveLossesBefore + " losses in a row before)" : "") : ""}</div>` : ""}
+      ${f.entryContext ? `<div class="tb-form-hint">Entry ${aiEsc(f.entryContext.entryTimeIst)} IST${f.entryContext.priceVsBand ? " · " + aiEsc(f.entryContext.priceVsBand) : ""}${f.entryContext.chop != null ? " · chop " + f.entryContext.chop : ""}${f.dayContext ? " · trade #" + f.dayContext.tradeNumberToday + " today" + (f.dayContext.consecutiveLossesBefore ? " (" + f.dayContext.consecutiveLossesBefore + " losses in a row before)" : "") : ""}</div>` : ""}
       <div class="ai-review-slot">${t.review ? aiReviewHtml(t.review) : ""}</div>
       ${t.reviewError ? `<div class="tb-form-hint" style="color:var(--red,#ff5c5c)">Last review failed: ${aiEsc(t.reviewError)}</div>` : ""}
       <button class="btn btn-ghost ai-review-btn" style="margin-top:6px">${t.review ? "Re-run review" : "Review this trade"}</button>
