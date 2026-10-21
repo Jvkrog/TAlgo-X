@@ -66,7 +66,7 @@ function candleOhlcText(k) {
   const f = v => Number(v).toFixed(2);
   return `candle O:${f(k.o)} H:${f(k.h)} L:${f(k.l)} C:${f(k.c)}`;
 }
-function cardId(inst) { return `card-${inst.name}`; }
+function cardId(inst) { return `card-${escHtml(inst.name)}`; }
 
 // ── day change (vs previous close, like Kite's watchlist) ───────────────────
 const dayRef = {};   // process name -> previous close
@@ -126,11 +126,11 @@ function buildCard(inst) {
   el.innerHTML = `
     <div class="card-top">
       <div class="card-id">
-        <span class="card-underlying">${inst.underlying}</span>
-        <span class="card-strategy">${inst.strategy}${candleTag(inst)}</span>
+        <span class="card-underlying">${escHtml(inst.underlying)}</span>
+        <span class="card-strategy">${escHtml(inst.strategy)}${candleTag(inst)}</span>
       </div>
       <div>
-        <span class="status-pill ${inst.status === "online" ? "online" : "offline"}" data-role="status">${inst.status}</span>
+        <span class="status-pill ${inst.status === "online" ? "online" : "offline"}" data-role="status">${escHtml(inst.status)}</span>
         <span class="mode-pill ${inst.live ? "live" : ""}" data-role="mode">${inst.live ? "live" : "paper"}</span>
       </div>
     </div>
@@ -677,14 +677,14 @@ async function refreshTokenStatus() {
           });
           const data = await res.json();
           if (!res.ok) {
-            errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed"}</div>`;
+            errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Failed")}</div>`;
             btn.disabled = false; btn.textContent = "Exchange";
             return;
           }
           appendLog({ type: "SYS", text: `[token] ${acc.label} access token updated — restart engines to pick it up` });
           refreshTokenStatus();
         } catch (err) {
-          errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+          errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
           btn.disabled = false; btn.textContent = "Exchange";
         }
       });
@@ -727,7 +727,7 @@ async function handleTokenRedirectParams() {
       if (!res.ok) throw new Error(data.error || "exchange failed");
       appendLog({ type: "SYS", text: `[token] ${account === "global" ? "global account" : account} access token captured and updated — restart engines to pick it up` });
     } catch (err) {
-      appendLog({ type: "ERROR", text: `[token] ${account === "global" ? "global account" : account} auto-capture failed: ${err.message} — paste the redirect URL into that account's row instead` });
+      appendLog({ type: "ERROR", text: `[token] ${account === "global" ? "global account" : account} auto-capture failed: ${escHtml(err.message)} — paste the redirect URL into that account's row instead` });
     }
     refreshTokenStatus();
     return;
@@ -1652,7 +1652,7 @@ async function loadRiskList() {
     riskInstruments = await (await fetch("/api/instruments")).json();
     renderRiskList();
   } catch (err) {
-    riskList.innerHTML = `<div class="empty-state">failed to load: ${err.message}</div>`;
+    riskList.innerHTML = `<div class="empty-state">failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -1685,11 +1685,11 @@ function renderRiskList() {
     if (inst.maxDailyLoss) badges.push(`<span class="mode-pill">maxloss -₹${inst.maxDailyLoss}</span>`);
     row.innerHTML = `
       <div class="tb-row-id">
-        <span class="tb-underlying">${inst.underlying}</span>
-        <span class="tb-strategy">${inst.strategy}${candleTag(inst)}</span>
+        <span class="tb-underlying">${escHtml(inst.underlying)}</span>
+        <span class="tb-strategy">${escHtml(inst.strategy)}${candleTag(inst)}</span>
       </div>
       <div class="tb-row-pills" style="flex-wrap:wrap">${badges.join("")}</div>
-      <button class="tb-row-edit" data-name="${inst.name}">Manage risk</button>
+      <button class="tb-row-edit" data-name="${escHtml(inst.name)}">Manage risk</button>
     `;
     riskList.appendChild(row);
   });
@@ -1763,7 +1763,7 @@ async function loadToolboxList() {
     toolboxInstruments = await (await fetch("/api/instruments")).json();
     renderToolboxList();
   } catch (err) {
-    toolboxList.innerHTML = `<div class="empty-state">failed to load: ${err.message}</div>`;
+    toolboxList.innerHTML = `<div class="empty-state">failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -1777,17 +1777,17 @@ function renderToolboxList() {
     const row = document.createElement("div");
     row.className = "tb-row";
     row.innerHTML = `
-      <input type="checkbox" class="tb-check" data-name="${inst.name}">
+      <input type="checkbox" class="tb-check" data-name="${escHtml(inst.name)}">
       <div class="tb-row-id">
-        <span class="tb-underlying">${inst.underlying}</span>
-        <span class="tb-strategy">${inst.strategy}${candleTag(inst)}</span>
+        <span class="tb-underlying">${escHtml(inst.underlying)}</span>
+        <span class="tb-strategy">${escHtml(inst.strategy)}${candleTag(inst)}</span>
       </div>
       <div class="tb-row-pills">
-        <span class="status-pill ${inst.status === "online" ? "online" : "offline"}">${inst.status}</span>
+        <span class="status-pill ${inst.status === "online" ? "online" : "offline"}">${escHtml(inst.status)}</span>
         <span class="mode-pill ${inst.live ? "live" : ""}">${inst.live ? "live" : "paper"}</span>
       </div>
-      <button class="tb-row-edit" data-name="${inst.name}">Edit</button>
-      <button class="tb-row-logs" data-name="${inst.name}">Logs</button>
+      <button class="tb-row-edit" data-name="${escHtml(inst.name)}">Edit</button>
+      <button class="tb-row-logs" data-name="${escHtml(inst.name)}">Logs</button>
     `;
     toolboxList.appendChild(row);
   });
@@ -1864,7 +1864,7 @@ const tbEditClose = document.getElementById("tbEditClose");
 // greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen,
 // almaChopFilterEnabled, strategy) is already there — no extra fetch.
 function openEditModal(inst) {
-  tbEditTitle.textContent = `${inst.underlying} — ${inst.strategy}`;
+  tbEditTitle.textContent = `${escHtml(inst.underlying)} — ${escHtml(inst.strategy)}`;
 
   const isAlmaProFast = inst.strategy === "ALMA_PRO_FAST";
   const isAlmaProSlow = inst.strategy === "ALMA_PRO_SLOW";
@@ -2268,7 +2268,7 @@ function renderAddSearchStep() {
         pickList.appendChild(btn);
       });
     } catch (err) {
-      hint.textContent = `search failed: ${err.message}`;
+      hint.textContent = `search failed: ${escHtml(err.message)}`;
     }
   }
   tbAddBody.querySelector("#addSearchBtn").addEventListener("click", runSearch);
@@ -2282,7 +2282,7 @@ async function selectAddUnderlying(underlying) {
   try {
     const preview = await (await fetch(`/api/toolbox/instruments/${encodeURIComponent(underlying)}/preview?exchange=${addState.exchange}`)).json();
     if (preview.error) {
-      tbAddBody.innerHTML = `<div class="tb-err-box">${preview.error}</div><button class="tb-back-link" id="addBackErr">‹ Back to search</button>`;
+      tbAddBody.innerHTML = `<div class="tb-err-box">${escHtml(preview.error)}</div><button class="tb-back-link" id="addBackErr">‹ Back to search</button>`;
       tbAddBody.querySelector("#addBackErr").addEventListener("click", renderAddSearchStep);
       return;
     }
@@ -2293,7 +2293,7 @@ async function selectAddUnderlying(underlying) {
     addState.allTimeframes = stratData.timeframes;
     renderAddConfigStep();
   } catch (err) {
-    tbAddBody.innerHTML = `<div class="tb-err-box">failed: ${err.message}</div>`;
+    tbAddBody.innerHTML = `<div class="tb-err-box">failed: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -2591,7 +2591,7 @@ function renderAddConfigStep() {
       const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) {
-        errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed"}</div>`;
+        errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Failed")}</div>`;
         submitBtn.disabled = false;
         submitBtn.textContent = "Start instrument";
         return;
@@ -2600,7 +2600,7 @@ function renderAddConfigStep() {
       appendLog({ type: "SYS", text: `started ${data.name} — ${isLive ? "LIVE" : "PAPER"} — ${pickedStrategy} @ ${data.timeframe}` });
       loadToolboxList();
     } catch (err) {
-      errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+      errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
       submitBtn.disabled = false;
       submitBtn.textContent = "Start instrument";
     }
@@ -2636,7 +2636,7 @@ document.getElementById("tbBacktestSel").addEventListener("click", async () => {
     if (s && !s.nativeCandle) btState.candleType = null;
     renderBacktestParamsStep();
   } catch (err) {
-    tbBacktestBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+    tbBacktestBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
   }
 });
 
@@ -2650,7 +2650,7 @@ async function openBacktestModal() {
     btState.timeframes = stratData.timeframes;
     renderBacktestStrategyStep();
   } catch (err) {
-    tbBacktestBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+    tbBacktestBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -2737,7 +2737,7 @@ function renderBacktestInstrumentStep() {
         pickList.appendChild(btn);
       });
     } catch (err) {
-      hint.textContent = `search failed: ${err.message}`;
+      hint.textContent = `search failed: ${escHtml(err.message)}`;
     }
   }
   tbBacktestBody.querySelector("#btSearchBtn").addEventListener("click", runSearch);
@@ -2977,7 +2977,7 @@ async function renderBacktestParamsStep() {
       const data = await res.json();
       if (!res.ok) {
         if (/lot multiplier/i.test(data.error || "")) tbBacktestBody.querySelector("#btLotMultRow").style.display = "";
-        errBox.innerHTML = `<div class="tb-err-box">${data.error || "Backtest failed"}</div>`;
+        errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Backtest failed")}</div>`;
         submitBtn.disabled = false;
         submitBtn.textContent = "Run backtest";
         return;
@@ -3026,7 +3026,7 @@ async function renderBacktestParamsStep() {
           if (!r.ok) throw new Error(j.error || "Apply failed");
           out.innerHTML = `<div class="tb-form-hint">Applied to ${name} — process restarted.</div>`;
           applyBtn.textContent = "Applied"; setTimeout(loadToolboxList, 1200);
-        } catch (err) { out.innerHTML = `<div class="tb-err-box">${err.message}</div>`; applyBtn.disabled = false; applyBtn.textContent = `Apply these settings to ${name} (restarts it)`; }
+        } catch (err) { out.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`; applyBtn.disabled = false; applyBtn.textContent = `Apply these settings to ${name} (restarts it)`; }
       });
       resultBox.querySelector("#btAiBtn").addEventListener("click", async e => {
         const btn = e.currentTarget, out = resultBox.querySelector("#btAiOut");
@@ -3050,7 +3050,7 @@ async function renderBacktestParamsStep() {
       submitBtn.disabled = false;
       submitBtn.textContent = "Run backtest";
     } catch (err) {
-      errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+      errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
       submitBtn.disabled = false;
       submitBtn.textContent = "Run backtest";
     }
@@ -3210,7 +3210,7 @@ async function openCredentialsModal() {
         const res = await fetch("/api/toolbox/credentials", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
         const data = await res.json();
         if (!res.ok) {
-          errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed"}</div>`;
+          errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Failed")}</div>`;
           submitBtn.disabled = false;
           submitBtn.textContent = "Save";
           return;
@@ -3221,13 +3221,13 @@ async function openCredentialsModal() {
         submitBtn.disabled = false;
         submitBtn.textContent = "Save";
       } catch (err) {
-        errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+        errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
         submitBtn.disabled = false;
         submitBtn.textContent = "Save";
       }
     });
   } catch (err) {
-    tbCredsBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+    tbCredsBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -3320,7 +3320,7 @@ async function runTrendingScan(confirmAll) {
     }
     handleTrendingStreamResult(finalData, errorData, scanBtn);
   } catch (err) {
-    if (errBox) errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+    if (errBox) errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
     if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = "Scan"; }
   }
 }
@@ -3357,7 +3357,7 @@ function handleTrendingStreamResult(finalData, errorData, scanBtn) {
       return;
     }
     const errBox = tbTrendingBody.querySelector("#trendErrBox");
-    if (errBox) errBox.innerHTML = `<div class="tb-err-box">${errorData.error}</div>`;
+    if (errBox) errBox.innerHTML = `<div class="tb-err-box">${escHtml(errorData.error)}</div>`;
     if (scanBtn) { scanBtn.disabled = false; scanBtn.textContent = "Scan"; }
     return;
   }
@@ -3542,13 +3542,13 @@ async function loadMarketStatus() {
           addPickList.appendChild(btn);
         });
       } catch (err) {
-        addHint.textContent = `search failed: ${err.message}`;
+        addHint.textContent = `search failed: ${escHtml(err.message)}`;
       }
     }
     tbMarketBody.querySelector("#marketAddBtn").addEventListener("click", runMarketSearch);
     addInput.addEventListener("keydown", e => { if (e.key === "Enter") runMarketSearch(); });
   } catch (err) {
-    tbMarketBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+    tbMarketBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -3621,7 +3621,7 @@ async function renderRollPickStep() {
       btn.addEventListener("click", () => renderRollPreviewStep(btn.dataset.rollUnderlying));
     });
   } catch (err) {
-    tbRollBody.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+    tbRollBody.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
   }
 }
 
@@ -3632,13 +3632,13 @@ async function renderRollPreviewStep(underlying) {
     if (preview.error) {
       tbRollBody.innerHTML = `
         <button class="tb-back-link" id="rollBackErr">‹ Back</button>
-        <div class="tb-err-box">${preview.error}</div>`;
+        <div class="tb-err-box">${escHtml(preview.error)}</div>`;
       tbRollBody.querySelector("#rollBackErr").addEventListener("click", renderRollPickStep);
       return;
     }
     renderRollConfirmStep(preview);
   } catch (err) {
-    tbRollBody.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+    tbRollBody.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
   }
 }
 
@@ -3710,7 +3710,7 @@ function renderRollConfirmStep(preview) {
       });
       const data = await res.json();
       if (!res.ok) {
-        errBox.innerHTML = `<div class="tb-err-box">${data.error || "Roll failed"}</div>`;
+        errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Roll failed")}</div>`;
         btn.disabled = false;
         btn.textContent = "Apply roll";
         return;
@@ -3723,7 +3723,7 @@ function renderRollConfirmStep(preview) {
       btn.style.display = "none";
       loadToolboxList();
     } catch (err) {
-      errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+      errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
       btn.disabled = false;
       btn.textContent = "Apply roll";
     }
@@ -3804,7 +3804,7 @@ async function loadHedgePairsList() {
       });
     });
   } catch (err) {
-    tbHedgePairsBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+    tbHedgePairsBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -3846,7 +3846,7 @@ function renderHedgePairSearchStep(label, onPick) {
         list.appendChild(btn);
       });
     } catch (err) {
-      hint.textContent = `search failed: ${err.message}`;
+      hint.textContent = `search failed: ${escHtml(err.message)}`;
     }
   }
   tbHedgePairsBody.querySelector("#hpSearchBtn").addEventListener("click", runSearch);
@@ -3933,14 +3933,14 @@ async function renderHedgePairAddForm() {
       });
       const data = await res.json();
       if (!res.ok) {
-        errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed to start"}</div>`;
+        errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Failed to start")}</div>`;
         btn.disabled = false; btn.textContent = "Start hedge pair";
         return;
       }
       hpAddState = null;
       loadHedgePairsList();
     } catch (err) {
-      errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+      errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
       btn.disabled = false; btn.textContent = "Start hedge pair";
     }
   });
@@ -4033,7 +4033,7 @@ async function loadDualHedgeList() {
       });
     });
   } catch (err) {
-    tbDualHedgeBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+    tbDualHedgeBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -4135,10 +4135,10 @@ async function renderDualHedgeUsers() {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, requestToken: val }),
           });
           const data = await res.json();
-          if (!res.ok) { errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed"}</div>`; btn.disabled = false; btn.textContent = "Exchange"; return; }
+          if (!res.ok) { errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Failed")}</div>`; btn.disabled = false; btn.textContent = "Exchange"; return; }
           renderDualHedgeUsers();
         } catch (err) {
-          errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+          errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
           btn.disabled = false; btn.textContent = "Exchange";
         }
       });
@@ -4168,15 +4168,15 @@ async function renderDualHedgeUsers() {
           method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
         });
         const data = await res.json();
-        if (!res.ok) { errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed"}</div>`; btn.disabled = false; btn.textContent = "Save user"; return; }
+        if (!res.ok) { errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Failed")}</div>`; btn.disabled = false; btn.textContent = "Save user"; return; }
         renderDualHedgeUsers();
       } catch (err) {
-        errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+        errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
         btn.disabled = false; btn.textContent = "Save user";
       }
     });
   } catch (err) {
-    tbDualHedgeBody.innerHTML = `<div class="tb-err-box">failed to load: ${err.message}</div>`;
+    tbDualHedgeBody.innerHTML = `<div class="tb-err-box">failed to load: ${escHtml(err.message)}</div>`;
   }
 }
 
@@ -4215,7 +4215,7 @@ function renderDualHedgeAddUnderlyingPicker() {
         list.appendChild(btn);
       });
     } catch (err) {
-      hint.textContent = `search failed: ${err.message}`;
+      hint.textContent = `search failed: ${escHtml(err.message)}`;
     }
   }
   tbDualHedgeBody.querySelector("#dhSearchBtn").addEventListener("click", runSearch);
@@ -4357,14 +4357,14 @@ async function renderDualHedgeAddForm() {
       });
       const data = await res.json();
       if (!res.ok) {
-        errBox.innerHTML = `<div class="tb-err-box">${data.error || "Failed to start"}</div>`;
+        errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Failed to start")}</div>`;
         btn.disabled = false; btn.textContent = tbDualHedgeBody.querySelector("#dhStrategy").value === "BIAS" ? "Start bias hedge" : "Start dual hedge";
         return;
       }
       dhAddState = null;
       loadDualHedgeList();
     } catch (err) {
-      errBox.innerHTML = `<div class="tb-err-box">${err.message}</div>`;
+      errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
       btn.disabled = false; btn.textContent = tbDualHedgeBody.querySelector("#dhStrategy").value === "BIAS" ? "Start bias hedge" : "Start dual hedge";
     }
   });

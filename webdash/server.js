@@ -681,6 +681,18 @@ function readEngineState(underlying, strategy, candleType) {
 
 // ─── EXPRESS APP ────────────────────────────────────────────────────────────
 const app = express();
+// Security headers: CSP blocks any injected inline script / event handler
+// (the dashboard uses none), so an unescaped string can't become XSS.
+app.use((req, res, next) => {
+    res.setHeader("Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+        "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' ws: wss:; " +
+        "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("X-Frame-Options", "DENY");
+    res.setHeader("Referrer-Policy", "no-referrer");
+    next();
+});
 app.use(express.json());
 // Same range-bar builder the engines use, served to the browser chart so history/live can't diverge.
 app.get("/rangeBars.js", (req, res) => {
@@ -1466,6 +1478,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
+    if (!/^[A-Za-z0-9&_-]{1,30}$/.test(String(underlying))) return res.status(400).json({ error: "underlying may only contain letters, digits, & _ -" });
     if (live && confirmLive !== "LIVE") {
         return res.status(400).json({ error: 'switching to LIVE requires confirmLive: "LIVE" (typed, not assumed)' });
     }
@@ -2152,6 +2165,7 @@ app.get("/api/toolbox/watchlist", async (req, res) => {
 app.post("/api/toolbox/watchlist", (req, res) => {
     const { underlying, exchange = "MCX" } = req.body || {};
     if (!underlying) return res.status(400).json({ error: "underlying is required" });
+    if (!/^[A-Za-z0-9&_-]{1,30}$/.test(String(underlying))) return res.status(400).json({ error: "invalid underlying" });
     marketWatchlist.add(underlying, exchange);
     res.json({ ok: true });
 });
