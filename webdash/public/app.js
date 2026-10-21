@@ -808,7 +808,7 @@ const CAT_LABEL = {
 function capLog(t) {
   const m = String(t ?? "").match(/^(\[[^\]]*\]\s*)?(.*)$/s);
   const up = x => x.replace(/^[a-z]/, c => c.toUpperCase());
-  return up(m[1] || "") + up(m[2]);
+  return (m[1] || "").replace(/^\[([a-z])/, (_, c) => "[" + c.toUpperCase()) + up(m[2]);
 }
 
 function appendLog({ type, cssClass, text, instant, segments }) {
