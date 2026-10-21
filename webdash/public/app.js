@@ -3846,7 +3846,7 @@ function renderHedgePairSearchStep(label, onPick) {
       const matches = data.matches || [];
       if (matches.length === 0) { hint.textContent = "No matches"; return; }
       hint.textContent = `${matches.length} match(es)`;
-      matches.slice(0, 30).forEach(u => {
+      matches.forEach(u => {
         const btn = document.createElement("button");
         btn.className = "tb-pick-item";
         btn.textContent = u;
@@ -3859,6 +3859,9 @@ function renderHedgePairSearchStep(label, onPick) {
   }
   tbHedgePairsBody.querySelector("#hpSearchBtn").addEventListener("click", runSearch);
   input.addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
+  let hpT = null;
+  input.addEventListener("input", () => { clearTimeout(hpT); hpT = setTimeout(runSearch, 200); });
+  runSearch();
 }
 
 function renderHedgePairAddCorePicker() {
@@ -4215,7 +4218,7 @@ function renderDualHedgeAddUnderlyingPicker() {
       const matches = data.matches || [];
       if (matches.length === 0) { hint.textContent = "No matches"; return; }
       hint.textContent = `${matches.length} match(es)`;
-      matches.slice(0, 30).forEach(u => {
+      matches.forEach(u => {
         const btn = document.createElement("button");
         btn.className = "tb-pick-item";
         btn.textContent = u;
@@ -4228,6 +4231,10 @@ function renderDualHedgeAddUnderlyingPicker() {
   }
   tbDualHedgeBody.querySelector("#dhSearchBtn").addEventListener("click", runSearch);
   input.addEventListener("keydown", e => { if (e.key === "Enter") runSearch(); });
+  // Show every instrument straight away and filter as you type.
+  let dhT = null;
+  input.addEventListener("input", () => { clearTimeout(dhT); dhT = setTimeout(runSearch, 200); });
+  runSearch();
 }
 
 async function renderDualHedgeAddForm() {
