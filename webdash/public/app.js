@@ -803,6 +803,14 @@ const CAT_LABEL = {
   SHUTDOWN: "eod", SYS: "sys", ERROR: "err",
 };
 
+// Capitalise the first letter of a log message, and of the word after a
+// leading "[tag] " prefix: "[dashboard] booting..." -> "[Dashboard] Booting...".
+function capLog(t) {
+  const m = String(t ?? "").match(/^(\[[^\]]*\]\s*)?(.*)$/s);
+  const up = x => x.replace(/^[a-z]/, c => c.toUpperCase());
+  return up(m[1] || "") + up(m[2]);
+}
+
 function appendLog({ type, cssClass, text, instant, segments }) {
   const line = document.createElement("div");
   line.className = `log-line ${type.toLowerCase()} ${cssClass || ""}`.trim();
@@ -810,7 +818,7 @@ function appendLog({ type, cssClass, text, instant, segments }) {
   const catLabel = CAT_LABEL[type] || type.toLowerCase();
   const catHtml = `<span class="lf-cat lf-cat-${type.toLowerCase()}">${catLabel}</span>`;
   if (segments) line.innerHTML = catHtml + logRowHtml(segments);
-  else line.innerHTML = catHtml + `<span class="lf-text">${escHtml(text)}</span>`;
+  else line.innerHTML = catHtml + `<span class="lf-text">${escHtml(capLog(text))}</span>`;
   logStream.appendChild(line);
   while (logStream.childElementCount > MAX_LOG_LINES) logStream.removeChild(logStream.firstChild);
   if (autoscrollToggle.checked) logStream.scrollTop = logStream.scrollHeight;
