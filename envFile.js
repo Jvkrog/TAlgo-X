@@ -26,6 +26,8 @@ const ENV_PATH = path.join(__dirname, ".env");
 // for WEBDASH_PIN is that the same process that just prompted for it can
 // start using it right away, no restart needed.
 function upsertEnvVar(key, value) {
+    if (!/^[A-Z0-9_]+$/.test(key)) throw new Error("invalid env key");
+    if (/[\r\n\0]/.test(String(value))) throw new Error("env value must not contain line breaks");
     let content = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, "utf8") : "";
     const line = `${key}=${value}`;
     const re = new RegExp(`^${key}=.*$`, "m");

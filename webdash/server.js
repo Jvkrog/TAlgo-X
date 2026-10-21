@@ -27,7 +27,7 @@ const pm2 = require("pm2");
 const sqlite3 = require("sqlite3").verbose();
 const { KiteConnect } = require("kiteconnect");
 const engineConfig = require("../engineConfig");
-const { upsertEnvVar, ENV_PATH: ENV_FILE_PATH } = require("../envFile");
+const { upsertEnvVar, readEnvVarFresh, ENV_PATH: ENV_FILE_PATH } = require("../envFile");
 const { todayIST } = require("../istTime");
 const { nativeCandleType, normalizeCandleType, candleSuffix } = require("../candleType");
 const { DB_DIR } = require("../dbDir");
@@ -275,7 +275,7 @@ async function ensureWebdashPin(rl) {
         if (pin.length < 4) console.log("  PIN must be at least 4 characters — try again.");
     }
     if (pin === "") {
-        console.log("webdash: continuing without a PIN — dashboard will be open to anyone who reaches this port.");
+        console.log("webdash: continuing without a PIN — dashboard is restricted to this machine (127.0.0.1) until you set one.");
         return;
     }
     upsertEnvVar("WEBDASH_PIN", pin);
@@ -348,8 +348,28 @@ function isValidSession(token) {
 // single-operator dashboard) — 5 wrong PINs locks further attempts out for
 // 30s, mirroring the increasing-delay feel of iOS's own passcode screen
 // without needing to track it per-IP with any real precision.
-let failCount = 0;
-let lockedUntil = 0;
+// CHANGED (security audit): tracked per remote address, not globally, so a
+// stranger's wrong guesses no longer lock the operator out. (Behind a
+// reverse proxy every client shares the proxy's address — same as before.)
+const loginAttempts = new Map(); // ip -> { fails, lockedUntil, strikes }
+function attemptsFor(req) {
+    const ip = req.socket.remoteAddress || "?";
+    let a = loginAttempts.get(ip);
+    if (!a) { a = { fails: 0, lockedUntil: 0, strikes: 0 }; loginAttempts.set(ip, a); }
+    if (loginAttempts.size > 500) { for (const [k, v] of loginAttempts) if (v.lockedUntil < Date.now() && !v.fails) loginAttempts.delete(k); }
+    return a;
+}
+
+// Rejects cross-origin state-changing requests / socket upgrades: a browser
+// always sends Origin on those, and it must match the Host it reached.
+function originOk(req) {
+    const o = req.headers.origin;
+    if (!o) return true; // non-browser client (curl, engines)
+    try { return new URL(o).host === req.headers.host; } catch { return false; }
+}
+function secureAttr(req) {
+    return (req.secure || String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim() === "https") ? "; Secure" : "";
+}
 
 function authRequired(req, res, next) {
     if (!WEBDASH_PIN) return next(); // auth disabled
@@ -668,9 +688,18 @@ app.get("/rangeBars.js", (req, res) => {
 });
 app.use(express.static(path.join(__dirname, "public")));
 
+// CSRF defence in depth on top of SameSite=Lax: any state-changing /api call
+// from a browser must come from this dashboard's own origin.
+app.use("/api", (req, res, next) => {
+    if (req.method !== "GET" && req.method !== "HEAD" && !originOk(req)) return res.status(403).json({ error: "cross-origin request blocked" });
+    next();
+});
+
 // ── auth routes — must be registered BEFORE the blanket authRequired below
 app.get("/api/auth/status", (req, res) => {
     const cookies = parseCookies(req.headers.cookie);
+    const att = attemptsFor(req);
+    const lockedUntil = att.lockedUntil;
     const locked = Date.now() < lockedUntil;
     res.json({
         enabled: !!WEBDASH_PIN,
@@ -684,6 +713,8 @@ app.get("/api/auth/status", (req, res) => {
 app.post("/api/auth/verify", (req, res) => {
     if (!WEBDASH_PIN) return res.json({ ok: true }); // auth disabled, nothing to verify
 
+    const att = attemptsFor(req);
+    const lockedUntil = att.lockedUntil;
     if (Date.now() < lockedUntil) {
         return res.status(429).json({ error: "too many attempts", lockedForMs: lockedUntil - Date.now() });
     }
@@ -696,18 +727,21 @@ app.post("/api/auth/verify", (req, res) => {
         crypto.timingSafeEqual(Buffer.from(pin), Buffer.from(WEBDASH_PIN));
 
     if (!match) {
-        failCount++;
-        if (failCount >= 5) {
-            lockedUntil = Date.now() + 30000;
-            failCount = 0;
-            return res.status(429).json({ error: "too many attempts", lockedForMs: 30000 });
+        att.fails++;
+        if (att.fails >= 5) {
+            // exponential back-off per address: 30s, 60s, 2m ... capped at 1h
+            const ms = Math.min(30000 * Math.pow(2, att.strikes), 3600000);
+            att.strikes++;
+            att.lockedUntil = Date.now() + ms;
+            att.fails = 0;
+            return res.status(429).json({ error: "too many attempts", lockedForMs: ms });
         }
-        return res.status(401).json({ error: "incorrect pin", attemptsLeft: 5 - failCount });
+        return res.status(401).json({ error: "incorrect pin", attemptsLeft: 5 - att.fails });
     }
 
-    failCount = 0;
+    att.fails = 0; att.strikes = 0;
     const token = createSession();
-    res.setHeader("Set-Cookie", `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; Max-Age=${SESSION_TTL_MS / 1000}; SameSite=Lax`);
+    res.setHeader("Set-Cookie", `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; Max-Age=${SESSION_TTL_MS / 1000}; SameSite=Lax${secureAttr(req)}`);
     res.json({ ok: true });
 });
 
@@ -719,7 +753,7 @@ app.post("/api/auth/lock", (req, res) => {
     const cookies = parseCookies(req.headers.cookie);
     const token = cookies[SESSION_COOKIE];
     if (token) sessions.delete(token);
-    res.setHeader("Set-Cookie", `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax`);
+    res.setHeader("Set-Cookie", `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax${secureAttr(req)}`);
     res.json({ ok: true });
 });
 
@@ -1946,7 +1980,10 @@ app.get("/api/toolbox/credentials", (req, res) => {
 app.post("/api/toolbox/credentials", (req, res) => {
     const updates = {};
     for (const key of CREDENTIAL_FIELDS) {
-        if (typeof req.body?.[key] === "string" && req.body[key].length > 0) updates[key] = req.body[key];
+        if (typeof req.body?.[key] === "string" && req.body[key].length > 0) {
+            if (/[\r\n\0]/.test(req.body[key])) return res.status(400).json({ error: `${key}: line breaks are not allowed` });
+            updates[key] = req.body[key].trim();
+        }
     }
     if (Object.keys(updates).length === 0) return res.json({ ok: true, changed: 0 });
     writeEnvFile(updates);
@@ -3004,10 +3041,27 @@ const server = http.createServer(app);
 const engineWss = new WebSocketServer({ noServer: true });
 const dashWss   = new WebSocketServer({ noServer: true });
 
+// Engines must present ENGINE_WS_TOKEN (auto-generated into .env on first
+// boot; eventBridge.js reads it fresh from .env on every connect) — without
+// it anyone reaching the port could inject fake TICK/ENTRY/EXIT events.
+function ensureEngineToken() {
+    let t = readEnvVarFresh("ENGINE_WS_TOKEN");
+    if (!t) { t = crypto.randomBytes(24).toString("hex"); upsertEnvVar("ENGINE_WS_TOKEN", t); }
+    process.env.ENGINE_WS_TOKEN = t;
+    return t;
+}
+const ENGINE_WS_TOKEN = ensureEngineToken();
+function engineTokenOk(req) {
+    const got = String(req.headers["x-engine-token"] || "");
+    return got.length === ENGINE_WS_TOKEN.length && crypto.timingSafeEqual(Buffer.from(got), Buffer.from(ENGINE_WS_TOKEN));
+}
+
 server.on("upgrade", (req, socket, head) => {
     if (req.url.startsWith("/engine")) {
+        if (!engineTokenOk(req)) { socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n"); socket.destroy(); return; }
         engineWss.handleUpgrade(req, socket, head, ws => engineWss.emit("connection", ws, req));
     } else if (req.url.startsWith("/ws")) {
+        if (!originOk(req)) { socket.write("HTTP/1.1 403 Forbidden\r\n\r\n"); socket.destroy(); return; }
         if (WEBDASH_PIN) {
             const cookies = parseCookies(req.headers.cookie);
             if (!isValidSession(cookies[SESSION_COOKIE])) {
@@ -3085,5 +3139,12 @@ dashWss.on("connection", ws => {
         console.error("webdash: failed to connect to PM2 —", err.message);
         console.error("webdash: starting anyway (instrument list / controls will be unavailable until PM2 is reachable)");
     }
-    server.listen(PORT, () => console.log(`webdash server listening on :${PORT}`));
+    // CHANGED (security audit): without a PIN, only listen on loopback.
+    // With a PIN, keep the old all-interfaces default (remote access still
+    // works) unless WEBDASH_HOST says otherwise (e.g. 127.0.0.1 + SSH tunnel).
+    const HOST = process.env.WEBDASH_HOST || (WEBDASH_PIN ? "0.0.0.0" : "127.0.0.1");
+    server.listen(PORT, HOST, () => {
+        console.log(`webdash server listening on ${HOST}:${PORT}`);
+        if (WEBDASH_PIN && HOST !== "127.0.0.1" && HOST !== "::1") console.warn("webdash: serving plain HTTP on a public interface — put HTTPS in front or set WEBDASH_HOST=127.0.0.1 and use an SSH tunnel.");
+    });
 })();

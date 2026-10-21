@@ -36,7 +36,9 @@ function connect() {
     if (connecting || (ws && ws.readyState === WebSocket.OPEN)) return;
     connecting = true;
     try {
-        ws = new WebSocket(BRIDGE_URL);
+        let token = process.env.ENGINE_WS_TOKEN || "";
+        try { token = require("./envFile").readEnvVarFresh("ENGINE_WS_TOKEN") || token; } catch {}
+        ws = new WebSocket(BRIDGE_URL, { headers: { "x-engine-token": token } });
         ws.on("open", () => {
             connecting = false;
             while (queue.length) ws.send(queue.shift());

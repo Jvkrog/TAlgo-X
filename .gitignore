@@ -1,3 +1,8 @@
 chartBlocks.json
 databases/
 *.db
+.env
+.env.*
+access_code.txt
+backtests/
+node_modules/
