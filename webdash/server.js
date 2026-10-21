@@ -2691,9 +2691,10 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
             opts.entryHour = entry.hour; opts.entryMinute = entry.minute; opts.eodHour = eod.hour; opts.eodMinute = eod.minute;
             if (b.bandStepOverride) opts.bandStepOverride = Number(b.bandStepOverride);
         } else {
-            opts.signalSource = String(b.signalSource || "HA").toUpperCase();
-            if (opts.signalSource !== "RANGE" && opts.signalSource !== "HA") return res.status(400).json({ error: "SignalSource must be RANGE or HA" });
-            if (opts.signalSource === "HA") {
+            opts.signalSource = String(b.signalSource || "HA_DSB").toUpperCase();
+            if (!["RANGE", "HA", "HA_DSB"].includes(opts.signalSource)) return res.status(400).json({ error: "SignalSource must be RANGE, HA or HA_DSB" });
+            if (opts.signalSource.startsWith("HA")) {
+                if (opts.signalSource === "HA_DSB" && b.bandStepOverride) opts.bandStepOverride = Number(b.bandStepOverride);
                 opts.haTimeframe = String(b.haTimeframe || "1h").toLowerCase();
                 if (!["5m", "15m", "30m", "1h", "1d"].includes(opts.haTimeframe)) return res.status(400).json({ error: "HaTimeframe must be 5m/15m/30m/1h/1d" });
             } else {

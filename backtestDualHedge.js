@@ -20,6 +20,10 @@
 // SIGNAL SOURCE (DUAL only; signalSource) — "RANGE" (default, = the live
 // engine) or "HA".
 //   RANGE  DSB colour on range bars, as above.
+//   HA_DSB Dynamic Step Band (bandStep) run over Heikin-Ashi candles at
+//          haTimeframe — the live engine's DSB logic, but fed HA bars (Kite's
+//          own bars through toHA()) instead of range bars. Same data source,
+//          warm-up and bar-visibility rules as HA below.
 //   HA     Heikin-Ashi candle colour at haTimeframe (5m/15m/30m/1h/1d), the
 //          same colour convention as haCandleReader.js (HA close > open =
 //          green, < open = red, doji = no read -> the previous colour stands).
@@ -256,6 +260,22 @@ function buildHaSignal(bars, tf) {
     return { colorAfter, doneMs, count: ha.length, kind: `HA ${tf} candles (historical)` };
 }
 
+// DSB (rangeBandReader.js createDsb) fed Heikin-Ashi candles at the native
+// timeframe — HA open/close drive the step band instead of range bars.
+function buildHaDsbSignal(bars, tf, step) {
+    if (!(tf in HA_TIMEFRAMES)) throw new Error(`HA timeframe "${tf}" not supported (known: ${Object.keys(HA_TIMEFRAMES).join(", ")})`);
+    const ha = toHA(bars);
+    const dsb = createDsb(step);
+    const colorAfter = new Array(ha.length);
+    const doneMs     = new Array(ha.length);
+    for (let k = 0; k < ha.length; k++) {
+        dsb.push(ha[k]);
+        colorAfter[k] = dsb.state().color;
+        doneMs[k] = barEndMs(bars[k], tf);
+    }
+    return { colorAfter, doneMs, count: ha.length, kind: `HA ${tf} candles + DSB step ${step}` };
+}
+
 // Dynamic Band colour (dynamicBandReader.js's state machine, via its stepper)
 // after each native bar, plus when that bar became visible. Raw closes, no HA.
 function buildBandSignal(bars, tf, step) {
@@ -363,7 +383,7 @@ async function replayDualHedge({
 }) {
     if (!candles.length) throw new Error("replayDualHedge: no candles");
     if (slMode === "ATR" && !(atrBars && atrBars.length)) throw new Error("replayDualHedge: ATR stop needs atrBars (Kite's historical bars at atrTimeframe)");
-    if (signalSource === "HA" && !(haBars && haBars.length)) throw new Error("replayDualHedge: HA signal needs haBars (Kite's historical bars at haTimeframe)");
+    if (signalSource.startsWith("HA") && !(haBars && haBars.length)) throw new Error("replayDualHedge: HA signal needs haBars (Kite's historical bars at haTimeframe)");
     const log  = verbose ? (...a) => console.log(...a) : () => {};
     const slip = Number(slippagePoints) || 0;
     const gcMin     = gc.hour * 60 + gc.minute;
@@ -373,8 +393,9 @@ async function replayDualHedge({
     // visibility time. Bars are causal, so slicing one full build by completion
     // time == rebuilding from each prefix.
     const sig = signalSource === "HA" ? buildHaSignal(haBars, haTimeframe)
+              : signalSource === "HA_DSB" ? buildHaDsbSignal(haBars, haTimeframe, bandStep)
               : signalSource === "RANGE" ? buildRangeSignal(candles, bandStep, rangeSize)
-              : (() => { throw new Error(`replayDualHedge: unknown signalSource "${signalSource}" (RANGE or HA)`); })();
+              : (() => { throw new Error(`replayDualHedge: unknown signalSource "${signalSource}" (RANGE, HA or HA_DSB)`); })();
     const { colorAfter, doneMs } = sig;
     let barPtr = 0;
     // Latest colour as a live read at an evaluation inside minute `slotMs` would
@@ -382,7 +403,7 @@ async function replayDualHedge({
     // completed in a minute strictly before it; HA bars: end boundary <= it —
     // the same thing, since a bar's last minute is its end minus one.)
     function bandAt(slotMs) {
-        while (barPtr < colorAfter.length && (signalSource === "HA" ? doneMs[barPtr] <= slotMs : doneMs[barPtr] < slotMs)) barPtr++;
+        while (barPtr < colorAfter.length && (signalSource.startsWith("HA") ? doneMs[barPtr] <= slotMs : doneMs[barPtr] < slotMs)) barPtr++;
         if (barPtr === 0 || colorAfter[barPtr - 1] === null) return null;
         return { color: colorAfter[barPtr - 1], bars: barPtr };
     }
@@ -739,9 +760,10 @@ async function runDualHedgeBacktest({
     if (strategy !== "DUAL" && strategy !== "BIAS") throw new Error(`runDualHedgeBacktest: strategy must be DUAL or BIAS (got ${strategy})`);
     const isBias = strategy === "BIAS";
     signalSource = String(signalSource).toUpperCase();
-    if (!isBias && signalSource !== "RANGE" && signalSource !== "HA") throw new Error(`runDualHedgeBacktest: signalSource must be RANGE or HA (got ${signalSource})`);
-    if (!isBias && signalSource === "HA" && !(haTimeframe in HA_TIMEFRAMES)) throw new Error(`runDualHedgeBacktest: haTimeframe must be one of ${Object.keys(HA_TIMEFRAMES).join(", ")} (got ${haTimeframe})`);
-    const isHA = !isBias && signalSource === "HA";
+    if (!isBias && signalSource !== "RANGE" && signalSource !== "HA" && signalSource !== "HA_DSB") throw new Error(`runDualHedgeBacktest: signalSource must be RANGE, HA or HA_DSB (got ${signalSource})`);
+    if (!isBias && signalSource.startsWith("HA") && !(haTimeframe in HA_TIMEFRAMES)) throw new Error(`runDualHedgeBacktest: haTimeframe must be one of ${Object.keys(HA_TIMEFRAMES).join(", ")} (got ${haTimeframe})`);
+    const isHA = !isBias && signalSource.startsWith("HA");
+    const isHaDsb = !isBias && signalSource === "HA_DSB";
     if (!(Number(slippagePoints) >= 0)) throw new Error(`runDualHedgeBacktest: slippagePoints must be >= 0 (got ${slippagePoints})`);
     if (isBias) {
         unwindMode = String(unwindMode).toUpperCase();
@@ -784,7 +806,7 @@ async function runDualHedgeBacktest({
 
     const bandStep  = longLeg.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
     const rangeSize = rangeSizeOverride ? Number(rangeSizeOverride) : bandStep;
-    if ((isBias || !isHA) && !(bandStep > 0)) throw new Error(`runDualHedgeBacktest: invalid band step (${bandStep})`);
+    if ((isBias || !isHA || isHaDsb) && !(bandStep > 0)) throw new Error(`runDualHedgeBacktest: invalid band step (${bandStep})`);
     if (!isBias && !isHA && !(rangeSize > 0)) throw new Error(`runDualHedgeBacktest: invalid range size (${rangeSize})`);
 
     const fromMs = Date.parse(`${dayKeyIST(from)}T00:00:00+05:30`);
@@ -855,7 +877,7 @@ async function runDualHedgeBacktest({
             }
             if (!(anchorMs < fromMs)) throw new Error(`runDualHedgeBacktest: signal anchor (${fmtIST(anchorMs)}) must be before \`from\``);
             console.log(c.dim(isHA
-                ? `  signal: HA ${haTimeframe} candles (Kite historical bars), warm-up from ${fmtIST(anchorMs)} IST (${anchorNote})`
+                ? `  signal: HA ${haTimeframe} candles${isHaDsb ? ` + DSB step ${bandStep}` : ""} (Kite historical bars), warm-up from ${fmtIST(anchorMs)} IST (${anchorNote})`
                 : `  range bars anchored ${fmtIST(anchorMs)} IST (${anchorNote})  step ${bandStep}  range ${rangeSize}`));
 
             let haBars = null;
@@ -890,7 +912,7 @@ async function runDualHedgeBacktest({
                 strategy: "DUAL",
                 takeProfit: Number(takeProfit), maxLoss: Number(maxLoss),
                 slMode, atrSlMult: slMode === "ATR" ? atrSlMult : null, atrTimeframe: slMode === "ATR" ? atrTimeframe : null, atrLen: slMode === "ATR" ? engineConfig.ST_ATR_LEN : null,
-                signal: isHA ? `HA ${haTimeframe}` : "RANGE", bandStep: isHA ? null : bandStep, rangeSize: isHA ? null : rangeSize,
+                signal: isHaDsb ? `HA ${haTimeframe} + DSB` : isHA ? `HA ${haTimeframe}` : "RANGE", bandStep: (isHA && !isHaDsb) ? null : bandStep, rangeSize: isHA ? null : rangeSize,
                 rangeStart: fmtIST(anchorMs), anchor: anchorNote, slippagePoints: Number(slippagePoints),
                 gapCapture: gapCapture ? { time: hhmm(gcHour, gcMinute), quit: hhmm(gcQuitHour, gcQuitMinute) } : null,
             };
