@@ -4287,11 +4287,7 @@ async function renderDualHedgeAddForm() {
     <div id="dhDualOnly2">
     <div class="tb-form-row"><div class="tb-form-label">Range bar size in price points (blank = same as the band step)</div><input type="number" id="dhRangeSize" min="0" step="any"></div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="dhGap"><span>Enable gap capture \u2014 at the gap time each flat leg places an NRML entry (LONG on the long account, SHORT on the short account), carried overnight; legs already holding are left alone</span></label>
-    </div>
-    <div id="dhGapTimes" style="display:none">
-      <div class="tb-form-row"><div class="tb-form-label">Gap capture time IST (NRML entry)</div><input type="time" id="dhGapEntry" value="23:20"></div>
-      <div class="tb-form-row"><div class="tb-form-label">Latest entry time IST (must be after gap time; no entry after it)</div><input type="time" id="dhGapExit" value="23:25"></div>
+      <label class="tb-form-row-inline"><input type="checkbox" id="dhGap"><span>Gap capture \u2014 every order is NRML (one order for day and overnight); the algo can enter at any time</span></label>
     </div>
     </div>
     <div class="tb-form-row">
@@ -4326,9 +4322,6 @@ async function renderDualHedgeAddForm() {
   };
   tbDualHedgeBody.querySelector("#dhSlMode").addEventListener("change", dhSyncSl);
   dhSyncSl();
-  tbDualHedgeBody.querySelector("#dhGap").addEventListener("change", e => {
-    tbDualHedgeBody.querySelector("#dhGapTimes").style.display = e.target.checked ? "" : "none";
-  });
 
   tbDualHedgeBody.querySelector("#dhAddSubmit").addEventListener("click", async () => {
     const errBox = tbDualHedgeBody.querySelector("#dhAddErrBox");
@@ -4361,8 +4354,7 @@ async function renderDualHedgeAddForm() {
       bandTimeframe: tbDualHedgeBody.querySelector("#dhBandTf").value,
       entryTime: tbDualHedgeBody.querySelector("#dhEntryTime").value || "10:00",
       gapCapture: tbDualHedgeBody.querySelector("#dhStrategy").value === "DUAL" && tbDualHedgeBody.querySelector("#dhGap").checked,
-      gcEntry: tbDualHedgeBody.querySelector("#dhGapEntry").value || "23:20",
-      gcExit:  tbDualHedgeBody.querySelector("#dhGapExit").value || "23:25",
+      gcEntry: "23:20", gcExit: "23:25",
     };
     const btn = tbDualHedgeBody.querySelector("#dhAddSubmit");
     btn.disabled = true; btn.textContent = "Starting...";
@@ -4459,11 +4451,7 @@ function renderDualHedgeBacktestForm() {
       <div class="tb-form-row"><div class="tb-form-label" id="dbMaxLossLabel">Stop \u20b9</div><input type="number" id="dbMaxLoss" min="1" value="3000"></div>
       <div class="tb-form-row"><div class="tb-form-label">Take profit \u20b9</div><input type="number" id="dbTakeProfit" min="1" value="3000"></div>
       <div class="tb-form-row">
-        <label class="tb-form-row-inline"><input type="checkbox" id="dbGap"><span>Gap capture \u2014 at the gap time each flat leg places an NRML entry (LONG + SHORT), carried overnight; legs already holding are left alone</span></label>
-      </div>
-      <div id="dbGapTimes" style="display:none">
-        <div class="tb-form-row"><div class="tb-form-label">Gap capture time IST (NRML entry)</div><input type="time" id="dbGapEntry" value="23:20"></div>
-        <div class="tb-form-row"><div class="tb-form-label">Latest entry time IST (after the gap time)</div><input type="time" id="dbGapExit" value="23:25"></div>
+        <label class="tb-form-row-inline"><input type="checkbox" id="dbGap"><span>Gap capture \u2014 every order is NRML (one order for day and overnight); the algo can enter at any time</span></label>
       </div>
     </div>
     <div id="dbBias" style="display:none">
@@ -4491,7 +4479,6 @@ function renderDualHedgeBacktestForm() {
   };
   q("#dbStrategy").addEventListener("change", sync);
   q("#dbSignal").addEventListener("change", sync);
-  q("#dbGap").addEventListener("change", e => { q("#dbGapTimes").style.display = e.target.checked ? "" : "none"; });
   q("#dbSlMode").addEventListener("change", sync);
   q("#dbSubmit").addEventListener("click", async () => {
     const errBox = q("#dbErrBox");
@@ -4507,7 +4494,7 @@ function renderDualHedgeBacktestForm() {
       slMode: q("#dbSlMode").value, atrSlMult: q("#dbAtrMult").value || undefined, atrTimeframe: q("#dbAtrTf").value,
       unwindMode: q("#dbUnwind").value, bandTimeframe: q("#dbBandTf").value, entryTime: q("#dbEntryTime").value || "10:00",
       gapCapture: q("#dbStrategy").value === "DUAL" && q("#dbGap").checked,
-      gcEntry: q("#dbGapEntry").value || "23:20", gcExit: q("#dbGapExit").value || "23:25",
+      gcEntry: "23:20", gcExit: "23:25",
     };
     const btn = q("#dbSubmit");
     btn.disabled = true; btn.textContent = "Running...";

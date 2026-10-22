@@ -489,7 +489,7 @@ async function replayDualHedge({
 
         // GAP CAPTURE — realize, then enter, at this candle's open.
         let gapActive = false;
-        if (gapCapture && minOfDay >= gcMin && gcSkippedDay !== dayKey) {
+        if (false && gapCapture && minOfDay >= gcMin && gcSkippedDay !== dayKey) {   // simplified: gap capture = NRML only, no special window
             if (gcDoneDay !== dayKey) {
                 if (minOfDay >= gcQuitMin) {
                     gcSkippedDay = dayKey; stats.gapCaptureSkippedDays++;   // window missed — band logic continues, as live

@@ -47,17 +47,13 @@
 // read once per evaluation and applied to both legs' own independent state
 // (same "shared reader, per-leg state" shape as hedgePairEngine.js).
 //
-// GAP CAPTURE (optional feature of THIS engine — DH_GAP_CAPTURE=true; there
-// is no separate gap-capture engine/menu/process). SIMPLIFIED (Oct 2026): at
-// the gap-capture time (default 23:20 IST) the band logic stops for the rest
-// of the day and each FLAT leg just places its NRML entry — LONG on the long
-// user's account, SHORT on the short user's account — once per day. There is
-// no realize/close step (a leg that already holds keeps its position, which
-// is NRML already), no separate overnight order, and no quit: the engine
-// keeps running and the band logic resumes after midnight. DH_GC_QUIT_* is
-// now only the latest time an entry may be placed (after it, gap capture is
-// skipped for that day). The clock check runs on its own DH_GC_POLL_MS poll
-// (default 15s); that poll never evaluates the band.
+// GAP CAPTURE (optional, DH_GAP_CAPTURE=true) — SIMPLIFIED again (Oct 2026):
+// there is no special gap window, no realize step, no separate overnight entry
+// and no quit. Enabling it only means: every order this engine places is a
+// single NRML order (day and overnight use the SAME order — never MIS for the
+// day plus a separate NRML one for overnight) and the algo may enter at any
+// time. (dualHedgeContext.js already sets carryOvernight=true, i.e. NRML, and
+// this engine has no EOD force-close, so nothing else changes.)
 //
 // CREDENTIALS: dualHedgeUsers.js — separate from engineConfig.js's single
 // global API_KEY/ACCESS_TOKEN (see that file's header for why). Market
@@ -489,10 +485,12 @@ async function main() {
     let gcSkippedForDate = null;  // started after the quit time -> missed, band logic carries on
     let gcReportedForDate = null;
     if (GAP_CAPTURE) {
-        console.log(c.dim(`gap capture ON  NRML entry on flat legs at ${hhmm(GC_HOUR, GC_MINUTE)} IST (no entry after ${hhmm(GC_QUIT_HOUR, GC_QUIT_MINUTE)} IST); engine keeps running`));
+        console.log(c.dim(`gap capture ON  all orders NRML (single order day + overnight); algo enters at any time`));
     }
 
     function gapWindowActive() {
+        return false;   // simplified: no special gap window — the band logic runs at any time
+        // eslint-disable-next-line no-unreachable
         if (!GAP_CAPTURE) return false;
         if (gcSkippedForDate === todayIST()) return false;
         return pastClock(GC_HOUR, GC_MINUTE);
