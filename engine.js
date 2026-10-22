@@ -186,6 +186,10 @@ async function main() {
         context.carryOvernight = true;
         console.log(c.dim(`[${context.tgPrefix}] 1d timeframe: carry overnight forced ON (positions are held across days)`));
     }
+    if (context.carryOvernight) {
+        const { hours: bootH } = istParts();
+        if (bootH >= 9) console.log(c.yellow(`[${context.tgPrefix}] carry overnight: started after 09:00 IST — if a position was carried overnight it was unmanaged until now. Start carry-overnight engines before 09:00.`));
+    }
     console.log(c.dim(`[${context.tgPrefix}] carry overnight: ${context.carryOvernight ? c.yellow("ON — NRML, EOD will not force-close") : "off — MIS, EOD force-closes as usual"}`));
 
     // Target points — set per-process by the toolbox's strategy-selection

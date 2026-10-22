@@ -59,6 +59,7 @@ function createLifecycle({ context, engineConfig, state, db, candles, slStore, t
                 const mins  = Math.round((Date.now() - sessionStart) / 60000);
                 const today = now.toISOString().split("T")[0];
 
+                let carriedUnreal = null;   // set only when a position is left open overnight (carry-overnight)
                 console.log();
                 console.log(c.dim(`EOD  [${context.tgPrefix}]  ${now.toLocaleString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })}`));
 
@@ -79,8 +80,11 @@ function createLifecycle({ context, engineConfig, state, db, candles, slStore, t
                     // scalp target (if any) restart fresh from the position's
                     // entry price on next boot, not from wherever they'd
                     // trailed to tonight. Flagging, not fixing here.
-                    console.log(c.yellow(`EOD  [${context.tgPrefix}] carrying ${state.position}@${state.entryPrice} overnight — no exit placed`));
-                    tg(`🌙 [${context.tgPrefix}] Carrying overnight\n${state.position}@${state.entryPrice}\nNo EOD exit placed (carry-overnight mode).`);
+                    // Unrealized P&L at the last live price (same formula as positions.js: points x lotMult x lots).
+                    const dir = state.position === "LONG" ? 1 : -1;
+                    carriedUnreal = (price - state.entryPrice) * dir * context.lotMult * context.lots;
+                    console.log(c.yellow(`EOD  [${context.tgPrefix}] POSITION STILL OPEN — ${state.position}@${state.entryPrice}, last ${price}, unrealized ${pnlStr(carriedUnreal)} — no exit placed`));
+                    tg(`🌙 [${context.tgPrefix}] Position still open overnight\n${state.position}@${state.entryPrice}  last ${price}\nUnrealized: ${pnlStr(carriedUnreal)}\nNo EOD exit placed (carry-overnight / NRML). Process stopping — start it again before 09:00.`);
                 } else if (state.position) {
                     // awaitFill: true — block until FILLED (or manual-check) has
                     // logged, so it never lands after "*** SHUTDOWN ***"
@@ -107,6 +111,7 @@ function createLifecycle({ context, engineConfig, state, db, candles, slStore, t
 
                 console.log(c.dim(`session  ${mins}m`));
                 console.log(c.dim(`  pnl : ${pnlStr(realizedPnl)}  trades: ${closedTrades.length}  winrate: ${winRate}%`));
+                if (carriedUnreal !== null) console.log(c.yellow(`  open : ${state.position}@${state.entryPrice}  unrealized ${pnlStr(carriedUnreal)}  (NOT closed)`));
                 console.log();
                 console.log(c.bold("*** SHUTDOWN ***"));
 
@@ -125,6 +130,7 @@ function createLifecycle({ context, engineConfig, state, db, candles, slStore, t
                 emitEvent(context.tgPrefix, "SHUTDOWN", {
                     pnl: realizedPnl, trades: closedTrades.length, winRate,
                     positionLeftOpen: !!state.position,
+                    unrealized: carriedUnreal,
                 });
 
                 let report = `TAlgo-X ${context.name}\n${today}\n\n`;
@@ -132,6 +138,7 @@ function createLifecycle({ context, engineConfig, state, db, candles, slStore, t
                     report += `Trade #${i + 1}\n${t.side}\n${t.entry_price} → ${t.exit_price}\n${pnlStr(t.pnl)}\nReason: ${t.exit_reason}\n\n`;
                 });
                 report += `Trades: ${closedTrades.length}  Wins: ${wins}  WinRate: ${winRate}%\nGross PnL: ${pnlStr(realizedPnl)}`;
+                if (carriedUnreal !== null) report += `\n\nPOSITION STILL OPEN (not closed): ${state.position}@${state.entryPrice}\nUnrealized PnL: ${pnlStr(carriedUnreal)}\nNRML carried overnight — restart before 09:00.`;
 
                 await tg(report);   // ensure the message is sent before the process exits
                 _shutdown = true;
