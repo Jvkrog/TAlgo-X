@@ -495,13 +495,14 @@ async function replayDualHedge({
                     gcSkippedDay = dayKey; stats.gapCaptureSkippedDays++;   // window missed — band logic continues, as live
                     log(c.red(`GAP CAPTURE  no candle inside ${hhmm(gc.hour, gc.minute)}–${hhmm(gc.quitHour, gc.quitMinute)} IST on ${dayKey} — skipped, band logic continues`));
                 } else {
-                    log(); log("**GAP CAPTURE — REALIZING TODAY'S TRADES**");
-                    for (const leg of legs) if (leg.state.position) { stats.exits.gapRealize++; await exitLeg(leg, cn.open, "GAP CAPTURE — REALIZE"); }
-                    log("**GAP CAPTURE ENTRY**");
+                    // Simplified (matches live): no realize step — a holding leg keeps its position, a flat leg gets its entry.
+                    log(); log("**GAP CAPTURE ENTRY**");
                     const reason = `gap capture ${hhmm(gc.hour, gc.minute)} IST (carry overnight)`;
-                    await enterLeg(long, cn.open, reason);
-                    await enterLeg(short, cn.open, reason);
-                    for (const leg of legs) { leg.wantEntry = false; leg.slDistance = null; leg.slAtr = null; }   // ATR snapshot taken lazily at the flip, as live (the engine restarts next day)
+                    for (const leg of legs) {
+                        if (leg.state.position) continue;
+                        await enterLeg(leg, cn.open, reason);
+                        leg.wantEntry = false; leg.slDistance = null; leg.slAtr = null;
+                    }   // ATR snapshot taken lazily at the flip, as live (the engine restarts next day)
                     gcDoneDay = dayKey; stats.gapCaptureDays++;
                 }
             }

@@ -48,28 +48,16 @@
 // (same "shared reader, per-leg state" shape as hedgePairEngine.js).
 //
 // GAP CAPTURE (optional feature of THIS engine — DH_GAP_CAPTURE=true; there
-// is no separate gap-capture engine/menu/process). It is an END-OF-DAY step
-// (modeled on the user's short.js/long.js reference scripts: "PROFIT REALIZED"
-// at 23:20, fresh entry at 23:21, "Saving Position", shutdown at 23:25). At
+// is no separate gap-capture engine/menu/process). SIMPLIFIED (Oct 2026): at
 // the gap-capture time (default 23:20 IST) the band logic stops for the rest
-// of the day and this sequence runs instead —
-//   1. REALIZE: any position either leg is holding is force-closed (awaited
-//      until filled) so today's trades are booked as realized P&L. Entry does
-//      not proceed until BOTH legs are confirmed flat (retried each poll) —
-//      never stacks a fresh order on top of an open one.
-//   2. ENTER: LONG on the long user's account, SHORT on the short user's
-//      account, right after, once per day. These positions are CARRIED
-//      OVERNIGHT (NRML) and saved like any other dual-hedge position — the
-//      point is to be positioned for the next session's gap.
-//   3. QUIT: at the quit time (default 23:25 IST) a Telegram report goes out
-//      (realized P&L today per leg, positions left open) and the process
-//      exits cleanly with the positions still open (needs a deliberate PM2
-//      start on the next trading day, where the normal band logic resumes
-//      with them). Nothing is closed at quit.
-// The clock checks run on their own DH_GC_POLL_MS poll (default 15s) because
-// 23:20/23:25 don't fall on the 15-minute band slots; that poll never
-// evaluates the band. If the process is started after the quit time, gap
-// capture is skipped for that day and the normal band logic keeps running.
+// of the day and each FLAT leg just places its NRML entry — LONG on the long
+// user's account, SHORT on the short user's account — once per day. There is
+// no realize/close step (a leg that already holds keeps its position, which
+// is NRML already), no separate overnight order, and no quit: the engine
+// keeps running and the band logic resumes after midnight. DH_GC_QUIT_* is
+// now only the latest time an entry may be placed (after it, gap capture is
+// skipped for that day). The clock check runs on its own DH_GC_POLL_MS poll
+// (default 15s); that poll never evaluates the band.
 //
 // CREDENTIALS: dualHedgeUsers.js — separate from engineConfig.js's single
 // global API_KEY/ACCESS_TOKEN (see that file's header for why). Market
@@ -501,7 +489,7 @@ async function main() {
     let gcSkippedForDate = null;  // started after the quit time -> missed, band logic carries on
     let gcReportedForDate = null;
     if (GAP_CAPTURE) {
-        console.log(c.dim(`gap capture ON  realize + enter ${hhmm(GC_HOUR, GC_MINUTE)} IST (positions carry overnight)  →  quit ${hhmm(GC_QUIT_HOUR, GC_QUIT_MINUTE)} IST`));
+        console.log(c.dim(`gap capture ON  NRML entry on flat legs at ${hhmm(GC_HOUR, GC_MINUTE)} IST (no entry after ${hhmm(GC_QUIT_HOUR, GC_QUIT_MINUTE)} IST); engine keeps running`));
     }
 
     function gapWindowActive() {
@@ -520,26 +508,17 @@ async function main() {
             return;
         }
 
-        // 1. Realize today's trades — never stack a new order on an open one.
-        if (long.state.position || short.state.position) {
-            console.log();
-            console.log(c.bold("**GAP CAPTURE — REALIZING TODAY'S TRADES**"));
-            if (long.state.position)  await exitLeg(long,  "GAP CAPTURE — REALIZE", { awaitFill: true });
-            if (short.state.position) await exitLeg(short, "GAP CAPTURE — REALIZE", { awaitFill: true });
-            if (long.state.position || short.state.position) {
-                console.error(c.red(`GAP CAPTURE  realize did not fully flatten (long:${long.state.position || "flat"} short:${short.state.position || "flat"}) — entry held back, retrying next poll`));
-                return;
-            }
-        }
-
+        // SIMPLIFIED: no realize step and no separate overnight order. A leg that
+        // is already holding keeps its position (already NRML); a flat leg gets
+        // its NRML entry (LONG on the long account, SHORT on the short account).
         // 2. Enter — locked in before either order fires, so a failed entry
         // means no position tonight, not a retry loop.
         gcDoneForDate = today;
         console.log();
         console.log(c.bold("**GAP CAPTURE ENTRY**"));
         const reason = `gap capture ${hhmm(GC_HOUR, GC_MINUTE)} IST (carry overnight)`;
-        await enterLeg(long,  reason);
-        await enterLeg(short, reason);
+        if (!long.state.position)  await enterLeg(long,  reason);
+        if (!short.state.position) await enterLeg(short, reason);
     }
 
     async function gapQuit() {
@@ -570,8 +549,7 @@ async function main() {
     async function gapTick() {
         try {
             if (!gapWindowActive()) return;
-            await gapEnter();
-            await gapQuit();
+            await gapEnter();   // (gapQuit/shutdown removed — the engine keeps running; band logic resumes after midnight)
         } catch (err) {
             console.error(c.red(`GAP CAPTURE loop error: ${err.message}`));
         }

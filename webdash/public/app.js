@@ -4287,11 +4287,11 @@ async function renderDualHedgeAddForm() {
     <div id="dhDualOnly2">
     <div class="tb-form-row"><div class="tb-form-label">Range bar size in price points (blank = same as the band step)</div><input type="number" id="dhRangeSize" min="0" step="any"></div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="dhGap"><span>Enable gap capture \u2014 at the gap time today's trades are closed (realized), then LONG on the long account + SHORT on the short account, carried overnight; the engine quits afterwards with positions left open</span></label>
+      <label class="tb-form-row-inline"><input type="checkbox" id="dhGap"><span>Enable gap capture \u2014 at the gap time each flat leg places an NRML entry (LONG on the long account, SHORT on the short account), carried overnight; legs already holding are left alone</span></label>
     </div>
     <div id="dhGapTimes" style="display:none">
-      <div class="tb-form-row"><div class="tb-form-label">Gap capture time IST (realize + enter)</div><input type="time" id="dhGapEntry" value="23:20"></div>
-      <div class="tb-form-row"><div class="tb-form-label">Quit time IST (must be after gap time; positions stay open)</div><input type="time" id="dhGapExit" value="23:25"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Gap capture time IST (NRML entry)</div><input type="time" id="dhGapEntry" value="23:20"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Latest entry time IST (must be after gap time; no entry after it)</div><input type="time" id="dhGapExit" value="23:25"></div>
     </div>
     </div>
     <div class="tb-form-row">
@@ -4459,11 +4459,11 @@ function renderDualHedgeBacktestForm() {
       <div class="tb-form-row"><div class="tb-form-label" id="dbMaxLossLabel">Stop \u20b9</div><input type="number" id="dbMaxLoss" min="1" value="3000"></div>
       <div class="tb-form-row"><div class="tb-form-label">Take profit \u20b9</div><input type="number" id="dbTakeProfit" min="1" value="3000"></div>
       <div class="tb-form-row">
-        <label class="tb-form-row-inline"><input type="checkbox" id="dbGap"><span>Gap capture \u2014 at the gap time today's trades are realized, then LONG + SHORT are entered and carried overnight</span></label>
+        <label class="tb-form-row-inline"><input type="checkbox" id="dbGap"><span>Gap capture \u2014 at the gap time each flat leg places an NRML entry (LONG + SHORT), carried overnight; legs already holding are left alone</span></label>
       </div>
       <div id="dbGapTimes" style="display:none">
-        <div class="tb-form-row"><div class="tb-form-label">Gap capture time IST (realize + enter)</div><input type="time" id="dbGapEntry" value="23:20"></div>
-        <div class="tb-form-row"><div class="tb-form-label">Quit time IST (after the gap time)</div><input type="time" id="dbGapExit" value="23:25"></div>
+        <div class="tb-form-row"><div class="tb-form-label">Gap capture time IST (NRML entry)</div><input type="time" id="dbGapEntry" value="23:20"></div>
+        <div class="tb-form-row"><div class="tb-form-label">Latest entry time IST (after the gap time)</div><input type="time" id="dbGapExit" value="23:25"></div>
       </div>
     </div>
     <div id="dbBias" style="display:none">
