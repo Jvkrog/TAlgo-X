@@ -267,6 +267,36 @@ async function main() {
     });
 
     console.log(c.bold(`DUAL HEDGE  ${long.context.symbol}  LONG:${long.user.name} (${long.context.lots} lot)  SHORT:${short.user.name} (${short.context.lots} lot)  ${SL_MODE === "ATR" ? `stop:${ATR_SL_MULT}x ATR(${engineConfig.ST_ATR_LEN}) on ${ATR_TIMEFRAME} (backstop ₹${MAX_LOSS_RUPEES} until ATR is available)` : `maxLoss:₹${MAX_LOSS_RUPEES}`} takeProfit:₹${TAKE_PROFIT_RUPEES} (exits armed only once flipped)`));
+    // ─── TELEGRAM ALERTS (all sent via the long leg's tg, same chat as entries/exits):
+    // start-up, flips, loop errors (throttled), and a daily summary. Entries, exits and
+    // entry/exit failures already alert from enterLeg/exitLeg/positions.close.
+    const alertAt = {};
+    function alertThrottled(key, msg, ms = 10 * 60 * 1000) {
+        if (Date.now() - (alertAt[key] || 0) < ms) return;
+        alertAt[key] = Date.now();
+        Promise.resolve(long.tg(msg)).catch(() => {});
+    }
+    long.tg(`\u25b6 Dual Hedge started \u2014 ${long.context.symbol}\nLONG:${long.user.name} (${long.context.lots} lot)  SHORT:${short.user.name} (${short.context.lots} lot)\n${SL_MODE === "ATR" ? `Stop ${ATR_SL_MULT}x ATR on ${ATR_TIMEFRAME} (backstop \u20b9${MAX_LOSS_RUPEES})` : `Stop \u20b9${MAX_LOSS_RUPEES}`}  Take profit \u20b9${TAKE_PROFIT_RUPEES}\n${engineConfig.LIVE_ORDERS ? "LIVE orders" : "PAPER"}  \u00b7  NRML${GAP_CAPTURE ? " \u00b7 gap capture" : ""}`);
+
+    // Daily summary once per day at DH_REPORT_HOUR:DH_REPORT_MINUTE IST (default 23:25).
+    const REPORT_HOUR = Number(process.env.DH_REPORT_HOUR ?? 23), REPORT_MINUTE = Number(process.env.DH_REPORT_MINUTE ?? 25);
+    let reportedForDate = null;
+    async function dailySummary() {
+        const today = todayIST();
+        if (reportedForDate === today || !pastClock(REPORT_HOUR, REPORT_MINUTE)) return;
+        reportedForDate = today;
+        const px = (tickPrice !== null && Date.now() - tickAt <= PRICE_STALE_MS) ? tickPrice : await getLtp(long.ltpKey).catch(() => null);
+        const lines = [];
+        let total = 0;
+        for (const leg of [long, short]) {
+            const realized = await leg.db.getRealizedPnlToday(leg.context.tgPrefix);
+            const open = leg.state.position && px !== null ? positions.unrealised(leg.context, leg.state, px) : null;
+            total += realized + (open || 0);
+            lines.push(`${leg.side} (${leg.user.name}): realized ${positions.pnlStr(realized)}` + (leg.state.position ? `  \u00b7 OPEN @${leg.state.entryPrice}${open !== null ? ` unrealized ${positions.pnlStr(open)}` : ""}` : "  \u00b7 flat"));
+        }
+        long.tg(`\ud83d\udcca Dual Hedge summary \u2014 ${today}\n${long.context.symbol}\n${lines.join("\n")}\nNet (realized + unrealized): ${positions.pnlStr(total)}`);
+    }
+    setInterval(() => { dailySummary().catch(err => console.error(c.red(`summary error: ${err.message}`))); }, 30000);
     console.log();
 
     // Shared band signal — read ONCE per evaluation, applied to both legs.
@@ -401,6 +431,7 @@ async function main() {
                 if (band.color === favorable) leg.wantEntry = true;   // white/adverse while flat: nothing
             } else if (!leg.state.flipped && band.color === adverse) {
                 leg.state.flipped = true;
+                alertThrottled(`flip-${leg.side}`, `\u26a0 ${leg.side} FLIPPED \u2014 band turned ${band.color} against the ${leg.side} leg (${leg.user.name}). Exits armed: take-profit > +\u20b9${TAKE_PROFIT_RUPEES}, ${SL_MODE === "ATR" ? `stop ${ATR_SL_MULT}x ATR` : `stop < -\u20b9${MAX_LOSS_RUPEES}`}.`, 60000);
                 console.log(c.yellow(`[${leg.context.tgPrefix}] ${leg.side} FLIPPED (band ${band.color}) — exits now armed: take-profit > +₹${TAKE_PROFIT_RUPEES}, stop ${SL_MODE === "ATR" ? `${ATR_SL_MULT}x ATR` : `< -₹${MAX_LOSS_RUPEES}`}`));
             }
         }
@@ -455,6 +486,7 @@ async function main() {
             await manageLeg(short, price);
         } catch (err) {
             console.error(c.red(`DUAL HEDGE manager error: ${err.message}`));
+            alertThrottled("mgr-err", `\u26a0 Dual Hedge manager error: ${err.message}`);
         } finally {
             managing = false;
         }
@@ -570,7 +602,7 @@ async function main() {
 
     async function evaluateSafe() {
         try { await evaluateBand(); }
-        catch (err) { console.error(c.red(`DUAL HEDGE evaluation error: ${err.message}`)); }
+        catch (err) { console.error(c.red(`DUAL HEDGE evaluation error: ${err.message}`)); alertThrottled("eval-err", `\u26a0 Dual Hedge evaluation error: ${err.message}`); }
     }
 
     function scheduleNextEval() {
