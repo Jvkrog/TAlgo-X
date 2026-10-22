@@ -4273,7 +4273,7 @@ async function renderDualHedgeAddForm() {
     <div class="tb-form-row"><div class="tb-form-label">Stop type</div><select id="dhSlMode"><option value="RUPEES">Rupees (loss on the leg)</option><option value="ATR">ATR multiple from entry</option></select></div>
     <div id="dhAtrRows" style="display:none">
       <div class="tb-form-row"><div class="tb-form-label">ATR stop multiplier (blank = default)</div><input type="number" id="dhAtrMult" min="0" step="any" placeholder="Default"></div>
-      <div class="tb-form-row"><div class="tb-form-label">ATR timeframe</div><select id="dhAtrTf"><option>5m</option><option selected>15m</option><option>30m</option><option>1h</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">ATR timeframe</div><select id="dhAtrTf"><option>5m</option><option>15m</option><option>30m</option><option selected>1h</option></select></div>
       <div class="tb-form-hint">A flipped leg exits once price moves this many ATRs against its entry (ATR taken at entry, fixed after). The rupee figure below is then only a backstop while ATR isn't available yet.</div>
     </div>
     <div class="tb-form-row"><div class="tb-form-label" id="dhMaxLossLabel">Stop: exit a flipped leg when loss exceeds \u20b9 (default 3000)</div><input type="number" id="dhMaxLoss" min="1" step="1" value="3000"></div>
@@ -4454,7 +4454,7 @@ function renderDualHedgeBacktestForm() {
       <div class="tb-form-row"><div class="tb-form-label">Stop type</div><select id="dbSlMode"><option value="RUPEES">Rupees (loss on the leg)</option><option value="ATR">ATR multiple from entry</option></select></div>
       <div id="dbAtrRows" style="display:none">
         <div class="tb-form-row"><div class="tb-form-label">ATR stop multiplier (blank = default)</div><input type="number" id="dbAtrMult" min="0" step="any" placeholder="Default"></div>
-        <div class="tb-form-row"><div class="tb-form-label">ATR timeframe</div><select id="dbAtrTf"><option>5m</option><option selected>15m</option><option>30m</option><option>1h</option></select></div>
+        <div class="tb-form-row"><div class="tb-form-label">ATR timeframe</div><select id="dbAtrTf"><option>5m</option><option>15m</option><option>30m</option><option selected>1h</option></select></div>
       </div>
       <div class="tb-form-row"><div class="tb-form-label" id="dbMaxLossLabel">Stop \u20b9</div><input type="number" id="dbMaxLoss" min="1" value="3000"></div>
       <div class="tb-form-row"><div class="tb-form-label">Take profit \u20b9</div><input type="number" id="dbTakeProfit" min="1" value="3000"></div>

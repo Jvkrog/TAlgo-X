@@ -103,7 +103,7 @@
 //                             see dualHedgeAtr.js). DH_MAX_LOSS_RUPEES_OVERRIDE then
 //                             stays only as the backstop used while ATR isn't available.
 //   DH_ATR_SL_MULT_OVERRIDE   ATR mode: multiplier, default engineConfig.ATR_SL_MULT
-//   DH_ATR_TIMEFRAME_OVERRIDE ATR mode: bar timeframe 5m|15m|30m|1h, default 15m
+//   DH_ATR_TIMEFRAME_OVERRIDE ATR mode: bar timeframe 5m|15m|30m|1h, default 1h
 //   DH_GAP_CAPTURE            "true" enables gap capture (see above), default off
 //   DH_GC_HOUR_OVERRIDE       / DH_GC_MINUTE_OVERRIDE         realize + enter, default 23 / 20 (IST)
 //   DH_GC_QUIT_HOUR_OVERRIDE  / DH_GC_QUIT_MINUTE_OVERRIDE    quit (positions stay open), default 23 / 25

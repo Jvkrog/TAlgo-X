@@ -377,7 +377,7 @@ async function replayDualHedge({
     // slMode "ATR" (see dualHedgeAtr.js): flipped legs stop out at atrSlMult x ATR(atrLen) of
     // `atrBars` (Kite's own bars at atrTimeframe) from entry, ATR snapshotted at entry; maxLoss
     // stays as the backstop while no ATR is available — exactly the live engine's rule.
-    slMode = "RUPEES", atrSlMult = null, atrBars = null, atrTimeframe = "15m", atrLen = engineConfig.ST_ATR_LEN,
+    slMode = "RUPEES", atrSlMult = null, atrBars = null, atrTimeframe = "1h", atrLen = engineConfig.ST_ATR_LEN,
     gapCapture = false, gc = { hour: 23, minute: 20, quitHour: 23, quitMinute: 25 },
     slippagePoints = 0, progress, verbose = true,
 }) {
@@ -752,7 +752,7 @@ async function runDualHedgeBacktest({
     signalSource = "RANGE", haTimeframe = "1h",
     bandTimeframe = "15m", unwindMode = "BAND_FLIP", entryHour = 10, entryMinute = 0, eodHour, eodMinute,
     takeProfit = 3000, maxLoss = 3000,
-    slMode = "RUPEES", atrSlMult, atrTimeframe = "15m",   // DUAL only — see replayDualHedge
+    slMode = "RUPEES", atrSlMult, atrTimeframe = "1h",   // DUAL only — see replayDualHedge
     gapCapture = false, gcHour = 23, gcMinute = 20, gcQuitHour = 23, gcQuitMinute = 25,
     slippagePoints = 0, from, to, kc, progress,
 }) {

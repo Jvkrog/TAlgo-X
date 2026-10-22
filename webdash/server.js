@@ -2433,7 +2433,7 @@ async function getDualHedgeProcesses() {
             maxLoss:    p.pm2_env.env?.DH_MAX_LOSS_RUPEES_OVERRIDE || "3000",
             slMode:     (p.pm2_env.env?.DH_SL_MODE || "RUPEES").toUpperCase(),
             atrSlMult:  p.pm2_env.env?.DH_ATR_SL_MULT_OVERRIDE || String(engineConfig.ATR_SL_MULT),
-            atrTimeframe: p.pm2_env.env?.DH_ATR_TIMEFRAME_OVERRIDE || "15m",
+            atrTimeframe: p.pm2_env.env?.DH_ATR_TIMEFRAME_OVERRIDE || "1h",
             takeProfit: p.pm2_env.env?.DH_TAKE_PROFIT_RUPEES_OVERRIDE || "3000",
             rangeSize:  p.pm2_env.env?.DH_RANGE_SIZE_OVERRIDE || "",
             gapCapture: p.pm2_env.env?.DH_GAP_CAPTURE === "true",
@@ -2583,7 +2583,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     // Stop-loss type (DUAL only) — rupees (default) or ATR multiple from entry, see dualHedgeAtr.js.
     const slMode = String(slModeIn || "RUPEES").toUpperCase();
     if (!DH_SL_MODES.includes(slMode)) return res.status(400).json({ error: `SlMode must be one of ${DH_SL_MODES.join("/")}` });
-    const atrTimeframe = String(atrTfIn || "15m").toLowerCase();
+    const atrTimeframe = String(atrTfIn || "1h").toLowerCase();
     if (slMode === "ATR" && !DH_ATR_TIMEFRAMES.includes(atrTimeframe)) return res.status(400).json({ error: `AtrTimeframe must be one of ${DH_ATR_TIMEFRAMES.join("/")}` });
 
     const name = strategy === "BIAS" ? `${getShortName(underlying)}DualBias` : `${getShortName(underlying)}DualHedge`;
@@ -2631,7 +2631,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         // Always written explicitly (PM2 restart merges env, never clears it).
         env.DH_SL_MODE = slMode;
         env.DH_ATR_SL_MULT_OVERRIDE = slMode === "ATR" && atrSlMult ? String(Number(atrSlMult)) : "";
-        env.DH_ATR_TIMEFRAME_OVERRIDE = slMode === "ATR" ? atrTimeframe : "15m";
+        env.DH_ATR_TIMEFRAME_OVERRIDE = slMode === "ATR" ? atrTimeframe : "1h";
         env.DH_RANGE_SIZE_OVERRIDE = rangeSize ? String(rangeSize) : "";
         env.DH_GAP_CAPTURE = String(!!gapCapture);
         if (gapCapture) {
@@ -2707,7 +2707,7 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
             if (!DH_SL_MODES.includes(opts.slMode)) return res.status(400).json({ error: `SlMode must be one of ${DH_SL_MODES.join("/")}` });
             if (opts.slMode === "ATR") {
                 opts.atrSlMult = b.atrSlMult ? Number(b.atrSlMult) : null;   // null -> engineConfig.ATR_SL_MULT
-                opts.atrTimeframe = String(b.atrTimeframe || "15m").toLowerCase();
+                opts.atrTimeframe = String(b.atrTimeframe || "1h").toLowerCase();
                 if (!DH_ATR_TIMEFRAMES.includes(opts.atrTimeframe)) return res.status(400).json({ error: `AtrTimeframe must be one of ${DH_ATR_TIMEFRAMES.join("/")}` });
             }
             if (b.gapCapture) {

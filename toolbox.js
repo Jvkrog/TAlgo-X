@@ -2759,7 +2759,7 @@ async function getDualHedgeProcesses() {
             maxLoss:    p.pm2_env.env?.DH_MAX_LOSS_RUPEES_OVERRIDE || "3000",
             slMode:     (p.pm2_env.env?.DH_SL_MODE || "RUPEES").toUpperCase(),
             atrSlMult:  p.pm2_env.env?.DH_ATR_SL_MULT_OVERRIDE || "",
-            atrTimeframe: p.pm2_env.env?.DH_ATR_TIMEFRAME_OVERRIDE || "15m",
+            atrTimeframe: p.pm2_env.env?.DH_ATR_TIMEFRAME_OVERRIDE || "1h",
             takeProfit: p.pm2_env.env?.DH_TAKE_PROFIT_RUPEES_OVERRIDE || "3000",
             rangeSize:  p.pm2_env.env?.DH_RANGE_SIZE_OVERRIDE || "",
             gapCapture: p.pm2_env.env?.DH_GAP_CAPTURE === "true",
@@ -2980,12 +2980,12 @@ async function addDualHedge() {
     const slModeIn = (await ask("  Stop type: [R] rupees, [A] ATR multiple from entry (default R): ")).trim().toUpperCase();
     if (slModeIn !== "" && slModeIn !== "R" && slModeIn !== "A") { console.log(c.yellow("  Invalid stop type")); await pauseForReview(); return; }
     const slMode = slModeIn === "A" ? "ATR" : "RUPEES";
-    let atrSlMult = null, atrTimeframe = "15m";
+    let atrSlMult = null, atrTimeframe = "1h";
     if (slMode === "ATR") {
         const multIn = (await ask(`  ATR stop multiplier (blank = default ${engineConfig.ATR_SL_MULT}): `)).trim();
         atrSlMult = multIn ? Number(multIn) : null;
         if (atrSlMult !== null && (!Number.isFinite(atrSlMult) || atrSlMult <= 0)) { console.log(c.yellow("  Invalid ATR multiplier")); await pauseForReview(); return; }
-        const tfIn = (await ask("  ATR timeframe 5m/15m/30m/1h (default 15m): ")).trim().toLowerCase();
+        const tfIn = (await ask("  ATR timeframe 5m/15m/30m/1h (default 1h): ")).trim().toLowerCase();
         if (tfIn) {
             if (!["5m", "15m", "30m", "1h"].includes(tfIn)) { console.log(c.yellow("  Invalid ATR timeframe")); await pauseForReview(); return; }
             atrTimeframe = tfIn;
@@ -3171,7 +3171,7 @@ async function backtestDualHedgeFlow() {
     const opts = { strategy };
     if (strategy === "BIAS") {
         opts.unwindMode = await askChoice("Unwind: B = band back in the core's favour closes the hedge, E = hold the hedge to EOD [B/E, default B]", { B: "BAND_FLIP", E: "EOD_ONLY" }, "BAND_FLIP");
-        opts.bandTimeframe = await askTf("Dynamic Band timeframe (Kite historical bars)", ["5m", "15m", "30m", "1h"], "15m");
+        opts.bandTimeframe = await askTf("Dynamic Band timeframe (Kite historical bars)", ["5m", "15m", "30m", "1h"], "1h");
         opts.bandStepOverride = await askNum("Band step override (blank = engine default)", null, { optional: true });
         const t = await askTime("Core entry time IST (decided once a day)", 10, 0);
         opts.entryHour = t.hour; opts.entryMinute = t.minute;
@@ -3180,7 +3180,7 @@ async function backtestDualHedgeFlow() {
         opts.slMode = await askChoice("Stop type [R = rupees, A = ATR multiple from entry, default R]", { R: "RUPEES", A: "ATR" }, "RUPEES");
         if (opts.slMode === "ATR") {
             opts.atrSlMult = await askNum(`ATR stop multiplier (blank = default ${engineConfig.ATR_SL_MULT})`, null, { optional: true });
-            opts.atrTimeframe = await askTf("ATR timeframe (Kite historical bars)", ["5m", "15m", "30m", "1h"], "15m");
+            opts.atrTimeframe = await askTf("ATR timeframe (Kite historical bars)", ["5m", "15m", "30m", "1h"], "1h");
             opts.maxLoss = await askNum("Rupee backstop, used only while ATR isn't available yet ₹ (default 3000)", 3000);
         } else {
             opts.maxLoss = await askNum("Stop: exit a flipped leg when loss exceeds ₹ (default 3000)", 3000);

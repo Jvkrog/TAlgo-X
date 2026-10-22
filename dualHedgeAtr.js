@@ -21,7 +21,7 @@ const { fetchHistoricalCandles, TIMEFRAME_MINUTES } = require("./historicalFetch
 
 const SL_MODES = ["RUPEES", "ATR"];
 const ATR_TIMEFRAMES = Object.keys(TIMEFRAME_MINUTES).filter(tf => tf !== "1d");   // 5m, 15m, 30m, 1h
-const DEFAULT_ATR_TIMEFRAME = "15m";
+const DEFAULT_ATR_TIMEFRAME = "1h";
 const LOOKBACK_DAYS = 10;   // far more bars than ATR(len) needs, even at 1h
 
 const barEnd = (bar, timeframe) => bar.date.getTime() + TIMEFRAME_MINUTES[timeframe] * 60000;
