@@ -4003,6 +4003,7 @@ async function loadDualHedgeList() {
               <div class="tb-watch-inst">${d.name}</div>
               <div class="tb-watch-meta">${d.underlying} \u00b7 LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot \u00b7 ${dualHedgeStrategyText(d)} \u00b7 ${modeTag} \u00b7 [${d.status}]</div>
             </div>
+            <button class="tb-cli-action" data-dh-backtest="${d.name}" style="padding:4px 8px;font-size:11px">Backtest</button>
             <button class="tb-cli-action" data-dh-logs="${d.name}" style="padding:4px 8px;font-size:11px">Logs</button>
             <button class="tb-cli-action" data-dh-toggle="${d.name}" data-dh-status="${d.status}" style="padding:4px 8px;font-size:11px">${d.status === "online" ? "stop" : "start"}</button>
             <button class="tb-watch-remove" data-dh-remove="${d.name}" title="remove">\u2715</button>
@@ -4033,6 +4034,15 @@ async function loadDualHedgeList() {
         if (!confirm(`Remove ${btn.dataset.dhRemove}? This stops and deletes the PM2 process.`)) return;
         await fetch(`/api/toolbox/dualhedge/${encodeURIComponent(btn.dataset.dhRemove)}`, { method: "DELETE" });
         loadDualHedgeList();
+      });
+    });
+    // Per-deployment Backtest: opens the backtest form for that deployment's instrument, prefilled with its settings.
+    tbDualHedgeBody.querySelectorAll("[data-dh-backtest]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const d = deployments.find(x => x.name === btn.dataset.dhBacktest);
+        if (!d) return;
+        dhAddState = { mode: "backtest", underlying: d.underlying, prefill: d };
+        renderDualHedgeBacktestForm();
       });
     });
     tbDualHedgeBody.querySelectorAll("[data-dh-logs]").forEach(btn => {
@@ -4480,6 +4490,18 @@ function renderDualHedgeBacktestForm() {
   q("#dbStrategy").addEventListener("change", sync);
   q("#dbSignal").addEventListener("change", sync);
   q("#dbSlMode").addEventListener("change", sync);
+  const pf = dhAddState && dhAddState.prefill;
+  if (pf) {
+    const set = (id, v) => { const el = q(id); if (el && v !== undefined && v !== null && v !== "") el.value = v; };
+    set("#dbStrategy", pf.strategy); set("#dbLots", pf.lots); set("#dbSlMode", pf.slMode);
+    set("#dbAtrMult", pf.slMode === "ATR" ? pf.atrSlMult : ""); set("#dbAtrTf", pf.atrTimeframe);
+    set("#dbMaxLoss", pf.maxLoss); set("#dbTakeProfit", pf.takeProfit);
+    set("#dbUnwind", pf.unwindMode); set("#dbBandTf", pf.bandTimeframe); set("#dbEntryTime", pf.entryTime);
+    q("#dbGap").checked = !!pf.gapCapture;
+    const hint = tbDualHedgeBody.querySelector(".tb-form-hint");
+    if (hint) hint.insertAdjacentHTML("beforeend", ` \u00b7 prefilled from <b>${escHtml(pf.name)}</b>`);
+  }
+  sync();
   q("#dbSubmit").addEventListener("click", async () => {
     const errBox = q("#dbErrBox");
     errBox.innerHTML = ""; q("#dbResult").innerHTML = "";
