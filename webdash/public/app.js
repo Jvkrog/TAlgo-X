@@ -4505,7 +4505,7 @@ function renderDualHedgeBacktestForm() {
       const res = await fetch("/api/toolbox/dualhedge/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "backtest failed")}</div>`;
-      else renderDualHedgeBacktestResult(data);
+      else renderDualHedgeBacktestResult(data, body);
     } catch (err) {
       errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
     }
@@ -4513,7 +4513,7 @@ function renderDualHedgeBacktestForm() {
   });
 }
 
-function renderDualHedgeBacktestResult(data) {
+function renderDualHedgeBacktestResult(data, btBody) {
   const m = data.summary || {};
   const num = n => (n === undefined || n === null || Number.isNaN(n)) ? "\u2014" : Number(n).toFixed(2);
   const row = (label, x) => x ? `<tr><td>${label}</td><td>${x.trades}</td><td>${(x.winRate * 100).toFixed(1)}%</td><td>${num(x.netPnL)}</td></tr>` : "";
@@ -4523,9 +4523,68 @@ function renderDualHedgeBacktestResult(data) {
     <table class="tb-table" style="width:100%"><tr><th></th><th>Trades</th><th>Win</th><th>Net \u20b9</th></tr>
       ${row("Combined", m.combined)}${row("LONG acct", m.long)}${row("SHORT acct", m.short)}</table>
     <div style="margin:8px 0"><a href="${data.reportUrl}" target="_blank">Open report</a> \u00b7 <a href="${data.jsonUrl}" target="_blank">JSON</a> \u00b7 <a href="#" id="dbLogToggle">Show log</a></div>
-    <pre id="dbLogBody" style="display:none;max-height:300px;overflow:auto">${escHtml((data.logLines || []).join("\n"))}</pre>`;
+    <pre id="dbLogBody" style="display:none;max-height:300px;overflow:auto">${escHtml((data.logLines || []).join("\n"))}</pre>
+    <div id="dbDeploy"></div>`;
+  renderDualHedgeBacktestDeploy(btBody);
   const t = tbDualHedgeBody.querySelector("#dbLogToggle"), body = tbDualHedgeBody.querySelector("#dbLogBody");
   t.addEventListener("click", e => { e.preventDefault(); const open = body.style.display === "none"; body.style.display = open ? "" : "none"; t.textContent = open ? "Hide log" : "Show log"; });
+}
+
+// Deploy the settings a backtest just used as a real Dual Hedge deployment
+// (same POST /api/toolbox/dualhedge the Add form uses). The live engine has no
+// HA signal, so for DUAL with an HA signal it deploys range bars + DSB.
+async function renderDualHedgeBacktestDeploy(bt) {
+  const box = tbDualHedgeBody.querySelector("#dbDeploy");
+  if (!box || !bt) return;
+  const usersData = await fetch("/api/toolbox/dualhedge/users").then(r => r.json()).catch(() => ({ users: [] }));
+  const ready = (usersData.users || []).filter(u => u.hasApiKey && u.hasAccessToken);
+  const isBias = bt.strategy === "BIAS";
+  const haSignal = !isBias && bt.signalSource !== "RANGE";
+  if (ready.length < 2) {
+    box.innerHTML = `<div class="tb-form-hint" style="margin-top:10px">To deploy this you need at least 2 fully-configured accounts (API key + access token) \u2014 currently ${ready.length}. Use "Manage users" first.</div>`;
+    return;
+  }
+  const opts = ready.map(u => `<option value="${escHtml(u.name)}">${escHtml(u.name)}</option>`).join("");
+  box.innerHTML = `
+    <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,.1);padding-top:10px">
+      <div class="tb-form-hint"><b>Deploy these settings</b> \u2014 ${escHtml(bt.underlying)}, ${escHtml(bt.strategy)}, ${escHtml(bt.lots)} lot(s) per leg</div>
+      ${haSignal ? `<div class="tb-err-box" style="margin:6px 0">Note: the live Dual Hedge engine has no Heikin-Ashi signal. Deploying runs range bars + Dynamic Step Band, which is not what this backtest tested.</div>` : ""}
+      <div class="tb-form-row"><div class="tb-form-label">LONG account</div><select id="dbdLong">${opts}</select></div>
+      <div class="tb-form-row"><div class="tb-form-label">SHORT account (must differ)</div><select id="dbdShort">${opts}</select></div>
+      <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dbdLive"><span>Go LIVE (real orders on BOTH accounts) \u2014 unchecked = paper</span></label></div>
+      <div id="dbdErr"></div>
+      <button class="tb-submit-btn" id="dbdBtn">Deploy</button>
+    </div>`;
+  const dq = id => box.querySelector(id);
+  if (ready.length > 1) dq("#dbdShort").selectedIndex = 1;
+  dq("#dbdBtn").addEventListener("click", async () => {
+    const longUser = dq("#dbdLong").value, shortUser = dq("#dbdShort").value;
+    if (longUser === shortUser) { dq("#dbdErr").innerHTML = `<div class="tb-err-box">LONG and SHORT must be different accounts</div>`; return; }
+    const live = dq("#dbdLive").checked;
+    let confirmLive;
+    if (live) {
+      confirmLive = prompt('This starts REAL orders on BOTH accounts. Type "LIVE" to confirm:');
+      if (confirmLive !== "LIVE") { dq("#dbdErr").innerHTML = `<div class="tb-err-box">Not confirmed \u2014 not started</div>`; return; }
+    }
+    const body = {
+      underlying: bt.underlying, longUser, shortUser, lots: bt.lots || 1,
+      strategy: bt.strategy, lotMultOverride: bt.lotMultOverride, bandStepOverride: bt.bandStepOverride,
+      maxLossRupees: bt.maxLoss || 3000, takeProfitRupees: bt.takeProfit || 3000,
+      slMode: bt.slMode, atrSlMult: bt.atrSlMult, atrTimeframe: bt.atrTimeframe,
+      unwindMode: bt.unwindMode, bandTimeframe: bt.bandTimeframe, entryTime: bt.entryTime,
+      gapCapture: false, live, confirmLive,
+    };
+    const btn = dq("#dbdBtn"); btn.disabled = true; btn.textContent = "Deploying...";
+    try {
+      const res = await fetch("/api/toolbox/dualhedge", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) { dq("#dbdErr").innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Failed to deploy")}</div>`; btn.disabled = false; btn.textContent = "Deploy"; return; }
+      dhAddState = null;
+      loadDualHedgeList();
+    } catch (err) {
+      dq("#dbdErr").innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`; btn.disabled = false; btn.textContent = "Deploy";
+    }
+  });
 }
 
 initAuth();
