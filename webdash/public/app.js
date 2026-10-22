@@ -4458,6 +4458,13 @@ function renderDualHedgeBacktestForm() {
       </div>
       <div class="tb-form-row"><div class="tb-form-label" id="dbMaxLossLabel">Stop \u20b9</div><input type="number" id="dbMaxLoss" min="1" value="3000"></div>
       <div class="tb-form-row"><div class="tb-form-label">Take profit \u20b9</div><input type="number" id="dbTakeProfit" min="1" value="3000"></div>
+      <div class="tb-form-row">
+        <label class="tb-form-row-inline"><input type="checkbox" id="dbGap"><span>Gap capture \u2014 at the gap time today's trades are realized, then LONG + SHORT are entered and carried overnight</span></label>
+      </div>
+      <div id="dbGapTimes" style="display:none">
+        <div class="tb-form-row"><div class="tb-form-label">Gap capture time IST (realize + enter)</div><input type="time" id="dbGapEntry" value="23:20"></div>
+        <div class="tb-form-row"><div class="tb-form-label">Quit time IST (after the gap time)</div><input type="time" id="dbGapExit" value="23:25"></div>
+      </div>
     </div>
     <div id="dbBias" style="display:none">
       <div class="tb-form-row"><div class="tb-form-label">Hedge unwind</div><select id="dbUnwind"><option value="BAND_FLIP">Band flip closes the hedge</option><option value="EOD_ONLY">Hold to EOD</option></select></div>
@@ -4484,6 +4491,7 @@ function renderDualHedgeBacktestForm() {
   };
   q("#dbStrategy").addEventListener("change", sync);
   q("#dbSignal").addEventListener("change", sync);
+  q("#dbGap").addEventListener("change", e => { q("#dbGapTimes").style.display = e.target.checked ? "" : "none"; });
   q("#dbSlMode").addEventListener("change", sync);
   q("#dbSubmit").addEventListener("click", async () => {
     const errBox = q("#dbErrBox");
@@ -4498,6 +4506,8 @@ function renderDualHedgeBacktestForm() {
       maxLoss: q("#dbMaxLoss").value, takeProfit: q("#dbTakeProfit").value,
       slMode: q("#dbSlMode").value, atrSlMult: q("#dbAtrMult").value || undefined, atrTimeframe: q("#dbAtrTf").value,
       unwindMode: q("#dbUnwind").value, bandTimeframe: q("#dbBandTf").value, entryTime: q("#dbEntryTime").value || "10:00",
+      gapCapture: q("#dbStrategy").value === "DUAL" && q("#dbGap").checked,
+      gcEntry: q("#dbGapEntry").value || "23:20", gcExit: q("#dbGapExit").value || "23:25",
     };
     const btn = q("#dbSubmit");
     btn.disabled = true; btn.textContent = "Running...";
@@ -4572,7 +4582,7 @@ async function renderDualHedgeBacktestDeploy(bt) {
       maxLossRupees: bt.maxLoss || 3000, takeProfitRupees: bt.takeProfit || 3000,
       slMode: bt.slMode, atrSlMult: bt.atrSlMult, atrTimeframe: bt.atrTimeframe,
       unwindMode: bt.unwindMode, bandTimeframe: bt.bandTimeframe, entryTime: bt.entryTime,
-      gapCapture: false, live, confirmLive,
+      gapCapture: !!bt.gapCapture, gcEntry: bt.gcEntry, gcExit: bt.gcExit, live, confirmLive,
     };
     const btn = dq("#dbdBtn"); btn.disabled = true; btn.textContent = "Deploying...";
     try {
