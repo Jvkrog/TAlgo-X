@@ -356,6 +356,9 @@ let dualHedgeLegIndex = new Map(); // tgPrefix -> {dealName, leg:"long"|"short"}
 const dualHedgeLegPnl = new Map(); // tgPrefix -> last {uPnl, session}
 
 function dualHedgeStrategyText(d) {
+  if (d.strategy === "REALIZE") {
+    return `realize & re-open \u00b7 closes a leg at +\u20b9${d.realizeRupees || 3000} then re-opens it (NRML)${d.lossAlertRupees ? ` \u00b7 loss alert -\u20b9${d.lossAlertRupees}` : ""} \u00b7 losing leg never closed`;
+  }
   if (d.strategy === "BIAS") {
     const unwind = d.unwindMode === "EOD_ONLY" ? "held to EOD" : "unwinds when the band flips back";
     return `dual bias hedge \u00b7 core: daily HA @${d.entryTime} \u00b7 hedge: ${d.bandTimeframe} band (${unwind}) \u00b7 flat ${d.eodTime || "EOD"}`;
@@ -4247,6 +4250,11 @@ function renderDualHedgeAddUnderlyingPicker() {
   runSearch();
 }
 
+function dhSubmitLabel() {
+  const st = tbDualHedgeBody.querySelector("#dhStrategy").value;
+  return st === "BIAS" ? "Start bias hedge" : st === "REALIZE" ? "Start realize & re-open" : "Start dual hedge";
+}
+
 async function renderDualHedgeAddForm() {
   const [lm, usersData] = await Promise.all([
     (await fetch(`/api/toolbox/dualhedge/lotmult/${encodeURIComponent(dhAddState.underlying)}`)).json().catch(() => ({})),
@@ -4268,7 +4276,7 @@ async function renderDualHedgeAddForm() {
   tbDualHedgeBody.innerHTML = `
     <button class="tb-back-link" id="dhBack">\u2039 back</button>
     <div class="tb-form-hint" style="margin:8px 0">Underlying: <b>${dhAddState.underlying}</b></div>
-    <div class="tb-form-row"><div class="tb-form-label">Strategy</div><select id="dhStrategy"><option value="DUAL">Dual hedge (band-following)</option><option value="BIAS">Bias hedge (daily HA core + band hedge)</option></select></div>
+    <div class="tb-form-row"><div class="tb-form-label">Strategy</div><select id="dhStrategy"><option value="DUAL">Dual hedge (band-following)</option><option value="BIAS">Bias hedge (daily HA core + band hedge)</option><option value="REALIZE">Realize &amp; re-open (profit lock, NRML carry)</option></select></div>
     <div class="tb-form-hint" id="dhStrategyHint" style="margin-bottom:8px"></div>
 
     <div class="tb-form-row"><div class="tb-form-label">LONG account</div><select id="dhLongUser">${userOptions}</select></div>
@@ -4278,6 +4286,10 @@ async function renderDualHedgeAddForm() {
       <div class="tb-form-row"><div class="tb-form-label">Hedge unwind</div><select id="dhUnwind"><option value="BAND_FLIP">Band back in the core's favour closes the hedge</option><option value="EOD_ONLY">Hold the hedge to EOD</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Dynamic Band timeframe</div><select id="dhBandTf"><option value="5m">5m</option><option value="15m" selected>15m</option><option value="30m">30m</option><option value="1h">1h</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core entry time IST (previous daily HA candle decides, once a day)</div><input type="time" id="dhEntryTime" value="10:00"></div>
+    </div>
+    <div id="dhRealizeOnly" style="display:none">
+      <div class="tb-form-row"><div class="tb-form-label">Realize when a leg's profit exceeds \u20b9 (default 3000) \u2014 the leg is closed, then the same side is opened again</div><input type="number" id="dhRealizeRupees" min="1" step="1" value="3000"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Losing-leg alert at \u20b9 down (blank = off) \u2014 Telegram "add funds" alert; the losing leg is never closed by the engine</div><input type="number" id="dhLossAlert" min="1" step="1"></div>
     </div>
     <div id="dhDualOnly">
     <div class="tb-form-row"><div class="tb-form-label">Stop type</div><select id="dhSlMode"><option value="RUPEES">Rupees (loss on the leg)</option><option value="ATR">ATR multiple from entry</option></select></div>
@@ -4310,6 +4322,7 @@ async function renderDualHedgeAddForm() {
   tbDualHedgeBody.querySelector("#dhBack").addEventListener("click", renderDualHedgeAddUnderlyingPicker);
   const dhHints = {
     DUAL: "LONG account enters LONG only, SHORT account enters SHORT only \u2014 both carry overnight, SL only arms after that leg's own first adverse flip.",
+    REALIZE: "LONG on the long account + SHORT on the short account, NRML. When a leg's profit passes the set value it is closed (realized) and the same position is opened again for overnight carry. The losing leg is left alone \u2014 add funds to that account yourself (optional Telegram alert).",
     BIAS: "Previous daily HA candle sets the core (green = LONG account, red = SHORT account). The OTHER account hedges when the Dynamic Band turns against the core. Both accounts are flat at EOD (no overnight carry, no gap capture).",
   };
   const dhSyncStrategy = () => {
@@ -4317,9 +4330,12 @@ async function renderDualHedgeAddForm() {
     tbDualHedgeBody.querySelector("#dhStrategyHint").textContent = dhHints[st];
     tbDualHedgeBody.querySelector("#dhDualOnly").style.display = st === "DUAL" ? "" : "none";
     tbDualHedgeBody.querySelector("#dhDualOnly2").style.display = st === "DUAL" ? "" : "none";
+    tbDualHedgeBody.querySelector("#dhRealizeOnly").style.display = st === "REALIZE" ? "" : "none";
+    const bsRow = tbDualHedgeBody.querySelector("#dhBandStep")?.closest(".tb-form-row");
+    if (bsRow) bsRow.style.display = st === "REALIZE" ? "none" : "";
     tbDualHedgeBody.querySelector("#dhBiasOnly").style.display = st === "BIAS" ? "" : "none";
     tbDualHedgeBody.querySelector("#dhSubmitLabelHolder")?.remove();
-    tbDualHedgeBody.querySelector("#dhAddSubmit").textContent = st === "BIAS" ? "Start bias hedge" : "Start dual hedge";
+    tbDualHedgeBody.querySelector("#dhAddSubmit").textContent = st === "BIAS" ? "Start bias hedge" : st === "REALIZE" ? "Start realize & re-open" : "Start dual hedge";
   };
   tbDualHedgeBody.querySelector("#dhStrategy").addEventListener("change", dhSyncStrategy);
   dhSyncStrategy();
@@ -4363,6 +4379,8 @@ async function renderDualHedgeAddForm() {
       unwindMode: tbDualHedgeBody.querySelector("#dhUnwind").value,
       bandTimeframe: tbDualHedgeBody.querySelector("#dhBandTf").value,
       entryTime: tbDualHedgeBody.querySelector("#dhEntryTime").value || "10:00",
+      realizeRupees: tbDualHedgeBody.querySelector("#dhRealizeRupees").value || undefined,
+      lossAlertRupees: tbDualHedgeBody.querySelector("#dhLossAlert").value || undefined,
       gapCapture: tbDualHedgeBody.querySelector("#dhStrategy").value === "DUAL" && tbDualHedgeBody.querySelector("#dhGap").checked,
       gcEntry: "23:20", gcExit: "23:25",
     };
@@ -4375,14 +4393,14 @@ async function renderDualHedgeAddForm() {
       const data = await res.json();
       if (!res.ok) {
         errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Failed to start")}</div>`;
-        btn.disabled = false; btn.textContent = tbDualHedgeBody.querySelector("#dhStrategy").value === "BIAS" ? "Start bias hedge" : "Start dual hedge";
+        btn.disabled = false; btn.textContent = dhSubmitLabel();
         return;
       }
       dhAddState = null;
       loadDualHedgeList();
     } catch (err) {
       errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`;
-      btn.disabled = false; btn.textContent = tbDualHedgeBody.querySelector("#dhStrategy").value === "BIAS" ? "Start bias hedge" : "Start dual hedge";
+      btn.disabled = false; btn.textContent = dhSubmitLabel();
     }
   });
 }

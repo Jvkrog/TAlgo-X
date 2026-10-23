@@ -2442,6 +2442,8 @@ async function getDualHedgeProcesses() {
             live:       p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:   p.pm2_env.env?.DH_EXCHANGE_OVERRIDE || "MCX",
             strategy:   (p.pm2_env.env?.DH_STRATEGY || "DUAL").toUpperCase(),
+            realizeRupees: p.pm2_env.env?.DH_REALIZE_RUPEES || "",
+            lossAlertRupees: p.pm2_env.env?.DH_LOSS_ALERT_RUPEES || "",
             unwindMode: p.pm2_env.env?.DH_UNWIND_MODE || "BAND_FLIP",
             bandTimeframe: p.pm2_env.env?.DH_BAND_TIMEFRAME || "15m",
             entryTime:  hhmmPad(p.pm2_env.env?.DH_ENTRY_HOUR_OVERRIDE ?? 10, p.pm2_env.env?.DH_ENTRY_MINUTE_OVERRIDE ?? 0),
@@ -2552,10 +2554,11 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         lotMultOverride, bandStepOverride, live, confirmLive,
         gapCapture, gcEntry, gcExit,
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
+        realizeRupees, lossAlertRupees,
     } = req.body || {};
 
     const strategy = String(strategyIn || "DUAL").toUpperCase();
-    if (strategy !== "DUAL" && strategy !== "BIAS") return res.status(400).json({ error: "Strategy must be DUAL or BIAS" });
+    if (strategy !== "DUAL" && strategy !== "BIAS" && strategy !== "REALIZE") return res.status(400).json({ error: "Strategy must be DUAL, BIAS or REALIZE" });
     if (!underlying || !longUser || !shortUser) {
         return res.status(400).json({ error: "Underlying, longUser and shortUser are all required" });
     }
@@ -2586,7 +2589,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     const atrTimeframe = String(atrTfIn || "1h").toLowerCase();
     if (slMode === "ATR" && !DH_ATR_TIMEFRAMES.includes(atrTimeframe)) return res.status(400).json({ error: `AtrTimeframe must be one of ${DH_ATR_TIMEFRAMES.join("/")}` });
 
-    const name = strategy === "BIAS" ? `${getShortName(underlying)}DualBias` : `${getShortName(underlying)}DualHedge`;
+    const name = strategy === "BIAS" ? `${getShortName(underlying)}DualBias` : strategy === "REALIZE" ? `${getShortName(underlying)}DualRealize` : `${getShortName(underlying)}DualHedge`;
     const conflict = await findAccountConflict(underlying, [longUser, shortUser], name);
     if (conflict) return res.status(409).json({ error: conflict });
 
@@ -2600,7 +2603,14 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     if (lotMultOverride)  env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
     if (bandStepOverride) env.DH_BAND_STEP_OVERRIDE = String(bandStepOverride);
 
-    if (strategy === "BIAS") {
+    if (strategy === "REALIZE") {
+        for (const [label, v] of [["realizeRupees", realizeRupees], ["lossAlertRupees", lossAlertRupees]]) {
+            if (v !== undefined && v !== null && v !== "" && !(Number(v) > 0)) return res.status(400).json({ error: `${label} must be a positive number` });
+        }
+        env.DH_REALIZE_RUPEES = String(Number(realizeRupees) > 0 ? Number(realizeRupees) : 3000);
+        env.DH_LOSS_ALERT_RUPEES = lossAlertRupees ? String(Number(lossAlertRupees)) : "";
+        env.DH_GAP_CAPTURE = "false";
+    } else if (strategy === "BIAS") {
         const unwind = String(unwindIn || "BAND_FLIP").toUpperCase();
         if (unwind !== "BAND_FLIP" && unwind !== "EOD_ONLY") return res.status(400).json({ error: "UnwindMode must be BAND_FLIP or EOD_ONLY" });
         const tf = String(bandTfIn || "15m").toLowerCase();

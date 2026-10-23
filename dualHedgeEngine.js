@@ -106,7 +106,14 @@ require("./plainLog").install();   // PM2 .log files plain; coloured copy goes t
 //   DUAL (default) — the band-following dual hedge below
 //   BIAS           — daily-HA-bias core + Dynamic-Band hedge (dualBiasHedgeEngine.js)
 const DH_STRATEGY = (process.env.DH_STRATEGY || "DUAL").toUpperCase();
-if (DH_STRATEGY !== "DUAL" && DH_STRATEGY !== "BIAS") { console.error(`DH_STRATEGY "${process.env.DH_STRATEGY}" invalid (known: DUAL, BIAS) — refusing to boot.`); process.exit(1); }
+if (DH_STRATEGY !== "DUAL" && DH_STRATEGY !== "BIAS" && DH_STRATEGY !== "REALIZE") { console.error(`DH_STRATEGY "${process.env.DH_STRATEGY}" invalid (known: DUAL, BIAS, REALIZE) — refusing to boot.`); process.exit(1); }
+// REALIZE (profit-lock): no signal. LONG on the long account + SHORT on the short account at any time while
+// flat; when a leg's unrealized P&L exceeds DH_REALIZE_RUPEES it is closed (realized) and the SAME side is
+// opened again at once (NRML, carried overnight). The losing leg is never closed by the engine — you top up
+// its funds; DH_LOSS_ALERT_RUPEES (0 = off) sends a Telegram "add funds" alert when it is that far down.
+const REALIZE_MODE = DH_STRATEGY === "REALIZE";
+const REALIZE_RUPEES = Number(process.env.DH_REALIZE_RUPEES) > 0 ? Number(process.env.DH_REALIZE_RUPEES) : 3000;
+const LOSS_ALERT_RUPEES = Number(process.env.DH_LOSS_ALERT_RUPEES) > 0 ? Number(process.env.DH_LOSS_ALERT_RUPEES) : 0;
 if (DH_STRATEGY === "BIAS") { require("./dualBiasHedgeEngine"); return; }
 
 const { KiteConnect, KiteTicker } = require("kiteconnect");
@@ -276,7 +283,7 @@ async function main() {
         alertAt[key] = Date.now();
         Promise.resolve(long.tg(msg)).catch(() => {});
     }
-    long.tg(`\u25b6 Dual Hedge started \u2014 ${long.context.symbol}\nLONG:${long.user.name} (${long.context.lots} lot)  SHORT:${short.user.name} (${short.context.lots} lot)\n${SL_MODE === "ATR" ? `Stop ${ATR_SL_MULT}x ATR on ${ATR_TIMEFRAME} (backstop \u20b9${MAX_LOSS_RUPEES})` : `Stop \u20b9${MAX_LOSS_RUPEES}`}  Take profit \u20b9${TAKE_PROFIT_RUPEES}\n${engineConfig.LIVE_ORDERS ? "LIVE orders" : "PAPER"}  \u00b7  NRML${GAP_CAPTURE ? " \u00b7 gap capture" : ""}`);
+    long.tg(`\u25b6 Dual Hedge started \u2014 ${long.context.symbol}\nLONG:${long.user.name} (${long.context.lots} lot)  SHORT:${short.user.name} (${short.context.lots} lot)\n${REALIZE_MODE ? `REALIZE mode: close + re-open a leg when profit > \u20b9${REALIZE_RUPEES}; losing leg is never closed${LOSS_ALERT_RUPEES ? ` (alert at -\u20b9${LOSS_ALERT_RUPEES})` : ""}` : SL_MODE === "ATR" ? `Stop ${ATR_SL_MULT}x ATR on ${ATR_TIMEFRAME} (backstop \u20b9${MAX_LOSS_RUPEES})  Take profit \u20b9${TAKE_PROFIT_RUPEES}` : `Stop \u20b9${MAX_LOSS_RUPEES}  Take profit \u20b9${TAKE_PROFIT_RUPEES}`}\n${engineConfig.LIVE_ORDERS ? "LIVE orders" : "PAPER"}  \u00b7  NRML${GAP_CAPTURE ? " \u00b7 gap capture" : ""}`);
 
     // Daily summary once per day at DH_REPORT_HOUR:DH_REPORT_MINUTE IST (default 23:25).
     const REPORT_HOUR = Number(process.env.DH_REPORT_HOUR ?? 23), REPORT_MINUTE = Number(process.env.DH_REPORT_MINUTE ?? 25);
@@ -414,6 +421,7 @@ async function main() {
     // color while flat sets the entry signal, an adverse color while holding
     // sets the sticky flip. The 1-second manager below acts on them.
     async function evaluateBand() {
+        if (REALIZE_MODE) return;   // REALIZE has no band signal
         const { hours, minutes } = istParts();
         if (hours < 9 || (hours === 9 && minutes < 15)) return;   // reference never evaluates before 09:15
         if (gapWindowActive()) {
@@ -474,6 +482,34 @@ async function main() {
         else    leg.nextExitAt = Date.now() + EXIT_COOLDOWN_MS;
     }
 
+    // REALIZE mode, run every second per leg (see DH_STRATEGY note near the top).
+    function marketOpenNow() {   // MCX session, entries/realizing only inside it (carry orders can't fill outside)
+        const { hours, minutes } = istParts();
+        return hours >= 9 && (hours < 23 || (hours === 23 && minutes < 25));
+    }
+    async function realizeLeg(leg, price) {
+        if (!marketOpenNow() || Date.now() < leg.nextExitAt) return;
+        if (!leg.state.position) {
+            // Flat (first start, or a failed re-open): open the leg's own side, NRML.
+            const ok = await enterLeg(leg, "initial / re-open (carry overnight)");
+            if (!ok) leg.nextExitAt = Date.now() + EXIT_COOLDOWN_MS;
+            return;
+        }
+        const uPnl = positions.unrealised(leg.context, leg.state, price);
+        if (uPnl > REALIZE_RUPEES) {
+            const side = leg.side;
+            const closed = await exitLeg(leg, `${side} REALIZE (profit > \u20b9${REALIZE_RUPEES})`);
+            if (!closed) { leg.nextExitAt = Date.now() + EXIT_COOLDOWN_MS; return; }
+            const reopened = await enterLeg(leg, `re-open after realizing (overnight carry)`);
+            leg.tg(reopened ? `\u267b ${side} profit realized and re-opened (NRML carry).` : `\u26a0 ${side} profit realized but RE-OPEN FAILED \u2014 will retry automatically.`);
+            if (!reopened) leg.nextExitAt = Date.now() + EXIT_COOLDOWN_MS;
+            return;
+        }
+        if (LOSS_ALERT_RUPEES > 0 && uPnl < -LOSS_ALERT_RUPEES) {
+            alertThrottled(`loss-${leg.side}`, `\u26a0 ${leg.side} leg (${leg.user.name}) is down ${positions.pnlStr(uPnl)} (alert level \u20b9${LOSS_ALERT_RUPEES}). Add funds / manage margin on that account. Nothing is closed automatically.`, 60 * 60 * 1000);
+        }
+    }
+
     let managing = false;
     async function manage() {
         if (managing) return;
@@ -482,8 +518,8 @@ async function main() {
             if (gapWindowActive()) return;
             const price = await livePrice();
             if (price === null) return;
-            await manageLeg(long, price);
-            await manageLeg(short, price);
+            if (REALIZE_MODE) { await realizeLeg(long, price); await realizeLeg(short, price); }
+            else { await manageLeg(long, price); await manageLeg(short, price); }
         } catch (err) {
             console.error(c.red(`DUAL HEDGE manager error: ${err.message}`));
             alertThrottled("mgr-err", `\u26a0 Dual Hedge manager error: ${err.message}`);
@@ -611,7 +647,7 @@ async function main() {
 
     // No evaluation at boot — the reference scripts only act at their :20
     // slots. Warm the minute-candle cache now so the first slot is instant.
-    bandReader.prewarm();
+    if (!REALIZE_MODE) bandReader.prewarm();
     scheduleNextEval();
     setInterval(manage, 1000);
     if (GAP_CAPTURE) {
