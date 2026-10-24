@@ -26,6 +26,7 @@
 
 const { KiteConnect } = require("kiteconnect");
 const { fetchHistoricalCandles } = require("./historicalFetch");
+const { toHAAlways } = require("./indicators");
 
 // Exact copy of createDynamicMidColorStrategy's replayHistory() in
 // strategies.js — if that strategy's band mechanics ever change, this
@@ -95,7 +96,7 @@ function replayBandColor(rawCandles, bandStep) {
 const REFRESH_MS = { "5m": 2 * 60 * 1000, "15m": 5 * 60 * 1000, "30m": 10 * 60 * 1000, "1h": 15 * 60 * 1000, "1d": 6 * 60 * 60 * 1000 };
 const LOOKBACK_DAYS = { "5m": 7, "15m": 7, "30m": 7, "1h": 15, "1d": 90 };
 
-function createDynamicBandReader({ token, timeframe, bandStep, engineConfig, label, refreshMs }) {
+function createDynamicBandReader({ token, timeframe, bandStep, engineConfig, label, refreshMs, ha = false }) {
     if (!REFRESH_MS[timeframe]) {
         throw new Error(`createDynamicBandReader: unsupported timeframe "${timeframe}" (known: ${Object.keys(REFRESH_MS).join(", ")})`);
     }
@@ -129,7 +130,9 @@ function createDynamicBandReader({ token, timeframe, bandStep, engineConfig, lab
         // follow. DYNAMIC_MID_COLOR itself uses raw closes, not HA — the
         // band breaks on real price, so this reader replays raw candles
         // unmodified (no toHA() here, unlike haCandleReader.js).
-        const completed = raw.slice(0, -1);
+        let completed = raw.slice(0, -1);
+        // ha:true (hedgePairEngine.js, Oct 2026) feeds the band Heikin-Ashi candles instead of raw ones.
+        if (ha) completed = toHAAlways(completed);
         lastState = replayBandColor(completed, step);
         lastFetchedAt = Date.now();
     }

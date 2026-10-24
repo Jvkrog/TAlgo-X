@@ -3888,7 +3888,7 @@ async function renderHedgePairAddForm() {
 
   tbHedgePairsBody.innerHTML = `
     <button class="tb-back-link" id="hpBack">\u2039 back</button>
-    <div class="tb-form-hint" style="margin:8px 0">Core: <b>${hpAddState.core}</b> (1 lot NRML, previous-day HA candle: green long, red short; EOD-only exit)<br>Hedge: <b>${hpAddState.hedge}</b> (opens when the 1h Dynamic Step Band turns against the core)</div>
+    <div class="tb-form-hint" style="margin:8px 0">Core: <b>${hpAddState.core}</b> (1 lot NRML, previous-day HA candle: green long, red short; EOD-only exit)<br>Hedge: <b>${hpAddState.hedge}</b> (opens when the 1h HA Dynamic Step Band turns against the core)</div>
 
     <div class="tb-form-row">
       <div class="tb-form-label">Core lots (default 1)</div>
@@ -3909,7 +3909,7 @@ async function renderHedgePairAddForm() {
     <div class="tb-form-row">
       <div class="tb-form-label">Unwind mode</div>
       <select id="hpUnwindMode">
-        <option value="HA_FLIP" selected>HA_FLIP \u2014 hedge closes when the 1h Dynamic Step Band flips back in the core's favor</option>
+        <option value="HA_FLIP" selected>HA_FLIP \u2014 hedge closes when the 1h HA Dynamic Step Band flips back in the core's favor</option>
         <option value="EOD_ONLY">EOD_ONLY \u2014 hedge stays on till EOD regardless of the band</option>
       </select>
     </div>
@@ -4416,12 +4416,12 @@ async function renderHedgePairBacktestForm() {
   const B = tbHedgePairsBody;
   B.innerHTML = `
     <button class="tb-back-link" id="hbBack">\u2039 back</button>
-    <div class="tb-form-hint" style="margin:8px 0">Backtest \u2014 core <b>${escHtml(hpAddState.core)}</b> (previous-day HA bias, EOD exit) \u00b7 hedge <b>${escHtml(hpAddState.hedge)}</b> (1h Dynamic Step Band)</div>
+    <div class="tb-form-hint" style="margin:8px 0">Backtest \u2014 core <b>${escHtml(hpAddState.core)}</b> (previous-day HA bias, EOD exit) \u00b7 hedge <b>${escHtml(hpAddState.hedge)}</b> (1h HA Dynamic Step Band)</div>
     <div class="tb-form-row"><div class="tb-form-label">Core lots</div><input type="number" id="hbCoreLots" min="1" value="1"></div>
     <div class="tb-form-row"><div class="tb-form-label">Hedge lots (5:1 default)</div><input type="number" id="hbHedgeLots" min="1" value="5"></div>
     <div class="tb-form-row" style="display:${coreLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">core lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span></div><input type="number" id="hbCoreLotMult" min="1" step="any"></div>
     <div class="tb-form-row" style="display:${hedgeLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">hedge lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span></div><input type="number" id="hbHedgeLotMult" min="1" step="any"></div>
-    <div class="tb-form-row"><div class="tb-form-label">Unwind mode</div><select id="hbUnwind"><option value="HA_FLIP">HA_FLIP \u2014 hedge closes when the 1h band flips back</option><option value="EOD_ONLY">EOD_ONLY \u2014 hold to EOD</option></select></div>
+    <div class="tb-form-row"><div class="tb-form-label">Unwind mode</div><select id="hbUnwind"><option value="HA_FLIP">HA_FLIP \u2014 hedge closes when the 1h HA band flips back</option><option value="EOD_ONLY">EOD_ONLY \u2014 hold to EOD</option></select></div>
     <div class="tb-form-row"><div class="tb-form-label">From</div><input type="date" id="hbFrom"></div>
     <div class="tb-form-row"><div class="tb-form-label">To</div><input type="date" id="hbTo" value="${today}"></div>
     <div id="hbErrBox"></div>

@@ -12,7 +12,7 @@
 //     ("no flipping ... it remains const"). Force-closed every day at
 //     EOD ("eod exit only" — this is the position's ONLY automated exit;
 //     no target, no stop).
-// CHANGED Oct 2026: the hedge trigger/unwind below is now the 1h Dynamic Step Band colour ALONE
+// CHANGED Oct 2026: the hedge trigger/unwind below is now the 1h Dynamic Step Band (run on 1h HEIKIN-ASHI candles) colour ALONE
 // (the hourly HA colour is no longer required to agree). The core is unchanged: the PREVIOUS
 // completed daily HA candle — green -> LONG, red -> SHORT.
 //   - HEDGE leg (mini contract, same underlying): while the core leg is
@@ -222,7 +222,7 @@ async function main() {
     const hourlyReader = createHaCandleReader({ token: core.context.token, timeframe: "1h", engineConfig, label: core.context.tgPrefix });
     // Confirmation filter for checkHedge() — see dynamicBandReader.js's own
     // header for why raw 1h HA color alone is too noisy on its own.
-    const bandReader   = createDynamicBandReader({ token: core.context.token, timeframe: "1h", bandStep: core.context.bandStep, engineConfig, label: core.context.tgPrefix });
+    const bandReader   = createDynamicBandReader({ token: core.context.token, timeframe: "1h", bandStep: core.context.bandStep, engineConfig, label: core.context.tgPrefix, ha: true });
 
     // Read-only client for LTP lookups at our own entry/exit bookkeeping
     // moments — see file header ("NO LIVE WEBSOCKET TICKER").
@@ -345,9 +345,9 @@ async function main() {
 
         if (!hedge.state.position && adverse) {
             const hedgeSide = coreSide === "LONG" ? "SHORT" : "LONG"; // opposite the core = same side as the adverse read
-            await enterLeg(hedge, hedgeSide, `1h DSB ${bandColor} against ${coreSide} core`);
+            await enterLeg(hedge, hedgeSide, `1h HA DSB ${bandColor} against ${coreSide} core`);
         } else if (hedge.state.position && UNWIND_MODE === "HA_FLIP" && favorable) {
-            await exitLeg(hedge, `1h DSB ${bandColor} back in the core's favor`);
+            await exitLeg(hedge, `1h HA DSB ${bandColor} back in the core's favor`);
         }
         // UNWIND_MODE === "EOD_ONLY": hedge, once open, is deliberately
         // left alone here regardless of `favorable` — only checkEod()

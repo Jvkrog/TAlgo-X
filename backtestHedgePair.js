@@ -159,13 +159,13 @@ async function runHedgePairBacktest({
     const bandStep = core.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
     const bandColorAt = new Array(coreHourlyRaw.length);
     {
-        let mid = coreHourlyRaw[0].close;
+        let mid = coreHourlyHA[0].close;   // band runs on 1h Heikin-Ashi candles (matches hedgePairEngine.js)
         let high = mid + bandStep;
         let low = mid - bandStep;
         let position = null;
         bandColorAt[0] = "green"; // no breakout evaluated on the seed bar — "no white" default, same as replayHistory()
         for (let i = 1; i < coreHourlyRaw.length; i++) {
-            const close = coreHourlyRaw[i].close;
+            const close = coreHourlyHA[i].close;
             const breakHigh = close > high;
             const breakLow = close < low;
             if (position === "LONG") {
@@ -280,7 +280,7 @@ async function runHedgePairBacktest({
 
                 if (!hedgeState.position && adverse && hedgePx !== null) {
                     const hedgeSide = coreSide === "LONG" ? "SHORT" : "LONG";
-                    await enterLeg(hedge.context, hedgeState, hedgeLedger, hedgeSide, hedgePx, `1h DSB ${bandColor} against ${coreSide} core`);
+                    await enterLeg(hedge.context, hedgeState, hedgeLedger, hedgeSide, hedgePx, `1h HA DSB ${bandColor} against ${coreSide} core`);
                 } else if (hedgeState.position && unwindMode === "HA_FLIP" && favorable && hedgePx !== null) {
                     await exitLeg(hedge.context, hedgeState, hedgeLedger, hedgePx, "HTF_FLIP_UNWIND");
                 }
