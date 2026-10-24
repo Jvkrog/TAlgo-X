@@ -159,6 +159,21 @@ function pastClock(hour, minute) {
     const { hours, minutes } = istParts();
     return hours > hour || (hours === hour && minutes >= minute);
 }
+// MCX is closed Saturday/Sunday; entries are refused outside Mon-Fri 09:00-23:30 IST (holidays can't be known here).
+function istDow(date = new Date()) { return new Date(date.getTime() + 5.5 * 3600 * 1000).getUTCDay(); }   // 0 Sun .. 6 Sat
+function sessionOpen() {
+    const d = istDow();
+    if (d === 0 || d === 6) return false;
+    const { hours, minutes } = istParts();
+    return hours >= 9 && (hours < 23 || (hours === 23 && minutes < 30));
+}
+// Kite access tokens die around 06:00 IST. Usable = generated today, or yesterday and it is still before 06:00.
+function tokenUsable(u) {
+    if (!u || !u.accessToken) return false;
+    if (u.accessTokenDate === todayIST()) return true;
+    const y = new Date(Date.now() + 5.5 * 3600 * 1000 - 86400000).toISOString().slice(0, 10);
+    return istParts().hours < 6 && u.accessTokenDate === y;
+}
 const SLOT_MINUTES = 15; // fixed — matches the shared band reader's own "15m" timeframe below
 
 async function main() {
@@ -283,6 +298,18 @@ async function main() {
         alertAt[key] = Date.now();
         Promise.resolve(long.tg(msg)).catch(() => {});
     }
+    // Refuse to run on a dead access token: alert once and exit CLEANLY (code 0 = PM2 does not restart it),
+    // instead of crash-looping and re-sending "started" every few seconds.
+    {
+        const bad = [long, short].filter(l => !tokenUsable(l.user));
+        if (bad.length) {
+            const msg = `\u26a0 Dual Hedge NOT started \u2014 access token for ${bad.map(l => `${l.user.name} (generated ${l.user.accessTokenDate || "never"})`).join(", ")} is not valid for today. Regenerate the token(s) in the dashboard, then start it again. No orders were placed.`;
+            console.error(c.red(msg));
+            await long.tg(msg);
+            setTimeout(() => process.exit(0), 1500);
+            return;
+        }
+    }
     long.tg(`\u25b6 Dual Hedge started \u2014 ${long.context.symbol}\nLONG:${long.user.name} (${long.context.lots} lot)  SHORT:${short.user.name} (${short.context.lots} lot)\n${REALIZE_MODE ? `REALIZE mode: close + re-open a leg when profit > \u20b9${REALIZE_RUPEES}; losing leg is never closed${LOSS_ALERT_RUPEES ? ` (alert at -\u20b9${LOSS_ALERT_RUPEES})` : ""}` : SL_MODE === "ATR" ? `Stop ${ATR_SL_MULT}x ATR on ${ATR_TIMEFRAME} (backstop \u20b9${MAX_LOSS_RUPEES})  Take profit \u20b9${TAKE_PROFIT_RUPEES}` : `Stop \u20b9${MAX_LOSS_RUPEES}  Take profit \u20b9${TAKE_PROFIT_RUPEES}`}\n${engineConfig.LIVE_ORDERS ? "LIVE orders" : "PAPER"}  \u00b7  NRML${GAP_CAPTURE ? " \u00b7 gap capture" : ""}`);
 
     // Daily summary once per day at DH_REPORT_HOUR:DH_REPORT_MINUTE IST (default 23:25).
@@ -336,7 +363,18 @@ async function main() {
     ticker.on("error",       err => console.error(c.red(`WS  error: ${err && err.message ? err.message : err}`)));
     ticker.on("close",       ()  => console.log(c.dim("WS  closed")));
     ticker.on("reconnect",   n   => console.log(c.dim(`WS  reconnect #${n}`)));
-    ticker.on("noreconnect", ()  => { console.error(c.red("WS  max reconnects — exiting so PM2 restarts")); process.exit(1); });
+    ticker.on("noreconnect", async () => {
+        // Dead token (typically after 06:00 IST) -> restarting can't help and would loop; stop cleanly and alert.
+        const cur = {}; for (const u of listUsers()) cur[u.name] = u;
+        if (!tokenUsable(cur[long.user.name]) || !tokenUsable(cur[short.user.name])) {
+            const msg = `\u26a0 Dual Hedge STOPPED \u2014 market-data socket cannot reconnect and the access token is not valid for today. Open positions are untouched. Regenerate the token(s), then start the engine again.`;
+            console.error(c.red(msg));
+            try { await long.tg(msg); } catch { /* best effort */ }
+            setTimeout(() => process.exit(0), 1500);
+            return;
+        }
+        console.error(c.red("WS  max reconnects — exiting so PM2 restarts")); process.exit(1);
+    });
 
     // Read-only client for LTP lookups (uPnL checks + entry/exit
     // bookkeeping prices) — same reasoning as hedgePairEngine.js's own
@@ -363,6 +401,7 @@ async function main() {
     }
 
     async function enterLeg(leg, reason) {
+        if (!sessionOpen()) { console.log(c.dim(`[${leg.context.tgPrefix}] ${leg.side} entry skipped \u2014 market closed (weekend / outside 09:00\u201323:30 IST): ${reason}`)); return false; }
         const orderId = await leg.orders.enter(leg.side);
         if (engineConfig.LIVE_ORDERS && orderId === null) {
             console.error(c.red(`[${leg.context.tgPrefix}] ${leg.side} entry FAILED (${reason})`));
@@ -483,9 +522,9 @@ async function main() {
     }
 
     // REALIZE mode, run every second per leg (see DH_STRATEGY note near the top).
-    function marketOpenNow() {   // MCX session, entries/realizing only inside it (carry orders can't fill outside)
+    function marketOpenNow() {   // MCX session Mon-Fri, entries/realizing only inside it (carry orders can't fill outside)
         const { hours, minutes } = istParts();
-        return hours >= 9 && (hours < 23 || (hours === 23 && minutes < 25));
+        return sessionOpen() && !(hours === 23 && minutes >= 25);
     }
     async function realizeLeg(leg, price) {
         if (!marketOpenNow() || Date.now() < leg.nextExitAt) return;
