@@ -2,41 +2,30 @@
 // discussed and scoped in chat (Sep 2026), for a full-size/mini contract
 // pair (NATURALGAS/NATGASMINI, or ZINC/ZINCMINI).
 //
-// SPEC (as agreed):
-//   - CORE leg (full-size contract): once per trading day, at/after
-//     10:00 IST (fixed for this strategy specifically — see
-//     checkCoreEntry()), read the latest COMPLETED
-//     DAILY Heikin-Ashi candle for that instrument. Green -> LONG 1 lot,
-//     red -> SHORT 1 lot, product NRML. Decided ONCE per day and then
-//     fixed — never reverses intraday off a later daily or hourly read
-//     ("no flipping ... it remains const"). Force-closed every day at
-//     EOD ("eod exit only" — this is the position's ONLY automated exit;
-//     no target, no stop).
-// CHANGED Oct 2026: the hedge trigger/unwind below is now the 1h Dynamic Step Band (run on 1h HEIKIN-ASHI candles) colour ALONE
-// (the hourly HA colour is no longer required to agree). The core is unchanged: the PREVIOUS
-// completed daily HA candle — green -> LONG, red -> SHORT.
-//   - HEDGE leg (mini contract, same underlying): while the core leg is
-//     open and the hedge is flat, if the SAME core instrument's latest
-//     completed 1-HOUR HA candle turns AGAINST the core's direction AND
-//     the Dynamic Band color (see dynamicBandReader.js — same step-band
-//     breakout state machine as createDynamicMidColorStrategy, added Sep
-//     2026 as a false-hedge filter) also agrees, open 5 lots on the mini
-//     contract, opposite side of the core (i.e. same side as the adverse
-//     hourly read). Requiring both readers to agree stops a single
-//     counter-colored HA candle that never actually broke the band from
-//     firing a hedge on its own. 5:1 is the real contract ratio for both
-//     supported pairs, not an arbitrary size (NATGASMINI 250 MMBtu vs
-//     NATURALGAS 1250; ZINCMINI 1000kg vs ZINC 5000kg).
-//   - UNWIND (config-switchable via UNWIND_MODE_OVERRIDE, default
-//     HA_FLIP — the user wants to A/B both live):
-//       HA_FLIP  — hourly HA + Dynamic Band both flip back in the core's
-//                  favor -> hedge closes, only the core remains.
-//       EOD_ONLY — hedge stays on regardless of hourly reads; closes
-//                  only at EOD (below), same as the core.
-//     Either way, EOD force-closes the hedge leg too, unconditionally —
-//     this engine will never leave a naked, unhedged mini position open
-//     overnight even under EOD_ONLY, since that's a pure execution
-//     backstop, not a strategy choice.
+// SPEC (REDESIGNED Oct 2026 — supersedes the earlier daily-HA-core design):
+//   - CORE leg (full-size contract): ONE position, LONG or SHORT, the side
+//     being CONFIGURED (CORE_SIDE_OVERRIDE) — no signal picks it. Opened
+//     once at/after 10:00 IST when the core is flat, product NRML, then held
+//     as one continuing trade: NOT force-closed at EOD, carried overnight
+//     and across days. The bot never exits it by itself (no target/stop).
+//   - HEDGE leg (mini contract, same underlying): driven ONLY by the
+//     Dynamic Step Band (1h Heikin-Ashi candles) on the CORE instrument.
+//       * DSB flips AGAINST the core's direction (core LONG & band red, or
+//         core SHORT & band green) and hedge is flat -> open the hedge
+//         (HEDGE_LOTS, default 5 per core lot) on the opposite side.
+//       * DSB comes back in the core's favour -> hedge closes; the core
+//         simply carries on.
+//   - UNWIND (UNWIND_MODE_OVERRIDE):
+//       HA_FLIP  (default; name kept for compatibility) — hedge closes when
+//                the band returns to the core's favour. May carry overnight.
+//       EOD_ONLY — hedge stays on regardless of the band and is closed at
+//                EOD (the core is still carried).
+//   - EOD: nothing is force-closed. At the EOD time the engine reports the
+//     unrealised P&L of what is still open, then exits cleanly (PM2 leaves it
+//     stopped; restart it each morning after refreshing the access token —
+//     open positions are resumed from the db). 5:1 is the real contract ratio
+//     for both supported pairs (NATGASMINI 250 vs NATURALGAS 1250; ZINCMINI
+//     1000kg vs ZINC 5000kg).
 //
 // ARCHITECTURE — why this ISN'T a strategies.js entry or a
 // customStrategyRuntime.js spec: every engine.js process today owns
@@ -64,6 +53,7 @@
 // synchronous fill price.
 //
 // ENV VARS (mirrors engine.js's override-via-env convention):
+//   CORE_SIDE_OVERRIDE       (required) "LONG" | "SHORT" — the core's direction
 //   CORE_UNDERLYING          (required) e.g. "NATURALGAS" or "ZINC"
 //   HEDGE_UNDERLYING         (required) e.g. "NATGASMINI" or "ZINCMINI"
 //   EXCHANGE_OVERRIDE        default "MCX"
@@ -110,6 +100,11 @@ const { createHaCandleReader } = require("./haCandleReader");
 const { createDynamicBandReader } = require("./dynamicBandReader");
 
 const POLL_MS = Number(process.env.HEDGE_PAIR_POLL_MS) || 60 * 1000;
+const CORE_SIDE = (process.env.CORE_SIDE_OVERRIDE || "").toUpperCase();
+if (CORE_SIDE !== "LONG" && CORE_SIDE !== "SHORT") {
+    console.error(c.red(`CORE_SIDE_OVERRIDE "${process.env.CORE_SIDE_OVERRIDE || ""}" invalid (must be LONG or SHORT) — refusing to boot.`));
+    process.exit(1);
+}
 const UNWIND_MODE = (process.env.UNWIND_MODE_OVERRIDE || "HA_FLIP").toUpperCase();
 if (UNWIND_MODE !== "HA_FLIP" && UNWIND_MODE !== "EOD_ONLY") {
     console.error(c.red(`UNWIND_MODE_OVERRIDE "${UNWIND_MODE}" invalid (known: HA_FLIP, EOD_ONLY) — refusing to boot.`));
@@ -179,21 +174,14 @@ async function main() {
 
         try {
             const saved = await db.loadPosition(context.tgPrefix, context.token);
-            if (saved?.position && saved.entry_date === todayIST()) {
+            if (saved?.position) {
+                // Positions are carried overnight now (NRML), so a saved one
+                // from a prior day is the normal case, not an error.
                 state.position    = saved.position;
                 state.entryPrice  = saved.entry_price;
                 const openTrade   = await db.getOpenTrade(context.tgPrefix);
                 state.openTradeId = openTrade ? openTrade.id : null;
-                console.log(c.yellow(`[${context.tgPrefix}] resumed ${state.position}@${state.entryPrice} from earlier today`));
-            } else if (saved?.position) {
-                // Both legs are meant to be flat every morning (EOD force-
-                // closes both, every day, unconditionally — see below), so
-                // a saved position from a PRIOR day means a previous EOD
-                // never got to run before this reboot. Flag loudly rather
-                // than silently wiping the record — orders.reconcile()
-                // right below will also catch a real broker mismatch.
-                console.error(c.red(`[${context.tgPrefix}] stale saved position from a PRIOR day (${saved.position}@${saved.entry_price}) — did NOT auto-flatten, verify against the broker manually`));
-                tg(`⚠ [${context.tgPrefix}] Stale saved position from a prior day found on boot (${saved.position}@${saved.entry_price}). A previous EOD may have failed to run. Verify against the broker manually.`);
+                console.log(c.yellow(`[${context.tgPrefix}] resumed ${state.position}@${state.entryPrice} (entered ${saved.entry_date || "earlier"})`));
             }
             state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
         } catch (err) {
@@ -213,12 +201,11 @@ async function main() {
         lotMultOverride: process.env.HEDGE_LOTMULT_OVERRIDE ? Number(process.env.HEDGE_LOTMULT_OVERRIDE) : null,
     });
 
-    console.log(c.bold(`HEDGE PAIR  core:${core.context.symbol} (${core.context.lots} lot, NRML)  hedge:${hedge.context.symbol} (${hedge.context.lots} lots, unwind:${UNWIND_MODE})`));
+    console.log(c.bold(`HEDGE PAIR  core:${core.context.symbol} (${CORE_SIDE}, ${core.context.lots} lot, NRML, carried)  hedge:${hedge.context.symbol} (${hedge.context.lots} lots, unwind:${UNWIND_MODE})`));
     console.log();
 
     // Both signal readers key off the CORE instrument's own token — the
     // hedge leg has no signal of its own (see file header).
-    const dailyReader  = createHaCandleReader({ token: core.context.token, timeframe: "1d", engineConfig, label: core.context.tgPrefix });
     const hourlyReader = createHaCandleReader({ token: core.context.token, timeframe: "1h", engineConfig, label: core.context.tgPrefix });
     // Confirmation filter for checkHedge() — see dynamicBandReader.js's own
     // header for why raw 1h HA color alone is too noisy on its own.
@@ -288,7 +275,7 @@ async function main() {
         return true;
     }
 
-    // ─── CORE: decide once per trading day, off the daily HA reader.
+    // ─── CORE: opens the configured side once, when flat; then carried (see header).
     // Entry time fixed at 10:00 IST specifically for this strategy
     // (explicitly requested — NOT engineConfig.TRADE_START_HOUR/MINUTE's
     // 9:15, the general market-open constant every other strategy uses;
@@ -305,125 +292,77 @@ async function main() {
         if (coreDecidedForDate === today) return; // already decided — "no flipping" for the rest of today
         if (core.state.position) { coreDecidedForDate = today; return; } // resumed from a crash-restart — already decided, don't re-enter
 
-        const daily = await dailyReader.getLatest();
-        if (!daily || !daily.color) return; // fails safe — no read yet, or a doji: try again next poll, still within today's window
-
-        // Locks in for today the moment we act on a real read — even if
-        // the entry order itself fails below, we deliberately do NOT
-        // retry later today (matches "decided once, const" — a failed
-        // entry means no core position today, not a retry loop).
+        // Locks in for today the moment we act — a failed entry means no
+        // core position today, not a retry loop.
         coreDecidedForDate = today;
-        const side = daily.color === "green" ? "LONG" : "SHORT";
-        await enterLeg(core, side, `daily HA ${daily.color}`);
+        await enterLeg(core, CORE_SIDE, `configured core side ${CORE_SIDE}`);
     }
 
-    // ─── HEDGE: triggered by the CORE instrument's 1h HA turning against
-    // the core's direction, CONFIRMED by the Dynamic Band color also
-    // agreeing (see dynamicBandReader.js's header) — this is what stops a
-    // single noisy HA candle from firing a false hedge when price hasn't
-    // actually broken the band. Unwound per UNWIND_MODE, same double-
-    // confirmation applied both directions for consistency (a lone
-    // favorable HA candle shouldn't drop real hedge protection early
-    // either).
+    // ─── HEDGE: driven by the 1h HA Dynamic Step Band on the CORE instrument.
+    // Opens when the band flips against the core; closes when it comes back
+    // in the core's favour (per UNWIND_MODE).
     async function checkHedge() {
         if (!core.state.position) return; // nothing to hedge
-        const hourly = await hourlyReader.getLatest();
-        if (!hourly || !hourly.color) return;
         const band = await bandReader.getLatest();
-        // CHANGED (Oct 2026): the hedge is driven by the 1h Dynamic Step Band alone — the hourly
-        // HA colour no longer has to agree. No band read yet (cold start / fetch error) = no action.
-        if (!band || !band.color) return;
+        if (!band || !band.color) return; // no read yet (cold start / fetch error) = no action
         const bandColor = band.color;
-
         const coreSide = core.state.position;
-        const haAdverse    = (coreSide === "LONG" && hourly.color === "red")   || (coreSide === "SHORT" && hourly.color === "green");
-        const haFavorable   = (coreSide === "LONG" && hourly.color === "green") || (coreSide === "SHORT" && hourly.color === "red");
-        const bandAdverse   = (coreSide === "LONG" && bandColor === "red")     || (coreSide === "SHORT" && bandColor === "green");
-        const bandFavorable = (coreSide === "LONG" && bandColor === "green")   || (coreSide === "SHORT" && bandColor === "red");
-        const adverse   = bandAdverse;
-        const favorable = bandFavorable;
+        const adverse   = (coreSide === "LONG" && bandColor === "red")   || (coreSide === "SHORT" && bandColor === "green");
+        const favorable = (coreSide === "LONG" && bandColor === "green") || (coreSide === "SHORT" && bandColor === "red");
 
         if (!hedge.state.position && adverse) {
-            const hedgeSide = coreSide === "LONG" ? "SHORT" : "LONG"; // opposite the core = same side as the adverse read
+            const hedgeSide = coreSide === "LONG" ? "SHORT" : "LONG";
             await enterLeg(hedge, hedgeSide, `1h HA DSB ${bandColor} against ${coreSide} core`);
         } else if (hedge.state.position && UNWIND_MODE === "HA_FLIP" && favorable) {
             await exitLeg(hedge, `1h HA DSB ${bandColor} back in the core's favor`);
         }
-        // UNWIND_MODE === "EOD_ONLY": hedge, once open, is deliberately
-        // left alone here regardless of `favorable` — only checkEod()
-        // below ever closes it in that mode.
     }
 
-    // ─── EOD — force-close BOTH legs, unconditionally, every day. The
-    // core's "eod exit only" spec makes this ITS only automated exit;
-    // the hedge is force-closed alongside it as a safety backstop
-    // regardless of UNWIND_MODE — never leave a naked, unhedged mini
-    // position open overnight.
-    //
-    // Retries every tick for as long as EITHER leg is still open past the
-    // EOD threshold — NOT a once-per-day flag on the action itself. A
-    // real incident (Sep 2026): exitLeg() threw on the core leg mid-EOD
-    // (a transient broker/LTP error), and because the old code set a
-    // "done for today" flag BEFORE attempting the exits, that one failure
-    // silently disabled EOD for the rest of that day AND every day after
-    // — the core position then sat open across a 3-day span (Fri->Mon),
-    // uPnL and log timestamps all still printing against the same stale
-    // entry, and checkCoreEntry() refusing to re-decide since it saw
-    // `core.state.position` still truthy. Only the ONE-TIME session
-    // report is now gated on a daily flag — and even that only fires
-    // once both legs are actually confirmed flat, never on the attempt
-    // alone.
+    // ─── EOD — NOTHING is force-closed on the core (it is one continuing
+    // NRML trade). Under UNWIND_MODE EOD_ONLY the hedge is closed here.
+    // Then report unrealised P&L of whatever is still open and exit cleanly.
     let eodReportedForDate = null;
     async function checkEod() {
         const { hours, minutes } = istParts();
         const pastEod = hours > core.context.eodHour ||
             (hours === core.context.eodHour && minutes >= core.context.eodMinute);
         if (!pastEod) return;
-        if (!core.state.position && !hedge.state.position) return; // already flat — nothing to do, don't spam logs
+        const today = todayIST();
+        if (eodReportedForDate === today) return;
 
         console.log();
         console.log(c.bold("**EOD**"));
         console.log(c.dim(`EOD  hedge pair  ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false })}`));
-        if (hedge.state.position) await exitLeg(hedge, "EOD_FORCE");
-        if (core.state.position)  await exitLeg(core,  "EOD_FORCE");
-
-        if (core.state.position || hedge.state.position) {
-            // Didn't fully flatten (a leg's exit failed) — say so loudly
-            // and let the NEXT tick (60s) retry, rather than silently
-            // giving up for the day like the old code did.
-            console.error(c.red(`EOD did not fully flatten — core:${core.state.position || "flat"} hedge:${hedge.state.position || "flat"} — will retry next tick`));
-            return;
+        if (hedge.state.position && UNWIND_MODE === "EOD_ONLY") {
+            const ok = await exitLeg(hedge, "EOD_FORCE");
+            if (!ok) { console.error(c.red("EOD hedge close failed — will retry next tick")); return; }
         }
-
-        const today = todayIST();
-        if (eodReportedForDate === today) return; // already reported/shut down today, don't repeat on a later tick
         eodReportedForDate = today;
 
-        const coreRealized  = await core.db.getRealizedPnlToday(core.context.tgPrefix);
-        const hedgeRealized = await hedge.db.getRealizedPnlToday(hedge.context.tgPrefix);
-        const total = coreRealized + hedgeRealized;
-        const report = `Hedge Pair EOD — ${today}\ncore   ${core.context.symbol}: ${positions.pnlStr(coreRealized)}\nhedge  ${hedge.context.symbol}: ${positions.pnlStr(hedgeRealized)}\ntotal: ${positions.pnlStr(total)}`;
+        const lines = [`Hedge Pair EOD — ${today}`];
+        let total = 0;
+        for (const leg of [core, hedge]) {
+            const realized = await leg.db.getRealizedPnlToday(leg.context.tgPrefix);
+            let u = 0, open = "flat";
+            if (leg.state.position) {
+                const px = await getLtp(leg.ltpKey).catch(() => null);
+                u = px !== null ? positions.unrealised(leg.context, leg.state, px) : 0;
+                open = `${leg.state.position} still OPEN (uPnL ${px !== null ? positions.pnlStr(u) : "-"})`;
+            }
+            total += realized + u;
+            lines.push(`${leg.label.toLowerCase()} ${leg.context.symbol}: realized ${positions.pnlStr(realized)} | ${open}`);
+        }
+        lines.push(`total (incl. unrealised): ${positions.pnlStr(total)}`);
+        if (core.state.position) lines.push("Core carried overnight (NRML). Restart the engine before the next open.");
+        const report = lines.join("\n");
         console.log(c.bold(report.replace(/\n/g, "   ")));
         console.log();
-        await core.tg(report);   // ensure the message is sent before the process exits
+        await core.tg(report);
 
-        // CHANGED Sep 2026 — this engine used to stay running past EOD
-        // (long-lived, session pnl/trades manually zeroed here each night)
-        // while every other strategy self-exits via lifecycle.js and gets
-        // a FRESH state object when PM2 restarts it next morning. That
-        // split was confusing operationally — `pm2 l` showing this one
-        // process still "online" for 16h+ read as "didn't quit at EOD",
-        // even on a day EOD fired correctly. Now matches lifecycle.js:
-        // clean shutdown, PM2 leaves it stopped (PM2_BASE_OPTS'
-        // stop_exit_codes:[0] in toolbox.js already covers hedgePairEngine.js
-        // starts — see addHedgePair()), and it needs the same deliberate
-        // morning restart as every other engine (e.g. after refreshing the
-        // day's Kite access token) rather than running unattended across
-        // days. Next boot's createState() gives both legs pnl/trades = 0
-        // for free, so the manual reset this replaced is no longer needed.
         console.log(c.bold("*** SHUTDOWN ***"));
         emitEvent(core.context.tgPrefix, "SHUTDOWN", {
-            pnl: total, trades: core.state.trades + hedge.state.trades, positionLeftOpen: false,
+            pnl: total, trades: core.state.trades + hedge.state.trades,
+            positionLeftOpen: !!(core.state.position || hedge.state.position),
         });
         setTimeout(() => process.exit(0), 2000);
     }
@@ -512,7 +451,6 @@ async function main() {
         }
     }
 
-    dailyReader.prewarm();
     hourlyReader.prewarm();
     bandReader.prewarm();
     await tick();

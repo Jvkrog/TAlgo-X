@@ -36,8 +36,8 @@ function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore
     // HEDGE fires off the hourly HA candle CONFIRMED by the Dynamic Band
     // (see dynamicBandReader.js / hedgePairEngine.js's checkHedge()).
     context.tgLabel = legLabel === "CORE"
-        ? "Hedge Pair Core (Daily HA)"
-        : "Hedge Pair Hedge (Hourly HA + Dynamic Band)";
+        ? "Hedge Pair Core (Configured Side)"
+        : "Hedge Pair Hedge (1h HA Dynamic Band)";
     context.lots      = lots;
     if (lotMultOverride) context.lotMult = lotMultOverride;
     // dailyHaGate.js (orders.js's universal gate, wired Sep 2026) blocks
@@ -49,7 +49,7 @@ function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore
     // it on (default, untouched here) — its own entry logic already IS
     // the daily HA decision, so the gate can never actually disagree
     // with it there; only the hedge leg needs the exemption.
-    if (legLabel === "HEDGE") context.dailyHaGateEnabled = false;
+    context.dailyHaGateEnabled = false; // core side is configured, hedge is band-driven — neither follows the daily HA
     // See hedgePairEngine.js's header: both legs are force-closed by that
     // file's own EOD block every day, unconditionally — NRML here is
     // about margin treatment (matching the "1 full lot NRML" spec), not

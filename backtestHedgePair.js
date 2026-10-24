@@ -96,8 +96,10 @@ function istTimeStr(date) {
 async function runHedgePairBacktest({
     coreUnderlying, hedgeUnderlying, exchange = "MCX",
     coreLots = 1, hedgeLots = 5, coreLotMultOverride, hedgeLotMultOverride,
-    unwindMode = "HA_FLIP", from, to, kc, progress,
+    unwindMode = "HA_FLIP", coreSide = "LONG", from, to, kc, progress,
 }) {
+    coreSide = String(coreSide || "").toUpperCase();
+    if (coreSide !== "LONG" && coreSide !== "SHORT") throw new Error(`runHedgePairBacktest: coreSide must be "LONG" or "SHORT" (got "${coreSide}")`);
     unwindMode = (unwindMode || "HA_FLIP").toUpperCase();
     if (unwindMode !== "HA_FLIP" && unwindMode !== "EOD_ONLY") {
         throw new Error(`runHedgePairBacktest: unwindMode must be "HA_FLIP" or "EOD_ONLY" (got "${unwindMode}")`);
@@ -121,8 +123,7 @@ async function runHedgePairBacktest({
 
     const fetchFrom = new Date(from.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
 
-    const [coreDailyRaw, coreHourlyRaw, hedgeHourlyRaw] = await Promise.all([
-        fetchDailyCandles({ kc, token: core.context.token, from: fetchFrom, to }),
+    const [coreHourlyRaw, hedgeHourlyRaw] = await Promise.all([
         fetchHistoricalCandles({ kc, token: core.context.token, timeframe: "1h", from: fetchFrom, to }),
         fetchHistoricalCandles({ kc, token: hedge.context.token, timeframe: "1h", from: fetchFrom, to }),
     ]);
@@ -132,17 +133,6 @@ async function runHedgePairBacktest({
     if (hedgeHourlyRaw.length === 0) {
         throw new Error("runHedgePairBacktest: no hedge 1h candles returned for this range — check the date range and market holidays");
     }
-
-    // Drop the last daily bar unconditionally — same "never trust the
-    // still-forming last bar" convention every other candle consumer in
-    // this codebase follows (htfGate.js, haCandleReader.js, preload.js),
-    // harmless here even when every fetched day is already fully closed.
-    const coreDailyHA = toHA(coreDailyRaw.slice(0, -1));
-    // dailyHaByDayKey — for a lookup on trading day D, this needs the
-    // LAST entry with dayKey < D (D's own daily candle isn't closed until
-    // D ends) — kept as a sorted array and scanned with a monotonically
-    // advancing pointer below (bars are already chronological).
-    const dailyHaSorted = coreDailyHA.map(bar => ({ dayKey: dayKeyIST(bar.date), color: bar.close > bar.open ? "green" : bar.close < bar.open ? "red" : null }));
 
     const coreHourlyHA = toHA(coreHourlyRaw); // no bar dropped — every bar here already fully closed (it's the replay's own clock, not a live "still forming" read)
 
@@ -194,13 +184,6 @@ async function runHedgePairBacktest({
         return hedgeHourlyRaw[hedgePtr] ? hedgeHourlyRaw[hedgePtr].close : null;
     }
 
-    let dailyPtr = 0; // advances forward as the replay's day moves forward — dailyHaSorted[dailyPtr] is always "the last daily HA strictly before the current day", updated in dayKeyForCoreEntry() below
-    function priorDailyColor(dayKey) {
-        while (dailyPtr + 1 < dailyHaSorted.length && dailyHaSorted[dailyPtr + 1].dayKey < dayKey) dailyPtr++;
-        const candidate = dailyHaSorted[dailyPtr];
-        return (candidate && candidate.dayKey < dayKey) ? candidate.color : null;
-    }
-
     const clockBox = { date: coreHourlyHA[0] ? coreHourlyHA[0].date : new Date() };
     const clock = { now: () => clockBox.date };
 
@@ -227,7 +210,7 @@ async function runHedgePairBacktest({
         legLedger.savePosition(legCtx.tgPrefix, legCtx.token, legCtx.symbol, null, 0);
     }
 
-    let coreDecidedForDate = null;
+    let coreEntered = false;
     let lastLoggedDayKey   = null;
     let lastCoreClose      = coreHourlyHA[coreHourlyHA.length - 1].close;
     let lastHedgeClose     = hedgeHourlyRaw[hedgeHourlyRaw.length - 1].close;
@@ -249,15 +232,11 @@ async function runHedgePairBacktest({
         // falls mid-candle on an hourly series.
         const ENTRY_HOUR = 10, ENTRY_MINUTE = 0;
         const pastOpen = hours > ENTRY_HOUR || (hours === ENTRY_HOUR && minutes >= ENTRY_MINUTE);
-        if (pastOpen && coreDecidedForDate !== dayKey) {
-            const priorColor = priorDailyColor(dayKey);
-            if (priorColor) { // fails safe — no prior daily read yet (start of range): retry next bar, same day
-                coreDecidedForDate = dayKey;
-                if (!coreState.position) {
-                    const side = priorColor === "green" ? "LONG" : "SHORT";
-                    await enterLeg(core.context, coreState, coreLedger, side, rawBar.open, `daily HA ${priorColor}`);
-                }
-            }
+        // Core: the CONFIGURED side, opened once (first bar at/after 10:00 inside
+        // the reported range), then carried — never closed before the data ends.
+        if (pastOpen && bar.date >= from && !coreEntered) {
+            coreEntered = true;
+            await enterLeg(core.context, coreState, coreLedger, coreSide, rawBar.open, `configured core side ${coreSide}`);
         }
 
         // ─── HEDGE — triggered by the core's OWN just-closed 1h HA bar,
@@ -266,50 +245,31 @@ async function runHedgePairBacktest({
         // header) — filters out a lone counter-colored HA candle that
         // never actually broke the band.
         if (coreState.position) {
-            const barColor = bar.close > bar.open ? "green" : bar.close < bar.open ? "red" : null;
-            if (barColor) {
-                const coreSide   = coreState.position;
+            const bandNow = bandColorAt[i];
+            if (bandNow) {
+                const curSide    = coreState.position;
                 const bandColor  = bandColorAt[i];
-                const haAdverse    = (coreSide === "LONG" && barColor === "red")   || (coreSide === "SHORT" && barColor === "green");
-                const haFavorable  = (coreSide === "LONG" && barColor === "green") || (coreSide === "SHORT" && barColor === "red");
-                const bandAdverse  = (coreSide === "LONG" && bandColor === "red")   || (coreSide === "SHORT" && bandColor === "green");
-                const bandFavorable = (coreSide === "LONG" && bandColor === "green") || (coreSide === "SHORT" && bandColor === "red");
+                const bandAdverse  = (curSide === "LONG" && bandColor === "red")   || (curSide === "SHORT" && bandColor === "green");
+                const bandFavorable = (curSide === "LONG" && bandColor === "green") || (curSide === "SHORT" && bandColor === "red");
                 const adverse   = bandAdverse;      // Oct 2026: 1h Dynamic Step Band alone (matches hedgePairEngine.js)
                 const favorable = bandFavorable;
                 const hedgePx   = hedgeCloseAt(bar.date);
 
                 if (!hedgeState.position && adverse && hedgePx !== null) {
-                    const hedgeSide = coreSide === "LONG" ? "SHORT" : "LONG";
-                    await enterLeg(hedge.context, hedgeState, hedgeLedger, hedgeSide, hedgePx, `1h HA DSB ${bandColor} against ${coreSide} core`);
+                    const hedgeSide = curSide === "LONG" ? "SHORT" : "LONG";
+                    await enterLeg(hedge.context, hedgeState, hedgeLedger, hedgeSide, hedgePx, `1h HA DSB ${bandColor} against ${curSide} core`);
                 } else if (hedgeState.position && unwindMode === "HA_FLIP" && favorable && hedgePx !== null) {
                     await exitLeg(hedge.context, hedgeState, hedgeLedger, hedgePx, "HTF_FLIP_UNWIND");
                 }
             }
         }
 
-        // ─── EOD — force-close both legs. Two conditions, either one
-        // fires it: past the configured eodHour:eodMinute threshold, OR
-        // this is simply the LAST bar of the trading day (next bar
-        // belongs to a different day, or there is no next bar at all).
-        // The second condition is the one that actually matters in
-        // practice and was the real bug here: real MCX hourly candles
-        // land on the clock hour (23:00), never on a specific minute like
-        // 23:15 — so a bar-quantized check for "hours===23 && minutes>=15"
-        // can never be satisfied if no bar ever starts at or after 23:15,
-        // and EOD silently never fired, letting the core ride the same
-        // entry for the entire backtest (confirmed directly: a real run
-        // showed the core entering once and reporting "0 trades" because
-        // its only entry/exit pair spanned the ENTIRE range, closing only
-        // at BACKTEST_END). Live doesn't have this problem — it polls
-        // real wall-clock time every 60s, not bar-quantized — so this
-        // fix is backtest-only.
-        const pastEod = hours > core.context.eodHour || (hours === core.context.eodHour && minutes >= core.context.eodMinute);
+        // ─── EOD — the core is carried (never closed). Only EOD_ONLY mode
+        // closes the hedge, on the last bar of each day.
         const isLastBarOfDay = (i === coreHourlyHA.length - 1) || dayKeyIST(coreHourlyHA[i + 1].date) !== dayKey;
-        if ((pastEod || isLastBarOfDay) && (coreState.position || hedgeState.position)) {
-            console.log("**EOD**");
+        if (isLastBarOfDay && unwindMode === "EOD_ONLY" && hedgeState.position) {
             const hedgePx = hedgeCloseAt(bar.date);
-            if (hedgeState.position && hedgePx !== null) await exitLeg(hedge.context, hedgeState, hedgeLedger, hedgePx, "EOD_FORCE");
-            if (coreState.position) await exitLeg(core.context, coreState, coreLedger, rawBar.close, "EOD_FORCE");
+            if (hedgePx !== null) { console.log("**EOD**"); await exitLeg(hedge.context, hedgeState, hedgeLedger, hedgePx, "EOD_FORCE"); }
         }
         // Reset each leg's "session" total once today is confirmed fully
         // closed out — same fix as hedgePairEngine.js live (Sep 2026):
@@ -320,7 +280,7 @@ async function runHedgePairBacktest({
         // report's own per-leg/combined metrics were never affected —
         // those come from computeMetrics() over each ledger's own trades,
         // not from this counter.
-        if (!coreState.position && !hedgeState.position) {
+        if (isLastBarOfDay) {
             coreState.pnl  = 0; coreState.trades  = 0;
             hedgeState.pnl = 0; hedgeState.trades = 0;
         }
@@ -373,7 +333,7 @@ async function runHedgePairBacktest({
     const report = buildHedgePairReport({
         core:  { underlying: coreUnderlying,  symbol: core.context.symbol,  lots: core.context.lots,  lotMult: core.context.lotMult },
         hedge: { underlying: hedgeUnderlying, symbol: hedge.context.symbol, lots: hedge.context.lots, lotMult: hedge.context.lotMult },
-        unwindMode, range: { from, to }, runAt: new Date(),
+        unwindMode, coreSide, range: { from, to }, runAt: new Date(),
         metrics, trades: combinedTrades,
     });
     const paths = saveHedgePairReport(report);

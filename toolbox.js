@@ -2496,6 +2496,7 @@ async function getHedgePairProcesses() {
             coreLots:        p.pm2_env.env?.CORE_LOTS_OVERRIDE || "1",
             hedgeLots:       p.pm2_env.env?.HEDGE_LOTS_OVERRIDE || "5",
             unwindMode:      p.pm2_env.env?.UNWIND_MODE_OVERRIDE || "HA_FLIP",
+            coreSide:        p.pm2_env.env?.CORE_SIDE_OVERRIDE || "",
             live:            p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:        p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
             outLogPath:      p.pm2_env.pm_out_log_path,
@@ -2522,8 +2523,8 @@ async function pickUnderlying(list, label) {
 }
 
 async function addHedgePair() {
-    console.log(c.dim("  Core: full-size contract, daily-HA bias, NRML, EOD-only exit"));
-    console.log(c.dim("  Hedge: mini contract, opens on adverse 1h HA against the core"));
+    console.log(c.dim("  Core: full-size contract, ONE configured side (long/short), NRML, carried"));
+    console.log(c.dim("  Hedge: mini contract, opens when the 1h HA DSB flips against the core, closes when it flips back"));
     console.log();
 
     // MCX-only today — the two supported pairs (NATURALGAS/NATGASMINI,
@@ -2560,6 +2561,10 @@ async function addHedgePair() {
     const coreLotMultOverride  = await askLotMult(coreUnderlying, "CORE");
     const hedgeLotMultOverride = await askLotMult(hedgeUnderlying, "HEDGE");
 
+    const sideInput = (await ask("  Core side  [1] LONG  [2] SHORT (required): ")).trim();
+    if (sideInput !== "1" && sideInput !== "2") { console.log(c.yellow("  Pick 1 (LONG) or 2 (SHORT)")); await pauseForReview(); return; }
+    const coreSide = sideInput === "1" ? "LONG" : "SHORT";
+
     const coreLotsInput  = await ask("  Core lots (default 1): ");
     const hedgeLotsInput = await ask("  Hedge lots (default 5, the real 5:1 contract ratio for both supported pairs): ");
     const coreLots  = coreLotsInput  ? Number(coreLotsInput)  : 1;
@@ -2568,8 +2573,8 @@ async function addHedgePair() {
         console.log(c.yellow("  Invalid lots value")); await pauseForReview(); return;
     }
 
-    console.log(c.dim("  Unwind mode — HA_FLIP: hedge closes when 1h HA flips back in the core's favor (default)"));
-    console.log(c.dim("               EOD_ONLY: hedge stays on till EOD regardless of 1h HA"));
+    console.log(c.dim("  Unwind mode — HA_FLIP: hedge closes when the 1h HA DSB flips back in the core's favor (default)"));
+    console.log(c.dim("               EOD_ONLY: hedge stays on till EOD regardless of the DSB"));
     const unwindInput = (await ask("  [1] HA_FLIP  [2] EOD_ONLY (default 1): ")).trim();
     const unwindMode = unwindInput === "2" ? "EOD_ONLY" : "HA_FLIP";
 
@@ -2587,7 +2592,7 @@ async function addHedgePair() {
     const env = {
         CORE_UNDERLYING: coreUnderlying, HEDGE_UNDERLYING: hedgeUnderlying, EXCHANGE_OVERRIDE: "MCX",
         CORE_LOTS_OVERRIDE: String(coreLots), HEDGE_LOTS_OVERRIDE: String(hedgeLots),
-        UNWIND_MODE_OVERRIDE: unwindMode, LIVE_ORDERS_OVERRIDE: String(isLive),
+        UNWIND_MODE_OVERRIDE: unwindMode, CORE_SIDE_OVERRIDE: coreSide, LIVE_ORDERS_OVERRIDE: String(isLive),
     };
     if (coreLotMultOverride)  env.CORE_LOTMULT_OVERRIDE  = String(coreLotMultOverride);
     if (hedgeLotMultOverride) env.HEDGE_LOTMULT_OVERRIDE = String(hedgeLotMultOverride);
@@ -2617,8 +2622,8 @@ async function hedgePairActionByNumber(pairs, verb, fn) {
 async function backtestHedgePairFlow() {
     console.log();
     console.log(c.bold("  Backtest — Hedge Pair"));
-    console.log(c.dim("  Core: full-size contract, daily-HA bias, 1 lot NRML, EOD-only exit"));
-    console.log(c.dim("  Hedge: mini contract, opens on adverse 1h HA, unwinds per the mode below"));
+    console.log(c.dim("  Core: full-size contract, ONE configured side, NRML, carried"));
+    console.log(c.dim("  Hedge: mini contract, opens when the 1h HA DSB flips against the core, unwinds per the mode below"));
     console.log();
 
     const repo = await ensureCsvLoaded();
@@ -2646,13 +2651,17 @@ async function backtestHedgePairFlow() {
     const coreLotMultOverride  = await askLotMult(coreUnderlying, "CORE");
     const hedgeLotMultOverride = await askLotMult(hedgeUnderlying, "HEDGE");
 
+    const sideInput = (await ask("  Core side  [1] LONG  [2] SHORT (required): ")).trim();
+    if (sideInput !== "1" && sideInput !== "2") { console.log(c.yellow("  Pick 1 (LONG) or 2 (SHORT)")); await pauseForReview(); return; }
+    const coreSide = sideInput === "1" ? "LONG" : "SHORT";
+
     const coreLotsInput  = await ask("  Core lots (default 1): ");
     const hedgeLotsInput = await ask("  Hedge lots (default 5, the real 5:1 contract ratio for both supported pairs): ");
     const coreLots  = coreLotsInput  ? Number(coreLotsInput)  : 1;
     const hedgeLots = hedgeLotsInput ? Number(hedgeLotsInput) : 5;
 
-    console.log(c.dim("  Unwind mode — HA_FLIP: hedge closes when 1h HA flips back in the core's favor (default)"));
-    console.log(c.dim("               EOD_ONLY: hedge stays on till EOD regardless of 1h HA"));
+    console.log(c.dim("  Unwind mode — HA_FLIP: hedge closes when the 1h HA DSB flips back in the core's favor (default)"));
+    console.log(c.dim("               EOD_ONLY: hedge stays on till EOD regardless of the DSB"));
     const unwindInput = (await ask("  [1] HA_FLIP  [2] EOD_ONLY (default 1): ")).trim();
     const unwindMode = unwindInput === "2" ? "EOD_ONLY" : "HA_FLIP";
 
@@ -2674,7 +2683,7 @@ async function backtestHedgePairFlow() {
         const { report, paths } = await runHedgePairBacktest({
             coreUnderlying, hedgeUnderlying, exchange: "MCX",
             coreLots, hedgeLots, coreLotMultOverride, hedgeLotMultOverride,
-            unwindMode, from, to, kc,
+            unwindMode, coreSide, from, to, kc,
             progress: (done, total) => process.stdout.write(`\r  ${done}/${total} core 1h bars...`),
         });
         console.log();
@@ -2706,7 +2715,7 @@ async function hedgePairScreen() {
                 if (p.status === "online") statusStr = c.green(`● ${fmtUptime(p.uptime)}`);
                 else                        statusStr = c.red(`● ${p.status.toUpperCase()}`);
                 body.push(`  ${String(i + 1).padStart(2)}. ${p.name.padEnd(24)} ${modeTag}  ${statusStr}`);
-                body.push(c.dim(`      core:${p.coreUnderlying}  hedge:${p.hedgeUnderlying}  ${p.coreLots}/${p.hedgeLots} lots  unwind:${p.unwindMode}`));
+                body.push(c.dim(`      core:${p.coreUnderlying}  hedge:${p.hedgeUnderlying}  ${p.coreSide || "?"} ${p.coreLots}/${p.hedgeLots} lots  unwind:${p.unwindMode}`));
             });
         }
         renderScreenBox("H E D G E   P A I R S", body, [
