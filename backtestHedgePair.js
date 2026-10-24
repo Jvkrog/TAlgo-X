@@ -49,6 +49,7 @@
 
 const fs = require("fs");
 const { fetchHistoricalCandles, fetchDailyCandles } = require("./historicalFetch");
+const { createBandStepper } = require("./dynamicBandReader");
 const { toHA } = require("./indicators");
 const { createCsvRepository } = require("./csvRepository");
 const { createInstrumentSource } = require("./instrumentSource");
@@ -96,10 +97,8 @@ function istTimeStr(date) {
 async function runHedgePairBacktest({
     coreUnderlying, hedgeUnderlying, exchange = "MCX",
     coreLots = 1, hedgeLots = 5, coreLotMultOverride, hedgeLotMultOverride,
-    unwindMode = "HA_FLIP", coreSide = "LONG", from, to, kc, progress,
+    unwindMode = "HA_FLIP", from, to, kc, progress,
 }) {
-    coreSide = String(coreSide || "").toUpperCase();
-    if (coreSide !== "LONG" && coreSide !== "SHORT") throw new Error(`runHedgePairBacktest: coreSide must be "LONG" or "SHORT" (got "${coreSide}")`);
     unwindMode = (unwindMode || "HA_FLIP").toUpperCase();
     if (unwindMode !== "HA_FLIP" && unwindMode !== "EOD_ONLY") {
         throw new Error(`runHedgePairBacktest: unwindMode must be "HA_FLIP" or "EOD_ONLY" (got "${unwindMode}")`);
@@ -123,7 +122,8 @@ async function runHedgePairBacktest({
 
     const fetchFrom = new Date(from.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
 
-    const [coreHourlyRaw, hedgeHourlyRaw] = await Promise.all([
+    const [coreDailyRaw, coreHourlyRaw, hedgeHourlyRaw] = await Promise.all([
+        fetchDailyCandles({ kc, token: core.context.token, from: fetchFrom, to }),
         fetchHistoricalCandles({ kc, token: core.context.token, timeframe: "1h", from: fetchFrom, to }),
         fetchHistoricalCandles({ kc, token: hedge.context.token, timeframe: "1h", from: fetchFrom, to }),
     ]);
@@ -184,6 +184,19 @@ async function runHedgePairBacktest({
         return hedgeHourlyRaw[hedgePtr] ? hedgeHourlyRaw[hedgePtr].close : null;
     }
 
+    // Daily DSB (plain daily candles): colour after each COMPLETED day. The core's
+    // side on day D = colour after the last daily bar strictly before D.
+    const dailyDsb = [];
+    {
+        const st = createBandStepper(core.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT);
+        for (const b of coreDailyRaw.slice(0, -1)) { st.push(b); const x = st.state(); if (x) dailyDsb.push({ dayKey: dayKeyIST(b.date), color: x.color }); }
+    }
+    function priorDailyDsb(dayKey) {
+        let r = null;
+        for (const d of dailyDsb) { if (d.dayKey < dayKey) r = d.color; else break; }
+        return r;
+    }
+
     const clockBox = { date: coreHourlyHA[0] ? coreHourlyHA[0].date : new Date() };
     const clock = { now: () => clockBox.date };
 
@@ -232,11 +245,14 @@ async function runHedgePairBacktest({
         // falls mid-candle on an hourly series.
         const ENTRY_HOUR = 10, ENTRY_MINUTE = 0;
         const pastOpen = hours > ENTRY_HOUR || (hours === ENTRY_HOUR && minutes >= ENTRY_MINUTE);
-        // Core: the CONFIGURED side, opened once (first bar at/after 10:00 inside
+        // Core: the side from the daily DSB, opened once (first bar at/after 10:00 inside
         // the reported range), then carried — never closed before the data ends.
         if (pastOpen && bar.date >= from && !coreEntered) {
-            coreEntered = true;
-            await enterLeg(core.context, coreState, coreLedger, coreSide, rawBar.open, `configured core side ${coreSide}`);
+            const dsb = priorDailyDsb(dayKey);
+            if (dsb) { // no completed daily bar yet: retry next bar
+                coreEntered = true;
+                await enterLeg(core.context, coreState, coreLedger, dsb === "green" ? "LONG" : "SHORT", rawBar.open, `daily DSB ${dsb}`);
+            }
         }
 
         // ─── HEDGE — triggered by the core's OWN just-closed 1h HA bar,
@@ -333,7 +349,7 @@ async function runHedgePairBacktest({
     const report = buildHedgePairReport({
         core:  { underlying: coreUnderlying,  symbol: core.context.symbol,  lots: core.context.lots,  lotMult: core.context.lotMult },
         hedge: { underlying: hedgeUnderlying, symbol: hedge.context.symbol, lots: hedge.context.lots, lotMult: hedge.context.lotMult },
-        unwindMode, coreSide, range: { from, to }, runAt: new Date(),
+        unwindMode, range: { from, to }, runAt: new Date(),
         metrics, trades: combinedTrades,
     });
     const paths = saveHedgePairReport(report);

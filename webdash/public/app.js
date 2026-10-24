@@ -3773,7 +3773,7 @@ async function loadHedgePairsList() {
           <div class="tb-watch-row">
             <div class="tb-watch-main">
               <div class="tb-watch-inst">${p.name}</div>
-              <div class="tb-watch-meta">core ${p.coreUnderlying} ${p.coreSide || ""} (${p.coreLots} lot) \u00b7 hedge ${p.hedgeUnderlying} (${p.hedgeLots} lots) \u00b7 unwind:${p.unwindMode} \u00b7 ${modeTag} \u00b7 [${p.status}]</div>
+              <div class="tb-watch-meta">core ${p.coreUnderlying} (${p.coreLots} lot) \u00b7 hedge ${p.hedgeUnderlying} (${p.hedgeLots} lots) \u00b7 unwind:${p.unwindMode} \u00b7 ${modeTag} \u00b7 [${p.status}]</div>
             </div>
             <button class="tb-cli-action" data-hp-logs="${p.name}" style="padding:4px 8px;font-size:11px">Logs</button>
             <button class="tb-cli-action" data-hp-toggle="${p.name}" data-hp-status="${p.status}" style="padding:4px 8px;font-size:11px">${p.status === "online" ? "stop" : "start"}</button>
@@ -3888,9 +3888,8 @@ async function renderHedgePairAddForm() {
 
   tbHedgePairsBody.innerHTML = `
     <button class="tb-back-link" id="hpBack">\u2039 back</button>
-    <div class="tb-form-hint" style="margin:8px 0">Core: <b>${hpAddState.core}</b> (one position on the side you pick, NRML, carried \u2014 never closed at EOD)<br>Hedge: <b>${hpAddState.hedge}</b> (opens when the 1h HA Dynamic Step Band flips against the core, closes when it flips back)</div>
+    <div class="tb-form-hint" style="margin:8px 0">Core: <b>${hpAddState.core}</b> (one position, side from the daily Dynamic Step Band (green long, red short), NRML, carried \u2014 never closed at EOD)<br>Hedge: <b>${hpAddState.hedge}</b> (opens when the 1h HA Dynamic Step Band flips against the core, closes when it flips back)</div>
 
-    <div class="tb-form-row"><div class="tb-form-label">Core side</div><select id="hpCoreSide"><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select></div>
     <div class="tb-form-row">
       <div class="tb-form-label">Core lots (default 1)</div>
       <input type="number" id="hpCoreLots" min="1" step="1" value="1">
@@ -3938,7 +3937,6 @@ async function renderHedgePairAddForm() {
       coreLotMultOverride: tbHedgePairsBody.querySelector("#hpCoreLotMult")?.value || undefined,
       hedgeLotMultOverride: tbHedgePairsBody.querySelector("#hpHedgeLotMult")?.value || undefined,
       unwindMode: tbHedgePairsBody.querySelector("#hpUnwindMode").value,
-      coreSide: tbHedgePairsBody.querySelector("#hpCoreSide").value,
       live, confirmLive,
     };
     const btn = tbHedgePairsBody.querySelector("#hpAddSubmit");
@@ -4418,9 +4416,8 @@ async function renderHedgePairBacktestForm() {
   const B = tbHedgePairsBody;
   B.innerHTML = `
     <button class="tb-back-link" id="hbBack">\u2039 back</button>
-    <div class="tb-form-hint" style="margin:8px 0">Backtest \u2014 core <b>${escHtml(hpAddState.core)}</b> (one configured side, carried) \u00b7 hedge <b>${escHtml(hpAddState.hedge)}</b> (1h HA Dynamic Step Band)</div>
-        <div class="tb-form-row"><div class="tb-form-label">Core side</div><select id="hbCoreSide"><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select></div>
-    <div class="tb-form-row"><div class="tb-form-label">Core lots</div><input type="number" id="hbCoreLots" min="1" value="1"></div>
+    <div class="tb-form-hint" style="margin:8px 0">Backtest \u2014 core <b>${escHtml(hpAddState.core)}</b> (side from daily DSB, carried) \u00b7 hedge <b>${escHtml(hpAddState.hedge)}</b> (1h HA Dynamic Step Band)</div>
+        <div class="tb-form-row"><div class="tb-form-label">Core lots</div><input type="number" id="hbCoreLots" min="1" value="1"></div>
     <div class="tb-form-row"><div class="tb-form-label">Hedge lots (5:1 default)</div><input type="number" id="hbHedgeLots" min="1" value="5"></div>
     <div class="tb-form-row" style="display:${coreLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">core lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span></div><input type="number" id="hbCoreLotMult" min="1" step="any"></div>
     <div class="tb-form-row" style="display:${hedgeLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">hedge lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span></div><input type="number" id="hbHedgeLotMult" min="1" step="any"></div>
@@ -4441,7 +4438,7 @@ async function renderHedgePairBacktestForm() {
         coreUnderlying: hpAddState.core, hedgeUnderlying: hpAddState.hedge,
         coreLots: q("#hbCoreLots").value || 1, hedgeLots: q("#hbHedgeLots").value || 5,
         coreLotMultOverride: q("#hbCoreLotMult").value || undefined, hedgeLotMultOverride: q("#hbHedgeLotMult").value || undefined,
-        unwindMode: q("#hbUnwind").value, coreSide: q("#hbCoreSide").value, from: q("#hbFrom").value, to: q("#hbTo").value,
+        unwindMode: q("#hbUnwind").value, from: q("#hbFrom").value, to: q("#hbTo").value,
       }) });
       const data = await res.json();
       if (!res.ok) q("#hbErrBox").innerHTML = `<div class="tb-err-box">${escHtml(data.error || "backtest failed")}</div>`;

@@ -26,12 +26,12 @@ const { fmtDuration } = require("./backtestMetrics");
 
 function fmtMoney(n) { return (n < 0 ? "-\u20b9" : "\u20b9") + Math.abs(n).toFixed(2); }
 
-function buildHedgePairReport({ core, hedge, unwindMode, coreSide, range, runAt, metrics, trades }) {
+function buildHedgePairReport({ core, hedge, unwindMode, range, runAt, metrics, trades }) {
     return {
         strategy: "HEDGE_PAIR",
         core,    // { underlying, symbol, lots, lotMult }
         hedge,   // { underlying, symbol, lots, lotMult }
-        unwindMode, coreSide,
+        unwindMode,
         range: {
             from: range.from instanceof Date ? range.from.toISOString().split("T")[0] : String(range.from),
             to:   range.to   instanceof Date ? range.to.toISOString().split("T")[0]   : String(range.to),
@@ -99,7 +99,7 @@ th{background:#161a22} td:first-child,th:first-child{text-align:left}
 .hedge-leg td{color:#c9a86a}
 </style></head><body>
 <h1>Hedge Pair \u2014 ${report.core.symbol} (core) / ${report.hedge.symbol} (hedge)</h1>
-<div class="meta">core ${report.coreSide || ""} ${report.core.lots} lot NRML (carried) \u00b7 hedge ${report.hedge.lots} lots \u00b7 unwind:${report.unwindMode} \u00b7 ${report.range.from} \u2192 ${report.range.to} \u00b7 run ${report.runAt}</div>
+<div class="meta">core (daily DSB side) ${report.core.lots} lot NRML (carried) \u00b7 hedge ${report.hedge.lots} lots \u00b7 unwind:${report.unwindMode} \u00b7 ${report.range.from} \u2192 ${report.range.to} \u00b7 run ${report.runAt}</div>
 
 <h2>Combined (core + hedge)</h2>
 ${metricsCards(report.metrics.combined)}

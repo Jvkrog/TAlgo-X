@@ -2223,7 +2223,6 @@ async function getHedgePairProcesses() {
             coreLots:        p.pm2_env.env?.CORE_LOTS_OVERRIDE || "1",
             hedgeLots:       p.pm2_env.env?.HEDGE_LOTS_OVERRIDE || "5",
             unwindMode:      p.pm2_env.env?.UNWIND_MODE_OVERRIDE || "HA_FLIP",
-            coreSide:        p.pm2_env.env?.CORE_SIDE_OVERRIDE || "",
             live:            p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:        p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
             outLogPath:      p.pm2_env.pm_out_log_path,
@@ -2261,8 +2260,6 @@ app.post("/api/toolbox/hedgepairs/backtest", async (req, res) => {
         if (coreUnderlying === hedgeUnderlying) return res.status(400).json({ error: "Core and hedge must be different underlyings" });
         const unwindMode = String(b.unwindMode || "HA_FLIP").toUpperCase();
         if (unwindMode !== "HA_FLIP" && unwindMode !== "EOD_ONLY") return res.status(400).json({ error: "UnwindMode must be HA_FLIP or EOD_ONLY" });
-        const coreSide = String(b.coreSide || "").toUpperCase();
-        if (coreSide !== "LONG" && coreSide !== "SHORT") return res.status(400).json({ error: "CoreSide must be LONG or SHORT" });
         const from = new Date(b.from), to = new Date(b.to);
         if (isNaN(from) || isNaN(to)) return res.status(400).json({ error: "From and to must be YYYY-MM-DD" });
         if (to < from) return res.status(400).json({ error: "To must not be before from" });
@@ -2281,7 +2278,7 @@ app.post("/api/toolbox/hedgepairs/backtest", async (req, res) => {
                 coreLots: Number(b.coreLots) || 1, hedgeLots: Number(b.hedgeLots) || 5,
                 coreLotMultOverride: b.coreLotMultOverride ? Number(b.coreLotMultOverride) : null,
                 hedgeLotMultOverride: b.hedgeLotMultOverride ? Number(b.hedgeLotMultOverride) : null,
-                unwindMode, coreSide, from, to, kc,
+                unwindMode, from, to, kc,
             })));
         } finally {
             setEmitSuppressed(false);
@@ -2303,7 +2300,7 @@ app.post("/api/toolbox/hedgepairs/backtest", async (req, res) => {
 app.post("/api/toolbox/hedgepairs", async (req, res) => {
     const {
         coreUnderlying, hedgeUnderlying, coreLots, hedgeLots,
-        coreLotMultOverride, hedgeLotMultOverride, unwindMode, coreSide,
+        coreLotMultOverride, hedgeLotMultOverride, unwindMode,
         live, confirmLive,
     } = req.body || {};
 
@@ -2311,8 +2308,6 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
         return res.status(400).json({ error: "CoreUnderlying and hedgeUnderlying are both required" });
     }
     const resolvedUnwindMode = unwindMode === "EOD_ONLY" ? "EOD_ONLY" : "HA_FLIP";
-    const resolvedCoreSide = String(coreSide || "").toUpperCase();
-    if (resolvedCoreSide !== "LONG" && resolvedCoreSide !== "SHORT") return res.status(400).json({ error: "CoreSide must be LONG or SHORT" });
     // Same rule toolbox.js/instrument mode enforce: going live requires the
     // literal word "LIVE" server-side too, not just a client-side checkbox.
     if (live && confirmLive !== "LIVE") {
@@ -2332,7 +2327,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
     const env = {
         CORE_UNDERLYING: coreUnderlying, HEDGE_UNDERLYING: hedgeUnderlying, EXCHANGE_OVERRIDE: "MCX",
         CORE_LOTS_OVERRIDE: String(coreLots || 1), HEDGE_LOTS_OVERRIDE: String(hedgeLots || 5),
-        UNWIND_MODE_OVERRIDE: resolvedUnwindMode, CORE_SIDE_OVERRIDE: resolvedCoreSide, LIVE_ORDERS_OVERRIDE: String(!!live),
+        UNWIND_MODE_OVERRIDE: resolvedUnwindMode, LIVE_ORDERS_OVERRIDE: String(!!live),
     };
     if (coreLotMultOverride)  env.CORE_LOTMULT_OVERRIDE  = String(coreLotMultOverride);
     if (hedgeLotMultOverride) env.HEDGE_LOTMULT_OVERRIDE = String(hedgeLotMultOverride);

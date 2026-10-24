@@ -4,7 +4,8 @@
 //
 // SPEC (REDESIGNED Oct 2026 — supersedes the earlier daily-HA-core design):
 //   - CORE leg (full-size contract): ONE position, LONG or SHORT, the side
-//     being CONFIGURED (CORE_SIDE_OVERRIDE) — no signal picks it. Opened
+//     being picked by the DAILY Dynamic Step Band (plain daily candles, last
+//     COMPLETED bar: green -> LONG, red -> SHORT). Opened
 //     once at/after 10:00 IST when the core is flat, product NRML, then held
 //     as one continuing trade: NOT force-closed at EOD, carried overnight
 //     and across days. The bot never exits it by itself (no target/stop).
@@ -53,7 +54,6 @@
 // synchronous fill price.
 //
 // ENV VARS (mirrors engine.js's override-via-env convention):
-//   CORE_SIDE_OVERRIDE       (required) "LONG" | "SHORT" — the core's direction
 //   CORE_UNDERLYING          (required) e.g. "NATURALGAS" or "ZINC"
 //   HEDGE_UNDERLYING         (required) e.g. "NATGASMINI" or "ZINCMINI"
 //   EXCHANGE_OVERRIDE        default "MCX"
@@ -100,11 +100,6 @@ const { createHaCandleReader } = require("./haCandleReader");
 const { createDynamicBandReader } = require("./dynamicBandReader");
 
 const POLL_MS = Number(process.env.HEDGE_PAIR_POLL_MS) || 60 * 1000;
-const CORE_SIDE = (process.env.CORE_SIDE_OVERRIDE || "").toUpperCase();
-if (CORE_SIDE !== "LONG" && CORE_SIDE !== "SHORT") {
-    console.error(c.red(`CORE_SIDE_OVERRIDE "${process.env.CORE_SIDE_OVERRIDE || ""}" invalid (must be LONG or SHORT) — refusing to boot.`));
-    process.exit(1);
-}
 const UNWIND_MODE = (process.env.UNWIND_MODE_OVERRIDE || "HA_FLIP").toUpperCase();
 if (UNWIND_MODE !== "HA_FLIP" && UNWIND_MODE !== "EOD_ONLY") {
     console.error(c.red(`UNWIND_MODE_OVERRIDE "${UNWIND_MODE}" invalid (known: HA_FLIP, EOD_ONLY) — refusing to boot.`));
@@ -201,7 +196,7 @@ async function main() {
         lotMultOverride: process.env.HEDGE_LOTMULT_OVERRIDE ? Number(process.env.HEDGE_LOTMULT_OVERRIDE) : null,
     });
 
-    console.log(c.bold(`HEDGE PAIR  core:${core.context.symbol} (${CORE_SIDE}, ${core.context.lots} lot, NRML, carried)  hedge:${hedge.context.symbol} (${hedge.context.lots} lots, unwind:${UNWIND_MODE})`));
+    console.log(c.bold(`HEDGE PAIR  core:${core.context.symbol} (side from daily DSB, ${core.context.lots} lot, NRML, carried)  hedge:${hedge.context.symbol} (${hedge.context.lots} lots, unwind:${UNWIND_MODE})`));
     console.log();
 
     // Both signal readers key off the CORE instrument's own token — the
@@ -209,6 +204,8 @@ async function main() {
     const hourlyReader = createHaCandleReader({ token: core.context.token, timeframe: "1h", engineConfig, label: core.context.tgPrefix });
     // Confirmation filter for checkHedge() — see dynamicBandReader.js's own
     // header for why raw 1h HA color alone is too noisy on its own.
+    // Daily DSB on plain daily candles — decides the core's side (once, at entry).
+    const dailyBandReader = createDynamicBandReader({ token: core.context.token, timeframe: "1d", bandStep: core.context.bandStep, engineConfig, label: core.context.tgPrefix });
     const bandReader   = createDynamicBandReader({ token: core.context.token, timeframe: "1h", bandStep: core.context.bandStep, engineConfig, label: core.context.tgPrefix, ha: true });
 
     // Read-only client for LTP lookups at our own entry/exit bookkeeping
@@ -275,7 +272,7 @@ async function main() {
         return true;
     }
 
-    // ─── CORE: opens the configured side once, when flat; then carried (see header).
+    // ─── CORE: opens the side given by the daily DSB, once, when flat; then carried (see header).
     // Entry time fixed at 10:00 IST specifically for this strategy
     // (explicitly requested — NOT engineConfig.TRADE_START_HOUR/MINUTE's
     // 9:15, the general market-open constant every other strategy uses;
@@ -292,10 +289,13 @@ async function main() {
         if (coreDecidedForDate === today) return; // already decided — "no flipping" for the rest of today
         if (core.state.position) { coreDecidedForDate = today; return; } // resumed from a crash-restart — already decided, don't re-enter
 
+        const daily = await dailyBandReader.getLatest();
+        if (!daily || !daily.color) return; // no read yet — retry next poll
         // Locks in for today the moment we act — a failed entry means no
         // core position today, not a retry loop.
         coreDecidedForDate = today;
-        await enterLeg(core, CORE_SIDE, `configured core side ${CORE_SIDE}`);
+        const side = daily.color === "green" ? "LONG" : "SHORT";
+        await enterLeg(core, side, `daily DSB ${daily.color}`);
     }
 
     // ─── HEDGE: driven by the 1h HA Dynamic Step Band on the CORE instrument.
@@ -452,6 +452,7 @@ async function main() {
     }
 
     hourlyReader.prewarm();
+    dailyBandReader.prewarm();
     bandReader.prewarm();
     await tick();
     setInterval(tick, POLL_MS);
