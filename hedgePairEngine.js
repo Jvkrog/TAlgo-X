@@ -4,7 +4,7 @@
 //
 // SPEC (REDESIGNED Oct 2026 — supersedes the earlier daily-HA-core design):
 //   - CORE leg (full-size contract): ONE position, LONG or SHORT, the side
-//     being picked by the DAILY Dynamic Step Band (plain daily candles, last
+//     being picked by the DAILY Dynamic Step Band (daily Heikin-Ashi candles, last
 //     COMPLETED bar: green -> LONG, red -> SHORT). Opened
 //     once at/after 10:00 IST when the core is flat, product NRML, then held
 //     as one continuing trade: NOT force-closed at EOD, carried overnight
@@ -204,8 +204,8 @@ async function main() {
     const hourlyReader = createHaCandleReader({ token: core.context.token, timeframe: "1h", engineConfig, label: core.context.tgPrefix });
     // Confirmation filter for checkHedge() — see dynamicBandReader.js's own
     // header for why raw 1h HA color alone is too noisy on its own.
-    // Daily DSB on plain daily candles — decides the core's side (once, at entry).
-    const dailyBandReader = createDynamicBandReader({ token: core.context.token, timeframe: "1d", bandStep: core.context.bandStep, engineConfig, label: core.context.tgPrefix });
+    // Daily DSB on daily Heikin-Ashi candles — decides the core's side (once, at entry).
+    const dailyBandReader = createDynamicBandReader({ token: core.context.token, timeframe: "1d", bandStep: core.context.bandStep, engineConfig, label: core.context.tgPrefix, ha: true });
     const bandReader   = createDynamicBandReader({ token: core.context.token, timeframe: "1h", bandStep: core.context.bandStep, engineConfig, label: core.context.tgPrefix, ha: true });
 
     // Read-only client for LTP lookups at our own entry/exit bookkeeping

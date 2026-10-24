@@ -184,12 +184,12 @@ async function runHedgePairBacktest({
         return hedgeHourlyRaw[hedgePtr] ? hedgeHourlyRaw[hedgePtr].close : null;
     }
 
-    // Daily DSB (plain daily candles): colour after each COMPLETED day. The core's
+    // Daily DSB (daily Heikin-Ashi candles): colour after each COMPLETED day. The core's
     // side on day D = colour after the last daily bar strictly before D.
     const dailyDsb = [];
     {
         const st = createBandStepper(core.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT);
-        for (const b of coreDailyRaw.slice(0, -1)) { st.push(b); const x = st.state(); if (x) dailyDsb.push({ dayKey: dayKeyIST(b.date), color: x.color }); }
+        for (const b of toHA(coreDailyRaw.slice(0, -1))) { st.push(b); const x = st.state(); if (x) dailyDsb.push({ dayKey: dayKeyIST(b.date), color: x.color }); }
     }
     function priorDailyDsb(dayKey) {
         let r = null;
