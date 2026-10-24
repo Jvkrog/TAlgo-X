@@ -12,6 +12,9 @@
 //     ("no flipping ... it remains const"). Force-closed every day at
 //     EOD ("eod exit only" — this is the position's ONLY automated exit;
 //     no target, no stop).
+// CHANGED Oct 2026: the hedge trigger/unwind below is now the 1h Dynamic Step Band colour ALONE
+// (the hourly HA colour is no longer required to agree). The core is unchanged: the PREVIOUS
+// completed daily HA candle — green -> LONG, red -> SHORT.
 //   - HEDGE leg (mini contract, same underlying): while the core leg is
 //     open and the hedge is flat, if the SAME core instrument's latest
 //     completed 1-HOUR HA candle turns AGAINST the core's direction AND
@@ -327,24 +330,24 @@ async function main() {
         const hourly = await hourlyReader.getLatest();
         if (!hourly || !hourly.color) return;
         const band = await bandReader.getLatest();
-        // Fails safe: no band read yet (cold start / fetch error) falls
-        // back to HA-only, matching the pre-existing behavior, rather
-        // than blocking the hedge from ever firing.
-        const bandColor = band && band.color ? band.color : hourly.color;
+        // CHANGED (Oct 2026): the hedge is driven by the 1h Dynamic Step Band alone — the hourly
+        // HA colour no longer has to agree. No band read yet (cold start / fetch error) = no action.
+        if (!band || !band.color) return;
+        const bandColor = band.color;
 
         const coreSide = core.state.position;
         const haAdverse    = (coreSide === "LONG" && hourly.color === "red")   || (coreSide === "SHORT" && hourly.color === "green");
         const haFavorable   = (coreSide === "LONG" && hourly.color === "green") || (coreSide === "SHORT" && hourly.color === "red");
         const bandAdverse   = (coreSide === "LONG" && bandColor === "red")     || (coreSide === "SHORT" && bandColor === "green");
         const bandFavorable = (coreSide === "LONG" && bandColor === "green")   || (coreSide === "SHORT" && bandColor === "red");
-        const adverse   = haAdverse && bandAdverse;
-        const favorable = haFavorable && bandFavorable;
+        const adverse   = bandAdverse;
+        const favorable = bandFavorable;
 
         if (!hedge.state.position && adverse) {
             const hedgeSide = coreSide === "LONG" ? "SHORT" : "LONG"; // opposite the core = same side as the adverse read
-            await enterLeg(hedge, hedgeSide, `1h HA ${hourly.color} + band ${bandColor} against ${coreSide} core`);
+            await enterLeg(hedge, hedgeSide, `1h DSB ${bandColor} against ${coreSide} core`);
         } else if (hedge.state.position && UNWIND_MODE === "HA_FLIP" && favorable) {
-            await exitLeg(hedge, `1h HA ${hourly.color} + band ${bandColor} back in the core's favor`);
+            await exitLeg(hedge, `1h DSB ${bandColor} back in the core's favor`);
         }
         // UNWIND_MODE === "EOD_ONLY": hedge, once open, is deliberately
         // left alone here regardless of `favorable` — only checkEod()

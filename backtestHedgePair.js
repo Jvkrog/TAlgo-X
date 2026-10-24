@@ -274,13 +274,13 @@ async function runHedgePairBacktest({
                 const haFavorable  = (coreSide === "LONG" && barColor === "green") || (coreSide === "SHORT" && barColor === "red");
                 const bandAdverse  = (coreSide === "LONG" && bandColor === "red")   || (coreSide === "SHORT" && bandColor === "green");
                 const bandFavorable = (coreSide === "LONG" && bandColor === "green") || (coreSide === "SHORT" && bandColor === "red");
-                const adverse   = haAdverse && bandAdverse;
-                const favorable = haFavorable && bandFavorable;
+                const adverse   = bandAdverse;      // Oct 2026: 1h Dynamic Step Band alone (matches hedgePairEngine.js)
+                const favorable = bandFavorable;
                 const hedgePx   = hedgeCloseAt(bar.date);
 
                 if (!hedgeState.position && adverse && hedgePx !== null) {
                     const hedgeSide = coreSide === "LONG" ? "SHORT" : "LONG";
-                    await enterLeg(hedge.context, hedgeState, hedgeLedger, hedgeSide, hedgePx, `1h HA ${barColor} + band ${bandColor} against ${coreSide} core`);
+                    await enterLeg(hedge.context, hedgeState, hedgeLedger, hedgeSide, hedgePx, `1h DSB ${bandColor} against ${coreSide} core`);
                 } else if (hedgeState.position && unwindMode === "HA_FLIP" && favorable && hedgePx !== null) {
                     await exitLeg(hedge.context, hedgeState, hedgeLedger, hedgePx, "HTF_FLIP_UNWIND");
                 }
