@@ -26,18 +26,13 @@ const DEFAULT_ROLL_POLICY = daysBeforeExpiryPolicy(5);
 // when you need something non-default for that instrument.
 //
 // lotMult IMPORTANT: the broker's own `lot_size` field is a CONTRACT COUNT
-// ("1 lot = 1 contract"), not the price multiplier you need for PnL math.
-// For NATGASMINI, lot_size=1 in the instrument dump but the actual contract
-// unit is 250 MMBtu — getDefinition() would silently use 1 without this
-// override, understating every PnL calc by 250x. Verify the real multiplier
-// against the exchange's contract spec for ANY instrument before trusting
-// lot_size alone — don't assume it's safe to omit just because a number is
-// present in the CSV.
-const overrides = {
-    NATGASMINI: {
-        lotMult: 250,   // MMBtu per lot — NOT the broker's lot_size field (which is 1)
-    },
-};
+// ("1 lot = 1 contract"), not the price multiplier you need for PnL math
+// (NATGASMINI shows lot_size=1 but the real unit is 250 MMBtu). Since Oct 2026
+// NO instrument has a built-in multiplier any more: the NATGASMINI default of
+// 250 was removed, so every instrument — NATGASMINI included — asks for its lot
+// multiplier when you add it (web form / toolbox / backtest). Verify the real
+// multiplier against the exchange's contract spec; never trust lot_size alone.
+const overrides = {};
 
 // ─── getDefinition — underlying name -> full definition, override-merged.
 // `lotMult: null` here is a signal to buildContext(): "use the broker's own
