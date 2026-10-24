@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TALGO-X — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=34">
+</head>
+<body>
+
+<div class="lock-screen" id="lockScreen">
+  <div class="lock-glow" aria-hidden="true"></div>
+  <div class="lock-content">
+    <div class="lock-icon">◆</div>
+    <div class="lock-title">TALGO-X</div>
+    <div class="lock-subtitle" id="lockSubtitle">Enter pin to continue</div>
+    <div class="lock-dots" id="lockDots"></div>
+    <div class="lock-error" id="lockError"></div>
+    <div class="lock-keypad" id="lockKeypad">
+      <button class="key" data-key="1">1</button>
+      <button class="key" data-key="2">2<span>ABC</span></button>
+      <button class="key" data-key="3">3<span>DEF</span></button>
+      <button class="key" data-key="4">4<span>GHI</span></button>
+      <button class="key" data-key="5">5<span>JKL</span></button>
+      <button class="key" data-key="6">6<span>MNO</span></button>
+      <button class="key" data-key="7">7<span>PQRS</span></button>
+      <button class="key" data-key="8">8<span>TUV</span></button>
+      <button class="key" data-key="9">9<span>WXYZ</span></button>
+      <button class="key key-ghost" tabindex="-1"></button>
+      <button class="key" data-key="0">0</button>
+      <button class="key key-del" data-key="del">⌫</button>
+    </div>
+  </div>
+</div>
+
+<div class="scanlines" aria-hidden="true"></div>
+<div class="glow-field" aria-hidden="true"></div>
+
+<div id="appRoot" class="app-root">
+
+<header class="topbar">
+  <div class="topbar-row">
+    <div class="wordmark">
+      <span class="wordmark-text">TALGO<span class="wordmark-x">-X</span></span>
+      <span class="wordmark-sub">Live operator dashboard</span>
+    </div>
+    <div class="conn-status" id="connStatus">
+      <span class="conn-dot"></span>
+      <span class="conn-label">Connecting</span>
+    </div>
+  </div>
+
+  <div class="topbar-row topbar-row-secondary">
+    <div class="session-strip">
+      <div class="session-metric">
+        <span class="session-label">Session pnl</span>
+        <span class="session-value" id="totalSessionPnl">+0</span>
+      </div>
+      <div class="session-metric">
+        <span class="session-label">Engines</span>
+        <span class="session-value" id="engineCount">0</span>
+      </div>
+    </div>
+    <a class="token-btn" id="tokenBtn" href="#">
+      <span class="token-dot" id="tokenDot"></span>
+      <span id="tokenLabel">Generate token</span>
+    </a>
+  </div>
+
+  <div class="token-panel" id="tokenPanel">
+    <div class="token-panel-hint">
+      Every account below is a SEPARATE Kite login — the global account every
+      normal engine uses, plus any Dual Hedge / Gap Capture accounts (they
+      share one registry). A token is only good for the IST day it was
+      generated — "stale" means yesterday's (or older). Tap an account's
+      link to log in, then paste the request_token (or full redirect URL)
+      back here.
+    </div>
+    <div class="token-account-list" id="tokenAccountList"></div>
+  </div>
+</header>
+
+<div class="tabbar">
+  <button class="tab active" id="tabDashboard" data-tab="dashboard">Dashboard</button>
+  <button class="tab" id="tabToolbox" data-tab="toolbox">Toolbox</button>
+  <button class="tab" id="tabRisk" data-tab="risk">Risk</button>
+  <button class="tab" id="tabAi" data-tab="ai">AI Review</button>
+  <div class="tabbar-spacer"></div>
+  <button class="btn btn-ghost tabbar-layout-btn" id="layoutEditToggle" title="Drag panels by their header, resize from the bottom-right corner">⛶ Layout</button>
+  <button class="btn btn-ghost tabbar-layout-btn" id="layoutResetBtn" style="display:none" title="Restore the default arrangement">Reset</button>
+</div>
+
+<main class="layout" id="dashboardView">
+  <section class="panel instruments-panel" id="instrumentsPanel">
+    <div class="panel-head">
+      <span class="panel-title">┌─ INSTRUMENTS ─┐</span>
+      <button class="btn btn-ghost" id="refreshBtn">Refresh</button>
+    </div>
+    <div class="instrument-grid" id="instrumentGrid">
+      <div class="empty-state">No engines detected — waiting on PM2...</div>
+    </div>
+  </section>
+
+  <section class="panel instruments-panel" id="hedgePairsPanel" style="display:none">
+    <div class="panel-head">
+      <span class="panel-title">┌─ HEDGE PAIRS ─┐</span>
+    </div>
+    <div class="instrument-grid" id="hedgePairsGrid"></div>
+  </section>
+
+  <section class="panel instruments-panel" id="dualHedgePanel" style="display:none">
+    <div class="panel-head">
+      <span class="panel-title">┌─ DUAL HEDGE ─┐</span>
+    </div>
+    <div class="instrument-grid" id="dualHedgeGrid"></div>
+  </section>
+
+  <section class="panel log-panel" id="logPanel">
+    <div class="panel-head">
+      <span class="panel-title">┌─ LIVE LOG ─┐</span>
+      <label class="autoscroll-toggle">
+        <input type="checkbox" id="autoscrollToggle" checked>
+        <span>Auto-scroll</span>
+      </label>
+    </div>
+    <div class="log-stream" id="logStream"></div>
+  </section>
+</main>
+
+<main class="layout toolbox-layout" id="toolboxView" style="display:none">
+  <section class="panel toolbox-panel">
+    <div class="panel-head">
+      <span class="panel-title">┌─ TOOLBOX ─┐</span>
+      <button class="btn btn-ghost" id="toolboxRefreshBtn">Refresh</button>
+    </div>
+
+    <div class="toolbox-bulkbar">
+      <label class="tb-selectall">
+        <input type="checkbox" id="tbSelectAll">
+        <span>Select all</span>
+      </label>
+      <div class="tb-bulk-actions">
+        <button class="btn btn-start" id="tbStart">Start</button>
+        <button class="btn btn-stop" id="tbStop">Stop</button>
+        <button class="btn btn-restart" id="tbRestart">Restart</button>
+        <button class="btn btn-restart" id="tbBacktestSel" title="Backtest the selected instrument">Backtest</button>
+        <button class="btn btn-mode" id="tbMode">Mode</button>
+        <button class="btn btn-danger" id="tbDelete">Delete</button>
+      </div>
+    </div>
+
+    <div class="toolbox-list" id="toolboxList">
+      <div class="empty-state">No engines detected</div>
+    </div>
+
+    <div class="toolbox-cli-only">
+      <div class="tb-cli-title">Toolbox actions</div>
+      <div class="tb-cli-grid">
+        <button class="tb-cli-action" id="tbOpenAddInstrument">+ Add instrument</button>
+        <button class="tb-cli-action" id="tbOpenBacktest">▸ Backtest</button>
+        <button class="tb-cli-action" id="tbOpenCredentials">⚙ Setup credentials</button>
+        <button class="tb-cli-action" id="tbOpenTrending">↗ Trending instruments</button>
+        <button class="tb-cli-action" id="tbOpenMarketStatus">◎ Market status</button>
+        <button class="tb-cli-action" id="tbOpenRoll">↻ Roll contract</button>
+        <button class="tb-cli-action" id="tbOpenCustomStrategy">⚒ Custom strategy</button>
+        <button class="tb-cli-action" id="tbOpenHedgePairs">⇄ Hedge pairs</button>
+        <button class="tb-cli-action" id="tbOpenDualHedge">⇅ Dual hedge</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<main class="layout" id="riskView" style="display:none">
+  <section class="panel toolbox-panel" style="flex:1">
+    <div class="panel-head">
+      <span class="panel-title">┌─ RISK MANAGEMENT ─┐</span>
+      <button class="btn btn-ghost" id="riskRefreshBtn">Refresh</button>
+    </div>
+    <div class="tb-form-hint" style="padding:8px 16px 0">Per-instrument entry gates — chop filter, double-order cap, ATR SL, volume SMA, and the long-candle/volatility-shock filter. Tap an instrument to open its full risk settings.</div>
+    <div class="toolbox-list" id="riskList"></div>
+  </section>
+</main>
+
+<main class="layout" id="aiView" style="display:none">
+  <section class="panel toolbox-panel" style="flex:1">
+    <div class="panel-head">
+      <span class="panel-title">┌─ TALGO-AI · TRADE REVIEW ─┐</span>
+      <button class="btn btn-ghost" id="aiRefreshBtn">Refresh</button>
+    </div>
+    <div class="tb-form-hint" style="padding:8px 16px 0">Closed trades from each instrument's journal. Figures are computed by the system; the AI only comments on them. It never affects trading.</div>
+    <div id="aiStatus" class="tb-form-hint" style="padding:4px 16px 0"></div>
+    <div id="aiSummaryBox" style="padding:8px 16px 0"></div>
+    <div class="toolbox-list" id="aiList"></div>
+  </section>
+</main>
+
+<!-- toolbox logs modal -->
+<div class="tb-modal" id="tbLogsModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span id="tbLogsTitle">Logs</span>
+      <button class="btn btn-ghost" id="tbLogsClose">Close</button>
+    </div>
+    <div class="tb-modal-body" id="tbLogsBody"></div>
+  </div>
+</div>
+
+<!-- mode-switch confirm modal -->
+<div class="tb-modal" id="tbModeModal">
+  <div class="tb-modal-content tb-modal-narrow">
+    <div class="tb-modal-head">
+      <span>Switch mode</span>
+      <button class="btn btn-ghost" id="tbModeClose">Close</button>
+    </div>
+    <div class="tb-modal-body" id="tbModeBody"></div>
+  </div>
+</div>
+
+<!-- edit instrument params modal -->
+<div class="tb-modal" id="tbEditModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span id="tbEditTitle">Edit params</span>
+      <button class="btn btn-ghost" id="tbEditClose">Close</button>
+    </div>
+    <div class="tb-modal-body" id="tbEditBody"></div>
+  </div>
+</div>
+
+<!-- add instrument modal -->
+<div class="tb-modal" id="tbAddModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>Add instrument</span>
+      <button class="btn btn-ghost" id="tbAddClose">Close</button>
+    </div>
+    <div class="tb-modal-body" id="tbAddBody"></div>
+  </div>
+</div>
+
+<!-- custom strategy builder modal -->
+<div class="tb-modal" id="tbCustomModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>Create your own strategy</span>
+      <button class="btn btn-ghost" id="tbCustomClose">Close</button>
+    </div>
+    <div class="tb-modal-body" id="tbCustomBody"></div>
+  </div>
+</div>
+
+<!-- hedge pairs modal -->
+<div class="tb-modal" id="tbHedgePairsModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>Hedge pairs</span>
+      <button class="btn btn-ghost" id="tbHedgePairsClose">Close</button>
+    </div>
+    <div class="tb-modal-body" id="tbHedgePairsBody"></div>
+  </div>
+</div>
+
+<!-- dual hedge modal -->
+<div class="tb-modal" id="tbDualHedgeModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>Dual hedge</span>
+      <button class="btn btn-ghost" id="tbDualHedgeClose">Close</button>
+    </div>
+    <div class="tb-modal-body" id="tbDualHedgeBody"></div>
+  </div>
+</div>
+
+<!-- backtest modal -->
+<div class="tb-modal" id="tbBacktestModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>Backtest</span>
+      <button class="btn btn-ghost" id="tbBacktestClose">Close</button>
+    </div>
+    <div class="tb-modal-body" id="tbBacktestBody"></div>
+  </div>
+</div>
+
+<!-- credentials modal -->
+<div class="tb-modal" id="tbCredsModal">
+  <div class="tb-modal-content tb-modal-narrow">
+    <div class="tb-modal-head">
+      <span>Setup credentials</span>
+      <button class="btn btn-ghost" id="tbCredsClose">Close</button>
+    </div>
+    <div class="tb-modal-body" id="tbCredsBody"></div>
+  </div>
+</div>
+
+<!-- trending instruments modal -->
+<div class="tb-modal" id="tbTrendingModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>Trending instruments</span>
+      <button class="btn btn-ghost" id="tbTrendingClose">Close</button>
+    </div>
+    <div class="tb-modal-body" id="tbTrendingBody"></div>
+  </div>
+</div>
+
+<!-- market status modal -->
+<div class="tb-modal" id="tbMarketModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>Market status</span>
+      <button class="btn btn-ghost" id="tbMarketClose">Close</button>
+    </div>
+    <div class="tb-modal-body" id="tbMarketBody"></div>
+  </div>
+</div>
+
+<!-- roll contract modal -->
+<div class="tb-modal" id="tbRollModal">
+  <div class="tb-modal-content">
+    <div class="tb-modal-head">
+      <span>Roll contract</span>
+      <button class="btn btn-ghost" id="tbRollClose">Close</button>
+    </div>
+    <div class="tb-modal-body" id="tbRollBody"></div>
+  </div>
+</div>
+
+</div>
+
+<!-- toolbox boot animation, played once per session on first entering the tab -->
+<div class="tb-boot" id="tbBoot">
+  <div class="tb-banner-wrap">
+    <pre class="tb-banner" id="tbBanner"></pre>
+    <div class="tb-banner-glow" aria-hidden="true"></div>
+  </div>
+  <div class="tb-checklist" id="tbChecklist"></div>
+</div>
+
+<script src="strategyBuilder.js?v=3"></script>
+<script src="chart.js?v=22"></script>
+<script src="app.js?v=74"></script>
+</body>
+</html>
