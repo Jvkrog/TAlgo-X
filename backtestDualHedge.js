@@ -580,7 +580,99 @@ async function replayDualHedge({
     };
 }
 
-// replayBiasHedge — pure replay of the BIAS HEDGE strategy (see the file header),
+// replayRealizeHedge — pure replay of the REALIZE strategy (live: DH_STRATEGY=REALIZE in
+// dualHedgeEngine.js). No signal. While flat and inside the session (09:00–23:25 IST) each leg
+// opens its own side at the candle open; when a leg's unrealized P&L exceeds realizeRupees it is
+// closed at the threshold (or the open if already beyond it) and the same side is re-opened at
+// that same price (NRML carry, nothing closed at EOD). The losing leg is never closed; the replay
+// only counts how often it was down more than lossAlertRupees (the live Telegram "add funds" alert).
+async function replayRealizeHedge({
+    longCtx, shortCtx, candles, tradeFromMs, realizeRupees = 3000, lossAlertRupees = 0,
+    slippagePoints = 0, progress, verbose = true,
+}) {
+    if (!candles.length) throw new Error("replayRealizeHedge: no candles");
+    if (!(Number(realizeRupees) > 0)) throw new Error(`replayRealizeHedge: realizeRupees must be positive (got ${realizeRupees})`);
+    const log  = verbose ? (...a) => console.log(...a) : () => {};
+    const slip = Number(slippagePoints) || 0;
+    const stats = {
+        entries: { LONG: 0, SHORT: 0 }, realizes: { LONG: 0, SHORT: 0 }, lossAlertDays: { LONG: 0, SHORT: 0 },
+        exits: { realize: 0, backtestEnd: 0 },
+    };
+    const kit = createLegKit({ longCtx, shortCtx, startDate: candles[0].date, slip, log, stats });
+    const { clockBox, long, short, legs, label, enterLeg, exitLeg, unreal, realizedTotal, sampleEquity } = kit;
+    const daily = [];
+    let lastDay = null, lastClose = candles[candles.length - 1].close;
+    const alertedDay = { LONG: null, SHORT: null };
+    const total = candles.length;
+    const OPEN_MIN = 9 * 60, CLOSE_MIN = 23 * 60 + 25;
+
+    for (let i = 0; i < candles.length; i++) {
+        const cn = candles[i];
+        const ms = cn.date.getTime();
+        if (ms < tradeFromMs) continue;
+        clockBox.date = cn.date;
+        const dayKey = dayKeyIST(cn.date);
+        const minOfDay = istMinuteOfDay(ms);
+        const inSession = minOfDay >= OPEN_MIN && minOfDay < CLOSE_MIN;
+        if (lastDay !== dayKey) { lastDay = dayKey; log(); log(`**STARTING** ${dayKey}`); }
+
+        if (inSession) {
+            for (const leg of legs) {
+                if (!leg.state.position) await enterLeg(leg, cn.open, "initial entry (NRML carry)");
+            }
+            const pts = candlesToPoints([cn]);
+            for (const leg of legs) {
+                for (let p = 0; p < pts.length; p++) {
+                    if (!leg.state.position) break;
+                    const px = pts[p].price;
+                    const u = unreal(leg, px);
+                    if (u < leg.mae) leg.mae = u;
+                    if (u < leg.worstUPnL) leg.worstUPnL = u;
+                    if (lossAlertRupees > 0 && u < -lossAlertRupees && alertedDay[leg.side] !== dayKey) {
+                        alertedDay[leg.side] = dayKey; stats.lossAlertDays[leg.side]++;
+                        log(c.yellow(`[${label(leg)}] ${leg.side} down ${sgn(u)} (alert level \u20b9${lossAlertRupees}) \u2014 live would send an "add funds" alert`));
+                    }
+                    if (u > realizeRupees) {
+                        const mult = leg.ctx.lotMult * leg.ctx.lots;
+                        const dir  = leg.state.position === "LONG" ? 1 : -1;
+                        const fill = p === 0 ? px : leg.state.entryPrice + dir * (realizeRupees / mult);
+                        await exitLeg(leg, fill, `${leg.side} REALIZE (profit > \u20b9${realizeRupees})`);
+                        stats.exits.realize++; stats.realizes[leg.side]++;
+                        await enterLeg(leg, fill, "re-open after realizing (overnight carry)");
+                    }
+                }
+            }
+        } else {
+            // outside the session: no orders, but keep tracking the open legs' worst excursion
+            for (const leg of legs) {
+                if (!leg.state.position) continue;
+                const u = unreal(leg, cn.close);
+                if (u < leg.mae) leg.mae = u;
+                if (u < leg.worstUPnL) leg.worstUPnL = u;
+            }
+        }
+
+        sampleEquity(cn.close, cn.date);
+        const next = candles[i + 1];
+        if (!next || dayKeyIST(next.date) !== dayKey) {
+            const eq = realizedTotal() + unreal(long, cn.close) + unreal(short, cn.close);
+            const fmtLeg = leg => leg.state.position ? `${leg.state.position}@${leg.state.entryPrice.toFixed(2)} ${sgn(unreal(leg, cn.close))}` : "flat";
+            log(c.dim(`[DAY ${dayKey}] close ${cn.close.toFixed(2)}  long: ${fmtLeg(long)}  |  short: ${fmtLeg(short)}  |  realized ${sgn(realizedTotal())}  equity ${sgn(eq)}`));
+            daily.push({ day: dayKey, equity: eq, realized: realizedTotal(), unrealized: eq - realizedTotal(), long: long.state.position, short: short.state.position });
+        }
+        lastClose = cn.close;
+        if (progress && i % 2000 === 0) progress(i, total);
+    }
+    if (progress) progress(total, total);
+
+    for (const leg of legs) {
+        if (leg.state.position) { stats.exits.backtestEnd++; await exitLeg(leg, lastClose, "BACKTEST_END", { noSlip: true }); }
+    }
+    const { longTrades, shortTrades, trades } = kit.tradesFrom(tradeFromMs);
+    return { longTrades, shortTrades, trades, stats, mtm: kit.mtmResult(daily), signalBars: 0, signalKind: "none (profit-lock)" };
+}
+
+// replayBiasHedge \u2014 pure replay of the BIAS HEDGE strategy (see the file header),
 // no I/O. dailyBars / bandBars are Kite's own historical bars (raw OHLC,
 // sorted) at 1d and bandTimeframe; candles are the 1-minute clock.
 async function replayBiasHedge({
@@ -748,7 +840,7 @@ async function replayBiasHedge({
 // })
 async function runDualHedgeBacktest({
     underlying, exchange = "MCX", lots = 1, longLots, shortLots, lotMultOverride,
-    strategy = "DUAL",
+    strategy = "DUAL", realizeRupees = 3000, lossAlertRupees = 0,
     bandStepOverride, rangeSizeOverride, rangeStart,
     signalSource = "RANGE", haTimeframe = "1h",
     bandTimeframe = "15m", unwindMode = "BAND_FLIP", entryHour = 10, entryMinute = 0, eodHour, eodMinute,
@@ -758,8 +850,14 @@ async function runDualHedgeBacktest({
     slippagePoints = 0, from, to, kc, progress,
 }) {
     strategy = String(strategy).toUpperCase();
-    if (strategy !== "DUAL" && strategy !== "BIAS") throw new Error(`runDualHedgeBacktest: strategy must be DUAL or BIAS (got ${strategy})`);
+    if (strategy !== "DUAL" && strategy !== "BIAS" && strategy !== "REALIZE") throw new Error(`runDualHedgeBacktest: strategy must be DUAL, BIAS or REALIZE (got ${strategy})`);
     const isBias = strategy === "BIAS";
+    const isRealize = strategy === "REALIZE";
+    if (isRealize) {
+        realizeRupees = Number(realizeRupees); lossAlertRupees = Number(lossAlertRupees) || 0;
+        if (!(realizeRupees > 0)) throw new Error(`runDualHedgeBacktest: realizeRupees must be a positive number (got ${realizeRupees})`);
+        signalSource = "RANGE";
+    }
     signalSource = String(signalSource).toUpperCase();
     if (!isBias && signalSource !== "RANGE" && signalSource !== "HA" && signalSource !== "HA_DSB") throw new Error(`runDualHedgeBacktest: signalSource must be RANGE, HA or HA_DSB (got ${signalSource})`);
     if (!isBias && signalSource.startsWith("HA") && !(haTimeframe in HA_TIMEFRAMES)) throw new Error(`runDualHedgeBacktest: haTimeframe must be one of ${Object.keys(HA_TIMEFRAMES).join(", ")} (got ${haTimeframe})`);
@@ -774,7 +872,7 @@ async function runDualHedgeBacktest({
         const eod = defaultEodFor(bandTimeframe, exchange);
         eodHour   = eodHour   ?? eod.eodHour;
         eodMinute = eodMinute ?? eod.eodMinute;
-    } else {
+    } else if (!isRealize) {
         for (const [name, v] of [["takeProfit", takeProfit], ["maxLoss", maxLoss]]) {
             if (!(Number(v) > 0)) throw new Error(`runDualHedgeBacktest: ${name} must be a positive number (got ${v})`);
         }
@@ -807,8 +905,8 @@ async function runDualHedgeBacktest({
 
     const bandStep  = longLeg.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
     const rangeSize = rangeSizeOverride ? Number(rangeSizeOverride) : bandStep;
-    if ((isBias || !isHA || isHaDsb) && !(bandStep > 0)) throw new Error(`runDualHedgeBacktest: invalid band step (${bandStep})`);
-    if (!isBias && !isHA && !(rangeSize > 0)) throw new Error(`runDualHedgeBacktest: invalid range size (${rangeSize})`);
+    if (!isRealize && (isBias || !isHA || isHaDsb) && !(bandStep > 0)) throw new Error(`runDualHedgeBacktest: invalid band step (${bandStep})`);
+    if (!isBias && !isRealize && !isHA && !(rangeSize > 0)) throw new Error(`runDualHedgeBacktest: invalid range size (${rangeSize})`);
 
     const fromMs = Date.parse(`${dayKeyIST(from)}T00:00:00+05:30`);
     const toMs   = Date.parse(`${dayKeyIST(to)}T23:59:59+05:30`);
@@ -826,7 +924,22 @@ async function runDualHedgeBacktest({
     let res, params, anchorMs, anchorNote, candles;
     setEmitSuppressed(true);   // in-process backtest must not flood a live webdash log (see eventBridge.js)
     try {
-        if (isBias) {
+        if (isRealize) {
+            // ─── REALIZE: no signal, only the 1-minute clock.
+            anchorMs = fromMs; anchorNote = "none (no signal to warm up)";
+            console.log(c.dim(`  realize & re-open: close a leg at +\u20b9${realizeRupees} then re-open the same side (NRML carry)${lossAlertRupees ? `  |  loss alert \u20b9${lossAlertRupees}` : ""}`));
+            candles = await fetchMinuteCandles({ kc, token, fromMs, toMs, progress });
+            if (candles.length === 0) throw new Error(noCandles);
+            res = await replayRealizeHedge({
+                longCtx: longLeg.context, shortCtx: shortLeg.context, candles, tradeFromMs: fromMs,
+                realizeRupees, lossAlertRupees, slippagePoints: Number(slippagePoints), progress,
+            });
+            params = {
+                strategy: "REALIZE", signal: "none (profit-lock)", realizeRupees, lossAlertRupees: lossAlertRupees || null,
+                bandStep: null, rangeSize: null, takeProfit: null, maxLoss: null, gapCapture: null,
+                rangeStart: fmtIST(anchorMs), anchor: anchorNote, slippagePoints: Number(slippagePoints),
+            };
+        } else if (isBias) {
             // ─── BIAS: daily HA bias + Dynamic Band, both from Kite's own bars.
             anchorMs = rangeStart ? customAnchor() : warmAnchor(BAND_WARMUP_DAYS(bandTimeframe));
             anchorNote = rangeStart ? "custom" : `${BAND_WARMUP_DAYS(bandTimeframe)}-day warm-up (mirrors dynamicBandReader.js's lookback)`;
@@ -939,4 +1052,4 @@ async function runDualHedgeBacktest({
     return { report, paths };
 }
 
-module.exports = { runDualHedgeBacktest, replayDualHedge, replayBiasHedge, createLegKit, fetchMinuteCandles, fetchNativeBars, buildHaSignal, buildBandSignal, barEndMs };
+module.exports = { runDualHedgeBacktest, replayDualHedge, replayBiasHedge, replayRealizeHedge, createLegKit, fetchMinuteCandles, fetchNativeBars, buildHaSignal, buildBandSignal, barEndMs };

@@ -2673,13 +2673,13 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
     const b = req.body || {};
     try {
         const strategy = String(b.strategy || "DUAL").toUpperCase();
-        if (strategy !== "DUAL" && strategy !== "BIAS") return res.status(400).json({ error: "Strategy must be DUAL or BIAS" });
+        if (strategy !== "DUAL" && strategy !== "BIAS" && strategy !== "REALIZE") return res.status(400).json({ error: "Strategy must be DUAL, BIAS or REALIZE" });
         if (!b.underlying) return res.status(400).json({ error: "Underlying is required" });
         const from = new Date(b.from), to = new Date(b.to);
         if (isNaN(from) || isNaN(to)) return res.status(400).json({ error: "From and to must be YYYY-MM-DD" });
         if (to < from) return res.status(400).json({ error: "To must not be before from" });
         const pos = (label, v) => { if (v !== undefined && v !== null && v !== "" && !(Number(v) > 0)) throw Object.assign(new Error(`${label} must be a positive number`), { status: 400 }); };
-        for (const [l, v] of [["lots", b.lots], ["lotMultOverride", b.lotMultOverride], ["bandStepOverride", b.bandStepOverride], ["rangeSizeOverride", b.rangeSizeOverride], ["takeProfit", b.takeProfit], ["maxLoss", b.maxLoss], ["atrSlMult", b.atrSlMult]]) pos(l, v);
+        for (const [l, v] of [["lots", b.lots], ["lotMultOverride", b.lotMultOverride], ["bandStepOverride", b.bandStepOverride], ["rangeSizeOverride", b.rangeSizeOverride], ["takeProfit", b.takeProfit], ["maxLoss", b.maxLoss], ["atrSlMult", b.atrSlMult], ["realizeRupees", b.realizeRupees], ["lossAlertRupees", b.lossAlertRupees]]) pos(l, v);
         const slip = b.slippagePoints === undefined || b.slippagePoints === "" ? 0 : Number(b.slippagePoints);
         if (!Number.isFinite(slip) || slip < 0) return res.status(400).json({ error: "SlippagePoints must be >= 0" });
         const exchange = "MCX";
@@ -2687,7 +2687,10 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
         if (def.lotMult === null && !b.lotMultOverride) return res.status(400).json({ error: `LotMultOverride is required for ${b.underlying}` });
 
         const opts = { strategy };
-        if (strategy === "BIAS") {
+        if (strategy === "REALIZE") {
+            opts.realizeRupees = Number(b.realizeRupees) || 3000;
+            opts.lossAlertRupees = Number(b.lossAlertRupees) || 0;
+        } else if (strategy === "BIAS") {
             opts.unwindMode = String(b.unwindMode || "BAND_FLIP").toUpperCase();
             if (opts.unwindMode !== "BAND_FLIP" && opts.unwindMode !== "EOD_ONLY") return res.status(400).json({ error: "UnwindMode must be BAND_FLIP or EOD_ONLY" });
             opts.bandTimeframe = String(b.bandTimeframe || "15m").toLowerCase();

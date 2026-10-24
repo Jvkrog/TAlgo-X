@@ -4464,10 +4464,14 @@ function renderDualHedgeBacktestForm() {
   tbDualHedgeBody.innerHTML = `
     <button class="tb-back-link" id="dbBack">\u2039 back</button>
     <div class="tb-form-hint" style="margin:8px 0">Backtest \u2014 <b>${escHtml(dhAddState.underlying)}</b> (market data only, no accounts needed)</div>
-    <div class="tb-form-row"><div class="tb-form-label">Strategy</div><select id="dbStrategy"><option value="DUAL">Dual hedge (band-following)</option><option value="BIAS">Bias hedge (daily HA core + band hedge)</option></select></div>
+    <div class="tb-form-row"><div class="tb-form-label">Strategy</div><select id="dbStrategy"><option value="DUAL">Dual hedge (band-following)</option><option value="BIAS">Bias hedge (daily HA core + band hedge)</option><option value="REALIZE">Realize &amp; re-open (profit lock, NRML carry)</option></select></div>
     <div class="tb-form-row"><div class="tb-form-label">Lots per leg</div><input type="number" id="dbLots" min="1" step="1" value="1"></div>
     <div class="tb-form-row"><div class="tb-form-label">lot multiplier (blank = context.js override)</div><input type="number" id="dbLotMult" min="0" step="any"></div>
     <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dbBandStep" min="0" step="any"></div>
+    <div id="dbRealize" style="display:none">
+      <div class="tb-form-row"><div class="tb-form-label">Realize when a leg's profit exceeds \u20b9 (the leg is closed, then the same side is re-opened)</div><input type="number" id="dbRealizeRupees" min="1" step="1" value="3000"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Losing-leg alert at \u20b9 down (blank = off; counted in the report, nothing is closed)</div><input type="number" id="dbLossAlert" min="1" step="1"></div>
+    </div>
     <div id="dbDual">
       <div class="tb-form-row"><div class="tb-form-label">Signal</div><select id="dbSignal"><option value="RANGE" selected>Range bars + Dynamic Step Band (live engine)</option><option value="HA_DSB">Heikin-Ashi + Dynamic Step Band</option><option value="HA">Heikin-Ashi colour only</option></select></div>
       <div class="tb-form-row" id="dbHaRow" style="display:none"><div class="tb-form-label">HA timeframe</div><select id="dbHaTf"><option>5m</option><option>15m</option><option>30m</option><option selected>1h</option><option>1d</option></select></div>
@@ -4497,10 +4501,12 @@ function renderDualHedgeBacktestForm() {
   const q = id => tbDualHedgeBody.querySelector(id);
   q("#dbBack").addEventListener("click", () => { dhAddState = null; loadDualHedgeList(); });
   const sync = () => {
-    const bias = q("#dbStrategy").value === "BIAS";
-    q("#dbDual").style.display = bias ? "none" : "";
+    const st = q("#dbStrategy").value, bias = st === "BIAS", realize = st === "REALIZE";
+    q("#dbRealize").style.display = realize ? "" : "none";
+    const bsRow = q("#dbBandStep").closest(".tb-form-row"); if (bsRow) bsRow.style.display = realize ? "none" : "";
+    q("#dbDual").style.display = bias || realize ? "none" : "";
     q("#dbBias").style.display = bias ? "" : "none";
-    q("#dbHaRow").style.display = !bias && q("#dbSignal").value !== "RANGE" ? "" : "none";
+    q("#dbHaRow").style.display = !bias && !realize && q("#dbSignal").value !== "RANGE" ? "" : "none";
     const atrMode = q("#dbSlMode").value === "ATR";
     q("#dbAtrRows").style.display = atrMode ? "" : "none";
     q("#dbMaxLossLabel").textContent = atrMode ? "Rupee backstop while ATR isn't available yet \u20b9" : "Stop \u20b9";
@@ -4514,6 +4520,7 @@ function renderDualHedgeBacktestForm() {
     set("#dbStrategy", pf.strategy); set("#dbLots", pf.lots); set("#dbSlMode", pf.slMode);
     set("#dbAtrMult", pf.slMode === "ATR" ? pf.atrSlMult : ""); set("#dbAtrTf", pf.atrTimeframe);
     set("#dbMaxLoss", pf.maxLoss); set("#dbTakeProfit", pf.takeProfit);
+    set("#dbRealizeRupees", pf.realizeRupees); set("#dbLossAlert", pf.lossAlertRupees);
     set("#dbUnwind", pf.unwindMode); set("#dbBandTf", pf.bandTimeframe); set("#dbEntryTime", pf.entryTime);
     q("#dbGap").checked = !!pf.gapCapture;
     const hint = tbDualHedgeBody.querySelector(".tb-form-hint");
@@ -4533,6 +4540,7 @@ function renderDualHedgeBacktestForm() {
       maxLoss: q("#dbMaxLoss").value, takeProfit: q("#dbTakeProfit").value,
       slMode: q("#dbSlMode").value, atrSlMult: q("#dbAtrMult").value || undefined, atrTimeframe: q("#dbAtrTf").value,
       unwindMode: q("#dbUnwind").value, bandTimeframe: q("#dbBandTf").value, entryTime: q("#dbEntryTime").value || "10:00",
+      realizeRupees: q("#dbRealizeRupees").value || undefined, lossAlertRupees: q("#dbLossAlert").value || undefined,
       gapCapture: q("#dbStrategy").value === "DUAL" && q("#dbGap").checked,
       gcEntry: "23:20", gcExit: "23:25",
     };
@@ -4576,7 +4584,8 @@ async function renderDualHedgeBacktestDeploy(bt) {
   const usersData = await fetch("/api/toolbox/dualhedge/users").then(r => r.json()).catch(() => ({ users: [] }));
   const ready = (usersData.users || []).filter(u => u.hasApiKey && u.hasAccessToken);
   const isBias = bt.strategy === "BIAS";
-  const haSignal = !isBias && bt.signalSource !== "RANGE";
+  const isRealize = bt.strategy === "REALIZE";
+  const haSignal = !isBias && !isRealize && bt.signalSource !== "RANGE";
   if (ready.length < 2) {
     box.innerHTML = `<div class="tb-form-hint" style="margin-top:10px">To deploy this you need at least 2 fully-configured accounts (API key + access token) \u2014 currently ${ready.length}. Use "Manage users" first.</div>`;
     return;
@@ -4609,6 +4618,7 @@ async function renderDualHedgeBacktestDeploy(bt) {
       maxLossRupees: bt.maxLoss || 3000, takeProfitRupees: bt.takeProfit || 3000,
       slMode: bt.slMode, atrSlMult: bt.atrSlMult, atrTimeframe: bt.atrTimeframe,
       unwindMode: bt.unwindMode, bandTimeframe: bt.bandTimeframe, entryTime: bt.entryTime,
+      realizeRupees: bt.realizeRupees, lossAlertRupees: bt.lossAlertRupees,
       gapCapture: !!bt.gapCapture, gcEntry: bt.gcEntry, gcExit: bt.gcExit, live, confirmLive,
     };
     const btn = dq("#dbdBtn"); btn.disabled = true; btn.textContent = "Deploying...";

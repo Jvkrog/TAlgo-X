@@ -100,6 +100,7 @@ function equityChart(daily) {
 function renderDualHedgeHtml(report) {
     let running = 0;
     const isBias = report.params.strategy === "BIAS";
+    const isRealize = report.params.strategy === "REALIZE";
     const rows = report.trades
         .filter(t => t.status === "CLOSED")
         .map(t => {
@@ -123,16 +124,24 @@ function renderDualHedgeHtml(report) {
 
     const p = report.params, s = report.stats;
     const gap = p.gapCapture ? `gap capture ${p.gapCapture.time}\u2192${p.gapCapture.quit}` : "no gap capture";
-    const title = isBias
+    const title = isRealize
+        ? `Dual Hedge \u2014 ${esc(report.symbol)} (realize &amp; re-open, LONG acct / SHORT acct)`
+        : isBias
         ? `Dual Hedge \u2014 ${esc(report.symbol)} (daily HA bias core + ${esc(p.bandTimeframe)} band hedge)`
         : `Dual Hedge \u2014 ${esc(report.symbol)} (LONG acct / SHORT acct)`;
-    const settings = isBias
+    const settings = isRealize
+        ? `every leg opens its own side (NRML carry); when a leg's profit exceeds \u20b9${p.realizeRupees} it is closed and the same side re-opened \u00b7 the losing leg is never closed${p.lossAlertRupees ? ` (alert level \u20b9${p.lossAlertRupees})` : ""} \u00b7 session 09:00\u201323:25 IST \u00b7 slippage ${p.slippagePoints} pts`
+        : isBias
         ? `core decided once a day at ${esc(p.entry)} IST from the previous daily HA candle (green \u2192 LONG acct, red \u2192 SHORT acct) \u00b7 hedge = the OTHER account when the ${esc(p.bandTimeframe)} Dynamic Band (step ${p.bandStep}) turns against the core \u00b7 unwind ${esc(p.unwindMode)} \u00b7 both flat at EOD ${esc(p.eod)} IST \u00b7 slippage ${p.slippagePoints} pts`
         : `take-profit \u20b9${p.takeProfit} \u00b7 stop ${p.slMode === "ATR" ? `${p.atrSlMult}x ATR(${p.atrLen}) on ${esc(p.atrTimeframe)}, from entry (rupee backstop \u20b9${p.maxLoss} until ATR is available)` : `\u20b9${p.maxLoss}`} (armed only after a leg flips) \u00b7 signal ${esc(p.signal)}${p.bandStep ? ` (band step ${p.bandStep}, range ${p.rangeSize})` : ""} \u00b7 ${gap} \u00b7 slippage ${p.slippagePoints} pts`;
-    const activity = isBias
+    const activity = isRealize
+        ? `entries LONG ${s.entries.LONG} / SHORT ${s.entries.SHORT} \u00b7 realizes LONG ${s.realizes.LONG} / SHORT ${s.realizes.SHORT} \u00b7 days a leg was past the loss alert: LONG ${s.lossAlertDays.LONG} / SHORT ${s.lossAlertDays.SHORT} \u00b7 backtest-end exits ${s.exits.backtestEnd}`
+        : isBias
         ? `core days LONG ${s.coreDays.LONG} / SHORT ${s.coreDays.SHORT} \u00b7 days with no usable daily read ${s.noBiasDays} \u00b7 hedge entries ${s.hedgeEntries} \u00b7 band unwinds ${s.hedgeUnwinds} \u00b7 exits: EOD ${s.exits.eod}, band unwind ${s.exits.bandUnwind}, backtest-end ${s.exits.backtestEnd}`
         : `${s.evaluations} evaluations (${s.missedSlotEvals} on a slot with no candle) \u00b7 entries LONG ${s.entries.LONG} / SHORT ${s.entries.SHORT} \u00b7 flips LONG ${s.flips.LONG} / SHORT ${s.flips.SHORT} \u00b7 exits: take-profit ${s.exits.takeProfit}, stop ${s.exits.stopLoss}, gap-realize ${s.exits.gapRealize}, backtest-end ${s.exits.backtestEnd}${p.gapCapture ? ` \u00b7 gap-capture days ${s.gapCaptureDays} (skipped ${s.gapCaptureSkippedDays})` : ""}`;
-    const carryNote = isBias
+    const carryNote = isRealize
+        ? "The losing leg is never closed, so closed-trade P&L only shows the booked profits; the equity curve and MTM drawdown show the open loss you would have to fund."
+        : isBias
         ? "Flat at EOD every day, so the MTM and closed-trade drawdowns are close; the equity curve still shows the intraday swings the closed trades hide."
         : "Closed-trade drawdown below can be far smaller because an unflipped leg has no exit rule while it sits underwater.";
     return `<!DOCTYPE html>
