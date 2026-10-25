@@ -4274,6 +4274,7 @@ function dhSubmitLabel() {
 }
 
 async function renderDualHedgeAddForm() {
+  const contractOpts = await hpContractOptions(dhAddState.underlying);
   const [lm, usersData] = await Promise.all([
     (await fetch(`/api/toolbox/dualhedge/lotmult/${encodeURIComponent(dhAddState.underlying)}`)).json().catch(() => ({})),
     (await fetch("/api/toolbox/dualhedge/users")).json().catch(() => ({ users: [] })),
@@ -4326,6 +4327,7 @@ async function renderDualHedgeAddForm() {
       <div class="tb-form-label">lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span>, no context.js override on file for ${dhAddState.underlying}. Real contract multiplier, not broker lot_size.</div>
       <input type="number" id="dhLotMult" min="1" step="any">
     </div>
+    <div class="tb-form-row"><div class="tb-form-label">Contract (both accounts)</div><select id="dhContract">${contractOpts}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dhBandStep" min="0" step="any"></div>
     <div id="dhDualOnly2">
     <div class="tb-form-row"><div class="tb-form-label">Range bar size in price points (blank = same as the band step)</div><input type="number" id="dhRangeSize" min="0" step="any"></div>
@@ -4395,6 +4397,7 @@ async function renderDualHedgeAddForm() {
       rangeSize: tbDualHedgeBody.querySelector("#dhRangeSize")?.value || undefined,
       lotMultOverride: tbDualHedgeBody.querySelector("#dhLotMult")?.value || undefined,
       bandStepOverride: tbDualHedgeBody.querySelector("#dhBandStep")?.value || undefined,
+      contractSymbol: tbDualHedgeBody.querySelector("#dhContract").value || undefined,
       live, confirmLive,
       strategy: tbDualHedgeBody.querySelector("#dhStrategy").value,
       unwindMode: tbDualHedgeBody.querySelector("#dhUnwind").value,
@@ -4487,7 +4490,8 @@ async function renderHedgePairBacktestForm() {
 }
 
 // ─── Backtest sub-view — POST /api/toolbox/dualhedge/backtest (backtestDualHedge.js).
-function renderDualHedgeBacktestForm() {
+async function renderDualHedgeBacktestForm() {
+  const contractOpts = await hpContractOptions(dhAddState.underlying);
   const today = new Date().toISOString().slice(0, 10);
   tbDualHedgeBody.innerHTML = `
     <button class="tb-back-link" id="dbBack">\u2039 back</button>
@@ -4495,6 +4499,7 @@ function renderDualHedgeBacktestForm() {
     <div class="tb-form-row"><div class="tb-form-label">Strategy</div><select id="dbStrategy"><option value="DUAL">Dual hedge (band-following)</option><option value="BIAS">Bias hedge (daily DSB core + band hedge)</option><option value="REALIZE">Realize &amp; re-open (profit lock, NRML carry)</option></select></div>
     <div class="tb-form-row"><div class="tb-form-label">Lots per leg</div><input type="number" id="dbLots" min="1" step="1" value="1"></div>
     <div class="tb-form-row"><div class="tb-form-label">lot multiplier (blank = context.js override)</div><input type="number" id="dbLotMult" min="0" step="any"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Contract (both accounts)</div><select id="dbContract">${contractOpts}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dbBandStep" min="0" step="any"></div>
     <div id="dbRealize" style="display:none">
       <div class="tb-form-row"><div class="tb-form-label">Realize when a leg's profit exceeds \u20b9 (the leg is closed, then the same side is re-opened)</div><input type="number" id="dbRealizeRupees" min="1" step="1" value="3000"></div>
@@ -4548,7 +4553,7 @@ function renderDualHedgeBacktestForm() {
   const pf = dhAddState && dhAddState.prefill;
   if (pf) {
     const set = (id, v) => { const el = q(id); if (el && v !== undefined && v !== null && v !== "") el.value = v; };
-    set("#dbStrategy", pf.strategy); set("#dbLots", pf.lots); set("#dbSlMode", pf.slMode);
+    set("#dbContract", pf.contractSymbol); set("#dbStrategy", pf.strategy); set("#dbLots", pf.lots); set("#dbSlMode", pf.slMode);
     set("#dbAtrMult", pf.slMode === "ATR" ? pf.atrSlMult : ""); set("#dbAtrTf", pf.atrTimeframe);
     set("#dbMaxLoss", pf.maxLoss); set("#dbTakeProfit", pf.takeProfit);
     set("#dbRealizeRupees", pf.realizeRupees); set("#dbLossAlert", pf.lossAlertRupees);
@@ -4564,7 +4569,7 @@ function renderDualHedgeBacktestForm() {
     if (!q("#dbFrom").value || !q("#dbTo").value) { errBox.innerHTML = `<div class="tb-err-box">Pick a from and to date</div>`; return; }
     const body = {
       underlying: dhAddState.underlying, strategy: q("#dbStrategy").value,
-      lots: q("#dbLots").value || 1, lotMultOverride: q("#dbLotMult").value || undefined,
+      lots: q("#dbLots").value || 1, lotMultOverride: q("#dbLotMult").value || undefined, contractSymbol: q("#dbContract").value || undefined,
       bandStepOverride: q("#dbBandStep").value || undefined, slippagePoints: q("#dbSlip").value || 0,
       from: q("#dbFrom").value, to: q("#dbTo").value,
       signalSource: q("#dbSignal").value, haTimeframe: q("#dbHaTf").value,
@@ -4650,7 +4655,7 @@ async function renderDualHedgeBacktestDeploy(bt) {
       maxLossRupees: bt.maxLoss || 3000, takeProfitRupees: bt.takeProfit || 3000,
       slMode: bt.slMode, atrSlMult: bt.atrSlMult, atrTimeframe: bt.atrTimeframe,
       unwindMode: bt.unwindMode, bandTimeframe: bt.bandTimeframe, entryTime: bt.entryTime,
-      coreSignal: bt.coreSignal, bandHa: bt.bandHa, coreEod: bt.coreEod,
+      coreSignal: bt.coreSignal, bandHa: bt.bandHa, coreEod: bt.coreEod, contractSymbol: bt.contractSymbol,
       realizeRupees: bt.realizeRupees, lossAlertRupees: bt.lossAlertRupees,
       gapCapture: !!bt.gapCapture, gcEntry: bt.gcEntry, gcExit: bt.gcExit, live, confirmLive,
     };

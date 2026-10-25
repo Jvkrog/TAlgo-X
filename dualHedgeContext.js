@@ -15,10 +15,18 @@
 const c = require("./c");
 const { getDefinition, buildContext } = require("./context");
 
-function resolveDualHedgeLeg({ underlying, side, userName, exchange, csvRepo, pinStore, lots, lotMultOverride, bandStepOverride }) {
+function resolveDualHedgeLeg({ underlying, side, userName, exchange, csvRepo, pinStore, lots, lotMultOverride, bandStepOverride,
+    symbolOverride = process.env.DH_CONTRACT_OVERRIDE || null }) {   // optional exact tradingsymbol (e.g. ZINC26NOVFUT) instead of the roll policy's contract
     const { resolveCurrent } = require("./instrumentResolution"); // lazy — same require-cycle guard hedgePairContext.js uses
     const def = getDefinition(underlying, exchange);
-    const { contract, source } = resolveCurrent(def.underlying, def, csvRepo, pinStore);
+    let contract, source;
+    if (symbolOverride) {
+        const row = csvRepo.findBySymbol(symbolOverride);
+        if (!row || row.underlying !== def.underlying) throw new Error(`resolveDualHedgeLeg: contract "${symbolOverride}" is not a listed ${def.underlying} future`);
+        contract = row; source = "picked";
+    } else {
+        ({ contract, source } = resolveCurrent(def.underlying, def, csvRepo, pinStore));
+    }
     const context = buildContext(def, contract);
 
     context.tgPrefix = `${context.tgPrefix}_DH_${side}`;

@@ -2471,6 +2471,7 @@ async function getDualHedgeProcesses() {
             lossAlertRupees: p.pm2_env.env?.DH_LOSS_ALERT_RUPEES || "",
             unwindMode: p.pm2_env.env?.DH_UNWIND_MODE || "BAND_FLIP",
             bandTimeframe: p.pm2_env.env?.DH_BAND_TIMEFRAME || "15m",
+            contractSymbol: p.pm2_env.env?.DH_CONTRACT_OVERRIDE || null,
             coreSignal: p.pm2_env.env?.DH_CORE_SIGNAL || "DAILY_HA",
             bandHa: p.pm2_env.env?.DH_BAND_HA === "true",
             coreEod: p.pm2_env.env?.DH_CORE_EOD || "CLOSE",
@@ -2583,7 +2584,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         gapCapture, gcEntry, gcExit,
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
         coreSignal: coreSignalIn, bandHa: bandHaIn, coreEod: coreEodIn,
-        realizeRupees, lossAlertRupees,
+        realizeRupees, lossAlertRupees, contractSymbol,
     } = req.body || {};
 
     const strategy = String(strategyIn || "DUAL").toUpperCase();
@@ -2618,6 +2619,10 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     const atrTimeframe = String(atrTfIn || "1h").toLowerCase();
     if (slMode === "ATR" && !DH_ATR_TIMEFRAMES.includes(atrTimeframe)) return res.status(400).json({ error: `AtrTimeframe must be one of ${DH_ATR_TIMEFRAMES.join("/")}` });
 
+    if (contractSymbol) {
+        const row = (await ensureCsvLoaded()).findBySymbol(String(contractSymbol));
+        if (!row || row.underlying !== def.underlying) return res.status(400).json({ error: `Contract "${contractSymbol}" is not a listed ${underlying} future` });
+    }
     const name = strategy === "BIAS" ? `${getShortName(underlying)}DualBias` : strategy === "REALIZE" ? `${getShortName(underlying)}DualRealize` : `${getShortName(underlying)}DualHedge`;
     const conflict = await findAccountConflict(underlying, [longUser, shortUser], name);
     if (conflict) return res.status(409).json({ error: conflict });
@@ -2628,6 +2633,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         LIVE_ORDERS_OVERRIDE: String(!!live),
         // Always written explicitly (PM2 restart merges env, never clears it).
         DH_STRATEGY: strategy,
+        DH_CONTRACT_OVERRIDE: contractSymbol ? String(contractSymbol) : "",
     };
     if (lotMultOverride)  env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
     if (bandStepOverride) env.DH_BAND_STEP_OVERRIDE = String(bandStepOverride);
@@ -2721,6 +2727,11 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
         if (def.lotMult === null && !b.lotMultOverride) return res.status(400).json({ error: `LotMultOverride is required for ${b.underlying}` });
 
         const opts = { strategy };
+        if (b.contractSymbol) {
+            const row = (await ensureCsvLoaded()).findBySymbol(String(b.contractSymbol));
+            if (!row || row.underlying !== def.underlying) return res.status(400).json({ error: `Contract "${b.contractSymbol}" is not a listed ${b.underlying} future` });
+            opts.contractSymbol = String(b.contractSymbol);
+        }
         if (strategy === "REALIZE") {
             opts.realizeRupees = Number(b.realizeRupees) || 3000;
             opts.lossAlertRupees = Number(b.lossAlertRupees) || 0;

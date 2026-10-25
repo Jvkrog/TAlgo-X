@@ -2798,6 +2798,7 @@ async function getDualHedgeProcesses() {
             strategy:   (p.pm2_env.env?.DH_STRATEGY || "DUAL").toUpperCase(),
             unwindMode: p.pm2_env.env?.DH_UNWIND_MODE || "BAND_FLIP",
             bandTimeframe: p.pm2_env.env?.DH_BAND_TIMEFRAME || "15m",
+            contractSymbol: p.pm2_env.env?.DH_CONTRACT_OVERRIDE || null,
             coreSignal: p.pm2_env.env?.DH_CORE_SIGNAL || "DAILY_HA",
             bandHa: p.pm2_env.env?.DH_BAND_HA === "true",
             coreEod: p.pm2_env.env?.DH_CORE_EOD || "CLOSE",
@@ -2821,7 +2822,7 @@ async function dualHedgeAccountConflict(underlying, accounts, selfName) {
 }
 
 // BIAS strategy deploy: daily-HA core + Dynamic Band hedge, flat at EOD.
-async function addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverride, lots }) {
+async function addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverride, lots, contractSymbol }) {
     console.log(c.dim("  Core: once a day (green = LONG account, red = SHORT account) — signal chosen below"));
     console.log(c.dim("  Hedge: the OTHER account enters the opposite side when the Dynamic Band turns against the core"));
     console.log(c.dim("  Core at EOD is your choice below (no gap capture, no TP/SL)"));
@@ -2867,6 +2868,7 @@ async function addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverri
     };
     if (lotMultOverride) env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
     if (bandStep)        env.DH_BAND_STEP_OVERRIDE = String(bandStep);
+    env.DH_CONTRACT_OVERRIDE = contractSymbol || "";
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: __dirname, env });
         console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  core ${etIn} ${coreSignal === "DAILY_DSB" ? "daily DSB (HA)" : "daily HA"}  hedge ${tf}${bandHa ? " HA" : ""} band ${unwindMode}  ${coreEod === "CARRY" ? "core carried (NRML)" : `flat ${eod.eodHour}:${String(eod.eodMinute).padStart(2, "0")} (MIS)`}  ${isLive ? "LIVE" : "PAPER"})`));
@@ -3006,13 +3008,14 @@ async function addDualHedge() {
         lotMultOverride = val;
     }
 
+    const contractSymbol = await pickLegContract(await ensureCsvLoaded(), underlying, "BOTH ACCOUNTS");
     const lotsInput = await ask("  Lots per leg (default 1, applies to both accounts unless you set per-leg overrides later via PM2 env): ");
     const lots = lotsInput ? Number(lotsInput) : 1;
     if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  Invalid lots value")); await pauseForReview(); return; }
 
     const stratIn = (await ask("  Strategy: [D] Dual band-following, [B] Bias hedge (daily HA core + band hedge, flat at EOD) (default D): ")).trim().toUpperCase();
     if (stratIn !== "" && stratIn !== "D" && stratIn !== "B") { console.log(c.yellow("  Invalid strategy")); await pauseForReview(); return; }
-    if (stratIn === "B") { await addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverride, lots }); return; }
+    if (stratIn === "B") { await addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverride, lots, contractSymbol }); return; }
 
     // Stop-loss type — rupees (original) or ATR multiple from entry (dualHedgeAtr.js).
     const slModeIn = (await ask("  Stop type: [R] rupees, [A] ATR multiple from entry (default R): ")).trim().toUpperCase();
@@ -3097,6 +3100,7 @@ async function addDualHedge() {
     };
     if (lotMultOverride) env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
     if (bandStep)        env.DH_BAND_STEP_OVERRIDE = String(bandStep);
+    env.DH_CONTRACT_OVERRIDE = contractSymbol || "";
     // Always written explicitly (PM2 restart merges env, never clears it).
     env.DH_TAKE_PROFIT_RUPEES_OVERRIDE = String(takeProfit);
     env.DH_SL_MODE = slMode;
@@ -3198,6 +3202,7 @@ async function backtestDualHedgeFlow() {
         }
     }
 
+    const contractSymbol = await pickLegContract(repo, underlying, "BOTH ACCOUNTS");
     const lots = await askNum("Lots per leg (default 1)", 1);
     console.log();
     console.log(c.dim("  Strategy:"));
@@ -3265,7 +3270,7 @@ async function backtestDualHedgeFlow() {
     console.log(c.dim("  Fetching history + running replay..."));
     try {
         const { report, paths } = await runDualHedgeBacktest({
-            underlying, exchange: "MCX", lots, lotMultOverride, slippagePoints, from, to, kc, ...opts,
+            underlying, exchange: "MCX", lots, lotMultOverride, contractSymbol, slippagePoints, from, to, kc, ...opts,
             progress: (a, b) => process.stdout.write(typeof a === "string" ? `\r  ${a}   ` : `\r  ${a}/${b} candles...`),
         });
         const m = report.metrics, t = report.mtm;

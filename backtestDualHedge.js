@@ -858,7 +858,7 @@ async function replayBiasHedge({
 //   progress,                   // optional (done, total | message) => void
 // })
 async function runDualHedgeBacktest({
-    underlying, exchange = "MCX", lots = 1, longLots, shortLots, lotMultOverride,
+    underlying, exchange = "MCX", lots = 1, longLots, shortLots, lotMultOverride, contractSymbol = null,
     strategy = "DUAL", realizeRupees = 3000, lossAlertRupees = 0,
     bandStepOverride, rangeSizeOverride, rangeStart,
     signalSource = "RANGE", haTimeframe = "1h",
@@ -920,7 +920,7 @@ async function runDualHedgeBacktest({
 
     const mkLeg = (side, n) => resolveDualHedgeLeg({
         underlying, side, userName: "BACKTEST", exchange, csvRepo, pinStore,
-        lots: n, lotMultOverride, bandStepOverride,
+        lots: n, lotMultOverride, bandStepOverride, symbolOverride: contractSymbol,
     });
     const longLeg  = mkLeg("LONG",  Number(longLots)  || Number(lots) || 1);
     const shortLeg = mkLeg("SHORT", Number(shortLots) || Number(lots) || 1);
