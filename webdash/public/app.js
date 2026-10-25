@@ -4292,7 +4292,7 @@ async function renderDualHedgeAddForm() {
       <div class="tb-form-row"><div class="tb-form-label">Hedge band candles</div><select id="dhBandHa"><option value="true" selected>Heikin-Ashi candles</option><option value="false">Raw candles</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core at EOD</div><select id="dhCoreEod"><option value="CARRY" selected>Carry overnight (NRML)</option><option value="CLOSE_MIS">Close at EOD (MIS)</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Hedge unwind</div><select id="dhUnwind"><option value="BAND_FLIP">Band back in the core's favour closes the hedge</option><option value="EOD_ONLY">Hold the hedge to EOD</option></select></div>
-      <div class="tb-form-row"><div class="tb-form-label">Dynamic Band timeframe</div><select id="dhBandTf"><option value="5m">5m</option><option value="15m" selected>15m</option><option value="30m">30m</option><option value="1h">1h</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Dynamic Band timeframe (hedge)</div><select id="dhBandTf"><option value="5m">5m</option><option value="15m">15m</option><option value="30m">30m</option><option value="1h" selected>1h</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core entry time IST (previous daily HA candle decides, once a day)</div><input type="time" id="dhEntryTime" value="10:00"></div>
     </div>
     <div id="dhRealizeOnly" style="display:none">
@@ -4503,7 +4503,7 @@ function renderDualHedgeBacktestForm() {
       <div class="tb-form-row"><div class="tb-form-label">Hedge band candles</div><select id="dbBandHa"><option value="true" selected>Heikin-Ashi candles</option><option value="false">Raw candles</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core at EOD</div><select id="dbCoreEod"><option value="CARRY" selected>Carry overnight (NRML)</option><option value="CLOSE_MIS">Close at EOD (MIS)</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Hedge unwind</div><select id="dbUnwind"><option value="BAND_FLIP">Band flip closes the hedge</option><option value="EOD_ONLY">Hold to EOD</option></select></div>
-      <div class="tb-form-row"><div class="tb-form-label">Dynamic Band timeframe</div><select id="dbBandTf"><option>5m</option><option selected>15m</option><option>30m</option><option>1h</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Dynamic Band timeframe (hedge)</div><select id="dbBandTf"><option>5m</option><option>15m</option><option>30m</option><option selected>1h</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core entry time IST</div><input type="time" id="dbEntryTime" value="10:00"></div>
     </div>
     <div class="tb-form-row"><div class="tb-form-label">Slippage per order (price points)</div><input type="number" id="dbSlip" min="0" step="any" value="0"></div>
