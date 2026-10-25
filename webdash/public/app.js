@@ -4302,10 +4302,13 @@ async function renderDualHedgeAddForm() {
     <div class="tb-form-row"><div class="tb-form-label">SHORT account (must differ from LONG)</div><select id="dhShortUser">${userOptions}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">Lots per leg (default 1)</div><input type="number" id="dhLots" min="1" step="1" value="1"></div>
     <div id="dhBiasOnly" style="display:none">
+      <div class="tb-form-row"><div class="tb-form-label">LONG account contract</div><select id="dhLongContract">${contractOpts}</select></div>
+      <div class="tb-form-row"><div class="tb-form-label">SHORT account contract</div><select id="dhShortContract">${contractOpts}</select></div>
+      <div class="tb-form-hint">Signals (daily DSB, hedge band) are read from the LONG account's contract; each account trades its own contract.</div>
       <div class="tb-form-row"><div class="tb-form-label">Core signal (daily)</div><select id="dhCoreSignal"><option value="DAILY_DSB" selected>Daily Dynamic Step Band on daily HA candles</option><option value="DAILY_HA">Previous daily HA candle colour</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Hedge band candles</div><select id="dhBandHa"><option value="true" selected>Heikin-Ashi candles</option><option value="false">Raw candles</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core at EOD</div><select id="dhCoreEod"><option value="CARRY" selected>Carry overnight (NRML)</option><option value="CLOSE_MIS">Close at EOD (MIS)</option></select></div>
-      <div class="tb-form-row"><div class="tb-form-label">Hedge unwind</div><select id="dhUnwind"><option value="BAND_FLIP">Band back in the core's favour closes the hedge</option><option value="EOD_ONLY">Hold the hedge to EOD</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Hedge unwind</div><select id="dhUnwind"><option value="BAND_FLIP">Band (DSB) favourable to the core closes the hedge</option><option value="EOD_ONLY">Hold the hedge to EOD</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Dynamic Band timeframe (hedge)</div><select id="dhBandTf"><option value="5m">5m</option><option value="15m">15m</option><option value="30m">30m</option><option value="1h" selected>1h</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core entry time IST (previous daily HA candle decides, once a day)</div><input type="time" id="dhEntryTime" value="10:00"></div>
     </div>
@@ -4327,7 +4330,7 @@ async function renderDualHedgeAddForm() {
       <div class="tb-form-label">lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span>, no context.js override on file for ${dhAddState.underlying}. Real contract multiplier, not broker lot_size.</div>
       <input type="number" id="dhLotMult" min="1" step="any">
     </div>
-    <div class="tb-form-row"><div class="tb-form-label">Contract (both accounts)</div><select id="dhContract">${contractOpts}</select></div>
+    <div class="tb-form-row" id="dhSingleContract"><div class="tb-form-label">Contract (both accounts)</div><select id="dhContract">${contractOpts}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dhBandStep" min="0" step="any"></div>
     <div id="dhDualOnly2">
     <div class="tb-form-row"><div class="tb-form-label">Range bar size in price points (blank = same as the band step)</div><input type="number" id="dhRangeSize" min="0" step="any"></div>
@@ -4357,6 +4360,7 @@ async function renderDualHedgeAddForm() {
     const bsRow = tbDualHedgeBody.querySelector("#dhBandStep")?.closest(".tb-form-row");
     if (bsRow) bsRow.style.display = st === "REALIZE" ? "none" : "";
     tbDualHedgeBody.querySelector("#dhBiasOnly").style.display = st === "BIAS" ? "" : "none";
+    tbDualHedgeBody.querySelector("#dhSingleContract").style.display = st === "BIAS" ? "none" : "";
     tbDualHedgeBody.querySelector("#dhSubmitLabelHolder")?.remove();
     tbDualHedgeBody.querySelector("#dhAddSubmit").textContent = st === "BIAS" ? "Start bias hedge" : st === "REALIZE" ? "Start realize & re-open" : "Start dual hedge";
   };
@@ -4397,7 +4401,9 @@ async function renderDualHedgeAddForm() {
       rangeSize: tbDualHedgeBody.querySelector("#dhRangeSize")?.value || undefined,
       lotMultOverride: tbDualHedgeBody.querySelector("#dhLotMult")?.value || undefined,
       bandStepOverride: tbDualHedgeBody.querySelector("#dhBandStep")?.value || undefined,
-      contractSymbol: tbDualHedgeBody.querySelector("#dhContract").value || undefined,
+      contractSymbol: tbDualHedgeBody.querySelector("#dhStrategy").value !== "BIAS" ? (tbDualHedgeBody.querySelector("#dhContract").value || undefined) : undefined,
+      longContract: tbDualHedgeBody.querySelector("#dhStrategy").value === "BIAS" ? (tbDualHedgeBody.querySelector("#dhLongContract").value || undefined) : undefined,
+      shortContract: tbDualHedgeBody.querySelector("#dhStrategy").value === "BIAS" ? (tbDualHedgeBody.querySelector("#dhShortContract").value || undefined) : undefined,
       live, confirmLive,
       strategy: tbDualHedgeBody.querySelector("#dhStrategy").value,
       unwindMode: tbDualHedgeBody.querySelector("#dhUnwind").value,
@@ -4499,7 +4505,7 @@ async function renderDualHedgeBacktestForm() {
     <div class="tb-form-row"><div class="tb-form-label">Strategy</div><select id="dbStrategy"><option value="DUAL">Dual hedge (band-following)</option><option value="BIAS">Bias hedge (daily DSB core + band hedge)</option><option value="REALIZE">Realize &amp; re-open (profit lock, NRML carry)</option></select></div>
     <div class="tb-form-row"><div class="tb-form-label">Lots per leg</div><input type="number" id="dbLots" min="1" step="1" value="1"></div>
     <div class="tb-form-row"><div class="tb-form-label">lot multiplier (blank = context.js override)</div><input type="number" id="dbLotMult" min="0" step="any"></div>
-    <div class="tb-form-row"><div class="tb-form-label">Contract (both accounts)</div><select id="dbContract">${contractOpts}</select></div>
+    <div class="tb-form-row" id="dbSingleContract"><div class="tb-form-label">Contract (both accounts)</div><select id="dbContract">${contractOpts}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dbBandStep" min="0" step="any"></div>
     <div id="dbRealize" style="display:none">
       <div class="tb-form-row"><div class="tb-form-label">Realize when a leg's profit exceeds \u20b9 (the leg is closed, then the same side is re-opened)</div><input type="number" id="dbRealizeRupees" min="1" step="1" value="3000"></div>
@@ -4520,10 +4526,12 @@ async function renderDualHedgeBacktestForm() {
       </div>
     </div>
     <div id="dbBias" style="display:none">
+      <div class="tb-form-row"><div class="tb-form-label">LONG account contract</div><select id="dbLongContract">${contractOpts}</select></div>
+      <div class="tb-form-row"><div class="tb-form-label">SHORT account contract</div><select id="dbShortContract">${contractOpts}</select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core signal (daily)</div><select id="dbCoreSignal"><option value="DAILY_DSB" selected>Daily Dynamic Step Band on daily HA candles</option><option value="DAILY_HA">Previous daily HA candle colour</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Hedge band candles</div><select id="dbBandHa"><option value="true" selected>Heikin-Ashi candles</option><option value="false">Raw candles</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core at EOD</div><select id="dbCoreEod"><option value="CARRY" selected>Carry overnight (NRML)</option><option value="CLOSE_MIS">Close at EOD (MIS)</option></select></div>
-      <div class="tb-form-row"><div class="tb-form-label">Hedge unwind</div><select id="dbUnwind"><option value="BAND_FLIP">Band flip closes the hedge</option><option value="EOD_ONLY">Hold to EOD</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Hedge unwind</div><select id="dbUnwind"><option value="BAND_FLIP">Band (DSB) favourable to the core closes the hedge</option><option value="EOD_ONLY">Hold to EOD</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Dynamic Band timeframe (hedge)</div><select id="dbBandTf"><option>5m</option><option>15m</option><option>30m</option><option selected>1h</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core entry time IST</div><input type="time" id="dbEntryTime" value="10:00"></div>
     </div>
@@ -4542,6 +4550,7 @@ async function renderDualHedgeBacktestForm() {
     const bsRow = q("#dbBandStep").closest(".tb-form-row"); if (bsRow) bsRow.style.display = realize ? "none" : "";
     q("#dbDual").style.display = bias || realize ? "none" : "";
     q("#dbBias").style.display = bias ? "" : "none";
+    q("#dbSingleContract").style.display = bias ? "none" : "";
     q("#dbHaRow").style.display = !bias && !realize && q("#dbSignal").value !== "RANGE" ? "" : "none";
     const atrMode = q("#dbSlMode").value === "ATR";
     q("#dbAtrRows").style.display = atrMode ? "" : "none";
@@ -4553,7 +4562,7 @@ async function renderDualHedgeBacktestForm() {
   const pf = dhAddState && dhAddState.prefill;
   if (pf) {
     const set = (id, v) => { const el = q(id); if (el && v !== undefined && v !== null && v !== "") el.value = v; };
-    set("#dbContract", pf.contractSymbol); set("#dbStrategy", pf.strategy); set("#dbLots", pf.lots); set("#dbSlMode", pf.slMode);
+    set("#dbContract", pf.contractSymbol); set("#dbLongContract", pf.longContract); set("#dbShortContract", pf.shortContract); set("#dbStrategy", pf.strategy); set("#dbLots", pf.lots); set("#dbSlMode", pf.slMode);
     set("#dbAtrMult", pf.slMode === "ATR" ? pf.atrSlMult : ""); set("#dbAtrTf", pf.atrTimeframe);
     set("#dbMaxLoss", pf.maxLoss); set("#dbTakeProfit", pf.takeProfit);
     set("#dbRealizeRupees", pf.realizeRupees); set("#dbLossAlert", pf.lossAlertRupees);
@@ -4569,7 +4578,7 @@ async function renderDualHedgeBacktestForm() {
     if (!q("#dbFrom").value || !q("#dbTo").value) { errBox.innerHTML = `<div class="tb-err-box">Pick a from and to date</div>`; return; }
     const body = {
       underlying: dhAddState.underlying, strategy: q("#dbStrategy").value,
-      lots: q("#dbLots").value || 1, lotMultOverride: q("#dbLotMult").value || undefined, contractSymbol: q("#dbContract").value || undefined,
+      lots: q("#dbLots").value || 1, lotMultOverride: q("#dbLotMult").value || undefined, contractSymbol: q("#dbStrategy").value !== "BIAS" ? (q("#dbContract").value || undefined) : undefined, longContract: q("#dbStrategy").value === "BIAS" ? (q("#dbLongContract").value || undefined) : undefined, shortContract: q("#dbStrategy").value === "BIAS" ? (q("#dbShortContract").value || undefined) : undefined,
       bandStepOverride: q("#dbBandStep").value || undefined, slippagePoints: q("#dbSlip").value || 0,
       from: q("#dbFrom").value, to: q("#dbTo").value,
       signalSource: q("#dbSignal").value, haTimeframe: q("#dbHaTf").value,
@@ -4655,7 +4664,7 @@ async function renderDualHedgeBacktestDeploy(bt) {
       maxLossRupees: bt.maxLoss || 3000, takeProfitRupees: bt.takeProfit || 3000,
       slMode: bt.slMode, atrSlMult: bt.atrSlMult, atrTimeframe: bt.atrTimeframe,
       unwindMode: bt.unwindMode, bandTimeframe: bt.bandTimeframe, entryTime: bt.entryTime,
-      coreSignal: bt.coreSignal, bandHa: bt.bandHa, coreEod: bt.coreEod, contractSymbol: bt.contractSymbol,
+      coreSignal: bt.coreSignal, bandHa: bt.bandHa, coreEod: bt.coreEod, contractSymbol: bt.contractSymbol, longContract: bt.longContract, shortContract: bt.shortContract,
       realizeRupees: bt.realizeRupees, lossAlertRupees: bt.lossAlertRupees,
       gapCapture: !!bt.gapCapture, gcEntry: bt.gcEntry, gcExit: bt.gcExit, live, confirmLive,
     };

@@ -2822,7 +2822,7 @@ async function dualHedgeAccountConflict(underlying, accounts, selfName) {
 }
 
 // BIAS strategy deploy: daily-HA core + Dynamic Band hedge, flat at EOD.
-async function addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverride, lots, contractSymbol }) {
+async function addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverride, lots, longContract = null, shortContract = null }) {
     console.log(c.dim("  Core: once a day (green = LONG account, red = SHORT account) — signal chosen below"));
     console.log(c.dim("  Hedge: the OTHER account enters the opposite side when the Dynamic Band turns against the core"));
     console.log(c.dim("  Core at EOD is your choice below (no gap capture, no TP/SL)"));
@@ -2868,7 +2868,8 @@ async function addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverri
     };
     if (lotMultOverride) env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
     if (bandStep)        env.DH_BAND_STEP_OVERRIDE = String(bandStep);
-    env.DH_CONTRACT_OVERRIDE = contractSymbol || "";
+    env.DH_CONTRACT_OVERRIDE = "";
+    env.DH_LONG_CONTRACT_OVERRIDE = longContract || ""; env.DH_SHORT_CONTRACT_OVERRIDE = shortContract || "";
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: __dirname, env });
         console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  core ${etIn} ${coreSignal === "DAILY_DSB" ? "daily DSB (HA)" : "daily HA"}  hedge ${tf}${bandHa ? " HA" : ""} band ${unwindMode}  ${coreEod === "CARRY" ? "core carried (NRML)" : `flat ${eod.eodHour}:${String(eod.eodMinute).padStart(2, "0")} (MIS)`}  ${isLive ? "LIVE" : "PAPER"})`));
@@ -3008,14 +3009,20 @@ async function addDualHedge() {
         lotMultOverride = val;
     }
 
-    const contractSymbol = await pickLegContract(await ensureCsvLoaded(), underlying, "BOTH ACCOUNTS");
-    const lotsInput = await ask("  Lots per leg (default 1, applies to both accounts unless you set per-leg overrides later via PM2 env): ");
+        const lotsInput = await ask("  Lots per leg (default 1, applies to both accounts unless you set per-leg overrides later via PM2 env): ");
     const lots = lotsInput ? Number(lotsInput) : 1;
     if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  Invalid lots value")); await pauseForReview(); return; }
 
     const stratIn = (await ask("  Strategy: [D] Dual band-following, [B] Bias hedge (daily HA core + band hedge, flat at EOD) (default D): ")).trim().toUpperCase();
     if (stratIn !== "" && stratIn !== "D" && stratIn !== "B") { console.log(c.yellow("  Invalid strategy")); await pauseForReview(); return; }
-    if (stratIn === "B") { await addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverride, lots, contractSymbol }); return; }
+    const csvForContracts = await ensureCsvLoaded();
+    if (stratIn === "B") {
+        const longContract  = await pickLegContract(csvForContracts, underlying, "LONG ACCOUNT");
+        const shortContract = await pickLegContract(csvForContracts, underlying, "SHORT ACCOUNT");
+        await addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverride, lots, longContract, shortContract });
+        return;
+    }
+    const contractSymbol = await pickLegContract(csvForContracts, underlying, "BOTH ACCOUNTS");
 
     // Stop-loss type — rupees (original) or ATR multiple from entry (dualHedgeAtr.js).
     const slModeIn = (await ask("  Stop type: [R] rupees, [A] ATR multiple from entry (default R): ")).trim().toUpperCase();
@@ -3202,7 +3209,6 @@ async function backtestDualHedgeFlow() {
         }
     }
 
-    const contractSymbol = await pickLegContract(repo, underlying, "BOTH ACCOUNTS");
     const lots = await askNum("Lots per leg (default 1)", 1);
     console.log();
     console.log(c.dim("  Strategy:"));
@@ -3212,6 +3218,13 @@ async function backtestDualHedgeFlow() {
     const strategy = await askChoice("Strategy [D/B, default D]", { D: "DUAL", B: "BIAS" }, "DUAL");
 
     const opts = { strategy };
+    let contractSymbol = null;
+    if (strategy === "BIAS") {
+        opts.longContract  = await pickLegContract(repo, underlying, "LONG ACCOUNT");
+        opts.shortContract = await pickLegContract(repo, underlying, "SHORT ACCOUNT");
+    } else {
+        contractSymbol = await pickLegContract(repo, underlying, "BOTH ACCOUNTS");
+    }
     if (strategy === "BIAS") {
         opts.unwindMode = await askChoice("Unwind: B = band back in the core's favour closes the hedge, E = hold the hedge to EOD [B/E, default B]", { B: "BAND_FLIP", E: "EOD_ONLY" }, "BAND_FLIP");
         opts.coreSignal = await askChoice("Core signal: D = daily Dynamic Step Band on daily HA candles, H = previous daily HA candle colour [D/H, default D]", { D: "DAILY_DSB", H: "DAILY_HA" }, "DAILY_DSB");

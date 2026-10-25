@@ -16,7 +16,7 @@ const c = require("./c");
 const { getDefinition, buildContext } = require("./context");
 
 function resolveDualHedgeLeg({ underlying, side, userName, exchange, csvRepo, pinStore, lots, lotMultOverride, bandStepOverride,
-    symbolOverride = process.env.DH_CONTRACT_OVERRIDE || null }) {   // optional exact tradingsymbol (e.g. ZINC26NOVFUT) instead of the roll policy's contract
+    symbolOverride = (side === "LONG" ? process.env.DH_LONG_CONTRACT_OVERRIDE : process.env.DH_SHORT_CONTRACT_OVERRIDE) || process.env.DH_CONTRACT_OVERRIDE || null }) {   // optional exact tradingsymbol (e.g. ZINC26NOVFUT) instead of the roll policy's contract
     const { resolveCurrent } = require("./instrumentResolution"); // lazy — same require-cycle guard hedgePairContext.js uses
     const def = getDefinition(underlying, exchange);
     let contract, source;

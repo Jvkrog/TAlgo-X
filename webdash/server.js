@@ -2472,6 +2472,8 @@ async function getDualHedgeProcesses() {
             unwindMode: p.pm2_env.env?.DH_UNWIND_MODE || "BAND_FLIP",
             bandTimeframe: p.pm2_env.env?.DH_BAND_TIMEFRAME || "15m",
             contractSymbol: p.pm2_env.env?.DH_CONTRACT_OVERRIDE || null,
+            longContract: p.pm2_env.env?.DH_LONG_CONTRACT_OVERRIDE || null,
+            shortContract: p.pm2_env.env?.DH_SHORT_CONTRACT_OVERRIDE || null,
             coreSignal: p.pm2_env.env?.DH_CORE_SIGNAL || "DAILY_HA",
             bandHa: p.pm2_env.env?.DH_BAND_HA === "true",
             coreEod: p.pm2_env.env?.DH_CORE_EOD || "CLOSE",
@@ -2584,7 +2586,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         gapCapture, gcEntry, gcExit,
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
         coreSignal: coreSignalIn, bandHa: bandHaIn, coreEod: coreEodIn,
-        realizeRupees, lossAlertRupees, contractSymbol,
+        realizeRupees, lossAlertRupees, contractSymbol, longContract, shortContract,
     } = req.body || {};
 
     const strategy = String(strategyIn || "DUAL").toUpperCase();
@@ -2619,9 +2621,13 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     const atrTimeframe = String(atrTfIn || "1h").toLowerCase();
     if (slMode === "ATR" && !DH_ATR_TIMEFRAMES.includes(atrTimeframe)) return res.status(400).json({ error: `AtrTimeframe must be one of ${DH_ATR_TIMEFRAMES.join("/")}` });
 
-    if (contractSymbol) {
-        const row = (await ensureCsvLoaded()).findBySymbol(String(contractSymbol));
-        if (!row || row.underlying !== def.underlying) return res.status(400).json({ error: `Contract "${contractSymbol}" is not a listed ${underlying} future` });
+    for (const v of [contractSymbol, longContract, shortContract]) {
+        if (!v) continue;
+        const row = (await ensureCsvLoaded()).findBySymbol(String(v));
+        if (!row || row.underlying !== def.underlying) return res.status(400).json({ error: `Contract "${v}" is not a listed ${underlying} future` });
+    }
+    if (strategy !== "BIAS" && (longContract || shortContract) && (longContract || contractSymbol || "") !== (shortContract || contractSymbol || "")) {
+        return res.status(400).json({ error: "Different contracts per account are only supported for the BIAS strategy" });
     }
     const name = strategy === "BIAS" ? `${getShortName(underlying)}DualBias` : strategy === "REALIZE" ? `${getShortName(underlying)}DualRealize` : `${getShortName(underlying)}DualHedge`;
     const conflict = await findAccountConflict(underlying, [longUser, shortUser], name);
@@ -2634,6 +2640,8 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         // Always written explicitly (PM2 restart merges env, never clears it).
         DH_STRATEGY: strategy,
         DH_CONTRACT_OVERRIDE: contractSymbol ? String(contractSymbol) : "",
+        DH_LONG_CONTRACT_OVERRIDE: longContract ? String(longContract) : "",
+        DH_SHORT_CONTRACT_OVERRIDE: shortContract ? String(shortContract) : "",
     };
     if (lotMultOverride)  env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
     if (bandStepOverride) env.DH_BAND_STEP_OVERRIDE = String(bandStepOverride);
@@ -2727,10 +2735,14 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
         if (def.lotMult === null && !b.lotMultOverride) return res.status(400).json({ error: `LotMultOverride is required for ${b.underlying}` });
 
         const opts = { strategy };
-        if (b.contractSymbol) {
-            const row = (await ensureCsvLoaded()).findBySymbol(String(b.contractSymbol));
-            if (!row || row.underlying !== def.underlying) return res.status(400).json({ error: `Contract "${b.contractSymbol}" is not a listed ${b.underlying} future` });
-            opts.contractSymbol = String(b.contractSymbol);
+        for (const k of ["contractSymbol", "longContract", "shortContract"]) {
+            if (!b[k]) continue;
+            const row = (await ensureCsvLoaded()).findBySymbol(String(b[k]));
+            if (!row || row.underlying !== def.underlying) return res.status(400).json({ error: `Contract "${b[k]}" is not a listed ${b.underlying} future` });
+            opts[k] = String(b[k]);
+        }
+        if (strategy !== "BIAS" && (opts.longContract || opts.shortContract) && (opts.longContract || opts.contractSymbol || "") !== (opts.shortContract || opts.contractSymbol || "")) {
+            return res.status(400).json({ error: "Different contracts per account are only supported for the BIAS strategy" });
         }
         if (strategy === "REALIZE") {
             opts.realizeRupees = Number(b.realizeRupees) || 3000;

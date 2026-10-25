@@ -346,8 +346,8 @@ function createLegKit({ longCtx, shortCtx, startDate, slip, log, stats }) {
 
     // MTM equity: realized + unrealized, sampled by the caller.
     let peak = 0, maxDD = 0, troughEq = 0, ddAt = null;
-    function sampleEquity(price, date) {
-        const eq = realizedTotal() + unreal(long, price) + unreal(short, price);
+    function sampleEquity(price, date, shortPrice = price) {
+        const eq = realizedTotal() + unreal(long, price) + unreal(short, shortPrice);
         if (eq > peak) peak = eq;
         if (peak - eq > maxDD) { maxDD = peak - eq; ddAt = date; }
         if (eq < troughEq) troughEq = eq;
@@ -683,6 +683,7 @@ async function replayBiasHedge({
     unwindMode = "BAND_FLIP",
     entryHour = 10, entryMinute = 0, eodHour = 23, eodMinute = 15,
     coreSignal = "DAILY_HA", bandHa = false, coreEod = "CLOSE",
+    shortCandles = null,   // minute candles of the SHORT account's contract when it differs from the long account's (fills/P&L use each leg's own contract; signals still come from the long account's)
     slippagePoints = 0, progress, verbose = true,
 }) {
     if (!candles.length) throw new Error("replayBiasHedge: no candles");
@@ -732,12 +733,17 @@ async function replayBiasHedge({
     let coreAcct = null, coreDecidedDay = null, noBiasNoted = null, lastDay = null;
     let lastClose = candles[candles.length - 1].close;
     const total = candles.length;
+    const shortByMs = shortCandles ? new Map(shortCandles.map(b => [b.date.getTime(), b])) : null;
+    let lastShortCn = null, lastShortClose = lastClose;
 
     for (let i = 0; i < candles.length; i++) {
         const cn = candles[i];
         const ms = cn.date.getTime();
         if (ms < tradeFromMs) continue;
         clockBox.date = cn.date;
+        let sc = cn;   // the candle the SHORT leg trades on this minute
+        if (shortByMs) { sc = shortByMs.get(ms) || lastShortCn || cn; if (shortByMs.has(ms)) lastShortCn = sc; }
+        const px = (leg, f) => (leg === short ? sc : cn)[f];
         const dayKey = dayKeyIST(cn.date);
         const minOfDay = istMinuteOfDay(ms);
         const next = candles[i + 1];
@@ -752,9 +758,9 @@ async function replayBiasHedge({
             const toClose = legs.filter(l => l.state.position && (!carry || (unwindMode === "EOD_ONLY" && l.role === "HEDGE")));
             if (toClose.length) {
                 log("**EOD**");
-                const px = pastEod ? cn.open : cn.close;
+                const f = pastEod ? "open" : "close";
                 for (const leg of toClose.sort((a, b) => (b.role === "HEDGE") - (a.role === "HEDGE"))) {
-                    stats.exits.eod++; await exitLeg(leg, px, "EOD_FORCE");
+                    stats.exits.eod++; await exitLeg(leg, px(leg, f), "EOD_FORCE");
                 }
             }
         } else {
@@ -767,7 +773,7 @@ async function replayBiasHedge({
                     const side = prior === "green" ? "LONG" : "SHORT";
                     coreAcct = side === "LONG" ? long : short;
                     stats.coreDays[side]++;
-                    await enterLeg(coreAcct, cn.open, `${coreLabel} ${prior}`, "CORE");
+                    await enterLeg(coreAcct, px(coreAcct, "open"), `${coreLabel} ${prior}`, "CORE");
                 } else if (noBiasNoted !== dayKey) {
                     noBiasNoted = dayKey; stats.noBiasDays++;
                     log(c.yellow(`${dayKey}  no usable daily HA read (doji / no prior candle) — no core today, retrying until EOD`));
@@ -782,19 +788,19 @@ async function replayBiasHedge({
                     const adverse = coreSide === "LONG" ? col === "red" : col === "green";
                     if (!hedgeAcct.state.position && adverse) {
                         stats.hedgeEntries++;
-                        await enterLeg(hedgeAcct, cn.open, `${bandTimeframe} band ${col} against ${coreSide} core`, "HEDGE");
+                        await enterLeg(hedgeAcct, px(hedgeAcct, "open"), `${bandTimeframe} band ${col} against ${coreSide} core`, "HEDGE");
                     } else if (hedgeAcct.state.position && unwindMode === "BAND_FLIP" && !adverse) {
                         stats.hedgeUnwinds++; stats.exits.bandUnwind++;
-                        await exitLeg(hedgeAcct, cn.open, "BAND_FLIP_UNWIND");
+                        await exitLeg(hedgeAcct, px(hedgeAcct, "open"), "BAND_FLIP_UNWIND");
                     }
                 }
             }
         }
 
         // MAE / worst unrealized along this candle's price path, for whatever is open
-        const pts = candlesToPoints([cn]);
         for (const leg of legs) {
             if (!leg.state.position) continue;
+            const pts = candlesToPoints([leg === short ? sc : cn]);
             for (const pt of pts) {
                 const u = unreal(leg, pt.price);
                 if (u < leg.mae) leg.mae = u;
@@ -802,10 +808,10 @@ async function replayBiasHedge({
             }
         }
 
-        sampleEquity(cn.close, cn.date);
+        sampleEquity(cn.close, cn.date, sc.close);
         if (!next || dayEnds) {
-            const eq = realizedTotal() + unreal(long, cn.close) + unreal(short, cn.close);
-            const fmtLeg = leg => leg.state.position ? `${leg.role || ""} ${leg.state.position}@${leg.state.entryPrice.toFixed(2)} ${sgn(unreal(leg, cn.close))}`.trim() : "flat";
+            const eq = realizedTotal() + unreal(long, cn.close) + unreal(short, sc.close);
+            const fmtLeg = leg => leg.state.position ? `${leg.role || ""} ${leg.state.position}@${leg.state.entryPrice.toFixed(2)} ${sgn(unreal(leg, px(leg, "close")))}`.trim() : "flat";
             log(c.dim(`[DAY ${dayKey}] close ${cn.close.toFixed(2)}  long: ${fmtLeg(long)}  |  short: ${fmtLeg(short)}  |  realized ${sgn(realizedTotal())}  equity ${sgn(eq)}`));
             daily.push({
                 day: dayKey, equity: eq, realized: realizedTotal(), unrealized: eq - realizedTotal(),
@@ -813,14 +819,14 @@ async function replayBiasHedge({
             });
             if (!carry) coreAcct = null;   // a new day decides afresh (CARRY: the core continues)
         }
-        lastClose = cn.close;
+        lastClose = cn.close; lastShortClose = sc.close;
         if (progress && i % 2000 === 0) progress(i, total);
     }
     if (progress) progress(total, total);
 
     // Mark-to-market anything still open when the data ran out (a day cut off mid-session).
     for (const leg of [...legs].sort((a, b) => (b.role === "HEDGE") - (a.role === "HEDGE"))) {
-        if (leg.state.position) { stats.exits.backtestEnd++; await exitLeg(leg, lastClose, "BACKTEST_END", { noSlip: true }); }
+        if (leg.state.position) { stats.exits.backtestEnd++; await exitLeg(leg, leg === short ? lastShortClose : lastClose, "BACKTEST_END", { noSlip: true }); }
     }
 
     return {
@@ -858,7 +864,7 @@ async function replayBiasHedge({
 //   progress,                   // optional (done, total | message) => void
 // })
 async function runDualHedgeBacktest({
-    underlying, exchange = "MCX", lots = 1, longLots, shortLots, lotMultOverride, contractSymbol = null,
+    underlying, exchange = "MCX", lots = 1, longLots, shortLots, lotMultOverride, contractSymbol = null, longContract = null, shortContract = null,   // longContract/shortContract: per-account contracts (BIAS only)
     strategy = "DUAL", realizeRupees = 3000, lossAlertRupees = 0,
     bandStepOverride, rangeSizeOverride, rangeStart,
     signalSource = "RANGE", haTimeframe = "1h",
@@ -920,11 +926,15 @@ async function runDualHedgeBacktest({
 
     const mkLeg = (side, n) => resolveDualHedgeLeg({
         underlying, side, userName: "BACKTEST", exchange, csvRepo, pinStore,
-        lots: n, lotMultOverride, bandStepOverride, symbolOverride: contractSymbol,
+        lots: n, lotMultOverride, bandStepOverride,
+        symbolOverride: (side === "LONG" ? longContract : shortContract) || contractSymbol,
     });
     const longLeg  = mkLeg("LONG",  Number(longLots)  || Number(lots) || 1);
     const shortLeg = mkLeg("SHORT", Number(shortLots) || Number(lots) || 1);
     const token = longLeg.context.token;
+    const splitContracts = shortLeg.context.token !== longLeg.context.token;
+    if (splitContracts && !isBias) throw new Error("runDualHedgeBacktest: different contracts per account are only supported for the BIAS strategy");
+    if (splitContracts) console.log(c.dim(`  contracts: LONG account ${longLeg.context.symbol}  |  SHORT account ${shortLeg.context.symbol}  (signals come from the LONG account's contract)`));
 
     const bandStep  = longLeg.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
     const rangeSize = rangeSizeOverride ? Number(rangeSizeOverride) : bandStep;
@@ -980,11 +990,17 @@ async function runDualHedgeBacktest({
             await sleep(CHUNK_DELAY_MS);
             candles = await fetchMinuteCandles({ kc, token, fromMs, toMs, progress });
             if (candles.length === 0) throw new Error(noCandles);
+            let shortCandles = null;
+            if (splitContracts) {
+                await sleep(CHUNK_DELAY_MS);
+                shortCandles = await fetchMinuteCandles({ kc, token: shortLeg.context.token, fromMs, toMs, progress });
+                if (shortCandles.length === 0) throw new Error(`runDualHedgeBacktest: no minute candles for the SHORT account's contract ${shortLeg.context.symbol}`);
+            }
 
             res = await replayBiasHedge({
                 longCtx: longLeg.context, shortCtx: shortLeg.context, candles, tradeFromMs: fromMs,
                 dailyBars, bandBars, bandStep, bandTimeframe, unwindMode,
-                entryHour, entryMinute, eodHour, eodMinute, coreSignal, bandHa, coreEod,
+                entryHour, entryMinute, eodHour, eodMinute, coreSignal, bandHa, coreEod, shortCandles,
                 slippagePoints: Number(slippagePoints), progress,
             });
             params = {
@@ -1064,7 +1080,7 @@ async function runDualHedgeBacktest({
         combined: computeMetrics(res.trades),
     };
     const report = buildDualHedgeReport({
-        underlying, symbol: longLeg.context.symbol, lotMult: longLeg.context.lotMult,
+        underlying, symbol: splitContracts ? `${longLeg.context.symbol} / ${shortLeg.context.symbol}` : longLeg.context.symbol, lotMult: longLeg.context.lotMult,
         longLots: longLeg.context.lots, shortLots: shortLeg.context.lots,
         params,
         range: { from, to }, runAt: new Date(),
