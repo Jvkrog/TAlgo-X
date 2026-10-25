@@ -2474,6 +2474,7 @@ async function getDualHedgeProcesses() {
             contractSymbol: p.pm2_env.env?.DH_CONTRACT_OVERRIDE || null,
             longContract: p.pm2_env.env?.DH_LONG_CONTRACT_OVERRIDE || null,
             shortContract: p.pm2_env.env?.DH_SHORT_CONTRACT_OVERRIDE || null,
+            coreAccount: p.pm2_env.env?.DH_CORE_ACCOUNT || "AUTO",
             coreSignal: p.pm2_env.env?.DH_CORE_SIGNAL || "DAILY_HA",
             bandHa: p.pm2_env.env?.DH_BAND_HA === "true",
             coreEod: p.pm2_env.env?.DH_CORE_EOD || "CLOSE",
@@ -2585,7 +2586,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         lotMultOverride, bandStepOverride, live, confirmLive,
         gapCapture, gcEntry, gcExit,
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
-        coreSignal: coreSignalIn, bandHa: bandHaIn, coreEod: coreEodIn,
+        coreSignal: coreSignalIn, bandHa: bandHaIn, coreEod: coreEodIn, coreAccount: coreAccountIn,
         realizeRupees, lossAlertRupees, contractSymbol, longContract, shortContract,
     } = req.body || {};
 
@@ -2669,6 +2670,9 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         if (coreSignal !== "DAILY_HA" && coreSignal !== "DAILY_DSB") return res.status(400).json({ error: "CoreSignal must be DAILY_HA or DAILY_DSB" });
         const coreEod = String(coreEodIn || "CLOSE").toUpperCase();
         if (!["CLOSE", "CLOSE_MIS", "CARRY"].includes(coreEod)) return res.status(400).json({ error: "CoreEod must be CLOSE, CLOSE_MIS or CARRY" });
+        const coreAccount = String(coreAccountIn || "AUTO").toUpperCase();
+        if (!["AUTO", "LONG", "SHORT"].includes(coreAccount)) return res.status(400).json({ error: "CoreAccount must be AUTO, LONG or SHORT" });
+        env.DH_CORE_ACCOUNT = coreAccount;
         env.DH_CORE_SIGNAL = coreSignal; env.DH_BAND_HA = String(bandHaIn === true); env.DH_CORE_EOD = coreEod;   // always written (PM2 restart merges env)
         env.DH_UNWIND_MODE = unwind;
         env.DH_BAND_TIMEFRAME = tf;
@@ -2755,6 +2759,8 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
             opts.coreEod = String(b.coreEod || "CLOSE").toUpperCase();
             if (!["CLOSE", "CLOSE_MIS", "CARRY"].includes(opts.coreEod)) return res.status(400).json({ error: "CoreEod must be CLOSE, CLOSE_MIS or CARRY" });
             opts.bandHa = b.bandHa === true;
+            opts.coreAccount = String(b.coreAccount || "AUTO").toUpperCase();
+            if (!["AUTO", "LONG", "SHORT"].includes(opts.coreAccount)) return res.status(400).json({ error: "CoreAccount must be AUTO, LONG or SHORT" });
             opts.bandTimeframe = String(b.bandTimeframe || "15m").toLowerCase();
             if (!BIAS_BAND_TIMEFRAMES.includes(opts.bandTimeframe)) return res.status(400).json({ error: `BandTimeframe must be one of ${BIAS_BAND_TIMEFRAMES.join("/")}` });
             const entry = parseHHMM(b.entryTime, "10:00");

@@ -39,6 +39,7 @@ function createBiasHedgeController({
     long, short, dailyReader, bandReader, enterLeg, exitLeg, clock,
     entryHour = 10, entryMinute = 0, eodHour, eodMinute,
     unwindMode = "BAND_FLIP", log = () => {},
+    coreAccount = "AUTO",     // "AUTO": green -> LONG account is core, red -> SHORT account (each account keeps its side). "LONG"/"SHORT": that account is ALWAYS the core and takes whichever side the signal says; the other account always hedges.
     carry = false,            // true: the core is NOT closed at EOD (NRML carry); only an EOD_ONLY hedge is
     coreLabel = "daily HA",   // wording for logs / entry reasons
 }) {
@@ -76,7 +77,9 @@ function createBiasHedgeController({
         // Locked in the moment we act on a real read, even if the order fails —
         // a failed entry means no core today, not a retry loop.
         coreDecidedForDate = t.today;
-        const leg = daily.color === "green" ? long : short;
+        const sig = daily.color === "green" ? "LONG" : "SHORT";
+        const leg = coreAccount === "AUTO" ? (sig === "LONG" ? long : short) : (coreAccount === "LONG" ? long : short);
+        leg.side = sig;   // fixed-account mode: the core account trades the signal's side
         const ok = await enterLeg(leg, "CORE", `${coreLabel} ${daily.color}`);
         if (!ok) return null;
         leg.role = "CORE";
@@ -93,6 +96,7 @@ function createBiasHedgeController({
         const adverse = coreSide === "LONG" ? band.color === "red" : band.color === "green";
 
         if (!hedge.state.position && adverse) {
+            hedge.side = coreSide === "LONG" ? "SHORT" : "LONG";
             const ok = await enterLeg(hedge, "HEDGE", `band ${band.color} against ${coreSide} core`);
             if (!ok) return null;
             hedge.role = "HEDGE";

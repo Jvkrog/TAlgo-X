@@ -303,7 +303,7 @@ function createLegKit({ longCtx, shortCtx, startDate, slip, log, stats }) {
     function makeLeg(side, ctx) {
         const state = createState();
         state.flipped = false;
-        return { side, ctx, state, ledger: createBacktestLedger({ clock }), wantEntry: false, mae: 0, flipTime: null, worstUPnL: 0, role: null };
+        return { side, acct: side, ctx, state, ledger: createBacktestLedger({ clock }), wantEntry: false, mae: 0, flipTime: null, worstUPnL: 0, role: null };
     }
     const long = makeLeg("LONG", longCtx);
     const short = makeLeg("SHORT", shortCtx);
@@ -360,7 +360,7 @@ function createLegKit({ longCtx, shortCtx, startDate, slip, log, stats }) {
         daily,
     });
     const tradesFrom = (tradeFromMs) => {
-        const tag = leg => leg.ledger.getAllTrades().filter(t => new Date(t.entry_time).getTime() >= tradeFromMs).map(t => ({ ...t, leg: leg.side }));
+        const tag = leg => leg.ledger.getAllTrades().filter(t => new Date(t.entry_time).getTime() >= tradeFromMs).map(t => ({ ...t, leg: leg.acct })); // account label is fixed (leg.acct), unlike leg.side which follows the trade in fixed-core-account mode
         const longTrades = tag(long), shortTrades = tag(short);
         const trades = [...longTrades, ...shortTrades]
             .sort((a, b) => new Date(a.exit_time || a.entry_time) - new Date(b.exit_time || b.entry_time));
@@ -683,6 +683,7 @@ async function replayBiasHedge({
     unwindMode = "BAND_FLIP",
     entryHour = 10, entryMinute = 0, eodHour = 23, eodMinute = 15,
     coreSignal = "DAILY_HA", bandHa = false, coreEod = "CLOSE",
+    coreAccount = "AUTO",   // "AUTO" | "LONG" | "SHORT": which account is always the core (takes the signal's side); the other hedges
     shortCandles = null,   // minute candles of the SHORT account's contract when it differs from the long account's (fills/P&L use each leg's own contract; signals still come from the long account's)
     slippagePoints = 0, progress, verbose = true,
 }) {
@@ -771,7 +772,8 @@ async function replayBiasHedge({
                 if (prior) {
                     coreDecidedDay = dayKey;
                     const side = prior === "green" ? "LONG" : "SHORT";
-                    coreAcct = side === "LONG" ? long : short;
+                    coreAcct = coreAccount === "AUTO" ? (side === "LONG" ? long : short) : (coreAccount === "LONG" ? long : short);
+                    coreAcct.side = side;
                     stats.coreDays[side]++;
                     await enterLeg(coreAcct, px(coreAcct, "open"), `${coreLabel} ${prior}`, "CORE");
                 } else if (noBiasNoted !== dayKey) {
@@ -784,7 +786,8 @@ async function replayBiasHedge({
                 const col = bandColorAt(ms);
                 if (col) {
                     const coreSide = coreAcct.state.position;
-                    const hedgeAcct = coreSide === "LONG" ? short : long;
+                    const hedgeAcct = coreAcct === long ? short : long;
+                    hedgeAcct.side = coreSide === "LONG" ? "SHORT" : "LONG";
                     const adverse = coreSide === "LONG" ? col === "red" : col === "green";
                     if (!hedgeAcct.state.position && adverse) {
                         stats.hedgeEntries++;
@@ -864,7 +867,7 @@ async function replayBiasHedge({
 //   progress,                   // optional (done, total | message) => void
 // })
 async function runDualHedgeBacktest({
-    underlying, exchange = "MCX", lots = 1, longLots, shortLots, lotMultOverride, contractSymbol = null, longContract = null, shortContract = null,   // longContract/shortContract: per-account contracts (BIAS only)
+    underlying, exchange = "MCX", lots = 1, longLots, shortLots, lotMultOverride, contractSymbol = null, longContract = null, shortContract = null, coreAccount = "AUTO",   // longContract/shortContract: per-account contracts (BIAS only)
     strategy = "DUAL", realizeRupees = 3000, lossAlertRupees = 0,
     bandStepOverride, rangeSizeOverride, rangeStart,
     signalSource = "RANGE", haTimeframe = "1h",
@@ -894,6 +897,8 @@ async function runDualHedgeBacktest({
         unwindMode = String(unwindMode).toUpperCase();
         if (unwindMode !== "BAND_FLIP" && unwindMode !== "EOD_ONLY") throw new Error(`runDualHedgeBacktest: unwindMode must be BAND_FLIP or EOD_ONLY (got ${unwindMode})`);
         if (!(bandTimeframe in BAND_TIMEFRAMES)) throw new Error(`runDualHedgeBacktest: bandTimeframe must be one of ${Object.keys(BAND_TIMEFRAMES).join(", ")} (got ${bandTimeframe})`);
+        coreAccount = String(coreAccount).toUpperCase();
+        if (!["AUTO", "LONG", "SHORT"].includes(coreAccount)) throw new Error(`runDualHedgeBacktest: coreAccount must be AUTO, LONG or SHORT (got ${coreAccount})`);
         coreSignal = String(coreSignal).toUpperCase(); coreEod = String(coreEod).toUpperCase(); bandHa = bandHa === true;
         if (coreSignal !== "DAILY_HA" && coreSignal !== "DAILY_DSB") throw new Error(`runDualHedgeBacktest: coreSignal must be DAILY_HA or DAILY_DSB (got ${coreSignal})`);
         if (!["CLOSE", "CLOSE_MIS", "CARRY"].includes(coreEod)) throw new Error(`runDualHedgeBacktest: coreEod must be CLOSE, CLOSE_MIS or CARRY (got ${coreEod})`);
@@ -934,7 +939,7 @@ async function runDualHedgeBacktest({
     const token = longLeg.context.token;
     const splitContracts = shortLeg.context.token !== longLeg.context.token;
     if (splitContracts && !isBias) throw new Error("runDualHedgeBacktest: different contracts per account are only supported for the BIAS strategy");
-    if (splitContracts) console.log(c.dim(`  contracts: LONG account ${longLeg.context.symbol}  |  SHORT account ${shortLeg.context.symbol}  (signals come from the LONG account's contract)`));
+    if (splitContracts) console.log(c.dim(`  contracts: LONG account ${longLeg.context.symbol}  |  SHORT account ${shortLeg.context.symbol}  (signals come from the ${coreAccount === "SHORT" ? "SHORT" : "LONG"} account's contract)`));
 
     const bandStep  = longLeg.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
     const rangeSize = rangeSizeOverride ? Number(rangeSizeOverride) : bandStep;
@@ -981,11 +986,12 @@ async function runDualHedgeBacktest({
             console.log(c.dim(`  bias: daily HA (warm-up from ${fmtIST(dailyAnchorMs)} IST, ${DAILY_WARMUP_DAYS}d)  |  hedge: ${bandTimeframe} Dynamic Band step ${bandStep} (from ${fmtIST(anchorMs)} IST, ${anchorNote})  |  unwind ${unwindMode}  |  EOD ${hhmm(eodHour, eodMinute)} IST`));
 
             if (progress) progress("fetching daily bars");
-            const dailyBars = await fetchNativeBars({ kc, token, timeframe: "1d", fromMs: dailyAnchorMs, toMs });
+            const sigToken = coreAccount === "SHORT" ? shortLeg.context.token : token;   // signals come from the core account's contract
+            const dailyBars = await fetchNativeBars({ kc, token: sigToken, timeframe: "1d", fromMs: dailyAnchorMs, toMs });
             if (dailyBars.length === 0) throw new Error("runDualHedgeBacktest: no daily bars returned — check the date range and that Kite still lists this contract");
             await sleep(CHUNK_DELAY_MS);
             if (progress) progress(`fetching ${bandTimeframe} bars`);
-            const bandBars = await fetchNativeBars({ kc, token, timeframe: bandTimeframe, fromMs: anchorMs, toMs });
+            const bandBars = await fetchNativeBars({ kc, token: sigToken, timeframe: bandTimeframe, fromMs: anchorMs, toMs });
             if (bandBars.length === 0) throw new Error(`runDualHedgeBacktest: no ${bandTimeframe} bars returned — check the date range and market holidays`);
             await sleep(CHUNK_DELAY_MS);
             candles = await fetchMinuteCandles({ kc, token, fromMs, toMs, progress });
@@ -1000,11 +1006,11 @@ async function runDualHedgeBacktest({
             res = await replayBiasHedge({
                 longCtx: longLeg.context, shortCtx: shortLeg.context, candles, tradeFromMs: fromMs,
                 dailyBars, bandBars, bandStep, bandTimeframe, unwindMode,
-                entryHour, entryMinute, eodHour, eodMinute, coreSignal, bandHa, coreEod, shortCandles,
+                entryHour, entryMinute, eodHour, eodMinute, coreSignal, bandHa, coreEod, coreAccount, shortCandles,
                 slippagePoints: Number(slippagePoints), progress,
             });
             params = {
-                strategy: "BIAS", signal: `${coreSignal === "DAILY_DSB" ? "daily DSB" : "daily HA bias"} + ${bandTimeframe}${bandHa ? " HA" : ""} band`, bandStep, bandTimeframe, unwindMode, coreSignal, bandHa, coreEod,
+                strategy: "BIAS", coreAccount, signal: `${coreSignal === "DAILY_DSB" ? "daily DSB" : "daily HA bias"} + ${bandTimeframe}${bandHa ? " HA" : ""} band`, bandStep, bandTimeframe, unwindMode, coreSignal, bandHa, coreEod,
                 entry: hhmm(entryHour, entryMinute), eod: hhmm(eodHour, eodMinute),
                 rangeStart: fmtIST(anchorMs), anchor: anchorNote, slippagePoints: Number(slippagePoints),
                 takeProfit: null, maxLoss: null, gapCapture: null,

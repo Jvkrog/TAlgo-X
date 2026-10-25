@@ -25,6 +25,7 @@
 //   DH_BAND_TIMEFRAME             5m | 15m | 30m | 1h   (default 15m)
 //   DH_UNWIND_MODE                BAND_FLIP (default) | EOD_ONLY
 //   DH_CORE_SIGNAL                DAILY_HA (default) | DAILY_DSB (daily Dynamic Step Band on daily HA candles: green -> LONG acct, red -> SHORT acct)
+//   DH_CORE_ACCOUNT               AUTO (default: green -> LONG acct core, red -> SHORT acct core) | LONG | SHORT (that account is always the core and takes the signal's side; the other always hedges; signals read from the core account's contract)
 //   DH_BAND_HA                    "true": the hedge band runs on Heikin-Ashi candles (default raw)
 //   DH_CORE_EOD                   CLOSE (default, legacy) | CLOSE_MIS (MIS, flat at EOD) | CARRY (NRML, core carried; EOD_ONLY hedge still closed)
 //   DH_ENTRY_HOUR_OVERRIDE / DH_ENTRY_MINUTE_OVERRIDE   core entry time IST (10:00)
@@ -80,6 +81,8 @@ async function main() {
     const CORE_EOD = (process.env.DH_CORE_EOD || "CLOSE").toUpperCase();   // CLOSE (legacy) | CLOSE_MIS | CARRY
     if (!["CLOSE", "CLOSE_MIS", "CARRY"].includes(CORE_EOD)) fail(`DH_CORE_EOD "${process.env.DH_CORE_EOD}" invalid (CLOSE / CLOSE_MIS / CARRY)`);
     const CARRY = CORE_EOD === "CARRY";
+    const CORE_ACCOUNT = (process.env.DH_CORE_ACCOUNT || "AUTO").toUpperCase();   // AUTO | LONG | SHORT — which account is always the core (the other always hedges)
+    if (!["AUTO", "LONG", "SHORT"].includes(CORE_ACCOUNT)) fail(`DH_CORE_ACCOUNT "${process.env.DH_CORE_ACCOUNT}" invalid (AUTO / LONG / SHORT)`);
     const POLL_MS = Math.max(5000, envInt(process.env.DH_POLL_MS, 60 * 1000));
 
     const entryHour = envInt(process.env.DH_ENTRY_HOUR_OVERRIDE, 10);
@@ -147,8 +150,9 @@ async function main() {
         try {
             const saved = await db.loadPosition(context.tgPrefix, context.token);
             const src = saved?.position_source;
-            if (saved?.position === side && (src === "DUAL_BIAS_CORE" || src === "DUAL_BIAS_HEDGE")) {
+            if ((CORE_ACCOUNT !== "AUTO" ? !!saved?.position : saved?.position === side) && (src === "DUAL_BIAS_CORE" || src === "DUAL_BIAS_HEDGE")) {
                 state.position = saved.position;
+                leg.side = saved.position;   // fixed-account mode: an account may hold either side
                 state.entryPrice = saved.entry_price;
                 const openTrade = await db.getOpenTrade(context.tgPrefix);
                 state.openTradeId = openTrade ? openTrade.id : null;
@@ -185,7 +189,7 @@ async function main() {
         long.tg("⚠ Both accounts resumed as CORE; SHORT treated as HEDGE.");
     }
 
-    console.log(c.bold(`DUAL BIAS HEDGE  ${long.context.symbol}  LONG:${long.user.name} (${long.context.lots} lot)  SHORT:${short.user.name} (${short.context.lots} lot)  core ${CORE_SIGNAL === "DAILY_DSB" ? "daily DSB (HA)" : "daily HA"}  band ${BAND_TF}${BAND_HA ? " HA" : ""}  unwind ${UNWIND}  core ${hhmm(entryHour, entryMinute)}  ${CARRY ? "core carried overnight (NRML)" : `flat ${hhmm(eodHour, eodMinute)} IST${CORE_EOD === "CLOSE_MIS" ? " (MIS)" : ""}`}`));
+    console.log(c.bold(`DUAL BIAS HEDGE  ${long.context.symbol}  LONG:${long.user.name} (${long.context.lots} lot)  SHORT:${short.user.name} (${short.context.lots} lot)  core acct ${CORE_ACCOUNT === "AUTO" ? "by colour" : CORE_ACCOUNT}  core ${CORE_SIGNAL === "DAILY_DSB" ? "daily DSB (HA)" : "daily HA"}  band ${BAND_TF}${BAND_HA ? " HA" : ""}  unwind ${UNWIND}  core ${hhmm(entryHour, entryMinute)}  ${CARRY ? "core carried overnight (NRML)" : `flat ${hhmm(eodHour, eodMinute)} IST${CORE_EOD === "CLOSE_MIS" ? " (MIS)" : ""}`}`));
     console.log();
 
     // Readers use the LONG user's credentials (market data is account-agnostic);
@@ -194,8 +198,9 @@ async function main() {
         API_KEY: longUser.apiKey,
         getAccessToken: () => { const u = listUsers().find(x => x.name === longUser.name); return (u && u.accessToken) || longUser.accessToken; },
     });
-    const bandStep = long.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
-    const token = long.context.token;
+    const bandStep = signalLeg.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
+    const signalLeg = CORE_ACCOUNT === "SHORT" ? short : long;   // the core account's contract feeds the signals (AUTO: the LONG account's)
+    const token = signalLeg.context.token;
     const dailyReader = CORE_SIGNAL === "DAILY_DSB"
         ? createDynamicBandReader({ token, timeframe: "1d", bandStep, engineConfig: readerConfig, label: "DUAL_BIAS_DAILY_DSB", ha: true })
         : createHaCandleReader({ token, timeframe: "1d", engineConfig: readerConfig, label: "DUAL_BIAS_DAILY" });
@@ -248,7 +253,7 @@ async function main() {
     const controller = createBiasHedgeController({
         long, short, dailyReader, bandReader, enterLeg, exitLeg, clock,
         entryHour, entryMinute, eodHour, eodMinute, unwindMode: UNWIND,
-        carry: CARRY, coreLabel: CORE_SIGNAL === "DAILY_DSB" ? "daily DSB" : "daily HA",
+        coreAccount: CORE_ACCOUNT, carry: CARRY, coreLabel: CORE_SIGNAL === "DAILY_DSB" ? "daily DSB" : "daily HA",
         log: m => console.log(c.dim(`DUAL BIAS  ${m}`)),
     });
     for (const leg of resumed) controller.markResumed(leg, leg.role, today0);

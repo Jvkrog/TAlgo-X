@@ -4302,6 +4302,8 @@ async function renderDualHedgeAddForm() {
     <div class="tb-form-row"><div class="tb-form-label">SHORT account (must differ from LONG)</div><select id="dhShortUser">${userOptions}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">Lots per leg (default 1)</div><input type="number" id="dhLots" min="1" step="1" value="1"></div>
     <div id="dhBiasOnly" style="display:none">
+      <div class="tb-form-row"><div class="tb-form-label">Core account (takes the daily DSB trade)</div><select id="dhCoreAcct"><option value="AUTO">Auto \u2014 green: LONG acct, red: SHORT acct</option><option value="LONG">LONG account (either side)</option><option value="SHORT">SHORT account (either side)</option></select></div>
+      <div class="tb-form-hint">The other account is always the hedge account. Signals are read from the core account's contract.</div>
       <div class="tb-form-row"><div class="tb-form-label">LONG account contract</div><select id="dhLongContract">${contractOpts}</select></div>
       <div class="tb-form-row"><div class="tb-form-label">SHORT account contract</div><select id="dhShortContract">${contractOpts}</select></div>
       <div class="tb-form-hint">Signals (daily DSB, hedge band) are read from the LONG account's contract; each account trades its own contract.</div>
@@ -4408,6 +4410,7 @@ async function renderDualHedgeAddForm() {
       strategy: tbDualHedgeBody.querySelector("#dhStrategy").value,
       unwindMode: tbDualHedgeBody.querySelector("#dhUnwind").value,
       bandTimeframe: tbDualHedgeBody.querySelector("#dhBandTf").value,
+      coreAccount: tbDualHedgeBody.querySelector("#dhCoreAcct").value,
       coreSignal: tbDualHedgeBody.querySelector("#dhCoreSignal").value,
       bandHa: tbDualHedgeBody.querySelector("#dhBandHa").value === "true",
       coreEod: tbDualHedgeBody.querySelector("#dhCoreEod").value,
@@ -4526,6 +4529,8 @@ async function renderDualHedgeBacktestForm() {
       </div>
     </div>
     <div id="dbBias" style="display:none">
+      <div class="tb-form-row"><div class="tb-form-label">Core account (takes the daily DSB trade)</div><select id="dbCoreAcct"><option value="AUTO">Auto \u2014 green: LONG acct, red: SHORT acct</option><option value="LONG">LONG account (either side)</option><option value="SHORT">SHORT account (either side)</option></select></div>
+      <div class="tb-form-hint">The other account is always the hedge account. Signals are read from the core account's contract.</div>
       <div class="tb-form-row"><div class="tb-form-label">LONG account contract</div><select id="dbLongContract">${contractOpts}</select></div>
       <div class="tb-form-row"><div class="tb-form-label">SHORT account contract</div><select id="dbShortContract">${contractOpts}</select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core signal (daily)</div><select id="dbCoreSignal"><option value="DAILY_DSB" selected>Daily Dynamic Step Band on daily HA candles</option><option value="DAILY_HA">Previous daily HA candle colour</option></select></div>
@@ -4566,7 +4571,7 @@ async function renderDualHedgeBacktestForm() {
     set("#dbAtrMult", pf.slMode === "ATR" ? pf.atrSlMult : ""); set("#dbAtrTf", pf.atrTimeframe);
     set("#dbMaxLoss", pf.maxLoss); set("#dbTakeProfit", pf.takeProfit);
     set("#dbRealizeRupees", pf.realizeRupees); set("#dbLossAlert", pf.lossAlertRupees);
-    set("#dbCoreSignal", pf.coreSignal); set("#dbBandHa", pf.bandHa === undefined ? "" : String(pf.bandHa)); set("#dbCoreEod", pf.coreEod); set("#dbUnwind", pf.unwindMode); set("#dbBandTf", pf.bandTimeframe); set("#dbEntryTime", pf.entryTime);
+    set("#dbCoreAcct", pf.coreAccount); set("#dbCoreSignal", pf.coreSignal); set("#dbBandHa", pf.bandHa === undefined ? "" : String(pf.bandHa)); set("#dbCoreEod", pf.coreEod); set("#dbUnwind", pf.unwindMode); set("#dbBandTf", pf.bandTimeframe); set("#dbEntryTime", pf.entryTime);
     q("#dbGap").checked = !!pf.gapCapture;
     const hint = tbDualHedgeBody.querySelector(".tb-form-hint");
     if (hint) hint.insertAdjacentHTML("beforeend", ` \u00b7 prefilled from <b>${escHtml(pf.name)}</b>`);
@@ -4585,7 +4590,7 @@ async function renderDualHedgeBacktestForm() {
       maxLoss: q("#dbMaxLoss").value, takeProfit: q("#dbTakeProfit").value,
       slMode: q("#dbSlMode").value, atrSlMult: q("#dbAtrMult").value || undefined, atrTimeframe: q("#dbAtrTf").value,
       unwindMode: q("#dbUnwind").value, bandTimeframe: q("#dbBandTf").value, entryTime: q("#dbEntryTime").value || "10:00",
-      coreSignal: q("#dbCoreSignal").value, bandHa: q("#dbBandHa").value === "true", coreEod: q("#dbCoreEod").value,
+      coreAccount: q("#dbCoreAcct").value, coreSignal: q("#dbCoreSignal").value, bandHa: q("#dbBandHa").value === "true", coreEod: q("#dbCoreEod").value,
       realizeRupees: q("#dbRealizeRupees").value || undefined, lossAlertRupees: q("#dbLossAlert").value || undefined,
       gapCapture: q("#dbStrategy").value === "DUAL" && q("#dbGap").checked,
       gcEntry: "23:20", gcExit: "23:25",
@@ -4664,7 +4669,7 @@ async function renderDualHedgeBacktestDeploy(bt) {
       maxLossRupees: bt.maxLoss || 3000, takeProfitRupees: bt.takeProfit || 3000,
       slMode: bt.slMode, atrSlMult: bt.atrSlMult, atrTimeframe: bt.atrTimeframe,
       unwindMode: bt.unwindMode, bandTimeframe: bt.bandTimeframe, entryTime: bt.entryTime,
-      coreSignal: bt.coreSignal, bandHa: bt.bandHa, coreEod: bt.coreEod, contractSymbol: bt.contractSymbol, longContract: bt.longContract, shortContract: bt.shortContract,
+      coreAccount: bt.coreAccount, coreSignal: bt.coreSignal, bandHa: bt.bandHa, coreEod: bt.coreEod, contractSymbol: bt.contractSymbol, longContract: bt.longContract, shortContract: bt.shortContract,
       realizeRupees: bt.realizeRupees, lossAlertRupees: bt.lossAlertRupees,
       gapCapture: !!bt.gapCapture, gcEntry: bt.gcEntry, gcExit: bt.gcExit, live, confirmLive,
     };
