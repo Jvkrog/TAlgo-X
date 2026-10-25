@@ -2496,6 +2496,7 @@ async function getHedgePairProcesses() {
             coreLots:        p.pm2_env.env?.CORE_LOTS_OVERRIDE || "1",
             hedgeLots:       p.pm2_env.env?.HEDGE_LOTS_OVERRIDE || "5",
             unwindMode:      p.pm2_env.env?.UNWIND_MODE_OVERRIDE || "HA_FLIP",
+            carryOvernight:  p.pm2_env.env?.CORE_CARRY_OVERRIDE !== "false",
             live:            p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:        p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
             outLogPath:      p.pm2_env.pm_out_log_path,
@@ -2522,7 +2523,7 @@ async function pickUnderlying(list, label) {
 }
 
 async function addHedgePair() {
-    console.log(c.dim("  Core: full-size contract, ONE position, side from the daily DSB, NRML, carried"));
+    console.log(c.dim("  Core: full-size contract, ONE position, side from the daily DSB, NRML carry or MIS close-at-EOD (you choose)"));
     console.log(c.dim("  Hedge: mini contract, opens when the 1h HA DSB flips against the core, closes when it flips back"));
     console.log();
 
@@ -2573,6 +2574,9 @@ async function addHedgePair() {
     const unwindInput = (await ask("  [1] HA_FLIP  [2] EOD_ONLY (default 1): ")).trim();
     const unwindMode = unwindInput === "2" ? "EOD_ONLY" : "HA_FLIP";
 
+    const carryInput = (await ask("  Core at EOD  [1] Carry overnight (NRML)  [2] Close at EOD (MIS) (default 1): ")).trim();
+    const carryOvernight = carryInput !== "2";
+
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
@@ -2587,7 +2591,7 @@ async function addHedgePair() {
     const env = {
         CORE_UNDERLYING: coreUnderlying, HEDGE_UNDERLYING: hedgeUnderlying, EXCHANGE_OVERRIDE: "MCX",
         CORE_LOTS_OVERRIDE: String(coreLots), HEDGE_LOTS_OVERRIDE: String(hedgeLots),
-        UNWIND_MODE_OVERRIDE: unwindMode, LIVE_ORDERS_OVERRIDE: String(isLive),
+        UNWIND_MODE_OVERRIDE: unwindMode, CORE_CARRY_OVERRIDE: String(carryOvernight), LIVE_ORDERS_OVERRIDE: String(isLive),
     };
     if (coreLotMultOverride)  env.CORE_LOTMULT_OVERRIDE  = String(coreLotMultOverride);
     if (hedgeLotMultOverride) env.HEDGE_LOTMULT_OVERRIDE = String(hedgeLotMultOverride);
@@ -2617,7 +2621,7 @@ async function hedgePairActionByNumber(pairs, verb, fn) {
 async function backtestHedgePairFlow() {
     console.log();
     console.log(c.bold("  Backtest — Hedge Pair"));
-    console.log(c.dim("  Core: full-size contract, ONE position, side from the daily DSB, NRML, carried"));
+    console.log(c.dim("  Core: full-size contract, ONE position, side from the daily DSB, NRML carry or MIS close-at-EOD (you choose)"));
     console.log(c.dim("  Hedge: mini contract, opens when the 1h HA DSB flips against the core, unwinds per the mode below"));
     console.log();
 
@@ -2656,6 +2660,9 @@ async function backtestHedgePairFlow() {
     const unwindInput = (await ask("  [1] HA_FLIP  [2] EOD_ONLY (default 1): ")).trim();
     const unwindMode = unwindInput === "2" ? "EOD_ONLY" : "HA_FLIP";
 
+    const carryInput = (await ask("  Core at EOD  [1] Carry overnight (NRML)  [2] Close at EOD (MIS) (default 1): ")).trim();
+    const carryOvernight = carryInput !== "2";
+
     const fromIn = await ask("  From (YYYY-MM-DD): ");
     const toIn   = await ask("  To   (YYYY-MM-DD): ");
     const from = new Date(fromIn);
@@ -2674,7 +2681,7 @@ async function backtestHedgePairFlow() {
         const { report, paths } = await runHedgePairBacktest({
             coreUnderlying, hedgeUnderlying, exchange: "MCX",
             coreLots, hedgeLots, coreLotMultOverride, hedgeLotMultOverride,
-            unwindMode, from, to, kc,
+            unwindMode, carryOvernight, from, to, kc,
             progress: (done, total) => process.stdout.write(`\r  ${done}/${total} core 1h bars...`),
         });
         console.log();

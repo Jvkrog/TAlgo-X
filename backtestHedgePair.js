@@ -97,7 +97,7 @@ function istTimeStr(date) {
 async function runHedgePairBacktest({
     coreUnderlying, hedgeUnderlying, exchange = "MCX",
     coreLots = 1, hedgeLots = 5, coreLotMultOverride, hedgeLotMultOverride,
-    unwindMode = "HA_FLIP", from, to, kc, progress,
+    unwindMode = "HA_FLIP", carryOvernight = true, from, to, kc, progress,
 }) {
     unwindMode = (unwindMode || "HA_FLIP").toUpperCase();
     if (unwindMode !== "HA_FLIP" && unwindMode !== "EOD_ONLY") {
@@ -113,11 +113,11 @@ async function runHedgePairBacktest({
 
     const core  = resolveHedgePairLeg({
         underlying: coreUnderlying, legLabel: "CORE", exchange, csvRepo, pinStore,
-        lots: coreLots, lotMultOverride: coreLotMultOverride,
+        lots: coreLots, lotMultOverride: coreLotMultOverride, carryOvernight,
     });
     const hedge = resolveHedgePairLeg({
         underlying: hedgeUnderlying, legLabel: "HEDGE", exchange, csvRepo, pinStore,
-        lots: hedgeLots, lotMultOverride: hedgeLotMultOverride,
+        lots: hedgeLots, lotMultOverride: hedgeLotMultOverride, carryOvernight,
     });
 
     const fetchFrom = new Date(from.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
@@ -247,10 +247,10 @@ async function runHedgePairBacktest({
         const pastOpen = hours > ENTRY_HOUR || (hours === ENTRY_HOUR && minutes >= ENTRY_MINUTE);
         // Core: the side from the daily DSB, opened once (first bar at/after 10:00 inside
         // the reported range), then carried — never closed before the data ends.
-        if (pastOpen && bar.date >= from && !coreEntered) {
+        if (pastOpen && bar.date >= from && coreEntered !== (carryOvernight ? true : dayKey)) {
             const dsb = priorDailyDsb(dayKey);
             if (dsb) { // no completed daily bar yet: retry next bar
-                coreEntered = true;
+                coreEntered = carryOvernight ? true : dayKey;
                 await enterLeg(core.context, coreState, coreLedger, dsb === "green" ? "LONG" : "SHORT", rawBar.open, `daily DSB ${dsb}`);
             }
         }
@@ -283,9 +283,12 @@ async function runHedgePairBacktest({
         // ─── EOD — the core is carried (never closed). Only EOD_ONLY mode
         // closes the hedge, on the last bar of each day.
         const isLastBarOfDay = (i === coreHourlyHA.length - 1) || dayKeyIST(coreHourlyHA[i + 1].date) !== dayKey;
-        if (isLastBarOfDay && unwindMode === "EOD_ONLY" && hedgeState.position) {
+        if (isLastBarOfDay && (!carryOvernight || unwindMode === "EOD_ONLY") && hedgeState.position) {
             const hedgePx = hedgeCloseAt(bar.date);
             if (hedgePx !== null) { console.log("**EOD**"); await exitLeg(hedge.context, hedgeState, hedgeLedger, hedgePx, "EOD_FORCE"); }
+        }
+        if (isLastBarOfDay && !carryOvernight && coreState.position) {
+            console.log("**EOD**"); await exitLeg(core.context, coreState, coreLedger, rawBar.close, "EOD_FORCE");
         }
         // Reset each leg's "session" total once today is confirmed fully
         // closed out — same fix as hedgePairEngine.js live (Sep 2026):
@@ -349,7 +352,7 @@ async function runHedgePairBacktest({
     const report = buildHedgePairReport({
         core:  { underlying: coreUnderlying,  symbol: core.context.symbol,  lots: core.context.lots,  lotMult: core.context.lotMult },
         hedge: { underlying: hedgeUnderlying, symbol: hedge.context.symbol, lots: hedge.context.lots, lotMult: hedge.context.lotMult },
-        unwindMode, range: { from, to }, runAt: new Date(),
+        unwindMode, carryOvernight, range: { from, to }, runAt: new Date(),
         metrics, trades: combinedTrades,
     });
     const paths = saveHedgePairReport(report);

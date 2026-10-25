@@ -3773,7 +3773,7 @@ async function loadHedgePairsList() {
           <div class="tb-watch-row">
             <div class="tb-watch-main">
               <div class="tb-watch-inst">${p.name}</div>
-              <div class="tb-watch-meta">core ${p.coreUnderlying} (${p.coreLots} lot) \u00b7 hedge ${p.hedgeUnderlying} (${p.hedgeLots} lots) \u00b7 unwind:${p.unwindMode} \u00b7 ${modeTag} \u00b7 [${p.status}]</div>
+              <div class="tb-watch-meta">core ${p.coreUnderlying} (${p.coreLots} lot, ${p.carryOvernight === false ? "MIS" : "NRML"}) \u00b7 hedge ${p.hedgeUnderlying} (${p.hedgeLots} lots) \u00b7 unwind:${p.unwindMode} \u00b7 ${modeTag} \u00b7 [${p.status}]</div>
             </div>
             <button class="tb-cli-action" data-hp-logs="${p.name}" style="padding:4px 8px;font-size:11px">Logs</button>
             <button class="tb-cli-action" data-hp-toggle="${p.name}" data-hp-status="${p.status}" style="padding:4px 8px;font-size:11px">${p.status === "online" ? "stop" : "start"}</button>
@@ -3914,6 +3914,10 @@ async function renderHedgePairAddForm() {
       </select>
     </div>
     <div class="tb-form-row">
+      <div class="tb-form-label">Core at EOD</div>
+      <select id="hpCarry"><option value="true" selected>Carry overnight (NRML)</option><option value="false">Close at EOD (MIS)</option></select>
+    </div>
+    <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="hpLive"><span>Go LIVE (real orders on both legs) \u2014 unchecked = paper</span></label>
     </div>
     <div id="hpAddErrBox"></div>
@@ -3937,6 +3941,7 @@ async function renderHedgePairAddForm() {
       coreLotMultOverride: tbHedgePairsBody.querySelector("#hpCoreLotMult")?.value || undefined,
       hedgeLotMultOverride: tbHedgePairsBody.querySelector("#hpHedgeLotMult")?.value || undefined,
       unwindMode: tbHedgePairsBody.querySelector("#hpUnwindMode").value,
+      carryOvernight: tbHedgePairsBody.querySelector("#hpCarry").value === "true",
       live, confirmLive,
     };
     const btn = tbHedgePairsBody.querySelector("#hpAddSubmit");
@@ -4422,6 +4427,7 @@ async function renderHedgePairBacktestForm() {
     <div class="tb-form-row" style="display:${coreLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">core lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span></div><input type="number" id="hbCoreLotMult" min="1" step="any"></div>
     <div class="tb-form-row" style="display:${hedgeLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">hedge lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span></div><input type="number" id="hbHedgeLotMult" min="1" step="any"></div>
     <div class="tb-form-row"><div class="tb-form-label">Unwind mode</div><select id="hbUnwind"><option value="HA_FLIP">HA_FLIP \u2014 hedge closes when the 1h HA band flips back</option><option value="EOD_ONLY">EOD_ONLY \u2014 hold to EOD</option></select></div>
+    <div class="tb-form-row"><div class="tb-form-label">Core at EOD</div><select id="hbCarry"><option value="true">Carry overnight (NRML)</option><option value="false">Close at EOD (MIS)</option></select></div>
     <div class="tb-form-row"><div class="tb-form-label">From</div><input type="date" id="hbFrom"></div>
     <div class="tb-form-row"><div class="tb-form-label">To</div><input type="date" id="hbTo" value="${today}"></div>
     <div id="hbErrBox"></div>
@@ -4438,7 +4444,7 @@ async function renderHedgePairBacktestForm() {
         coreUnderlying: hpAddState.core, hedgeUnderlying: hpAddState.hedge,
         coreLots: q("#hbCoreLots").value || 1, hedgeLots: q("#hbHedgeLots").value || 5,
         coreLotMultOverride: q("#hbCoreLotMult").value || undefined, hedgeLotMultOverride: q("#hbHedgeLotMult").value || undefined,
-        unwindMode: q("#hbUnwind").value, from: q("#hbFrom").value, to: q("#hbTo").value,
+        unwindMode: q("#hbUnwind").value, carryOvernight: q("#hbCarry").value === "true", from: q("#hbFrom").value, to: q("#hbTo").value,
       }) });
       const data = await res.json();
       if (!res.ok) q("#hbErrBox").innerHTML = `<div class="tb-err-box">${escHtml(data.error || "backtest failed")}</div>`;

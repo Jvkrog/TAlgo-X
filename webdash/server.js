@@ -2223,6 +2223,7 @@ async function getHedgePairProcesses() {
             coreLots:        p.pm2_env.env?.CORE_LOTS_OVERRIDE || "1",
             hedgeLots:       p.pm2_env.env?.HEDGE_LOTS_OVERRIDE || "5",
             unwindMode:      p.pm2_env.env?.UNWIND_MODE_OVERRIDE || "HA_FLIP",
+            carryOvernight:  p.pm2_env.env?.CORE_CARRY_OVERRIDE !== "false",
             live:            p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:        p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
             outLogPath:      p.pm2_env.pm_out_log_path,
@@ -2278,7 +2279,7 @@ app.post("/api/toolbox/hedgepairs/backtest", async (req, res) => {
                 coreLots: Number(b.coreLots) || 1, hedgeLots: Number(b.hedgeLots) || 5,
                 coreLotMultOverride: b.coreLotMultOverride ? Number(b.coreLotMultOverride) : null,
                 hedgeLotMultOverride: b.hedgeLotMultOverride ? Number(b.hedgeLotMultOverride) : null,
-                unwindMode, from, to, kc,
+                unwindMode, carryOvernight: b.carryOvernight !== false, from, to, kc,
             })));
         } finally {
             setEmitSuppressed(false);
@@ -2300,7 +2301,7 @@ app.post("/api/toolbox/hedgepairs/backtest", async (req, res) => {
 app.post("/api/toolbox/hedgepairs", async (req, res) => {
     const {
         coreUnderlying, hedgeUnderlying, coreLots, hedgeLots,
-        coreLotMultOverride, hedgeLotMultOverride, unwindMode,
+        coreLotMultOverride, hedgeLotMultOverride, unwindMode, carryOvernight,
         live, confirmLive,
     } = req.body || {};
 
@@ -2327,7 +2328,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
     const env = {
         CORE_UNDERLYING: coreUnderlying, HEDGE_UNDERLYING: hedgeUnderlying, EXCHANGE_OVERRIDE: "MCX",
         CORE_LOTS_OVERRIDE: String(coreLots || 1), HEDGE_LOTS_OVERRIDE: String(hedgeLots || 5),
-        UNWIND_MODE_OVERRIDE: resolvedUnwindMode, LIVE_ORDERS_OVERRIDE: String(!!live),
+        UNWIND_MODE_OVERRIDE: resolvedUnwindMode, CORE_CARRY_OVERRIDE: String(carryOvernight !== false), LIVE_ORDERS_OVERRIDE: String(!!live),
     };
     if (coreLotMultOverride)  env.CORE_LOTMULT_OVERRIDE  = String(coreLotMultOverride);
     if (hedgeLotMultOverride) env.HEDGE_LOTMULT_OVERRIDE = String(hedgeLotMultOverride);

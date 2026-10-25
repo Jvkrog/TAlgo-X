@@ -19,7 +19,7 @@ const { getDefinition, buildContext } = require("./context");
 
 // legLabel: "CORE" | "HEDGE" — only used for tgPrefix/name suffixing and
 // error messages, not for any logic branch.
-function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore, lots, lotMultOverride }) {
+function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore, lots, lotMultOverride, carryOvernight = true }) {
     const { resolveCurrent } = require("./instrumentResolution"); // lazy — avoids a require cycle risk if this file is ever required from instrumentResolution's own dependency chain
     const def = getDefinition(underlying, exchange);
     const { contract, source } = resolveCurrent(def.underlying, def, csvRepo, pinStore);
@@ -54,7 +54,7 @@ function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore
     // file's own EOD block every day, unconditionally — NRML here is
     // about margin treatment (matching the "1 full lot NRML" spec), not
     // about whether the bot bothers to exit.
-    context.carryOvernight = true;
+    context.carryOvernight = carryOvernight !== false; // true = NRML + carried; false = MIS + closed at EOD
     // CHANGED Sep 2026 (was 23:15, see below) — 23:15 left a dead 15-minute
     // gap after the last real 1h candle close: this engine's whole clock is
     // driven by 1h HA/Dynamic Band bars, which close on the hour, so there

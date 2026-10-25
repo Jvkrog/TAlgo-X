@@ -54,6 +54,7 @@
 // synchronous fill price.
 //
 // ENV VARS (mirrors engine.js's override-via-env convention):
+//   CORE_CARRY_OVERRIDE      "true" (default) NRML carry | "false" MIS, core+hedge closed at EOD
 //   CORE_UNDERLYING          (required) e.g. "NATURALGAS" or "ZINC"
 //   HEDGE_UNDERLYING         (required) e.g. "NATGASMINI" or "ZINCMINI"
 //   EXCHANGE_OVERRIDE        default "MCX"
@@ -100,6 +101,8 @@ const { createHaCandleReader } = require("./haCandleReader");
 const { createDynamicBandReader } = require("./dynamicBandReader");
 
 const POLL_MS = Number(process.env.HEDGE_PAIR_POLL_MS) || 60 * 1000;
+// CORE_CARRY_OVERRIDE: "true" (default) = NRML, core carried overnight; "false" = MIS, core (and hedge) closed at EOD.
+const CARRY = process.env.CORE_CARRY_OVERRIDE !== "false";
 const UNWIND_MODE = (process.env.UNWIND_MODE_OVERRIDE || "HA_FLIP").toUpperCase();
 if (UNWIND_MODE !== "HA_FLIP" && UNWIND_MODE !== "EOD_ONLY") {
     console.error(c.red(`UNWIND_MODE_OVERRIDE "${UNWIND_MODE}" invalid (known: HA_FLIP, EOD_ONLY) — refusing to boot.`));
@@ -153,7 +156,7 @@ async function main() {
         let context, source;
         try {
             ({ context, source } = resolveHedgePairLeg({
-                underlying, legLabel, exchange: EXCHANGE_OVERRIDE, csvRepo, pinStore, lots, lotMultOverride,
+                underlying, legLabel, exchange: EXCHANGE_OVERRIDE, csvRepo, pinStore, lots, lotMultOverride, carryOvernight: CARRY,
             }));
         } catch (err) {
             process.exit(1); // hedgePairContext.js already logged the specific fix
@@ -196,7 +199,7 @@ async function main() {
         lotMultOverride: process.env.HEDGE_LOTMULT_OVERRIDE ? Number(process.env.HEDGE_LOTMULT_OVERRIDE) : null,
     });
 
-    console.log(c.bold(`HEDGE PAIR  core:${core.context.symbol} (side from daily DSB, ${core.context.lots} lot, NRML, carried)  hedge:${hedge.context.symbol} (${hedge.context.lots} lots, unwind:${UNWIND_MODE})`));
+    console.log(c.bold(`HEDGE PAIR  core:${core.context.symbol} (side from daily DSB, ${core.context.lots} lot, ${CARRY ? "NRML, carried overnight" : "MIS, closed at EOD"})  hedge:${hedge.context.symbol} (${hedge.context.lots} lots, unwind:${UNWIND_MODE})`));
     console.log();
 
     // Both signal readers key off the CORE instrument's own token — the
@@ -333,7 +336,12 @@ async function main() {
         console.log();
         console.log(c.bold("**EOD**"));
         console.log(c.dim(`EOD  hedge pair  ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false })}`));
-        if (hedge.state.position && UNWIND_MODE === "EOD_ONLY") {
+        // MIS mode: close both legs (hedge first) — retried every tick until flat.
+        if (!CARRY) {
+            if (hedge.state.position) await exitLeg(hedge, "EOD_FORCE");
+            if (core.state.position)  await exitLeg(core,  "EOD_FORCE");
+            if (core.state.position || hedge.state.position) { console.error(c.red("EOD did not fully flatten — will retry next tick")); return; }
+        } else if (hedge.state.position && UNWIND_MODE === "EOD_ONLY") {
             const ok = await exitLeg(hedge, "EOD_FORCE");
             if (!ok) { console.error(c.red("EOD hedge close failed — will retry next tick")); return; }
         }
@@ -353,7 +361,7 @@ async function main() {
             lines.push(`${leg.label.toLowerCase()} ${leg.context.symbol}: realized ${positions.pnlStr(realized)} | ${open}`);
         }
         lines.push(`total (incl. unrealised): ${positions.pnlStr(total)}`);
-        if (core.state.position) lines.push("Core carried overnight (NRML). Restart the engine before the next open.");
+        if (CARRY && core.state.position) lines.push("Core carried overnight (NRML). Restart the engine before the next open.");
         const report = lines.join("\n");
         console.log(c.bold(report.replace(/\n/g, "   ")));
         console.log();
