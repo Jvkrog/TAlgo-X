@@ -278,16 +278,18 @@ function buildHaDsbSignal(bars, tf, step) {
 
 // Dynamic Band colour (dynamicBandReader.js's state machine, via its stepper)
 // after each native bar, plus when that bar became visible. Raw closes, no HA.
-function buildBandSignal(bars, tf, step) {
+function buildBandSignal(bars, tf, step, ha = false) {
     const stepper = createBandStepper(step);
+    const src = bars;
+    if (ha) bars = toHA(bars);   // Heikin-Ashi closes; bar timing still comes from the raw bars
     const colorAfter = new Array(bars.length);
     const doneMs     = new Array(bars.length);
     for (let k = 0; k < bars.length; k++) {
         stepper.push(bars[k]);
         colorAfter[k] = stepper.state().color;
-        doneMs[k] = barEndMs(bars[k], tf);
+        doneMs[k] = barEndMs(src[k], tf);
     }
-    return { colorAfter, doneMs, count: bars.length, kind: `${tf} Dynamic Band (step ${step})` };
+    return { colorAfter, doneMs, count: bars.length, kind: `${tf} ${ha ? "HA " : ""}Dynamic Band (step ${step})` };
 }
 
 // createLegKit — the two accounts' bookkeeping shared by both strategies:
@@ -680,6 +682,7 @@ async function replayBiasHedge({
     dailyBars, bandBars, bandStep, bandTimeframe = "15m",
     unwindMode = "BAND_FLIP",
     entryHour = 10, entryMinute = 0, eodHour = 23, eodMinute = 15,
+    coreSignal = "DAILY_HA", bandHa = false, coreEod = "CLOSE",
     slippagePoints = 0, progress, verbose = true,
 }) {
     if (!candles.length) throw new Error("replayBiasHedge: no candles");
@@ -693,14 +696,24 @@ async function replayBiasHedge({
 
     // ─── SIGNALS — both built once over everything, then sliced by visibility.
     // BIAS: daily HA colour per IST day (doji = null = no read).
-    const dailyHA = toHA(dailyBars).map(b => ({ dayKey: dayKeyIST(b.date), color: haColor(b) }));
+    // DAILY_DSB: the daily Dynamic Step Band (same stepper as the hedge band) run on daily HA closes.
+    const carry = coreEod === "CARRY";
+    const coreLabel = coreSignal === "DAILY_DSB" ? "daily DSB" : "daily HA";
+    let dailyHA;
+    if (coreSignal === "DAILY_DSB") {
+        const st = createBandStepper(bandStep);
+        dailyHA = [];
+        for (const b of toHA(dailyBars)) { st.push(b); const x = st.state(); dailyHA.push({ dayKey: dayKeyIST(b.date), color: x ? x.color : null }); }
+    } else {
+        dailyHA = toHA(dailyBars).map(b => ({ dayKey: dayKeyIST(b.date), color: haColor(b) }));
+    }
     let dailyPtr = -1;
     function priorDailyColor(dayKey) {   // the last daily HA candle STRICTLY BEFORE this day (today's isn't closed yet)
         while (dailyPtr + 1 < dailyHA.length && dailyHA[dailyPtr + 1].dayKey < dayKey) dailyPtr++;
         return dailyPtr >= 0 ? dailyHA[dailyPtr].color : null;
     }
     // BAND: Dynamic Band colour after each native bar; visible once the bar has closed.
-    const band = buildBandSignal(bandBars, bandTimeframe, bandStep);
+    const band = buildBandSignal(bandBars, bandTimeframe, bandStep, bandHa);
     let bandPtr = 0;
     function bandColorAt(ms) {   // latest colour a live read at the start of minute `ms` would see
         while (bandPtr < band.count && band.doneMs[bandPtr] <= ms) bandPtr++;
@@ -735,15 +748,18 @@ async function replayBiasHedge({
         if (pastEod || dayEnds) {
             // EOD — both accounts, hedge first, every day, unconditionally. At the
             // EOD minute's open; if the day's data ends before it, at that last candle's close.
-            if (legs.some(l => l.state.position)) {
+            // CARRY: the core stays open; only an EOD_ONLY hedge is closed.
+            const toClose = legs.filter(l => l.state.position && (!carry || (unwindMode === "EOD_ONLY" && l.role === "HEDGE")));
+            if (toClose.length) {
                 log("**EOD**");
                 const px = pastEod ? cn.open : cn.close;
-                for (const leg of [...legs].sort((a, b) => (b.role === "HEDGE") - (a.role === "HEDGE"))) {
-                    if (leg.state.position) { stats.exits.eod++; await exitLeg(leg, px, "EOD_FORCE"); }
+                for (const leg of toClose.sort((a, b) => (b.role === "HEDGE") - (a.role === "HEDGE"))) {
+                    stats.exits.eod++; await exitLeg(leg, px, "EOD_FORCE");
                 }
             }
         } else {
             // CORE — decided ONCE per day, from the daily HA candle before today.
+            if (carry && coreAcct && coreAcct.state.position) coreDecidedDay = dayKey;   // carried core: already holding, never a second one
             if (minOfDay >= entryMin && coreDecidedDay !== dayKey) {
                 const prior = priorDailyColor(dayKey);
                 if (prior) {
@@ -751,7 +767,7 @@ async function replayBiasHedge({
                     const side = prior === "green" ? "LONG" : "SHORT";
                     coreAcct = side === "LONG" ? long : short;
                     stats.coreDays[side]++;
-                    await enterLeg(coreAcct, cn.open, `daily HA ${prior}`, "CORE");
+                    await enterLeg(coreAcct, cn.open, `${coreLabel} ${prior}`, "CORE");
                 } else if (noBiasNoted !== dayKey) {
                     noBiasNoted = dayKey; stats.noBiasDays++;
                     log(c.yellow(`${dayKey}  no usable daily HA read (doji / no prior candle) — no core today, retrying until EOD`));
@@ -795,7 +811,7 @@ async function replayBiasHedge({
                 day: dayKey, equity: eq, realized: realizedTotal(), unrealized: eq - realizedTotal(),
                 long: long.state.position, short: short.state.position,
             });
-            coreAcct = null;   // a new day decides afresh
+            if (!carry) coreAcct = null;   // a new day decides afresh (CARRY: the core continues)
         }
         lastClose = cn.close;
         if (progress && i % 2000 === 0) progress(i, total);
@@ -809,7 +825,7 @@ async function replayBiasHedge({
 
     return {
         ...kit.tradesFrom(tradeFromMs), stats, mtm: kit.mtmResult(daily),
-        signalBars: band.count, signalKind: `daily HA bias + ${band.kind}`,
+        signalBars: band.count, signalKind: `${coreLabel} + ${band.kind}`,
     };
 }
 
@@ -830,6 +846,9 @@ async function replayBiasHedge({
 //   ── BIAS only ──
 //   bandTimeframe = "15m",      // 5m | 15m | 30m | 1h
 //   unwindMode = "BAND_FLIP",   // "BAND_FLIP" | "EOD_ONLY"
+//   coreSignal = "DAILY_HA",    // "DAILY_HA" | "DAILY_DSB" (daily Dynamic Step Band on daily HA candles)
+//   bandHa = false,             // hedge band on Heikin-Ashi candles
+//   coreEod = "CLOSE",          // "CLOSE" | "CLOSE_MIS" (both flat at EOD) | "CARRY" (core carried, NRML)
 //   entryHour = 10, entryMinute = 0,       // when the core is decided each day (IST)
 //   eodHour, eodMinute,         // default: context.js defaultEodFor(bandTimeframe, exchange)
 //   ──
@@ -843,6 +862,7 @@ async function runDualHedgeBacktest({
     strategy = "DUAL", realizeRupees = 3000, lossAlertRupees = 0,
     bandStepOverride, rangeSizeOverride, rangeStart,
     signalSource = "RANGE", haTimeframe = "1h",
+    coreSignal = "DAILY_HA", bandHa = false, coreEod = "CLOSE",
     bandTimeframe = "15m", unwindMode = "BAND_FLIP", entryHour = 10, entryMinute = 0, eodHour, eodMinute,
     takeProfit = 3000, maxLoss = 3000,
     slMode = "RUPEES", atrSlMult, atrTimeframe = "1h",   // DUAL only — see replayDualHedge
@@ -868,6 +888,9 @@ async function runDualHedgeBacktest({
         unwindMode = String(unwindMode).toUpperCase();
         if (unwindMode !== "BAND_FLIP" && unwindMode !== "EOD_ONLY") throw new Error(`runDualHedgeBacktest: unwindMode must be BAND_FLIP or EOD_ONLY (got ${unwindMode})`);
         if (!(bandTimeframe in BAND_TIMEFRAMES)) throw new Error(`runDualHedgeBacktest: bandTimeframe must be one of ${Object.keys(BAND_TIMEFRAMES).join(", ")} (got ${bandTimeframe})`);
+        coreSignal = String(coreSignal).toUpperCase(); coreEod = String(coreEod).toUpperCase(); bandHa = bandHa === true;
+        if (coreSignal !== "DAILY_HA" && coreSignal !== "DAILY_DSB") throw new Error(`runDualHedgeBacktest: coreSignal must be DAILY_HA or DAILY_DSB (got ${coreSignal})`);
+        if (!["CLOSE", "CLOSE_MIS", "CARRY"].includes(coreEod)) throw new Error(`runDualHedgeBacktest: coreEod must be CLOSE, CLOSE_MIS or CARRY (got ${coreEod})`);
         if (gapCapture) throw new Error("runDualHedgeBacktest: gap capture isn't part of the BIAS strategy (it is flat at EOD, like the hedge pair)");
         const eod = defaultEodFor(bandTimeframe, exchange);
         eodHour   = eodHour   ?? eod.eodHour;
@@ -961,11 +984,11 @@ async function runDualHedgeBacktest({
             res = await replayBiasHedge({
                 longCtx: longLeg.context, shortCtx: shortLeg.context, candles, tradeFromMs: fromMs,
                 dailyBars, bandBars, bandStep, bandTimeframe, unwindMode,
-                entryHour, entryMinute, eodHour, eodMinute,
+                entryHour, entryMinute, eodHour, eodMinute, coreSignal, bandHa, coreEod,
                 slippagePoints: Number(slippagePoints), progress,
             });
             params = {
-                strategy: "BIAS", signal: `daily HA bias + ${bandTimeframe} band`, bandStep, bandTimeframe, unwindMode,
+                strategy: "BIAS", signal: `${coreSignal === "DAILY_DSB" ? "daily DSB" : "daily HA bias"} + ${bandTimeframe}${bandHa ? " HA" : ""} band`, bandStep, bandTimeframe, unwindMode, coreSignal, bandHa, coreEod,
                 entry: hhmm(entryHour, entryMinute), eod: hhmm(eodHour, eodMinute),
                 rangeStart: fmtIST(anchorMs), anchor: anchorNote, slippagePoints: Number(slippagePoints),
                 takeProfit: null, maxLoss: null, gapCapture: null,

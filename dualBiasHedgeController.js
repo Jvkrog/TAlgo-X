@@ -6,6 +6,9 @@
 // against each other (same data in -> same trades out), which is the point of
 // keeping this logic separate from the engine's plumbing.
 //
+// OPTIONS (added Oct 2026): dailyReader may be a daily Dynamic Step Band reader instead of a daily HA
+// colour reader (same {color} shape); carry=true keeps the core open past EOD (NRML), see checkEodCarry().
+//
 // RULES (see backtestDualHedge.js's BIAS HEDGE header for the long version):
 //   CORE   once per IST day, at/after entryHour:entryMinute, from the latest
 //          COMPLETED daily HA candle (dailyReader.getLatest()): green -> the
@@ -36,6 +39,8 @@ function createBiasHedgeController({
     long, short, dailyReader, bandReader, enterLeg, exitLeg, clock,
     entryHour = 10, entryMinute = 0, eodHour, eodMinute,
     unwindMode = "BAND_FLIP", log = () => {},
+    carry = false,            // true: the core is NOT closed at EOD (NRML carry); only an EOD_ONLY hedge is
+    coreLabel = "daily HA",   // wording for logs / entry reasons
 }) {
     if (unwindMode !== "BAND_FLIP" && unwindMode !== "EOD_ONLY") {
         throw new Error(`createBiasHedgeController: unwindMode must be BAND_FLIP or EOD_ONLY (got ${unwindMode})`);
@@ -65,14 +70,14 @@ function createBiasHedgeController({
 
         const daily = await dailyReader.getLatest();
         if (!daily || !daily.color) {
-            if (noReadNotedFor !== t.today) { noReadNotedFor = t.today; log(`no usable daily HA read yet (doji / no data) — core undecided, retrying until EOD`); }
+            if (noReadNotedFor !== t.today) { noReadNotedFor = t.today; log(`no usable ${coreLabel} read yet (doji / no data) — core undecided, retrying until EOD`); }
             return null;
         }
         // Locked in the moment we act on a real read, even if the order fails —
         // a failed entry means no core today, not a retry loop.
         coreDecidedForDate = t.today;
         const leg = daily.color === "green" ? long : short;
-        const ok = await enterLeg(leg, "CORE", `daily HA ${daily.color}`);
+        const ok = await enterLeg(leg, "CORE", `${coreLabel} ${daily.color}`);
         if (!ok) return null;
         leg.role = "CORE";
         return { action: "CORE_ENTRY", leg, color: daily.color };
@@ -112,11 +117,26 @@ function createBiasHedgeController({
         return !legs.some(l => l.state.position);
     }
 
+    // Carry mode EOD: the core stays open; only an EOD_ONLY hedge is closed.
+    // Returns true once nothing that must close is left open.
+    async function checkEodCarry() {
+        if (unwindMode !== "EOD_ONLY") return true;
+        for (const leg of legs) {
+            if (leg.role === "HEDGE" && leg.state.position) {
+                if (await exitLeg(leg, "EOD_FORCE", { awaitFill: true })) leg.role = null;
+            }
+        }
+        return !legs.some(l => l.role === "HEDGE" && l.state.position);
+    }
+
     // One decision pass. Returns "ACTIVE" (normal), "EOD_PENDING" (past EOD, a
     // position is still open — retry next tick) or "EOD_DONE" (past EOD and flat).
     async function tick() {
         const t = clock();
-        if (t.hours * 60 + t.minutes >= eodMin) return (await checkEod()) ? "EOD_DONE" : "EOD_PENDING";
+        if (t.hours * 60 + t.minutes >= eodMin) {
+            const done = carry ? await checkEodCarry() : await checkEod();
+            return done ? "EOD_DONE" : "EOD_PENDING";
+        }
         await checkCoreEntry(t);
         await checkHedge();
         return "ACTIVE";

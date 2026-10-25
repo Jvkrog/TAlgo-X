@@ -2777,6 +2777,9 @@ async function getDualHedgeProcesses() {
             strategy:   (p.pm2_env.env?.DH_STRATEGY || "DUAL").toUpperCase(),
             unwindMode: p.pm2_env.env?.DH_UNWIND_MODE || "BAND_FLIP",
             bandTimeframe: p.pm2_env.env?.DH_BAND_TIMEFRAME || "15m",
+            coreSignal: p.pm2_env.env?.DH_CORE_SIGNAL || "DAILY_HA",
+            bandHa: p.pm2_env.env?.DH_BAND_HA === "true",
+            coreEod: p.pm2_env.env?.DH_CORE_EOD || "CLOSE",
             entryTime:  `${String(p.pm2_env.env?.DH_ENTRY_HOUR_OVERRIDE ?? "10").padStart(2, "0")}:${String(p.pm2_env.env?.DH_ENTRY_MINUTE_OVERRIDE ?? "0").padStart(2, "0")}`,
             outLogPath: p.pm2_env.pm_out_log_path,
             errLogPath: p.pm2_env.pm_err_log_path,
@@ -2798,9 +2801,15 @@ async function dualHedgeAccountConflict(underlying, accounts, selfName) {
 
 // BIAS strategy deploy: daily-HA core + Dynamic Band hedge, flat at EOD.
 async function addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverride, lots }) {
-    console.log(c.dim("  Core: previous daily HA candle, once a day (green = LONG account, red = SHORT account)"));
+    console.log(c.dim("  Core: once a day (green = LONG account, red = SHORT account) — signal chosen below"));
     console.log(c.dim("  Hedge: the OTHER account enters the opposite side when the Dynamic Band turns against the core"));
-    console.log(c.dim("  Both accounts are flat at EOD (no overnight carry, no gap capture, no TP/SL)"));
+    console.log(c.dim("  Core at EOD is your choice below (no gap capture, no TP/SL)"));
+    const csIn = (await ask("  Core signal: [1] previous daily HA candle colour  [2] daily Dynamic Step Band on daily HA candles (default 2): ")).trim();
+    const coreSignal = csIn === "1" ? "DAILY_HA" : "DAILY_DSB";
+    const bhIn = (await ask("  Hedge band candles: [1] raw  [2] Heikin-Ashi (default 2): ")).trim();
+    const bandHa = bhIn !== "1";
+    const ceIn = (await ask("  Core at EOD: [1] close at EOD (MIS)  [2] carry overnight (NRML) (default 2): ")).trim();
+    const coreEod = ceIn === "1" ? "CLOSE_MIS" : "CARRY";
     const unwindIn = (await ask("  Hedge unwind: [B] band back in the core's favour closes it, [E] hold to EOD (default B): ")).trim().toUpperCase();
     if (unwindIn !== "" && unwindIn !== "B" && unwindIn !== "E") { console.log(c.yellow("  Invalid unwind choice")); await pauseForReview(); return; }
     const unwindMode = unwindIn === "E" ? "EOD_ONLY" : "BAND_FLIP";
@@ -2831,6 +2840,7 @@ async function addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverri
         DH_UNDERLYING: underlying, DH_LONG_USER: longUser.name, DH_SHORT_USER: shortUser.name,
         DH_EXCHANGE_OVERRIDE: "MCX", DH_LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive),
         DH_STRATEGY: "BIAS", DH_UNWIND_MODE: unwindMode, DH_BAND_TIMEFRAME: tf,
+        DH_CORE_SIGNAL: coreSignal, DH_BAND_HA: String(bandHa), DH_CORE_EOD: coreEod,
         DH_ENTRY_HOUR_OVERRIDE: String(entryHour), DH_ENTRY_MINUTE_OVERRIDE: String(entryMinute),
         DH_EOD_HOUR_OVERRIDE: String(eod.eodHour), DH_EOD_MINUTE_OVERRIDE: String(eod.eodMinute),
     };
@@ -2838,7 +2848,7 @@ async function addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverri
     if (bandStep)        env.DH_BAND_STEP_OVERRIDE = String(bandStep);
     try {
         await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: __dirname, env });
-        console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  core ${etIn} daily HA  hedge ${tf} band ${unwindMode}  flat ${eod.eodHour}:${String(eod.eodMinute).padStart(2, "0")}  ${isLive ? "LIVE" : "PAPER"})`));
+        console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  core ${etIn} ${coreSignal === "DAILY_DSB" ? "daily DSB (HA)" : "daily HA"}  hedge ${tf}${bandHa ? " HA" : ""} band ${unwindMode}  ${coreEod === "CARRY" ? "core carried (NRML)" : `flat ${eod.eodHour}:${String(eod.eodMinute).padStart(2, "0")} (MIS)`}  ${isLive ? "LIVE" : "PAPER"})`));
         console.log(c.dim("  The engine exits at EOD — start it again each trading morning."));
     } catch (err) {
         console.log(c.red(`  Failed to start: ${err.message}`));
@@ -3171,18 +3181,21 @@ async function backtestDualHedgeFlow() {
     console.log();
     console.log(c.dim("  Strategy:"));
     console.log(c.dim("    D = Dual — each account trades its own side off ONE signal; carries overnight; exits arm after a leg's first flip"));
-    console.log(c.dim("    B = Bias hedge — previous daily HA candle sets the core account (green = LONG acct, red = SHORT acct); the OTHER account"));
-    console.log(c.dim("        hedges when the Dynamic Band turns against the core; both flat at EOD (hedge-pair style)"));
+    console.log(c.dim("    B = Bias hedge — daily DSB / HA candle sets the core account (green = LONG acct, red = SHORT acct); the OTHER account"));
+    console.log(c.dim("        hedges when the Dynamic Band turns against the core; core carried or closed at EOD (your choice)"));
     const strategy = await askChoice("Strategy [D/B, default D]", { D: "DUAL", B: "BIAS" }, "DUAL");
 
     const opts = { strategy };
     if (strategy === "BIAS") {
         opts.unwindMode = await askChoice("Unwind: B = band back in the core's favour closes the hedge, E = hold the hedge to EOD [B/E, default B]", { B: "BAND_FLIP", E: "EOD_ONLY" }, "BAND_FLIP");
+        opts.coreSignal = await askChoice("Core signal: D = daily Dynamic Step Band on daily HA candles, H = previous daily HA candle colour [D/H, default D]", { D: "DAILY_DSB", H: "DAILY_HA" }, "DAILY_DSB");
+        opts.bandHa = (await askChoice("Hedge band candles: H = Heikin-Ashi, R = raw [H/R, default H]", { H: "HA", R: "RAW" }, "HA")) === "HA";
+        opts.coreEod = await askChoice("Core at EOD: C = carry overnight (NRML), M = close at EOD (MIS) [C/M, default C]", { C: "CARRY", M: "CLOSE_MIS" }, "CARRY");
         opts.bandTimeframe = await askTf("Dynamic Band timeframe (Kite historical bars)", ["5m", "15m", "30m", "1h"], "1h");
         opts.bandStepOverride = await askNum("Band step override (blank = engine default)", null, { optional: true });
         const t = await askTime("Core entry time IST (decided once a day)", 10, 0);
         opts.entryHour = t.hour; opts.entryMinute = t.minute;
-        console.log(c.dim("  EOD close: automatic for this band timeframe (23:15 for 15m, 23:00 for 30m/1h). Core/hedge have no target or stop."));
+        console.log(c.dim("  EOD time (when MIS close applies / an EOD_ONLY hedge closes): automatic for this band timeframe (23:15 for 15m, 23:00 for 30m/1h). No target or stop."));
     } else {
         opts.slMode = await askChoice("Stop type [R = rupees, A = ATR multiple from entry, default R]", { R: "RUPEES", A: "ATR" }, "RUPEES");
         if (opts.slMode === "ATR") {
@@ -3265,7 +3278,7 @@ async function dualHedgeScreen() {
                 if (d.status === "online") statusStr = c.green(`\u25cf ${fmtUptime(d.uptime)}`);
                 else                        statusStr = c.red(`\u25cf ${d.status.toUpperCase()}`);
                 body.push(`  ${String(i + 1).padStart(2)}. ${d.name.padEnd(20)} ${d.underlying.padEnd(14)} ${modeTag}  ${statusStr}`);
-                if (d.strategy === "BIAS") body.push(c.dim(`      BIAS  LONG:${d.longUser}  SHORT:${d.shortUser}  ${d.lots} lot  core daily HA @${d.entryTime}  hedge ${d.bandTimeframe} band ${d.unwindMode}  flat at EOD`));
+                if (d.strategy === "BIAS") body.push(c.dim(`      BIAS  LONG:${d.longUser}  SHORT:${d.shortUser}  ${d.lots} lot  core ${d.coreSignal === "DAILY_DSB" ? "daily DSB" : "daily HA"} @${d.entryTime}  hedge ${d.bandTimeframe}${d.bandHa ? " HA" : ""} band ${d.unwindMode}  ${d.coreEod === "CARRY" ? "core carried" : "flat at EOD"}`));
                 else body.push(c.dim(`      LONG:${d.longUser}  SHORT:${d.shortUser}  ${d.lots} lot  ${d.slMode === "ATR" ? `stop:${d.atrSlMult || engineConfig.ATR_SL_MULT}x ATR/${d.atrTimeframe}` : `maxLoss:\u20b9${d.maxLoss}`}  takeProfit:\u20b9${d.takeProfit}${d.rangeSize ? `  range:${d.rangeSize}` : ""}${d.gapCapture ? `  GAP ${d.gcEntry}\u2192${d.gcExit}` : ""}`));
             });
         }

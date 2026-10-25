@@ -127,12 +127,12 @@ function renderDualHedgeHtml(report) {
     const title = isRealize
         ? `Dual Hedge \u2014 ${esc(report.symbol)} (realize &amp; re-open, LONG acct / SHORT acct)`
         : isBias
-        ? `Dual Hedge \u2014 ${esc(report.symbol)} (daily HA bias core + ${esc(p.bandTimeframe)} band hedge)`
+        ? `Dual Hedge \u2014 ${esc(report.symbol)} (${p.coreSignal === "DAILY_DSB" ? "daily DSB (HA)" : "daily HA bias"} core + ${esc(p.bandTimeframe)}${p.bandHa ? " HA" : ""} band hedge)`
         : `Dual Hedge \u2014 ${esc(report.symbol)} (LONG acct / SHORT acct)`;
     const settings = isRealize
         ? `every leg opens its own side (NRML carry); when a leg's profit exceeds \u20b9${p.realizeRupees} it is closed and the same side re-opened \u00b7 the losing leg is never closed${p.lossAlertRupees ? ` (alert level \u20b9${p.lossAlertRupees})` : ""} \u00b7 session 09:00\u201323:25 IST \u00b7 slippage ${p.slippagePoints} pts`
         : isBias
-        ? `core decided once a day at ${esc(p.entry)} IST from the previous daily HA candle (green \u2192 LONG acct, red \u2192 SHORT acct) \u00b7 hedge = the OTHER account when the ${esc(p.bandTimeframe)} Dynamic Band (step ${p.bandStep}) turns against the core \u00b7 unwind ${esc(p.unwindMode)} \u00b7 both flat at EOD ${esc(p.eod)} IST \u00b7 slippage ${p.slippagePoints} pts`
+        ? `core decided once a day at ${esc(p.entry)} IST from the ${p.coreSignal === "DAILY_DSB" ? "daily Dynamic Step Band on daily Heikin-Ashi candles" : "previous daily HA candle"} (green \u2192 LONG acct, red \u2192 SHORT acct) \u00b7 hedge = the OTHER account when the ${esc(p.bandTimeframe)}${p.bandHa ? " HA" : ""} Dynamic Band (step ${p.bandStep}) turns against the core \u00b7 unwind ${esc(p.unwindMode)} \u00b7 ${p.coreEod === "CARRY" ? "core carried overnight (NRML), never closed at EOD" : `both flat at EOD ${esc(p.eod)} IST${p.coreEod === "CLOSE_MIS" ? " (MIS)" : ""}`} \u00b7 slippage ${p.slippagePoints} pts`
         : `take-profit \u20b9${p.takeProfit} \u00b7 stop ${p.slMode === "ATR" ? `${p.atrSlMult}x ATR(${p.atrLen}) on ${esc(p.atrTimeframe)}, from entry (rupee backstop \u20b9${p.maxLoss} until ATR is available)` : `\u20b9${p.maxLoss}`} (armed only after a leg flips) \u00b7 signal ${esc(p.signal)}${p.bandStep ? ` (band step ${p.bandStep}, range ${p.rangeSize})` : ""} \u00b7 ${gap} \u00b7 slippage ${p.slippagePoints} pts`;
     const activity = isRealize
         ? `entries LONG ${s.entries.LONG} / SHORT ${s.entries.SHORT} \u00b7 realizes LONG ${s.realizes.LONG} / SHORT ${s.realizes.SHORT} \u00b7 days a leg was past the loss alert: LONG ${s.lossAlertDays.LONG} / SHORT ${s.lossAlertDays.SHORT} \u00b7 backtest-end exits ${s.exits.backtestEnd}`
@@ -142,7 +142,7 @@ function renderDualHedgeHtml(report) {
     const carryNote = isRealize
         ? "The losing leg is never closed, so closed-trade P&L only shows the booked profits; the equity curve and MTM drawdown show the open loss you would have to fund."
         : isBias
-        ? "Flat at EOD every day, so the MTM and closed-trade drawdowns are close; the equity curve still shows the intraday swings the closed trades hide."
+        ? (report.params.coreEod === "CARRY" ? "The core is carried across days, so closed-trade P&L only shows the hedge and the final mark-to-market; the equity curve shows the open core's swings." : "Flat at EOD every day, so the MTM and closed-trade drawdowns are close; the equity curve still shows the intraday swings the closed trades hide.")
         : "Closed-trade drawdown below can be far smaller because an unflipped leg has no exit rule while it sits underwater.";
     return `<!DOCTYPE html>
 <html><head><meta charset="utf-8">

@@ -24,6 +24,9 @@
 //   DH_BAND_STEP_OVERRIDE         optional band step
 //   DH_BAND_TIMEFRAME             5m | 15m | 30m | 1h   (default 15m)
 //   DH_UNWIND_MODE                BAND_FLIP (default) | EOD_ONLY
+//   DH_CORE_SIGNAL                DAILY_HA (default) | DAILY_DSB (daily Dynamic Step Band on daily HA candles: green -> LONG acct, red -> SHORT acct)
+//   DH_BAND_HA                    "true": the hedge band runs on Heikin-Ashi candles (default raw)
+//   DH_CORE_EOD                   CLOSE (default, legacy) | CLOSE_MIS (MIS, flat at EOD) | CARRY (NRML, core carried; EOD_ONLY hedge still closed)
 //   DH_ENTRY_HOUR_OVERRIDE / DH_ENTRY_MINUTE_OVERRIDE   core entry time IST (10:00)
 //   DH_EOD_HOUR_OVERRIDE / DH_EOD_MINUTE_OVERRIDE       default context.js defaultEodFor(timeframe)
 //   DH_POLL_MS                    decision poll, default 60000
@@ -71,6 +74,12 @@ async function main() {
     if (UNWIND !== "BAND_FLIP" && UNWIND !== "EOD_ONLY") fail(`DH_UNWIND_MODE "${process.env.DH_UNWIND_MODE}" invalid (BAND_FLIP / EOD_ONLY)`);
     const BAND_TF = (process.env.DH_BAND_TIMEFRAME || "15m").toLowerCase();
     if (!BAND_TIMEFRAMES.includes(BAND_TF)) fail(`DH_BAND_TIMEFRAME "${process.env.DH_BAND_TIMEFRAME}" invalid (${BAND_TIMEFRAMES.join("/")})`);
+    const CORE_SIGNAL = (process.env.DH_CORE_SIGNAL || "DAILY_HA").toUpperCase();   // DAILY_HA (legacy) | DAILY_DSB (daily Dynamic Step Band on daily HA candles)
+    if (CORE_SIGNAL !== "DAILY_HA" && CORE_SIGNAL !== "DAILY_DSB") fail(`DH_CORE_SIGNAL "${process.env.DH_CORE_SIGNAL}" invalid (DAILY_HA / DAILY_DSB)`);
+    const BAND_HA = process.env.DH_BAND_HA === "true";   // hedge band on Heikin-Ashi candles
+    const CORE_EOD = (process.env.DH_CORE_EOD || "CLOSE").toUpperCase();   // CLOSE (legacy) | CLOSE_MIS | CARRY
+    if (!["CLOSE", "CLOSE_MIS", "CARRY"].includes(CORE_EOD)) fail(`DH_CORE_EOD "${process.env.DH_CORE_EOD}" invalid (CLOSE / CLOSE_MIS / CARRY)`);
+    const CARRY = CORE_EOD === "CARRY";
     const POLL_MS = Math.max(5000, envInt(process.env.DH_POLL_MS, 60 * 1000));
 
     const entryHour = envInt(process.env.DH_ENTRY_HOUR_OVERRIDE, 10);
@@ -125,6 +134,7 @@ async function main() {
         context.name = context.name.replace("(Dual Hedge", "(Dual Bias Hedge");
         context.tgLabel = `Dual Bias Hedge ${side} (${user.name})`;
         context.eodHour = eodHour; context.eodMinute = eodMinute;
+        if (CORE_EOD === "CLOSE_MIS") context.carryOvernight = false;   // MIS, squared off at EOD
         console.log(c.dim(`[${context.tgPrefix}] resolved contract (${source}): ${context.symbol} (token ${context.token}, lotMult ${context.lotMult}, lots ${context.lots}, account:${user.name})`));
 
         const { tg } = createTelegram(context, engineConfig);
@@ -146,7 +156,7 @@ async function main() {
                 resumed.push(leg);
                 console.log(c.yellow(`[${context.tgPrefix}] resumed ${leg.role} ${state.position}@${state.entryPrice}`));
                 const savedDate = saved.entry_date || saved.date || null;
-                if (savedDate && String(savedDate).slice(0, 10) < today0) {
+                if (!CARRY && savedDate && String(savedDate).slice(0, 10) < today0) {
                     console.warn(c.yellow(`[${context.tgPrefix}] resumed position is from ${savedDate} (not today) — it will be flattened at EOD`));
                     tg(`⚠ [${context.tgPrefix}] Resumed ${leg.role} ${side} is from ${savedDate}, not today. Verify at the broker.`);
                 }
@@ -175,7 +185,7 @@ async function main() {
         long.tg("⚠ Both accounts resumed as CORE; SHORT treated as HEDGE.");
     }
 
-    console.log(c.bold(`DUAL BIAS HEDGE  ${long.context.symbol}  LONG:${long.user.name} (${long.context.lots} lot)  SHORT:${short.user.name} (${short.context.lots} lot)  band ${BAND_TF}  unwind ${UNWIND}  core ${hhmm(entryHour, entryMinute)}  flat ${hhmm(eodHour, eodMinute)} IST`));
+    console.log(c.bold(`DUAL BIAS HEDGE  ${long.context.symbol}  LONG:${long.user.name} (${long.context.lots} lot)  SHORT:${short.user.name} (${short.context.lots} lot)  core ${CORE_SIGNAL === "DAILY_DSB" ? "daily DSB (HA)" : "daily HA"}  band ${BAND_TF}${BAND_HA ? " HA" : ""}  unwind ${UNWIND}  core ${hhmm(entryHour, entryMinute)}  ${CARRY ? "core carried overnight (NRML)" : `flat ${hhmm(eodHour, eodMinute)} IST${CORE_EOD === "CLOSE_MIS" ? " (MIS)" : ""}`}`));
     console.log();
 
     // Readers use the LONG user's credentials (market data is account-agnostic);
@@ -186,9 +196,11 @@ async function main() {
     });
     const bandStep = long.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
     const token = long.context.token;
-    const dailyReader = createHaCandleReader({ token, timeframe: "1d", engineConfig: readerConfig, label: "DUAL_BIAS_DAILY" });
+    const dailyReader = CORE_SIGNAL === "DAILY_DSB"
+        ? createDynamicBandReader({ token, timeframe: "1d", bandStep, engineConfig: readerConfig, label: "DUAL_BIAS_DAILY_DSB", ha: true })
+        : createHaCandleReader({ token, timeframe: "1d", engineConfig: readerConfig, label: "DUAL_BIAS_DAILY" });
     const bandReader = createDynamicBandReader({
-        token, timeframe: BAND_TF, bandStep, engineConfig: readerConfig, label: "DUAL_BIAS_BAND",
+        token, timeframe: BAND_TF, bandStep, engineConfig: readerConfig, label: "DUAL_BIAS_BAND", ha: BAND_HA,
         refreshMs: Math.max(10 * 1000, POLL_MS - 5 * 1000),
     });
 
@@ -236,6 +248,7 @@ async function main() {
     const controller = createBiasHedgeController({
         long, short, dailyReader, bandReader, enterLeg, exitLeg, clock,
         entryHour, entryMinute, eodHour, eodMinute, unwindMode: UNWIND,
+        carry: CARRY, coreLabel: CORE_SIGNAL === "DAILY_DSB" ? "daily DSB" : "daily HA",
         log: m => console.log(c.dim(`DUAL BIAS  ${m}`)),
     });
     for (const leg of resumed) controller.markResumed(leg, leg.role, today0);
@@ -248,7 +261,7 @@ async function main() {
             const m = `started after EOD (${hhmm(eodHour, eodMinute)}) — will only flatten what is open, then exit`;
             console.log(c.yellow(`DUAL BIAS  ${m}`)); long.tg(`⚠ Dual Bias Hedge ${m}`);
         } else if (nowMin >= entryHour * 60 + entryMinute && !controller.coreLeg()) {
-            const m = `started after the core entry time (${hhmm(entryHour, entryMinute)}) — the core is taken on the first poll from the latest completed daily HA candle`;
+            const m = `started after the core entry time (${hhmm(entryHour, entryMinute)}) — the core is taken on the first poll from the latest completed daily ${CORE_SIGNAL === "DAILY_DSB" ? "DSB" : "HA"} read`;
             console.log(c.yellow(`DUAL BIAS  ${m}`)); long.tg(`ℹ Dual Bias Hedge ${m}`);
         }
     }
@@ -277,11 +290,16 @@ async function main() {
         const lr = await long.db.getRealizedPnlToday(long.context.tgPrefix);
         const sr = await short.db.getRealizedPnlToday(short.context.tgPrefix);
         const mode = engineConfig.LIVE_ORDERS ? "LIVE" : "PAPER";
-        const report = `Dual Bias Hedge EOD (${mode}) — ${today}\nlong   ${long.context.symbol} (${long.user.name}): realized ${positions.pnlStr(lr)}\nshort  ${short.context.symbol} (${short.user.name}): realized ${positions.pnlStr(sr)}\ntotal realized: ${positions.pnlStr(lr + sr)}`;
+        const openStr = async leg => {
+            if (!leg.state.position) return "flat";
+            const px = await getLtp(leg.ltpKey).catch(() => null);
+            return `${leg.role || ""} ${leg.state.position} still OPEN (uPnL ${px !== null ? positions.pnlStr(positions.unrealised(leg.context, leg.state, px)) : "-"})`.trim();
+        };
+        const report = `Dual Bias Hedge EOD (${mode}) — ${today}\nlong   ${long.context.symbol} (${long.user.name}): realized ${positions.pnlStr(lr)} | ${await openStr(long)}\nshort  ${short.context.symbol} (${short.user.name}): realized ${positions.pnlStr(sr)} | ${await openStr(short)}\ntotal realized: ${positions.pnlStr(lr + sr)}${CARRY && (long.state.position || short.state.position) ? "\nCore carried overnight (NRML). Restart the engine before the next open." : ""}`;
         console.log(c.bold(report.replace(/\n/g, "   ")));
         await long.tg(report);
         console.log(c.bold("*** NORMAL SHUTDOWN ***"));
-        emitEvent(long.context.tgPrefix, "SHUTDOWN", { pnl: lr + sr, trades: (long.state.trades || 0) + (short.state.trades || 0), positionLeftOpen: false });
+        emitEvent(long.context.tgPrefix, "SHUTDOWN", { pnl: lr + sr, trades: (long.state.trades || 0) + (short.state.trades || 0), positionLeftOpen: !!(long.state.position || short.state.position) });
         setTimeout(() => process.exit(0), 2000);
     }
 

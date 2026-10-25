@@ -2447,6 +2447,9 @@ async function getDualHedgeProcesses() {
             lossAlertRupees: p.pm2_env.env?.DH_LOSS_ALERT_RUPEES || "",
             unwindMode: p.pm2_env.env?.DH_UNWIND_MODE || "BAND_FLIP",
             bandTimeframe: p.pm2_env.env?.DH_BAND_TIMEFRAME || "15m",
+            coreSignal: p.pm2_env.env?.DH_CORE_SIGNAL || "DAILY_HA",
+            bandHa: p.pm2_env.env?.DH_BAND_HA === "true",
+            coreEod: p.pm2_env.env?.DH_CORE_EOD || "CLOSE",
             entryTime:  hhmmPad(p.pm2_env.env?.DH_ENTRY_HOUR_OVERRIDE ?? 10, p.pm2_env.env?.DH_ENTRY_MINUTE_OVERRIDE ?? 0),
             eodTime:    (p.pm2_env.env?.DH_EOD_HOUR_OVERRIDE !== undefined && p.pm2_env.env?.DH_EOD_HOUR_OVERRIDE !== "")
                 ? hhmmPad(p.pm2_env.env.DH_EOD_HOUR_OVERRIDE, p.pm2_env.env.DH_EOD_MINUTE_OVERRIDE ?? 0) : null,
@@ -2555,6 +2558,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         lotMultOverride, bandStepOverride, live, confirmLive,
         gapCapture, gcEntry, gcExit,
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
+        coreSignal: coreSignalIn, bandHa: bandHaIn, coreEod: coreEodIn,
         realizeRupees, lossAlertRupees,
     } = req.body || {};
 
@@ -2623,6 +2627,11 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         const eod = eodTime ? parseHHMM(eodTime) : { hour: dEod.eodHour, minute: dEod.eodMinute };
         if (!eod) return res.status(400).json({ error: "EodTime must be HH:MM (IST)" });
         if (eod.hour * 60 + eod.minute <= entry.hour * 60 + entry.minute) return res.status(400).json({ error: "EntryTime must be before EOD" });
+        const coreSignal = String(coreSignalIn || "DAILY_HA").toUpperCase();
+        if (coreSignal !== "DAILY_HA" && coreSignal !== "DAILY_DSB") return res.status(400).json({ error: "CoreSignal must be DAILY_HA or DAILY_DSB" });
+        const coreEod = String(coreEodIn || "CLOSE").toUpperCase();
+        if (!["CLOSE", "CLOSE_MIS", "CARRY"].includes(coreEod)) return res.status(400).json({ error: "CoreEod must be CLOSE, CLOSE_MIS or CARRY" });
+        env.DH_CORE_SIGNAL = coreSignal; env.DH_BAND_HA = String(bandHaIn === true); env.DH_CORE_EOD = coreEod;   // always written (PM2 restart merges env)
         env.DH_UNWIND_MODE = unwind;
         env.DH_BAND_TIMEFRAME = tf;
         env.DH_ENTRY_HOUR_OVERRIDE = String(entry.hour); env.DH_ENTRY_MINUTE_OVERRIDE = String(entry.minute);
@@ -2694,6 +2703,11 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
         } else if (strategy === "BIAS") {
             opts.unwindMode = String(b.unwindMode || "BAND_FLIP").toUpperCase();
             if (opts.unwindMode !== "BAND_FLIP" && opts.unwindMode !== "EOD_ONLY") return res.status(400).json({ error: "UnwindMode must be BAND_FLIP or EOD_ONLY" });
+            opts.coreSignal = String(b.coreSignal || "DAILY_HA").toUpperCase();
+            if (opts.coreSignal !== "DAILY_HA" && opts.coreSignal !== "DAILY_DSB") return res.status(400).json({ error: "CoreSignal must be DAILY_HA or DAILY_DSB" });
+            opts.coreEod = String(b.coreEod || "CLOSE").toUpperCase();
+            if (!["CLOSE", "CLOSE_MIS", "CARRY"].includes(opts.coreEod)) return res.status(400).json({ error: "CoreEod must be CLOSE, CLOSE_MIS or CARRY" });
+            opts.bandHa = b.bandHa === true;
             opts.bandTimeframe = String(b.bandTimeframe || "15m").toLowerCase();
             if (!BIAS_BAND_TIMEFRAMES.includes(opts.bandTimeframe)) return res.status(400).json({ error: `BandTimeframe must be one of ${BIAS_BAND_TIMEFRAMES.join("/")}` });
             const entry = parseHHMM(b.entryTime, "10:00");

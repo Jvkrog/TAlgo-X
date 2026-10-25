@@ -361,7 +361,7 @@ function dualHedgeStrategyText(d) {
   }
   if (d.strategy === "BIAS") {
     const unwind = d.unwindMode === "EOD_ONLY" ? "held to EOD" : "unwinds when the band flips back";
-    return `dual bias hedge \u00b7 core: daily HA @${d.entryTime} \u00b7 hedge: ${d.bandTimeframe} band (${unwind}) \u00b7 flat ${d.eodTime || "EOD"}`;
+    return `dual bias hedge \u00b7 core: ${d.coreSignal === "DAILY_DSB" ? "daily DSB (HA)" : "daily HA"} @${d.entryTime} \u00b7 hedge: ${d.bandTimeframe}${d.bandHa ? " HA" : ""} band (${unwind}) \u00b7 ${d.coreEod === "CARRY" ? "core carried (NRML)" : `flat ${d.eodTime || "EOD"}${d.coreEod === "CLOSE_MIS" ? " (MIS)" : ""}`}`;
   }
   return `dual hedge \u00b7 stop:${d.slMode === "ATR" ? `${d.atrSlMult}x ATR/${d.atrTimeframe}` : `\u20b9${d.maxLoss}`} \u00b7 tp:\u20b9${d.takeProfit}${d.rangeSize ? ` \u00b7 range:${d.rangeSize}` : ""} (armed only after a flip)${d.gapCapture ? ` \u00b7 gap capture ${d.gcEntry}\u2192${d.gcExit}` : ""}`;
 }
@@ -382,7 +382,7 @@ function buildDualHedgeCard(d) {
       </div>
     </div>
     <div class="card-price-row">
-      <span class="card-price">LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot ${d.strategy === "BIAS" ? "each \u00b7 flat at EOD" : "NRML each"}</span>
+      <span class="card-price">LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot ${d.strategy === "BIAS" ? (d.coreEod === "CARRY" ? "each \u00b7 core carried" : "each \u00b7 flat at EOD") : "NRML each"}</span>
     </div>
     <div class="pnl-row">
       <div class="pnl-box">
@@ -4288,6 +4288,9 @@ async function renderDualHedgeAddForm() {
     <div class="tb-form-row"><div class="tb-form-label">SHORT account (must differ from LONG)</div><select id="dhShortUser">${userOptions}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">Lots per leg (default 1)</div><input type="number" id="dhLots" min="1" step="1" value="1"></div>
     <div id="dhBiasOnly" style="display:none">
+      <div class="tb-form-row"><div class="tb-form-label">Core signal (daily)</div><select id="dhCoreSignal"><option value="DAILY_DSB" selected>Daily Dynamic Step Band on daily HA candles</option><option value="DAILY_HA">Previous daily HA candle colour</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Hedge band candles</div><select id="dhBandHa"><option value="true" selected>Heikin-Ashi candles</option><option value="false">Raw candles</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Core at EOD</div><select id="dhCoreEod"><option value="CARRY" selected>Carry overnight (NRML)</option><option value="CLOSE_MIS">Close at EOD (MIS)</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Hedge unwind</div><select id="dhUnwind"><option value="BAND_FLIP">Band back in the core's favour closes the hedge</option><option value="EOD_ONLY">Hold the hedge to EOD</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Dynamic Band timeframe</div><select id="dhBandTf"><option value="5m">5m</option><option value="15m" selected>15m</option><option value="30m">30m</option><option value="1h">1h</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core entry time IST (previous daily HA candle decides, once a day)</div><input type="time" id="dhEntryTime" value="10:00"></div>
@@ -4328,7 +4331,7 @@ async function renderDualHedgeAddForm() {
   const dhHints = {
     DUAL: "LONG account enters LONG only, SHORT account enters SHORT only \u2014 both carry overnight, SL only arms after that leg's own first adverse flip.",
     REALIZE: "LONG on the long account + SHORT on the short account, NRML. When a leg's profit passes the set value it is closed (realized) and the same position is opened again for overnight carry. The losing leg is left alone \u2014 add funds to that account yourself (optional Telegram alert).",
-    BIAS: "Previous daily HA candle sets the core (green = LONG account, red = SHORT account). The OTHER account hedges when the Dynamic Band turns against the core. Both accounts are flat at EOD (no overnight carry, no gap capture).",
+    BIAS: "The daily Dynamic Step Band (on daily HA candles) or the previous daily HA candle sets the core (green = LONG account, red = SHORT account). The OTHER account hedges when the Dynamic Band (default 1h HA is your pick below) turns against the core. The core is carried overnight (NRML) or closed at EOD (MIS) \u2014 your choice. No gap capture.",
   };
   const dhSyncStrategy = () => {
     const st = tbDualHedgeBody.querySelector("#dhStrategy").value;
@@ -4383,6 +4386,9 @@ async function renderDualHedgeAddForm() {
       strategy: tbDualHedgeBody.querySelector("#dhStrategy").value,
       unwindMode: tbDualHedgeBody.querySelector("#dhUnwind").value,
       bandTimeframe: tbDualHedgeBody.querySelector("#dhBandTf").value,
+      coreSignal: tbDualHedgeBody.querySelector("#dhCoreSignal").value,
+      bandHa: tbDualHedgeBody.querySelector("#dhBandHa").value === "true",
+      coreEod: tbDualHedgeBody.querySelector("#dhCoreEod").value,
       entryTime: tbDualHedgeBody.querySelector("#dhEntryTime").value || "10:00",
       realizeRupees: tbDualHedgeBody.querySelector("#dhRealizeRupees").value || undefined,
       lossAlertRupees: tbDualHedgeBody.querySelector("#dhLossAlert").value || undefined,
@@ -4493,6 +4499,9 @@ function renderDualHedgeBacktestForm() {
       </div>
     </div>
     <div id="dbBias" style="display:none">
+      <div class="tb-form-row"><div class="tb-form-label">Core signal (daily)</div><select id="dbCoreSignal"><option value="DAILY_DSB" selected>Daily Dynamic Step Band on daily HA candles</option><option value="DAILY_HA">Previous daily HA candle colour</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Hedge band candles</div><select id="dbBandHa"><option value="true" selected>Heikin-Ashi candles</option><option value="false">Raw candles</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Core at EOD</div><select id="dbCoreEod"><option value="CARRY" selected>Carry overnight (NRML)</option><option value="CLOSE_MIS">Close at EOD (MIS)</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Hedge unwind</div><select id="dbUnwind"><option value="BAND_FLIP">Band flip closes the hedge</option><option value="EOD_ONLY">Hold to EOD</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Dynamic Band timeframe</div><select id="dbBandTf"><option>5m</option><option selected>15m</option><option>30m</option><option>1h</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core entry time IST</div><input type="time" id="dbEntryTime" value="10:00"></div>
@@ -4527,7 +4536,7 @@ function renderDualHedgeBacktestForm() {
     set("#dbAtrMult", pf.slMode === "ATR" ? pf.atrSlMult : ""); set("#dbAtrTf", pf.atrTimeframe);
     set("#dbMaxLoss", pf.maxLoss); set("#dbTakeProfit", pf.takeProfit);
     set("#dbRealizeRupees", pf.realizeRupees); set("#dbLossAlert", pf.lossAlertRupees);
-    set("#dbUnwind", pf.unwindMode); set("#dbBandTf", pf.bandTimeframe); set("#dbEntryTime", pf.entryTime);
+    set("#dbCoreSignal", pf.coreSignal); set("#dbBandHa", pf.bandHa === undefined ? "" : String(pf.bandHa)); set("#dbCoreEod", pf.coreEod); set("#dbUnwind", pf.unwindMode); set("#dbBandTf", pf.bandTimeframe); set("#dbEntryTime", pf.entryTime);
     q("#dbGap").checked = !!pf.gapCapture;
     const hint = tbDualHedgeBody.querySelector(".tb-form-hint");
     if (hint) hint.insertAdjacentHTML("beforeend", ` \u00b7 prefilled from <b>${escHtml(pf.name)}</b>`);
@@ -4546,6 +4555,7 @@ function renderDualHedgeBacktestForm() {
       maxLoss: q("#dbMaxLoss").value, takeProfit: q("#dbTakeProfit").value,
       slMode: q("#dbSlMode").value, atrSlMult: q("#dbAtrMult").value || undefined, atrTimeframe: q("#dbAtrTf").value,
       unwindMode: q("#dbUnwind").value, bandTimeframe: q("#dbBandTf").value, entryTime: q("#dbEntryTime").value || "10:00",
+      coreSignal: q("#dbCoreSignal").value, bandHa: q("#dbBandHa").value === "true", coreEod: q("#dbCoreEod").value,
       realizeRupees: q("#dbRealizeRupees").value || undefined, lossAlertRupees: q("#dbLossAlert").value || undefined,
       gapCapture: q("#dbStrategy").value === "DUAL" && q("#dbGap").checked,
       gcEntry: "23:20", gcExit: "23:25",
@@ -4624,6 +4634,7 @@ async function renderDualHedgeBacktestDeploy(bt) {
       maxLossRupees: bt.maxLoss || 3000, takeProfitRupees: bt.takeProfit || 3000,
       slMode: bt.slMode, atrSlMult: bt.atrSlMult, atrTimeframe: bt.atrTimeframe,
       unwindMode: bt.unwindMode, bandTimeframe: bt.bandTimeframe, entryTime: bt.entryTime,
+      coreSignal: bt.coreSignal, bandHa: bt.bandHa, coreEod: bt.coreEod,
       realizeRupees: bt.realizeRupees, lossAlertRupees: bt.lossAlertRupees,
       gapCapture: !!bt.gapCapture, gcEntry: bt.gcEntry, gcExit: bt.gcExit, live, confirmLive,
     };
