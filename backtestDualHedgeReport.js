@@ -194,7 +194,7 @@ function saveDualHedgeReport(report, outDir = path.join(__dirname, "backtests"))
     if (!fs.existsSync(outDir)) fs.mkdirSync(outDir);
 
     const stamp = report.runAt.replace(/[:.]/g, "-");
-    const base  = `DUAL_HEDGE_${report.symbol}_${stamp}`;
+    const base  = `DUAL_HEDGE_${String(report.symbol).replace(/[^A-Za-z0-9_-]+/g, "_")}_${stamp}`;   // symbol may be "LONGSYM / SHORTSYM" (split contracts)
     const jsonPath = path.join(outDir, `${base}.json`);
     const htmlPath = path.join(outDir, `${base}.html`);
 
