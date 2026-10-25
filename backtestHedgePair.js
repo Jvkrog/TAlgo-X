@@ -97,7 +97,7 @@ function istTimeStr(date) {
 async function runHedgePairBacktest({
     coreUnderlying, hedgeUnderlying, exchange = "MCX",
     coreLots = 1, hedgeLots = 5, coreLotMultOverride, hedgeLotMultOverride,
-    unwindMode = "HA_FLIP", carryOvernight = true, from, to, kc, progress,
+    unwindMode = "HA_FLIP", carryOvernight = true, coreSymbol = null, hedgeSymbol = null, from, to, kc, progress,
 }) {
     unwindMode = (unwindMode || "HA_FLIP").toUpperCase();
     if (unwindMode !== "HA_FLIP" && unwindMode !== "EOD_ONLY") {
@@ -113,11 +113,11 @@ async function runHedgePairBacktest({
 
     const core  = resolveHedgePairLeg({
         underlying: coreUnderlying, legLabel: "CORE", exchange, csvRepo, pinStore,
-        lots: coreLots, lotMultOverride: coreLotMultOverride, carryOvernight,
+        lots: coreLots, lotMultOverride: coreLotMultOverride, carryOvernight, symbolOverride: coreSymbol,
     });
     const hedge = resolveHedgePairLeg({
         underlying: hedgeUnderlying, legLabel: "HEDGE", exchange, csvRepo, pinStore,
-        lots: hedgeLots, lotMultOverride: hedgeLotMultOverride, carryOvernight,
+        lots: hedgeLots, lotMultOverride: hedgeLotMultOverride, carryOvernight, symbolOverride: hedgeSymbol,
     });
 
     const fetchFrom = new Date(from.getTime() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000);

@@ -2243,6 +2243,23 @@ app.get("/api/toolbox/hedgepairs", async (req, res) => {
 // askLotMult() do — surfaced here so the UI can prompt for it before
 // ever calling POST /api/toolbox/hedgepairs with a name that would just
 // fail hedgePairContext.js's own refuse-to-boot guard.
+// Listed futures contracts of an underlying, for the core/hedge contract pickers.
+// `auto` is what the roll policy (or a pin) would trade today.
+app.get("/api/toolbox/hedgepairs/contracts/:underlying", async (req, res) => {
+    try {
+        const u = req.params.underlying;
+        const def = getDefinition(u, "MCX");
+        const repo = await ensureCsvLoaded();
+        const now = new Date();
+        const list = repo.findFuturesFor(def.underlying).filter(x => x.expiry && x.expiry >= now);
+        let auto = null;
+        try { auto = resolveCurrent(def.underlying, def, repo, pinStore).contract.symbol; } catch {}
+        res.json({ contracts: list.map(x => ({ symbol: x.symbol, expiry: x.expiry.toISOString().slice(0, 10) })), auto });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
 app.get("/api/toolbox/hedgepairs/lotmult/:underlying", (req, res) => {
     try {
         const def = getDefinition(req.params.underlying, "MCX");
@@ -2279,7 +2296,8 @@ app.post("/api/toolbox/hedgepairs/backtest", async (req, res) => {
                 coreLots: Number(b.coreLots) || 1, hedgeLots: Number(b.hedgeLots) || 5,
                 coreLotMultOverride: b.coreLotMultOverride ? Number(b.coreLotMultOverride) : null,
                 hedgeLotMultOverride: b.hedgeLotMultOverride ? Number(b.hedgeLotMultOverride) : null,
-                unwindMode, carryOvernight: b.carryOvernight !== false, from, to, kc,
+                unwindMode, carryOvernight: b.carryOvernight !== false,
+                coreSymbol: b.coreSymbol || null, hedgeSymbol: b.hedgeSymbol || null, from, to, kc,
             })));
         } finally {
             setEmitSuppressed(false);
@@ -2301,7 +2319,7 @@ app.post("/api/toolbox/hedgepairs/backtest", async (req, res) => {
 app.post("/api/toolbox/hedgepairs", async (req, res) => {
     const {
         coreUnderlying, hedgeUnderlying, coreLots, hedgeLots,
-        coreLotMultOverride, hedgeLotMultOverride, unwindMode, carryOvernight,
+        coreLotMultOverride, hedgeLotMultOverride, unwindMode, carryOvernight, coreSymbol, hedgeSymbol,
         live, confirmLive,
     } = req.body || {};
 
@@ -2330,6 +2348,12 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
         CORE_LOTS_OVERRIDE: String(coreLots || 1), HEDGE_LOTS_OVERRIDE: String(hedgeLots || 5),
         UNWIND_MODE_OVERRIDE: resolvedUnwindMode, CORE_CARRY_OVERRIDE: String(carryOvernight !== false), LIVE_ORDERS_OVERRIDE: String(!!live),
     };
+    for (const [k, v, u] of [["CORE_SYMBOL_OVERRIDE", coreSymbol, coreUnderlying], ["HEDGE_SYMBOL_OVERRIDE", hedgeSymbol, hedgeUnderlying]]) {
+        if (!v) continue;
+        const row = (await ensureCsvLoaded()).findBySymbol(String(v));
+        if (!row || row.underlying !== getDefinition(u, "MCX").underlying) return res.status(400).json({ error: `Contract "${v}" is not a listed ${u} future` });
+        env[k] = String(v);
+    }
     if (coreLotMultOverride)  env.CORE_LOTMULT_OVERRIDE  = String(coreLotMultOverride);
     if (hedgeLotMultOverride) env.HEDGE_LOTMULT_OVERRIDE = String(hedgeLotMultOverride);
 

@@ -55,6 +55,7 @@
 //
 // ENV VARS (mirrors engine.js's override-via-env convention):
 //   CORE_CARRY_OVERRIDE      "true" (default) NRML carry | "false" MIS, core+hedge closed at EOD
+//   CORE_SYMBOL_OVERRIDE / HEDGE_SYMBOL_OVERRIDE  optional exact tradingsymbol (e.g. ZINC26NOVFUT) instead of the roll policy's contract
 //   CORE_UNDERLYING          (required) e.g. "NATURALGAS" or "ZINC"
 //   HEDGE_UNDERLYING         (required) e.g. "NATGASMINI" or "ZINCMINI"
 //   EXCHANGE_OVERRIDE        default "MCX"
@@ -147,7 +148,7 @@ async function main() {
     // resume any same-day position from a crash restart. Same shape as
     // engine.js's own boot sequence + strategies.js's initSignals(),
     // scoped to ONE leg at a time (called twice, once per instrument).
-    async function buildLeg(underlying, legLabel, { lots, lotMultOverride }) {
+    async function buildLeg(underlying, legLabel, { lots, lotMultOverride, symbolOverride = null }) {
         // Contract/context resolution is shared with backtestHedgePair.js
         // via hedgePairContext.js — see that file's header for why. Throws
         // on a missing lotMult instead of returning an error code; caught
@@ -156,7 +157,7 @@ async function main() {
         let context, source;
         try {
             ({ context, source } = resolveHedgePairLeg({
-                underlying, legLabel, exchange: EXCHANGE_OVERRIDE, csvRepo, pinStore, lots, lotMultOverride, carryOvernight: CARRY,
+                underlying, legLabel, exchange: EXCHANGE_OVERRIDE, csvRepo, pinStore, lots, lotMultOverride, carryOvernight: CARRY, symbolOverride,
             }));
         } catch (err) {
             process.exit(1); // hedgePairContext.js already logged the specific fix
@@ -193,10 +194,12 @@ async function main() {
     const core = await buildLeg(CORE_UNDERLYING, "CORE", {
         lots: Number(process.env.CORE_LOTS_OVERRIDE) || 1,
         lotMultOverride: process.env.CORE_LOTMULT_OVERRIDE ? Number(process.env.CORE_LOTMULT_OVERRIDE) : null,
+        symbolOverride: process.env.CORE_SYMBOL_OVERRIDE || null,
     });
     const hedge = await buildLeg(HEDGE_UNDERLYING, "HEDGE", {
         lots: Number(process.env.HEDGE_LOTS_OVERRIDE) || 5,
         lotMultOverride: process.env.HEDGE_LOTMULT_OVERRIDE ? Number(process.env.HEDGE_LOTMULT_OVERRIDE) : null,
+        symbolOverride: process.env.HEDGE_SYMBOL_OVERRIDE || null,
     });
 
     console.log(c.bold(`HEDGE PAIR  core:${core.context.symbol} (side from daily DSB, ${core.context.lots} lot, ${CARRY ? "NRML, carried overnight" : "MIS, closed at EOD"})  hedge:${hedge.context.symbol} (${hedge.context.lots} lots, unwind:${UNWIND_MODE})`));

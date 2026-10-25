@@ -3880,7 +3880,16 @@ function renderHedgePairAddHedgePicker() {
   });
 }
 
+// Contract <option>s for a hedge-pair leg: Auto (roll policy) + every listed future of the underlying.
+async function hpContractOptions(underlying) {
+  const d = await (await fetch(`/api/toolbox/hedgepairs/contracts/${encodeURIComponent(underlying)}`)).json().catch(() => ({}));
+  let html = `<option value="">Auto \u2014 current contract${d.auto ? ` (${escHtml(d.auto)})` : ""}</option>`;
+  for (const c of d.contracts || []) html += `<option value="${escHtml(c.symbol)}">${escHtml(c.symbol)} \u00b7 expires ${escHtml(c.expiry)}</option>`;
+  return html;
+}
+
 async function renderHedgePairAddForm() {
+  const [coreOpts, hedgeOpts] = await Promise.all([hpContractOptions(hpAddState.core), hpContractOptions(hpAddState.hedge)]);
   const [coreLm, hedgeLm] = await Promise.all([
     (await fetch(`/api/toolbox/hedgepairs/lotmult/${encodeURIComponent(hpAddState.core)}`)).json().catch(() => ({})),
     (await fetch(`/api/toolbox/hedgepairs/lotmult/${encodeURIComponent(hpAddState.hedge)}`)).json().catch(() => ({})),
@@ -3890,6 +3899,8 @@ async function renderHedgePairAddForm() {
     <button class="tb-back-link" id="hpBack">\u2039 back</button>
     <div class="tb-form-hint" style="margin:8px 0">Core: <b>${hpAddState.core}</b> (one position, side from the daily Dynamic Step Band (green long, red short), NRML, carried \u2014 never closed at EOD)<br>Hedge: <b>${hpAddState.hedge}</b> (opens when the 1h HA Dynamic Step Band flips against the core, closes when it flips back)</div>
 
+    <div class="tb-form-row"><div class="tb-form-label">Core contract</div><select id="hpCoreSym">${coreOpts}</select></div>
+    <div class="tb-form-row"><div class="tb-form-label">Hedge contract</div><select id="hpHedgeSym">${hedgeOpts}</select></div>
     <div class="tb-form-row">
       <div class="tb-form-label">Core lots (default 1)</div>
       <input type="number" id="hpCoreLots" min="1" step="1" value="1">
@@ -3942,6 +3953,8 @@ async function renderHedgePairAddForm() {
       hedgeLotMultOverride: tbHedgePairsBody.querySelector("#hpHedgeLotMult")?.value || undefined,
       unwindMode: tbHedgePairsBody.querySelector("#hpUnwindMode").value,
       carryOvernight: tbHedgePairsBody.querySelector("#hpCarry").value === "true",
+      coreSymbol: tbHedgePairsBody.querySelector("#hpCoreSym").value || undefined,
+      hedgeSymbol: tbHedgePairsBody.querySelector("#hpHedgeSym").value || undefined,
       live, confirmLive,
     };
     const btn = tbHedgePairsBody.querySelector("#hpAddSubmit");
@@ -4419,6 +4432,7 @@ async function renderDualHedgeAddForm() {
 
 // ─── Hedge pair backtest — POST /api/toolbox/hedgepairs/backtest (backtestHedgePair.js).
 async function renderHedgePairBacktestForm() {
+  const [coreOpts, hedgeOpts] = await Promise.all([hpContractOptions(hpAddState.core), hpContractOptions(hpAddState.hedge)]);
   const [coreLm, hedgeLm] = await Promise.all([
     (await fetch(`/api/toolbox/hedgepairs/lotmult/${encodeURIComponent(hpAddState.core)}`)).json().catch(() => ({})),
     (await fetch(`/api/toolbox/hedgepairs/lotmult/${encodeURIComponent(hpAddState.hedge)}`)).json().catch(() => ({})),
@@ -4428,7 +4442,9 @@ async function renderHedgePairBacktestForm() {
   B.innerHTML = `
     <button class="tb-back-link" id="hbBack">\u2039 back</button>
     <div class="tb-form-hint" style="margin:8px 0">Backtest \u2014 core <b>${escHtml(hpAddState.core)}</b> (side from daily DSB, carried) \u00b7 hedge <b>${escHtml(hpAddState.hedge)}</b> (1h HA Dynamic Step Band)</div>
-        <div class="tb-form-row"><div class="tb-form-label">Core lots</div><input type="number" id="hbCoreLots" min="1" value="1"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Core contract</div><select id="hbCoreSym">${coreOpts}</select></div>
+    <div class="tb-form-row"><div class="tb-form-label">Hedge contract</div><select id="hbHedgeSym">${hedgeOpts}</select></div>
+    <div class="tb-form-row"><div class="tb-form-label">Core lots</div><input type="number" id="hbCoreLots" min="1" value="1"></div>
     <div class="tb-form-row"><div class="tb-form-label">Hedge lots (5:1 default)</div><input type="number" id="hbHedgeLots" min="1" value="5"></div>
     <div class="tb-form-row" style="display:${coreLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">core lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span></div><input type="number" id="hbCoreLotMult" min="1" step="any"></div>
     <div class="tb-form-row" style="display:${hedgeLm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">hedge lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span></div><input type="number" id="hbHedgeLotMult" min="1" step="any"></div>
@@ -4450,7 +4466,7 @@ async function renderHedgePairBacktestForm() {
         coreUnderlying: hpAddState.core, hedgeUnderlying: hpAddState.hedge,
         coreLots: q("#hbCoreLots").value || 1, hedgeLots: q("#hbHedgeLots").value || 5,
         coreLotMultOverride: q("#hbCoreLotMult").value || undefined, hedgeLotMultOverride: q("#hbHedgeLotMult").value || undefined,
-        unwindMode: q("#hbUnwind").value, carryOvernight: q("#hbCarry").value === "true", from: q("#hbFrom").value, to: q("#hbTo").value,
+        unwindMode: q("#hbUnwind").value, carryOvernight: q("#hbCarry").value === "true", coreSymbol: q("#hbCoreSym").value || undefined, hedgeSymbol: q("#hbHedgeSym").value || undefined, from: q("#hbFrom").value, to: q("#hbTo").value,
       }) });
       const data = await res.json();
       if (!res.ok) q("#hbErrBox").innerHTML = `<div class="tb-err-box">${escHtml(data.error || "backtest failed")}</div>`;

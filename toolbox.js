@@ -2522,6 +2522,21 @@ async function pickUnderlying(list, label) {
     return picked;
 }
 
+// Optional contract (expiry) pick for one hedge-pair leg. Blank = the roll policy's contract.
+async function pickLegContract(repo, underlying, legLabel) {
+    const def = getDefinition(underlying, "MCX");
+    const now = new Date();
+    const list = repo.findFuturesFor(def.underlying).filter(x => x.expiry && x.expiry >= now);
+    if (list.length < 2) return null;
+    console.log(c.dim(`  ${legLabel} contract for ${underlying}:`));
+    console.log(c.dim("    0. Auto — roll policy's current contract"));
+    list.forEach((x, i) => console.log(c.dim(`    ${i + 1}. ${x.symbol}  (expires ${x.expiry.toISOString().slice(0, 10)})`)));
+    const ans = (await ask(`  ${legLabel} contract (default 0): `)).trim();
+    const n = ans === "" ? 0 : Number(ans);
+    if (!Number.isInteger(n) || n < 0 || n > list.length) { console.log(c.yellow("  Invalid choice — using Auto")); return null; }
+    return n === 0 ? null : list[n - 1].symbol;
+}
+
 async function addHedgePair() {
     console.log(c.dim("  Core: full-size contract, ONE position, side from the daily DSB, NRML carry or MIS close-at-EOD (you choose)"));
     console.log(c.dim("  Hedge: mini contract, opens when the 1h HA DSB flips against the core, closes when it flips back"));
@@ -2561,6 +2576,8 @@ async function addHedgePair() {
     const coreLotMultOverride  = await askLotMult(coreUnderlying, "CORE");
     const hedgeLotMultOverride = await askLotMult(hedgeUnderlying, "HEDGE");
 
+    const coreSymbol  = await pickLegContract(repo, coreUnderlying, "CORE");
+    const hedgeSymbol = await pickLegContract(repo, hedgeUnderlying, "HEDGE");
     const coreLotsInput  = await ask("  Core lots (default 1): ");
     const hedgeLotsInput = await ask("  Hedge lots (default 5, the real 5:1 contract ratio for both supported pairs): ");
     const coreLots  = coreLotsInput  ? Number(coreLotsInput)  : 1;
@@ -2593,6 +2610,8 @@ async function addHedgePair() {
         CORE_LOTS_OVERRIDE: String(coreLots), HEDGE_LOTS_OVERRIDE: String(hedgeLots),
         UNWIND_MODE_OVERRIDE: unwindMode, CORE_CARRY_OVERRIDE: String(carryOvernight), LIVE_ORDERS_OVERRIDE: String(isLive),
     };
+    if (coreSymbol)  env.CORE_SYMBOL_OVERRIDE  = coreSymbol;
+    if (hedgeSymbol) env.HEDGE_SYMBOL_OVERRIDE = hedgeSymbol;
     if (coreLotMultOverride)  env.CORE_LOTMULT_OVERRIDE  = String(coreLotMultOverride);
     if (hedgeLotMultOverride) env.HEDGE_LOTMULT_OVERRIDE = String(hedgeLotMultOverride);
 
@@ -2650,6 +2669,8 @@ async function backtestHedgePairFlow() {
     const coreLotMultOverride  = await askLotMult(coreUnderlying, "CORE");
     const hedgeLotMultOverride = await askLotMult(hedgeUnderlying, "HEDGE");
 
+    const coreSymbol  = await pickLegContract(repo, coreUnderlying, "CORE");
+    const hedgeSymbol = await pickLegContract(repo, hedgeUnderlying, "HEDGE");
     const coreLotsInput  = await ask("  Core lots (default 1): ");
     const hedgeLotsInput = await ask("  Hedge lots (default 5, the real 5:1 contract ratio for both supported pairs): ");
     const coreLots  = coreLotsInput  ? Number(coreLotsInput)  : 1;
@@ -2681,7 +2702,7 @@ async function backtestHedgePairFlow() {
         const { report, paths } = await runHedgePairBacktest({
             coreUnderlying, hedgeUnderlying, exchange: "MCX",
             coreLots, hedgeLots, coreLotMultOverride, hedgeLotMultOverride,
-            unwindMode, carryOvernight, from, to, kc,
+            unwindMode, carryOvernight, coreSymbol, hedgeSymbol, from, to, kc,
             progress: (done, total) => process.stdout.write(`\r  ${done}/${total} core 1h bars...`),
         });
         console.log();

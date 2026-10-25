@@ -19,10 +19,21 @@ const { getDefinition, buildContext } = require("./context");
 
 // legLabel: "CORE" | "HEDGE" — only used for tgPrefix/name suffixing and
 // error messages, not for any logic branch.
-function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore, lots, lotMultOverride, carryOvernight = true }) {
+function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore, lots, lotMultOverride, carryOvernight = true, symbolOverride = null }) {
     const { resolveCurrent } = require("./instrumentResolution"); // lazy — avoids a require cycle risk if this file is ever required from instrumentResolution's own dependency chain
     const def = getDefinition(underlying, exchange);
-    const { contract, source } = resolveCurrent(def.underlying, def, csvRepo, pinStore);
+    let contract, source;
+    if (symbolOverride) {
+        // Explicit contract pick (e.g. the Nov expiry instead of the roll policy's Oct) —
+        // must be a listed future of THIS underlying.
+        const row = csvRepo.findBySymbol(symbolOverride);
+        if (!row || row.underlying !== def.underlying) {
+            throw new Error(`resolveHedgePairLeg: contract "${symbolOverride}" is not a listed ${def.underlying} future`);
+        }
+        contract = row; source = "picked";
+    } else {
+        ({ contract, source } = resolveCurrent(def.underlying, def, csvRepo, pinStore));
+    }
     const context = buildContext(def, contract);
 
     context.tgPrefix = `${context.tgPrefix}_${legLabel}`;
