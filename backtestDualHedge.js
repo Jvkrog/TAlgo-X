@@ -683,6 +683,7 @@ async function replayBiasHedge({
     unwindMode = "BAND_FLIP",
     entryHour = 10, entryMinute = 0, eodHour = 23, eodMinute = 15,
     coreSignal = "DAILY_HA", bandHa = false, coreEod = "CLOSE",
+    flipCore = false,       // close core + hedge and re-open the core when the daily signal flips
     coreAccount = "AUTO",   // "AUTO" | "LONG" | "SHORT": which account is always the core (takes the signal's side); the other hedges
     shortCandles = null,   // minute candles of the SHORT account's contract when it differs from the long account's (fills/P&L use each leg's own contract; signals still come from the long account's)
     slippagePoints = 0, progress, verbose = true,
@@ -725,7 +726,7 @@ async function replayBiasHedge({
     const stats = {
         entries: { LONG: 0, SHORT: 0 }, coreDays: { LONG: 0, SHORT: 0 },
         hedgeEntries: 0, hedgeUnwinds: 0, noBiasDays: 0,
-        exits: { eod: 0, bandUnwind: 0, backtestEnd: 0 },
+        exits: { eod: 0, bandUnwind: 0, flip: 0, backtestEnd: 0 }, coreFlips: 0,
     };
     const kit = createLegKit({ longCtx, shortCtx, startDate: candles[0].date, slip, log, stats });
     const { clockBox, long, short, legs, label, enterLeg, exitLeg, unreal, realizedTotal, sampleEquity } = kit;
@@ -766,17 +767,32 @@ async function replayBiasHedge({
             }
         } else {
             // CORE — decided ONCE per day, from the daily HA candle before today.
-            if (carry && coreAcct && coreAcct.state.position) coreDecidedDay = dayKey;   // carried core: already holding, never a second one
+            if (carry && !flipCore && coreAcct && coreAcct.state.position) coreDecidedDay = dayKey;   // carried core: already holding, never a second one
             if (minOfDay >= entryMin && coreDecidedDay !== dayKey) {
                 const prior = priorDailyColor(dayKey);
                 if (prior) {
+                    const side = prior === "green" ? "LONG" : "SHORT";
+                    if (carry && flipCore && coreAcct && coreAcct.state.position) {
+                        if (coreAcct.state.position === side) { coreDecidedDay = dayKey; }
+                        else {
+                            // the daily signal flipped: close hedge first, then the core, and fall through to re-open
+                            log(`${dayKey}  ${coreLabel} flipped to ${prior} \u2014 closing core ${coreAcct.state.position} and its hedge`);
+                            stats.coreFlips++;
+                            const hg = coreAcct === long ? short : long;
+                            if (hg.state.position) { stats.exits.flip++; await exitLeg(hg, px(hg, "open"), "DAILY_FLIP"); }
+                            stats.exits.flip++; await exitLeg(coreAcct, px(coreAcct, "open"), "DAILY_FLIP");
+                            coreAcct = null;
+                        }
+                    }
+                }
+                if (prior && coreDecidedDay !== dayKey) {
                     coreDecidedDay = dayKey;
                     const side = prior === "green" ? "LONG" : "SHORT";
                     coreAcct = coreAccount === "AUTO" ? (side === "LONG" ? long : short) : (coreAccount === "LONG" ? long : short);
                     coreAcct.side = side;
                     stats.coreDays[side]++;
                     await enterLeg(coreAcct, px(coreAcct, "open"), `${coreLabel} ${prior}`, "CORE");
-                } else if (noBiasNoted !== dayKey) {
+                } else if (!prior && noBiasNoted !== dayKey) {
                     noBiasNoted = dayKey; stats.noBiasDays++;
                     log(c.yellow(`${dayKey}  no usable daily HA read (doji / no prior candle) — no core today, retrying until EOD`));
                 }
@@ -867,7 +883,7 @@ async function replayBiasHedge({
 //   progress,                   // optional (done, total | message) => void
 // })
 async function runDualHedgeBacktest({
-    underlying, exchange = "MCX", lots = 1, longLots, shortLots, lotMultOverride, contractSymbol = null, longContract = null, shortContract = null, coreAccount = "AUTO",   // longContract/shortContract: per-account contracts (BIAS only)
+    underlying, exchange = "MCX", lots = 1, longLots, shortLots, lotMultOverride, contractSymbol = null, longContract = null, shortContract = null, coreAccount = "AUTO", flipCore = false,   // longContract/shortContract: per-account contracts (BIAS only)
     strategy = "DUAL", realizeRupees = 3000, lossAlertRupees = 0,
     bandStepOverride, rangeSizeOverride, rangeStart,
     signalSource = "RANGE", haTimeframe = "1h",
@@ -899,6 +915,7 @@ async function runDualHedgeBacktest({
         if (!(bandTimeframe in BAND_TIMEFRAMES)) throw new Error(`runDualHedgeBacktest: bandTimeframe must be one of ${Object.keys(BAND_TIMEFRAMES).join(", ")} (got ${bandTimeframe})`);
         coreAccount = String(coreAccount).toUpperCase();
         if (!["AUTO", "LONG", "SHORT"].includes(coreAccount)) throw new Error(`runDualHedgeBacktest: coreAccount must be AUTO, LONG or SHORT (got ${coreAccount})`);
+        flipCore = flipCore === true;
         coreSignal = String(coreSignal).toUpperCase(); coreEod = String(coreEod).toUpperCase(); bandHa = bandHa === true;
         if (coreSignal !== "DAILY_HA" && coreSignal !== "DAILY_DSB") throw new Error(`runDualHedgeBacktest: coreSignal must be DAILY_HA or DAILY_DSB (got ${coreSignal})`);
         if (!["CLOSE", "CLOSE_MIS", "CARRY"].includes(coreEod)) throw new Error(`runDualHedgeBacktest: coreEod must be CLOSE, CLOSE_MIS or CARRY (got ${coreEod})`);
@@ -1006,11 +1023,11 @@ async function runDualHedgeBacktest({
             res = await replayBiasHedge({
                 longCtx: longLeg.context, shortCtx: shortLeg.context, candles, tradeFromMs: fromMs,
                 dailyBars, bandBars, bandStep, bandTimeframe, unwindMode,
-                entryHour, entryMinute, eodHour, eodMinute, coreSignal, bandHa, coreEod, coreAccount, shortCandles,
+                entryHour, entryMinute, eodHour, eodMinute, coreSignal, bandHa, coreEod, coreAccount, flipCore, shortCandles,
                 slippagePoints: Number(slippagePoints), progress,
             });
             params = {
-                strategy: "BIAS", coreAccount, signal: `${coreSignal === "DAILY_DSB" ? "daily DSB" : "daily HA bias"} + ${bandTimeframe}${bandHa ? " HA" : ""} band`, bandStep, bandTimeframe, unwindMode, coreSignal, bandHa, coreEod,
+                strategy: "BIAS", coreAccount, flipCore: flipCore === true && coreEod === "CARRY", signal: `${coreSignal === "DAILY_DSB" ? "daily DSB" : "daily HA bias"} + ${bandTimeframe}${bandHa ? " HA" : ""} band`, bandStep, bandTimeframe, unwindMode, coreSignal, bandHa, coreEod,
                 entry: hhmm(entryHour, entryMinute), eod: hhmm(eodHour, eodMinute),
                 rangeStart: fmtIST(anchorMs), anchor: anchorNote, slippagePoints: Number(slippagePoints),
                 takeProfit: null, maxLoss: null, gapCapture: null,

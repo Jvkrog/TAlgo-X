@@ -2828,6 +2828,8 @@ async function addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverri
     console.log(c.dim("  Core at EOD is your choice below (no gap capture, no TP/SL)"));
     const caIn = (await ask("  Core account (takes the daily signal trade): [A] auto by colour (green LONG acct / red SHORT acct)  [L] LONG account always  [S] SHORT account always (default A): ")).trim().toUpperCase();
     const coreAccount = caIn === "L" ? "LONG" : caIn === "S" ? "SHORT" : "AUTO";
+    const flipIn = (await ask("  When the daily signal flips: [1] close core + hedge and re-open the core on the new side  [2] hold the core (default 1): ")).trim();
+    const flipCore = flipIn !== "2";
     const csIn = (await ask("  Core signal: [1] previous daily HA candle colour  [2] daily Dynamic Step Band on daily HA candles (default 2): ")).trim();
     const coreSignal = csIn === "1" ? "DAILY_HA" : "DAILY_DSB";
     const bhIn = (await ask("  Hedge band candles: [1] raw  [2] Heikin-Ashi (default 2): ")).trim();
@@ -2864,7 +2866,7 @@ async function addDualBiasHedge({ underlying, longUser, shortUser, lotMultOverri
         DH_UNDERLYING: underlying, DH_LONG_USER: longUser.name, DH_SHORT_USER: shortUser.name,
         DH_EXCHANGE_OVERRIDE: "MCX", DH_LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive),
         DH_STRATEGY: "BIAS", DH_UNWIND_MODE: unwindMode, DH_BAND_TIMEFRAME: tf,
-        DH_CORE_ACCOUNT: coreAccount, DH_CORE_SIGNAL: coreSignal, DH_BAND_HA: String(bandHa), DH_CORE_EOD: coreEod,
+        DH_CORE_FLIP: String(flipCore), DH_CORE_ACCOUNT: coreAccount, DH_CORE_SIGNAL: coreSignal, DH_BAND_HA: String(bandHa), DH_CORE_EOD: coreEod,
         DH_ENTRY_HOUR_OVERRIDE: String(entryHour), DH_ENTRY_MINUTE_OVERRIDE: String(entryMinute),
         DH_EOD_HOUR_OVERRIDE: String(eod.eodHour), DH_EOD_MINUTE_OVERRIDE: String(eod.eodMinute),
     };
@@ -3229,6 +3231,7 @@ async function backtestDualHedgeFlow() {
     }
     if (strategy === "BIAS") {
         opts.unwindMode = await askChoice("Unwind: B = band back in the core's favour closes the hedge, E = hold the hedge to EOD [B/E, default B]", { B: "BAND_FLIP", E: "EOD_ONLY" }, "BAND_FLIP");
+        opts.flipCore = (await askChoice("On a daily signal flip: F = close core + hedge and re-open on the new side, H = hold the core [F/H, default F]", { F: "FLIP", H: "HOLD" }, "FLIP")) === "FLIP";
         opts.coreAccount = await askChoice("Core account: A = auto by colour, L = LONG account always, S = SHORT account always [A/L/S, default A]", { A: "AUTO", L: "LONG", S: "SHORT" }, "AUTO");
         opts.coreSignal = await askChoice("Core signal: D = daily Dynamic Step Band on daily HA candles, H = previous daily HA candle colour [D/H, default D]", { D: "DAILY_DSB", H: "DAILY_HA" }, "DAILY_DSB");
         opts.bandHa = (await askChoice("Hedge band candles: H = Heikin-Ashi, R = raw [H/R, default H]", { H: "HA", R: "RAW" }, "HA")) === "HA";

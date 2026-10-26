@@ -40,6 +40,7 @@ function createBiasHedgeController({
     entryHour = 10, entryMinute = 0, eodHour, eodMinute,
     unwindMode = "BAND_FLIP", log = () => {},
     coreAccount = "AUTO",     // "AUTO": green -> LONG account is core, red -> SHORT account (each account keeps its side). "LONG"/"SHORT": that account is ALWAYS the core and takes whichever side the signal says; the other account always hedges.
+    flipCore = false,         // true: when the daily signal flips against the held core, close hedge + core (NRML) and re-open the core on the new side (the other account hedges)
     carry = false,            // true: the core is NOT closed at EOD (NRML carry); only an EOD_ONLY hedge is
     coreLabel = "daily HA",   // wording for logs / entry reasons
 }) {
@@ -67,23 +68,37 @@ function createBiasHedgeController({
     async function checkCoreEntry(t) {
         if (t.hours * 60 + t.minutes < entryMin) return null;
         if (coreDecidedForDate === t.today) return null;
-        if (coreLeg()) { coreDecidedForDate = t.today; return null; }
+        const cur = coreLeg();
+        if (cur && !flipCore) { coreDecidedForDate = t.today; return null; }
 
         const daily = await dailyReader.getLatest();
         if (!daily || !daily.color) {
             if (noReadNotedFor !== t.today) { noReadNotedFor = t.today; log(`no usable ${coreLabel} read yet (doji / no data) — core undecided, retrying until EOD`); }
             return null;
         }
+        const sig = daily.color === "green" ? "LONG" : "SHORT";
+        if (cur) {
+            // flipCore: a held core. Same side as the signal -> nothing to do today.
+            if (cur.state.position === sig) { coreDecidedForDate = t.today; return null; }
+            // The daily signal flipped: close the hedge first, then the core, then re-open below.
+            log(`${coreLabel} flipped to ${daily.color} — closing core ${cur.state.position} and its hedge, re-opening ${sig}`);
+            const hedgeLeg = other(cur);
+            if (hedgeLeg.state.position) {
+                if (!(await exitLeg(hedgeLeg, "DAILY_FLIP", { awaitFill: true }))) return null;   // retried next tick
+                hedgeLeg.role = null;
+            }
+            if (!(await exitLeg(cur, "DAILY_FLIP", { awaitFill: true }))) return null;
+            cur.role = null;
+        }
         // Locked in the moment we act on a real read, even if the order fails —
         // a failed entry means no core today, not a retry loop.
         coreDecidedForDate = t.today;
-        const sig = daily.color === "green" ? "LONG" : "SHORT";
         const leg = coreAccount === "AUTO" ? (sig === "LONG" ? long : short) : (coreAccount === "LONG" ? long : short);
         leg.side = sig;   // fixed-account mode: the core account trades the signal's side
         const ok = await enterLeg(leg, "CORE", `${coreLabel} ${daily.color}`);
         if (!ok) return null;
         leg.role = "CORE";
-        return { action: "CORE_ENTRY", leg, color: daily.color };
+        return { action: cur ? "CORE_FLIP" : "CORE_ENTRY", leg, color: daily.color };
     }
 
     async function checkHedge() {

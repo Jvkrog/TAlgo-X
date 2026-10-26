@@ -26,6 +26,7 @@
 //   DH_UNWIND_MODE                BAND_FLIP (default) | EOD_ONLY
 //   DH_CORE_SIGNAL                DAILY_HA (default) | DAILY_DSB (daily Dynamic Step Band on daily HA candles: green -> LONG acct, red -> SHORT acct)
 //   DH_CORE_ACCOUNT               AUTO (default: green -> LONG acct core, red -> SHORT acct core) | LONG | SHORT (that account is always the core and takes the signal's side; the other always hedges; signals read from the core account's contract)
+//   DH_CORE_FLIP                  "true": when the daily signal flips, close core + hedge and re-open the core on the new side (default: hold the core)
 //   DH_BAND_HA                    "true": the hedge band runs on Heikin-Ashi candles (default raw)
 //   DH_CORE_EOD                   CLOSE (default, legacy) | CLOSE_MIS (MIS, flat at EOD) | CARRY (NRML, core carried; EOD_ONLY hedge still closed)
 //   DH_ENTRY_HOUR_OVERRIDE / DH_ENTRY_MINUTE_OVERRIDE   core entry time IST (10:00)
@@ -81,6 +82,7 @@ async function main() {
     const CORE_EOD = (process.env.DH_CORE_EOD || "CLOSE").toUpperCase();   // CLOSE (legacy) | CLOSE_MIS | CARRY
     if (!["CLOSE", "CLOSE_MIS", "CARRY"].includes(CORE_EOD)) fail(`DH_CORE_EOD "${process.env.DH_CORE_EOD}" invalid (CLOSE / CLOSE_MIS / CARRY)`);
     const CARRY = CORE_EOD === "CARRY";
+    const CORE_FLIP = process.env.DH_CORE_FLIP === "true";   // close core+hedge and re-open on the new side when the daily signal flips
     const CORE_ACCOUNT = (process.env.DH_CORE_ACCOUNT || "AUTO").toUpperCase();   // AUTO | LONG | SHORT — which account is always the core (the other always hedges)
     if (!["AUTO", "LONG", "SHORT"].includes(CORE_ACCOUNT)) fail(`DH_CORE_ACCOUNT "${process.env.DH_CORE_ACCOUNT}" invalid (AUTO / LONG / SHORT)`);
     const POLL_MS = Math.max(5000, envInt(process.env.DH_POLL_MS, 60 * 1000));
@@ -253,7 +255,7 @@ async function main() {
     const controller = createBiasHedgeController({
         long, short, dailyReader, bandReader, enterLeg, exitLeg, clock,
         entryHour, entryMinute, eodHour, eodMinute, unwindMode: UNWIND,
-        coreAccount: CORE_ACCOUNT, carry: CARRY, coreLabel: CORE_SIGNAL === "DAILY_DSB" ? "daily DSB" : "daily HA",
+        coreAccount: CORE_ACCOUNT, flipCore: CORE_FLIP, carry: CARRY, coreLabel: CORE_SIGNAL === "DAILY_DSB" ? "daily DSB" : "daily HA",
         log: m => console.log(c.dim(`DUAL BIAS  ${m}`)),
     });
     for (const leg of resumed) controller.markResumed(leg, leg.role, today0);
