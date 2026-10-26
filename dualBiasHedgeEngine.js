@@ -200,9 +200,9 @@ async function main() {
         API_KEY: longUser.apiKey,
         getAccessToken: () => { const u = listUsers().find(x => x.name === longUser.name); return (u && u.accessToken) || longUser.accessToken; },
     });
-    const bandStep = signalLeg.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
     const signalLeg = CORE_ACCOUNT === "SHORT" ? short : long;   // the core account's contract feeds the signals (AUTO: the LONG account's)
     const token = signalLeg.context.token;
+    const bandStep = signalLeg.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
     const dailyReader = CORE_SIGNAL === "DAILY_DSB"
         ? createDynamicBandReader({ token, timeframe: "1d", bandStep, engineConfig: readerConfig, label: "DUAL_BIAS_DAILY_DSB", ha: true })
         : createHaCandleReader({ token, timeframe: "1d", engineConfig: readerConfig, label: "DUAL_BIAS_DAILY" });
