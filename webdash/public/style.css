@@ -1609,3 +1609,16 @@ body.chart-page .depth-panel { height: auto; }
 /* Capitalise the first letter of short lowercase pills/labels */
 .status-pill, .mode-pill, .token-link, .tb-row-pills .mode-pill { text-transform: capitalize; }
 .status-pill::first-letter, .mode-pill::first-letter { text-transform: uppercase; }
+
+/* chart colours panel */
+.chart-colors { padding: 4px 14px 8px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--border); }
+.cc-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.cc-label { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); min-width: 62px; }
+.cc-preset { padding: 5px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px; }
+.cc-preset i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.cc-preset i:last-of-type { margin-right: 4px; }
+.cc-pick { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dim); }
+.cc-pick input[type=color] { width: 30px; height: 24px; padding: 0; border: 1px solid var(--border-strong); border-radius: 4px; background: none; cursor: pointer; }
+.cc-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dim); }
+#chartColorsBtn.active, .chart-controls [data-r="colorsBtn"].active { color: var(--cyan); border-color: var(--cyan); }
+.chart-colors .btn { width: auto; flex: 0 0 auto; white-space: nowrap; }

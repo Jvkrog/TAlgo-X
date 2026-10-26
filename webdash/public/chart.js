@@ -26,6 +26,85 @@
     if (!window.makeRangeBars) await loadScript("/rangeBars.js");
   };
 
+  // ── candle / chart colours (custom panel; saved in this browser) ──────────────
+  const CC_KEY = "talgox.chartColors";
+  const CC_DEFAULT = { up: "#33ff88", down: "#ff5266", bUp: "#33ff88", bDown: "#ff5266", wUp: "#33ff88", wDown: "#ff5266", bg: "#050806", grid: "#46ff96", hollow: false, sync: true };
+  const CC_PRESETS = {
+    "Terminal":       { up: "#33ff88", down: "#ff5266" },
+    "Classic":        { up: "#26a69a", down: "#ef5350" },
+    "Blue / Orange":  { up: "#2f9bff", down: "#ff9d2e" },
+    "Cyan / Magenta": { up: "#22e5ff", down: "#ff3df2" },
+    "Yellow / Purple":{ up: "#ffd23f", down: "#a259ff" },
+    "White / Grey":   { up: "#f2f2f2", down: "#6b6f76" },
+    "Green / Black":  { up: "#33ff88", down: "#0b0f0c", bDown: "#33ff88", wDown: "#33ff88" },
+    "Red / Green (Indian)": { up: "#ff5266", down: "#33ff88" },
+  };
+  const CC_FIELDS = [["up", "Up body"], ["down", "Down body"], ["bUp", "Up border"], ["bDown", "Down border"], ["wUp", "Up wick"], ["wDown", "Down wick"], ["bg", "Background"], ["grid", "Grid"]];
+  const isHex = v => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
+  let CC = loadColors();
+  function loadColors() {
+    let o = {};
+    try { o = JSON.parse(localStorage.getItem(CC_KEY) || "{}") || {}; } catch { o = {}; }
+    const c = { ...CC_DEFAULT };
+    for (const k of Object.keys(CC_DEFAULT)) {
+      if (k === "hollow" || k === "sync") { if (typeof o[k] === "boolean") c[k] = o[k]; }
+      else if (isHex(o[k])) c[k] = o[k];
+    }
+    return c;
+  }
+  function saveColors() { try { localStorage.setItem(CC_KEY, JSON.stringify(CC)); } catch { /* private mode: just not remembered */ } }
+  const gridRgba = hex => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},0.09)`; };
+  const seriesColors = () => ({
+    upColor: CC.hollow ? "rgba(0,0,0,0)" : CC.up, downColor: CC.down,
+    borderUpColor: CC.bUp, borderDownColor: CC.bDown, wickUpColor: CC.wUp, wickDownColor: CC.wDown,
+  });
+  function applyColors() {
+    if (!S || !S.chart) return;
+    S.series.applyOptions(seriesColors());
+    S.chart.applyOptions({ layout: { background: { color: CC.bg } }, grid: { vertLines: { color: gridRgba(CC.grid) }, horzLines: { color: gridRgba(CC.grid) } } });
+  }
+  function syncColorInputs() {
+    els.colors.querySelectorAll("input[data-k]").forEach(i => { i.value = CC[i.dataset.k]; });
+    els.colors.querySelector('[data-k2="hollow"]').checked = CC.hollow;
+    els.colors.querySelector('[data-k2="sync"]').checked = CC.sync;
+  }
+  function buildColorPanel() {
+    els.colors.innerHTML = `
+      <div class="cc-row"><span class="cc-label">Presets</span>${Object.keys(CC_PRESETS).map(n => `<button class="btn btn-ghost cc-preset" data-preset="${n}"><i style="background:${CC_PRESETS[n].up}"></i><i style="background:${CC_PRESETS[n].down}"></i>${n}</button>`).join("")}</div>
+      <div class="cc-row"><span class="cc-label">Custom</span>${CC_FIELDS.map(([k, n]) => `<label class="cc-pick">${n}<input type="color" data-k="${k}"></label>`).join("")}</div>
+      <div class="cc-row">
+        <label class="cc-chk"><input type="checkbox" data-k2="sync"> Border &amp; wick follow body</label>
+        <label class="cc-chk"><input type="checkbox" data-k2="hollow"> Hollow up candles</label>
+        <button class="btn btn-ghost" data-cc="reset">Reset</button>
+      </div>`;
+    els.colors.addEventListener("input", e => {
+      const i = e.target.closest("input[data-k]"); if (!i) return;
+      const k = i.dataset.k; CC[k] = i.value;
+      if (CC.sync) {
+        if (k === "up") { CC.bUp = CC.wUp = i.value; }
+        if (k === "down") { CC.bDown = CC.wDown = i.value; }
+        syncColorInputs();
+      }
+      saveColors(); applyColors();
+    });
+    els.colors.addEventListener("change", e => {
+      const c = e.target.closest("input[data-k2]"); if (!c) return;
+      CC[c.dataset.k2] = c.checked;
+      if (c.dataset.k2 === "sync" && c.checked) { CC.bUp = CC.wUp = CC.up; CC.bDown = CC.wDown = CC.down; syncColorInputs(); }
+      saveColors(); applyColors();
+    });
+    els.colors.addEventListener("click", e => {
+      const p = e.target.closest(".cc-preset"), r = e.target.closest('[data-cc="reset"]');
+      if (p) {
+        const pr = CC_PRESETS[p.dataset.preset];
+        CC = { ...CC, up: pr.up, down: pr.down, bUp: pr.bUp || pr.up, bDown: pr.bDown || pr.down, wUp: pr.wUp || pr.up, wDown: pr.wDown || pr.down };
+      } else if (r) CC = { ...CC_DEFAULT };
+      else return;
+      syncColorInputs(); saveColors(); applyColors();
+    });
+    syncColorInputs();
+  }
+
   function build() {
     modal = document.createElement("div");
     modal.className = "tb-modal";
@@ -49,10 +128,12 @@
             <button class="btn btn-ghost chart-toggle" data-toggle="indicator">Indicator</button>
             <button class="btn btn-ghost chart-toggle" data-toggle="filters">Filters</button>
             <button class="btn btn-ghost chart-toggle active" data-toggle="depth">Order book</button>
+            <button class="btn btn-ghost" data-r="colorsBtn" title="Candle and chart colours">Colors</button>
           </div>
           <label class="chart-range" data-r="rangeWrap" style="display:none">range <input type="number" data-r="range" min="0.01" step="any"></label>
           <span class="chart-status" data-r="status"></span>
         </div>
+        <div class="chart-colors" data-r="colors" style="display:none"></div>
         <div class="chart-legend" data-r="legend"></div>
         <div class="chart-info" data-r="info"></div>
         <div class="chart-main">
@@ -68,6 +149,12 @@
     modal.addEventListener("click", e => { if (e.target === modal && !window.chartStandalone) close(); });
     modal.querySelectorAll(".chart-type").forEach(b => b.addEventListener("click", () => setType(b.dataset.type)));
     modal.querySelectorAll(".chart-toggle").forEach(b => b.addEventListener("click", () => toggle(b.dataset.toggle)));
+    buildColorPanel();
+    els.colorsBtn.addEventListener("click", () => {
+      const on = els.colors.style.display === "none";
+      els.colors.style.display = on ? "" : "none";
+      els.colorsBtn.classList.toggle("active", on);
+    });
     els.range.addEventListener("change", () => { if (S && S.type === "range") { S.range = Number(els.range.value) || S.range; render(true); } });
   }
 
@@ -558,8 +645,8 @@
       const dayIdx = Math.max(0, bars.findIndex(b => b.t >= data.fromTs));   // first bar of the 1-month window (earlier bars are indicator / HA warm-up)
       const chart = window.LightweightCharts.createChart(els.box, {
         autoSize: true,
-        layout: { background: { color: "#050806" }, textColor: "#9fd8b6", fontFamily: "JetBrains Mono, monospace" },
-        grid: { vertLines: { color: "rgba(70,255,150,0.07)" }, horzLines: { color: "rgba(70,255,150,0.07)" } },
+        layout: { background: { color: CC.bg }, textColor: "#9fd8b6", fontFamily: "JetBrains Mono, monospace" },
+        grid: { vertLines: { color: gridRgba(CC.grid) }, horzLines: { color: gridRgba(CC.grid) } },
         rightPriceScale: { borderColor: "rgba(70,255,150,0.25)" },
         timeScale: { borderColor: "rgba(70,255,150,0.25)", timeVisible: true, secondsVisible: false },
         crosshair: { mode: 0 },
@@ -569,8 +656,7 @@
       });
       chart.timeScale().applyOptions({ rightOffset: 6, barSpacing: 9, minBarSpacing: 1.5, fixLeftEdge: false, shiftVisibleRangeOnNewBar: true });
       const sr = chart.addCandlestickSeries({
-        upColor: "#33ff88", downColor: "#ff5266", borderUpColor: "#33ff88", borderDownColor: "#ff5266",
-        wickUpColor: "#33ff88", wickDownColor: "#ff5266",
+        ...seriesColors(),
         priceLineVisible: false, lastValueVisible: false,   // the live-price line below shows the real traded price, not an HA / range-bar close
         autoscaleInfoProvider: orig => (S && S.manual ? { priceRange: { minValue: S.manual.min, maxValue: S.manual.max } } : orig()),
       });
