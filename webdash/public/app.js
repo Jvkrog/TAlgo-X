@@ -1748,6 +1748,7 @@ async function playToolboxBoot() {
     const res = await fetch("/api/instruments");
     if (!res.ok) throw new Error("bad response");
     toolboxInstruments = await res.json();
+    await loadToolboxExtra();
   } catch {
     ok = false;
   }
@@ -1769,9 +1770,27 @@ async function playToolboxBoot() {
   }
 }
 
+// Hedge-pair and dual-hedge deployments, listed in the main Toolbox list next to the regular engines
+// (same PM2 start/stop/restart/delete; their own Logs + Manage panels).
+let toolboxExtra = [];
+async function loadToolboxExtra() {
+  try {
+    const [hp, dh] = await Promise.all([
+      fetch("/api/toolbox/hedgepairs").then(r => r.json()).catch(() => ({})),
+      fetch("/api/toolbox/dualhedge").then(r => r.json()).catch(() => ({})),
+    ]);
+    toolboxExtra = [
+      ...(hp.pairs || []).map(p => ({ kind: "hedgepair", name: p.name, label: `${p.coreUnderlying} / ${p.hedgeUnderlying}`, tag: "HEDGE PAIR", status: p.status, live: p.live })),
+      ...(dh.deployments || []).map(d => ({ kind: "dualhedge", name: d.name, label: d.underlying, tag: d.strategy === "BIAS" ? "DUAL BIAS HEDGE" : d.strategy === "REALIZE" ? "DUAL REALIZE" : "DUAL HEDGE", status: d.status, live: d.live })),
+    ];
+  } catch { toolboxExtra = []; }
+}
+const isEngineName = n => toolboxInstruments.some(i => i.name === n);
+
 async function loadToolboxList() {
   try {
     toolboxInstruments = await (await fetch("/api/instruments")).json();
+    await loadToolboxExtra();
     renderToolboxList();
   } catch (err) {
     toolboxList.innerHTML = `<div class="empty-state">Failed to load: ${escHtml(err.message)}</div>`;
@@ -1779,7 +1798,7 @@ async function loadToolboxList() {
 }
 
 function renderToolboxList() {
-  if (toolboxInstruments.length === 0) {
+  if (toolboxInstruments.length === 0 && toolboxExtra.length === 0) {
     toolboxList.innerHTML = `<div class="empty-state">No engines detected</div>`;
     return;
   }
@@ -1799,6 +1818,24 @@ function renderToolboxList() {
       </div>
       <button class="tb-row-edit" data-name="${escHtml(inst.name)}">Edit</button>
       <button class="tb-row-logs" data-name="${escHtml(inst.name)}">Logs</button>
+    `;
+    toolboxList.appendChild(row);
+  });
+  toolboxExtra.forEach(x => {
+    const row = document.createElement("div");
+    row.className = "tb-row";
+    row.innerHTML = `
+      <input type="checkbox" class="tb-check" data-name="${escHtml(x.name)}">
+      <div class="tb-row-id">
+        <span class="tb-underlying">${escHtml(x.label)}</span>
+        <span class="tb-strategy">${escHtml(x.tag)}</span>
+      </div>
+      <div class="tb-row-pills">
+        <span class="status-pill ${x.status === "online" ? "online" : "offline"}">${escHtml(x.status)}</span>
+        <span class="mode-pill ${x.live ? "live" : ""}">${x.live ? "live" : "paper"}</span>
+      </div>
+      <button class="tb-row-manage" data-kind="${escHtml(x.kind)}">Manage</button>
+      <button class="tb-row-logs" data-name="${escHtml(x.name)}" data-kind="${escHtml(x.kind)}">Logs</button>
     `;
     toolboxList.appendChild(row);
   });
@@ -1851,7 +1888,14 @@ tbDelete.addEventListener("click", async () => {
 toolboxList.addEventListener("click", e => {
   const btn = e.target.closest(".tb-row-logs");
   if (!btn) return;
-  openLogsModal(btn.dataset.name);
+  openLogsModal(btn.dataset.name, btn.dataset.kind);
+});
+
+// "Manage" on a hedge-pair / dual-hedge row opens that engine's own panel (add / backtest / start / stop / logs / remove).
+toolboxList.addEventListener("click", e => {
+  const btn = e.target.closest(".tb-row-manage");
+  if (!btn) return;
+  if (btn.dataset.kind === "hedgepair") openHedgePairsModal(); else openDualHedgeModal();
 });
 
 // ── edit params modal ──────────────────────────────────────────────────
@@ -2117,12 +2161,13 @@ function openEditModal(inst) {
 tbEditClose.addEventListener("click", () => tbEditModal.classList.remove("open"));
 tbEditModal.addEventListener("click", e => { if (e.target === tbEditModal) tbEditModal.classList.remove("open"); });
 
-async function openLogsModal(name) {
+async function openLogsModal(name, kind) {
   tbLogsTitle.textContent = `${name} — logs`;
   tbLogsBody.innerHTML = "Loading...";
   tbLogsModal.classList.add("open");
+  const base = kind === "hedgepair" ? "/api/toolbox/hedgepairs/logs" : kind === "dualhedge" ? "/api/toolbox/dualhedge/logs" : "/api/toolbox/logs";
   try {
-    const data = await (await fetch(`/api/toolbox/logs/${encodeURIComponent(name)}`)).json();
+    const data = await (await fetch(`${base}/${encodeURIComponent(name)}`)).json();
     if (data.error) { tbLogsBody.textContent = data.error; return; }
     let html = `<div class="tb-log-section-title">stdout — ${data.outLogPath || "Unknown path"}</div>`;
     html += `<pre>${ansiHtml(data.out.join("\n") || "(empty)")}</pre>`;
@@ -2142,7 +2187,9 @@ tbLogsModal.addEventListener("click", e => { if (e.target === tbLogsModal) tbLog
 let modeTargetLive = null;
 
 tbMode.addEventListener("click", () => {
-  const names = getSelectedNames();
+  const all = getSelectedNames();
+  const names = all.filter(isEngineName);   // live/paper is set when a hedge pair / dual hedge is deployed, not switched here
+  if (all.length > 0 && names.length === 0) { alert("Mode switching isn't available for hedge pairs / dual hedge \u2014 redeploy them to change live/paper."); return; }
   if (names.length === 0) return;
   openModeModal(names);
 });
