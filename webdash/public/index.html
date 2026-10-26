@@ -171,6 +171,52 @@
       </div>
     </div>
   </section>
+
+  <section class="panel toolbox-panel" id="hpPanel">
+    <div class="panel-head">
+      <span class="panel-title">┌─ HEDGE PAIRS ─┐</span>
+      <button class="btn btn-ghost" id="hpOpenBtn">+ Add / Backtest</button>
+    </div>
+    <div class="tb-form-hint" style="padding:8px 16px 0">One core position on the daily DSB plus a mini hedge on the 1h band — two contracts in one process.</div>
+    <div class="toolbox-bulkbar">
+      <label class="tb-selectall">
+        <input type="checkbox" class="tbx-selectall" data-list="hpList">
+        <span>Select all</span>
+      </label>
+      <div class="tb-bulk-actions">
+        <button class="btn btn-start tbx-act" data-list="hpList" data-action="start">Start</button>
+        <button class="btn btn-stop tbx-act" data-list="hpList" data-action="stop">Stop</button>
+        <button class="btn btn-restart tbx-act" data-list="hpList" data-action="restart">Restart</button>
+        <button class="btn btn-danger tbx-act" data-list="hpList" data-action="delete">Delete</button>
+      </div>
+    </div>
+    <div class="toolbox-list" id="hpList">
+      <div class="empty-state">None deployed</div>
+    </div>
+  </section>
+
+  <section class="panel toolbox-panel" id="dhPanel">
+    <div class="panel-head">
+      <span class="panel-title">┌─ DUAL HEDGE ─┐</span>
+      <button class="btn btn-ghost" id="dhOpenBtn">+ Add / Backtest</button>
+    </div>
+    <div class="tb-form-hint" style="padding:8px 16px 0">The same instrument across two Kite accounts — core account on the daily DSB, hedge account on the 1h band.</div>
+    <div class="toolbox-bulkbar">
+      <label class="tb-selectall">
+        <input type="checkbox" class="tbx-selectall" data-list="dhList">
+        <span>Select all</span>
+      </label>
+      <div class="tb-bulk-actions">
+        <button class="btn btn-start tbx-act" data-list="dhList" data-action="start">Start</button>
+        <button class="btn btn-stop tbx-act" data-list="dhList" data-action="stop">Stop</button>
+        <button class="btn btn-restart tbx-act" data-list="dhList" data-action="restart">Restart</button>
+        <button class="btn btn-danger tbx-act" data-list="dhList" data-action="delete">Delete</button>
+      </div>
+    </div>
+    <div class="toolbox-list" id="dhList">
+      <div class="empty-state">None deployed</div>
+    </div>
+  </section>
 </main>
 
 <main class="layout" id="riskView" style="display:none">
@@ -342,6 +388,6 @@
 
 <script src="strategyBuilder.js?v=3"></script>
 <script src="chart.js?v=22"></script>
-<script src="app.js?v=84"></script>
+<script src="app.js?v=85"></script>
 </body>
 </html>

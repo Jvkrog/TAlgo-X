@@ -1798,7 +1798,8 @@ async function loadToolboxList() {
 }
 
 function renderToolboxList() {
-  if (toolboxInstruments.length === 0 && toolboxExtra.length === 0) {
+  renderExtraPanels();
+  if (toolboxInstruments.length === 0) {
     toolboxList.innerHTML = `<div class="empty-state">No engines detected</div>`;
     return;
   }
@@ -1821,23 +1822,34 @@ function renderToolboxList() {
     `;
     toolboxList.appendChild(row);
   });
-  toolboxExtra.forEach(x => {
-    const row = document.createElement("div");
-    row.className = "tb-row";
-    row.innerHTML = `
-      <input type="checkbox" class="tb-check" data-name="${escHtml(x.name)}">
-      <div class="tb-row-id">
-        <span class="tb-underlying">${escHtml(x.label)}</span>
-        <span class="tb-strategy">${escHtml(x.tag)}</span>
-      </div>
-      <div class="tb-row-pills">
-        <span class="status-pill ${x.status === "online" ? "online" : "offline"}">${escHtml(x.status)}</span>
-        <span class="mode-pill ${x.live ? "live" : ""}">${x.live ? "live" : "paper"}</span>
-      </div>
-      <button class="tb-row-manage" data-kind="${escHtml(x.kind)}">Manage</button>
-      <button class="tb-row-logs" data-name="${escHtml(x.name)}" data-kind="${escHtml(x.kind)}">Logs</button>
-    `;
-    toolboxList.appendChild(row);
+}
+
+// Hedge pairs / dual hedge: their own panels below the engine list.
+const hpList = document.getElementById("hpList");
+const dhList = document.getElementById("dhList");
+function renderExtraPanels() {
+  [["hedgepair", hpList], ["dualhedge", dhList]].forEach(([kind, box]) => {
+    const items = toolboxExtra.filter(x => x.kind === kind);
+    if (!items.length) { box.innerHTML = `<div class="empty-state">None deployed</div>`; return; }
+    box.innerHTML = "";
+    items.forEach(x => {
+      const row = document.createElement("div");
+      row.className = "tb-row";
+      row.innerHTML = `
+        <input type="checkbox" class="tb-check" data-name="${escHtml(x.name)}">
+        <div class="tb-row-id">
+          <span class="tb-underlying">${escHtml(x.label)}</span>
+          <span class="tb-strategy">${escHtml(x.tag)}</span>
+        </div>
+        <div class="tb-row-pills">
+          <span class="status-pill ${x.status === "online" ? "online" : "offline"}">${escHtml(x.status)}</span>
+          <span class="mode-pill ${x.live ? "live" : ""}">${x.live ? "live" : "paper"}</span>
+        </div>
+        <button class="tb-row-manage" data-kind="${escHtml(x.kind)}">Manage</button>
+        <button class="tb-row-logs" data-name="${escHtml(x.name)}" data-kind="${escHtml(x.kind)}">Logs</button>
+      `;
+      box.appendChild(row);
+    });
   });
 }
 
@@ -1885,18 +1897,41 @@ tbDelete.addEventListener("click", async () => {
 });
 
 // ── logs modal ───────────────────────────────────────────────────────────
-toolboxList.addEventListener("click", e => {
+[toolboxList, hpList, dhList].forEach(box => box.addEventListener("click", e => {
   const btn = e.target.closest(".tb-row-logs");
   if (!btn) return;
   openLogsModal(btn.dataset.name, btn.dataset.kind);
-});
+}));
 
 // "Manage" on a hedge-pair / dual-hedge row opens that engine's own panel (add / backtest / start / stop / logs / remove).
-toolboxList.addEventListener("click", e => {
+[hpList, dhList].forEach(box => box.addEventListener("click", e => {
   const btn = e.target.closest(".tb-row-manage");
   if (!btn) return;
   if (btn.dataset.kind === "hedgepair") openHedgePairsModal(); else openDualHedgeModal();
-});
+}));
+document.getElementById("hpOpenBtn").addEventListener("click", () => openHedgePairsModal());
+document.getElementById("dhOpenBtn").addEventListener("click", () => openDualHedgeModal());
+
+// per-panel select-all + Start/Stop/Restart/Delete for the hedge pair / dual hedge panels
+document.querySelectorAll(".tbx-selectall").forEach(cb => cb.addEventListener("change", () => {
+  document.getElementById(cb.dataset.list).querySelectorAll(".tb-check").forEach(c => { c.checked = cb.checked; });
+}));
+document.querySelectorAll(".tbx-act").forEach(btn => btn.addEventListener("click", async () => {
+  const box = document.getElementById(btn.dataset.list);
+  const names = Array.from(box.querySelectorAll(".tb-check:checked")).map(c => c.dataset.name);
+  if (!names.length) return;
+  const action = btn.dataset.action;
+  if (action === "delete") {
+    if (!confirm(`Remove ${names.length} process(es) from PM2? This stops and deletes them.`)) return;
+    try { await fetch("/api/toolbox/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ names }) }); } catch {}
+    loadToolboxList();
+    return;
+  }
+  for (const name of names) {
+    try { await fetch("/api/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, action }) }); } catch {}
+  }
+  setTimeout(loadToolboxList, 1200);
+}));
 
 // ── edit params modal ──────────────────────────────────────────────────
 toolboxList.addEventListener("click", e => {
