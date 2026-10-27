@@ -513,7 +513,20 @@
       el.style.borderColor = p.t.color; el.style.color = p.t.color; el.textContent = Number(p.t.price).toFixed(2);
     });
   }
+  // Never let the read-out / value boxes break the chart: on any error switch them off and say so in the status line.
   function legend() {
+    if (!S || S.legendOff) return;
+    try { legendInner(); } catch (err) {
+      S.legendOff = true; console.error("chart legend error", err);
+      if (S.tagEl) S.tagEl.style.display = "none";
+      els.status.textContent = "read-out off (" + err.message + ")";
+    }
+  }
+  function markTags() {
+    if (!S || S.tagRaf) return;
+    S.tagRaf = requestAnimationFrame(() => { if (!S) return; S.tagRaf = 0; try { positionTags(); } catch { /* ignore */ } });
+  }
+  function legendInner() {
     if (!els.legend || !S) return;
     const ref = refBar();
     let k = ref ? ref.k : null, time = ref ? ref.time : (S.dispTimes && S.dispTimes.length ? S.dispTimes[S.dispTimes.length - 1] : null);
@@ -535,7 +548,7 @@
     if (els.legend.textContent !== text) els.legend.textContent = text;
     els.legend.style.display = parts.length ? "" : "none";
     S.tags = tags;
-    positionTags();
+    markTags();
   }
   // Pan / zoom fire many range events: coalesce to one legend + tag update per frame.
   function scheduleLegend() {
@@ -659,7 +672,9 @@
     if (x.time < S.lastTime) return;
     S.series.update(x);
     S.lastTime = x.time;
-    if (S.dsb.show && Date.now() - (S.dsbAt || 0) > 1000) { S.dsbAt = Date.now(); drawDsb(false); drawMarkers(); }   // follow the forming candle
+    try {
+      if (S.dsb.show && Date.now() - (S.dsbAt || 0) > 1000) { S.dsbAt = Date.now(); drawDsb(false); drawMarkers(); }   // follow the forming candle
+    } catch (err) { S.dsb.show = false; console.error("chart DSB error", err); }
     if (!S.hover && !S.pinned) legend();   // keep O/H/L/C of the live (or scrolled-to) candle current
     status();
   }
@@ -887,7 +902,22 @@
       if (bars.length) S.last = bars[bars.length - 1].c;
       attachPriceAxisZoom();
       S.tagEl = document.createElement("div"); S.tagEl.className = "chart-tags"; els.box.appendChild(S.tagEl);
-      S.tagTimer = setInterval(positionTags, 120);   // keeps the boxes on their prices while the price axis auto-scales or is dragged
+      S.tagTimer = setInterval(markTags, 400);   // safety net: the price axis can auto-scale without any event of ours
+      // A touch screen keeps the crosshair where the finger last was (there is no mouse-leave), which would freeze the read-out on that
+      // candle. When a finger lifts, forget the crosshair candle so the read-out goes back to the tapped / right-most visible candle.
+      S.gesture = { moved: false, multi: false }; S.ptrs = new Set();
+      els.box.addEventListener("pointerdown", e => {
+        S.ptrs.add(e.pointerId);
+        if (S.ptrs.size === 1) S.gesture = { moved: false, multi: false, x: e.clientX, y: e.clientY };
+        else S.gesture.multi = true;
+      }, true);
+      els.box.addEventListener("pointermove", e => { if (S.ptrs.has(e.pointerId) && S.gesture.x !== undefined && Math.hypot(e.clientX - S.gesture.x, e.clientY - S.gesture.y) > 8) S.gesture.moved = true; }, true);
+      ["pointerup", "pointercancel"].forEach(ev => els.box.addEventListener(ev, e => { S.ptrs.delete(e.pointerId); }, true));
+      ["pointerup", "pointercancel"].forEach(ev => els.box.addEventListener(ev, e => {
+        if (e.pointerType !== "touch") return;
+        setTimeout(() => { if (S) { S.hover = null; S.hoverTime = null; legend(); } }, 80);
+      }, true));
+      ["pointermove", "pointerup", "wheel", "touchmove"].forEach(ev => els.box.addEventListener(ev, markTags, { passive: true, capture: true }));
       S.hover = null; S.pinned = null; S.edgeIdx = null; S.position = null; S.depthOn = true;
       S.effType = effType;
       { const L = loadDsb(inst.name); S.dsb = L.d; S.dsbSaved = L.saved; S.dsbSeries = null; S.dsbMarks = []; syncDsbInputs(); }
@@ -903,6 +933,7 @@
       });
       // Tap / click a candle to read its O/H/L/C (touch screens have no hover); tap empty space to go back to the live candle.
       chart.subscribeClick(param => {
+        if (S.gesture && (S.gesture.moved || S.gesture.multi)) return;   // the end of a pan / pinch is not a tap
         const d = param && param.seriesData ? param.seriesData.get(sr) : null;
         S.pinned = d && d.open !== undefined ? d : null;
         S.pinnedTime = S.pinned ? param.time : null;
@@ -915,6 +946,7 @@
         const next = i >= n - 1 || n === 0 ? null : Math.max(0, i);
         if (next === S.edgeIdx) return;
         S.edgeIdx = next;
+        S.pinned = null;   // scrolling moves on from a tapped candle
         scheduleLegend();
       });
       refreshPosition();

@@ -1634,3 +1634,6 @@ body.chart-page .depth-panel { height: auto; }
 /* TradingView-style value boxes on the price axis */
 .chart-tags { position: absolute; top: 0; right: 0; bottom: 0; width: 0; pointer-events: none; z-index: 4; }
 .chart-tag { position: absolute; right: 0; box-sizing: border-box; height: 18px; line-height: 16px; padding: 0 3px; border: 1px solid; border-radius: 2px; background: rgba(5, 8, 6, 0.92); font-size: 11px; text-align: center; white-space: nowrap; }
+
+/* fixed-height read-out so a longer / shorter line never shifts the chart under a finger mid-gesture */
+.chart-legend { min-height: 2.9em; }
