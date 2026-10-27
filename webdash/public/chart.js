@@ -317,6 +317,7 @@
     if (S && S.chart) S.chart.remove();
     if (S && S.posTimer) clearInterval(S.posTimer);
     if (S && S.axisTimer) clearInterval(S.axisTimer);
+    if (S && S.tagTimer) clearInterval(S.tagTimer);
     stopDepth();
     S = null;
   }
@@ -438,7 +439,7 @@
     }
     S[which === "indicator" ? "ind" : "filters"] = !S[which === "indicator" ? "ind" : "filters"];
     modal.querySelector(`[data-toggle="${which}"]`).classList.toggle("active", S[which === "indicator" ? "ind" : "filters"]);
-    drawOverlay(); drawMarkers(); info();
+    drawOverlay(); drawMarkers(); info(); legend();
   }
 
   function info() {
@@ -461,7 +462,7 @@
       S.overlay = d.overlay;
       const have = new Set(S.blocks.map(b => b.ts + "|" + b.side));
       d.blocks.forEach(b => { if (!have.has(b.ts + "|" + b.side)) S.blocks.push(b); });
-      drawOverlay(); drawMarkers(); info();
+      drawOverlay(); drawMarkers(); info(); legend();
     } catch { /* keep what we have */ }
   }
   function onBlock(msg) {
@@ -484,14 +485,33 @@
     }
     return null;
   }
-  function updateTags(ref, pt) {
-    const drop = key => { if (S[key]) { try { S.series.removePriceLine(S[key]); } catch { /* gone */ } S[key] = null; } };
-    const put = (key, price, color) => {
-      const o = { price, color, lineVisible: false, axisLabelVisible: true, title: "" };
-      if (S[key]) S[key].applyOptions(o); else S[key] = S.series.createPriceLine(o);
-    };
-    if (ref && ref.past && ref.k) put("tagClose", Number(ref.k.close), Number(ref.k.close) >= Number(ref.k.open) ? CC.up : CC.down); else drop("tagClose");
-    if (pt && S.dsb.show) put("tagDsb", pt.mid, pt.color === "red" ? S.dsb.down : S.dsb.up); else drop("tagDsb");
+  // Value of the strategy's own indicator lines (the "Indicator" button) at chart time `time` (seconds, IST-shifted).
+  function overlayValues(time) {
+    const ov = S.overlay, out = [];
+    if (!S.ind || !ov || !ov.lines) return out;
+    for (const l of ov.lines.slice(0, 3)) {
+      const pts = l.points || []; let lo = 0, hi = pts.length - 1, at = -1;
+      while (lo <= hi) { const m = (lo + hi) >> 1; if (Math.floor(pts[m][0] / 1000) + IST_S <= time) { at = m; lo = m + 1; } else hi = m - 1; }
+      if (at >= 0) out.push({ name: l.name, v: pts[at][1], color: pts[at][2] || l.color });
+    }
+    return out;
+  }
+  // TradingView-style value boxes on the price axis (outlined, coloured): the reference candle's close (when it is a past candle),
+  // the DSB value and the strategy-indicator values. DOM overlay, positioned from the series' price scale — cheap to move while panning / zooming.
+  function positionTags() {
+    if (!S || !S.tagEl) return;
+    const tags = S.tags || [];
+    while (S.tagEl.children.length < tags.length) { const d = document.createElement("div"); d.className = "chart-tag"; S.tagEl.appendChild(d); }
+    const ps = S.chart.priceScale("right"), w = (ps.width && ps.width()) || 56, ph = els.box.clientHeight - ((S.chart.timeScale().height && S.chart.timeScale().height()) || 26);
+    const placed = tags.map(t => ({ t, y: S.series.priceToCoordinate(t.price) })).filter(p => p.y !== null && p.y > -4 && p.y < ph + 4).sort((a, b) => a.y - b.y);
+    let prev = -Infinity;
+    for (const p of placed) { if (p.y < prev + 18) p.y = prev + 18; prev = p.y; }
+    Array.from(S.tagEl.children).forEach((el, i) => {
+      const p = placed[i];
+      if (!p) { el.style.display = "none"; return; }
+      el.style.display = ""; el.style.width = Math.max(40, w) + "px"; el.style.top = Math.round(p.y - 9) + "px";
+      el.style.borderColor = p.t.color; el.style.color = p.t.color; el.textContent = Number(p.t.price).toFixed(2);
+    });
   }
   function legend() {
     if (!els.legend || !S) return;
@@ -499,14 +519,28 @@
     let k = ref ? ref.k : null, time = ref ? ref.time : (S.dispTimes && S.dispTimes.length ? S.dispTimes[S.dispTimes.length - 1] : null);
     if (!k) { const l = S.lastDisp; if (l) k = { open: l.o, high: l.h, low: l.l, close: l.c }; }
     const f = v => Number(v).toFixed(2);
-    const parts = [];
-    if (k) parts.push(`O ${f(k.open)}  H ${f(k.high)}  L ${f(k.low)}  C ${f(k.close)}`);
+    const parts = [], tags = [];
+    if (k) {
+      parts.push(`O ${f(k.open)}  H ${f(k.high)}  L ${f(k.low)}  C ${f(k.close)}`);
+      if (ref && ref.past) tags.push({ price: Number(k.close), color: Number(k.close) >= Number(k.open) ? CC.up : CC.down });
+    }
     const pt = S.dsb && S.dsb.show && S.dsbMap && time !== null ? S.dsbMap.get(time) : null;
-    if (pt) parts.push(`DSB ${f(pt.mid)} ${pt.color === "red" ? "\u25BC short" : "\u25B2 long"}${S.dsb.edges ? `  (${f(pt.low)} / ${f(pt.high)})` : ""}`);
+    if (pt) {
+      parts.push(`DSB ${f(pt.mid)} ${pt.color === "red" ? "\u25BC short" : "\u25B2 long"}${S.dsb.edges ? `  (${f(pt.low)} / ${f(pt.high)})` : ""}`);
+      tags.push({ price: pt.mid, color: pt.color === "red" ? S.dsb.down : S.dsb.up });
+    }
+    if (time !== null) for (const o of overlayValues(time)) { parts.push(`${o.name} ${f(o.v)}`); tags.push({ price: o.v, color: o.color }); }
     if (S.position && S.position.entry_price != null) parts.push(`${S.position.position} entry @ ${f(S.position.entry_price)}`);
-    els.legend.textContent = parts.join("   |   ");
+    const text = parts.join("   |   ");
+    if (els.legend.textContent !== text) els.legend.textContent = text;
     els.legend.style.display = parts.length ? "" : "none";
-    updateTags(ref, pt);
+    S.tags = tags;
+    positionTags();
+  }
+  // Pan / zoom fire many range events: coalesce to one legend + tag update per frame.
+  function scheduleLegend() {
+    if (!S || S.legendRaf) return;
+    S.legendRaf = requestAnimationFrame(() => { if (S) { S.legendRaf = 0; legend(); } });
   }
   async function refreshPosition() {
     if (!S) return;
@@ -808,6 +842,7 @@
     if (S && S.chart) S.chart.remove();
     if (S && S.posTimer) clearInterval(S.posTimer);
     if (S && S.axisTimer) clearInterval(S.axisTimer);
+    if (S && S.tagTimer) clearInterval(S.tagTimer);
     stopDepth();
     S = null;
     els.title.textContent = `${inst.underlying} · ${inst.strategy}${" · " + (inst.candleType || (window.nativeCandleOf ? window.nativeCandleOf(inst.strategy) : ""))}`;
@@ -851,6 +886,8 @@
       };
       if (bars.length) S.last = bars[bars.length - 1].c;
       attachPriceAxisZoom();
+      S.tagEl = document.createElement("div"); S.tagEl.className = "chart-tags"; els.box.appendChild(S.tagEl);
+      S.tagTimer = setInterval(positionTags, 120);   // keeps the boxes on their prices while the price axis auto-scales or is dragged
       S.hover = null; S.pinned = null; S.edgeIdx = null; S.position = null; S.depthOn = true;
       S.effType = effType;
       { const L = loadDsb(inst.name); S.dsb = L.d; S.dsbSaved = L.saved; S.dsbSeries = null; S.dsbMarks = []; syncDsbInputs(); }
@@ -878,7 +915,7 @@
         const next = i >= n - 1 || n === 0 ? null : Math.max(0, i);
         if (next === S.edgeIdx) return;
         S.edgeIdx = next;
-        legend();
+        scheduleLegend();
       });
       refreshPosition();
       S.posTimer = setInterval(refreshPosition, 10000);
