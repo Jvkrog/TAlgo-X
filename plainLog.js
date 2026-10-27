@@ -29,7 +29,10 @@ function tee(stream, logPath) {
     };
 }
 
+let installed = false;
 function install() {
+    if (installed) return;   // dualHedgeEngine.js installs it, then hands over to dualBiasHedgeEngine.js which installs it again: a second wrap would copy the stripped text into the colour sidecar too (every line twice)
+    installed = true;
     if (process.env.LOG_PLAIN === "0" || process.stdout.isTTY) return;
     tee(process.stdout, process.env.pm_out_log_path);
     tee(process.stderr, process.env.pm_err_log_path);
