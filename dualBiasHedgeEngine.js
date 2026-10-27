@@ -284,6 +284,7 @@ async function main() {
             const uPnl = leg.state.position ? positions.unrealised(leg.context, leg.state, price) : 0;
             const session = (leg.state.pnl || 0) + uPnl;
             emitEvent(leg.context.tgPrefix, "TICK", { price, uPnl, session, position: leg.state.position, entryPrice: leg.state.entryPrice || null });
+            emitEvent(leg.context.tgPrefix, "LTP", { price, uPnl, session, position: leg.state.position || null });   // live price for the dashboard chart (engine key = <underlying>_DH_LONG)
             if (beat) {
                 const posStr = leg.state.position ? `${leg.role || ""} ${leg.state.position}@${leg.state.entryPrice.toFixed(2)}`.trim() : "flat";
                 const fmt = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);

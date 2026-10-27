@@ -558,7 +558,7 @@
     S.legendRaf = requestAnimationFrame(() => { if (S) { S.legendRaf = 0; legend(); } });
   }
   async function refreshPosition() {
-    if (!S) return;
+    if (!S || S.inst.dual) return;   // a dual hedge deployment has two legs on two accounts: no single position to show
     const mine = S;
     try {
       const r = await fetch(`/api/state/${encodeURIComponent(mine.inst.underlying)}/${encodeURIComponent(mine.inst.strategy)}?candle=${encodeURIComponent(mine.inst.candleType || "")}`);
@@ -624,7 +624,7 @@
 
   // ── live ticks ────────────────────────────────────────────────────────────
   function onLtp(msg) {
-    if (!S || !S.isToday || msg.engine !== S.data.underlying) return;
+    if (!S || !S.isToday || msg.engine !== (S.data.ltpEngine || S.data.underlying)) return;
     const price = Number(msg.price), ts = msg.ts || Date.now();
     if (!Number.isFinite(price)) return;
     S.last = price;
@@ -862,7 +862,7 @@
     if (S && S.tagTimer) clearInterval(S.tagTimer);
     stopDepth();
     S = null;
-    els.title.textContent = `${inst.underlying} · ${inst.strategy}${" · " + (inst.candleType || (window.nativeCandleOf ? window.nativeCandleOf(inst.strategy) : ""))}`;
+    els.title.textContent = `${inst.underlying} · ${inst.label || inst.strategy}${" · " + (inst.candleType || (window.nativeCandleOf ? window.nativeCandleOf(inst.strategy) : ""))}`;
     els.status.textContent = "loading…";
     els.box.innerHTML = "";
     els.popout.style.display = window.chartStandalone ? "none" : "";
@@ -965,7 +965,7 @@
   window.openInstrumentChart = open;
   window.chartFillPicker = list => {
     if (!modal) build();
-    els.pick.innerHTML = list.map(i => `<option value="${i.name}">${i.underlying} · ${i.strategy}${i.candleType ? " · " + i.candleType : ""}</option>`).join("");
+    els.pick.innerHTML = list.map(i => `<option value="${i.name}">${i.underlying} · ${i.label || i.strategy}${i.candleType ? " · " + i.candleType : ""}</option>`).join("");
   };
   window.chartOnLtp = onLtp;
   window.chartOnDepth = onDepth;

@@ -47,7 +47,9 @@
       ]);
       const native = {}; (strats.strategies || []).forEach(s => { native[s.key] = s.nativeCandle; });
       window.nativeCandleOf = k => native[k] || "RAW";
-      const list = (Array.isArray(insts) ? insts : []).filter(i => i && i.name);
+      const dh = await fetch("/api/toolbox/dualhedge").then(r => r.json()).catch(() => ({}));
+      const dual = (dh.deployments || []).map(d => ({ name: d.name, underlying: d.underlying, strategy: "DYNAMIC_MID_COLOR", label: "DUAL HEDGE", candleType: d.bandHa ? "HA" : "RAW", timeframe: d.bandTimeframe, bandStep: d.bandStep || null, dual: true }));
+      const list = (Array.isArray(insts) ? insts : []).concat(dual).filter(i => i && i.name);
       if (!list.length) { say("No instruments found."); return; }
       window.chartInstruments = list;
       window.chartFillPicker(list);

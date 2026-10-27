@@ -335,6 +335,7 @@ async function loadHedgePairs() {
       hedgePairLegIndex.set(`${p.coreUnderlying}_CORE`,   { ...legMeta, leg: "core" });
       hedgePairLegIndex.set(`${p.hedgeUnderlying}_HEDGE`, { ...legMeta, leg: "hedge" });
     });
+    hedgePairs.forEach(p => { updateHedgePairLeg(`${p.coreUnderlying}_CORE`, undefined, undefined); updateHedgePairLeg(`${p.hedgeUnderlying}_HEDGE`, undefined, undefined); });
   } catch (err) {
     // Best-effort, same as loadEngineState — a failed poll just leaves the
     // panel as it was rather than erroring the whole dashboard load.
@@ -406,12 +407,21 @@ function buildDualHedgeCard(d) {
       <button class="btn btn-start" data-action="start">Start</button>
       <button class="btn btn-stop" data-action="stop">Stop</button>
       <button class="btn btn-restart" data-action="restart">Restart</button>
+      <button class="btn btn-chart" data-action="chart">Chart</button>
     </div>
   `;
   el.querySelectorAll("[data-action]").forEach(btn => {
-    btn.addEventListener("click", () => control(d.name, btn.dataset.action, el));
+    btn.addEventListener("click", () => {
+      if (btn.dataset.action === "chart") { window.openInstrumentChart && window.openInstrumentChart(dualHedgeChartInst(d)); return; }
+      control(d.name, btn.dataset.action, el);
+    });
   });
   return el;
+}
+
+// The chart for a dual hedge deployment: the instrument on the hedge band's timeframe with the Dynamic Step Band, live price from the long leg.
+function dualHedgeChartInst(d) {
+  return { name: d.name, underlying: d.underlying, strategy: "DYNAMIC_MID_COLOR", label: "DUAL HEDGE", candleType: d.bandHa ? "HA" : "RAW", timeframe: d.bandTimeframe, bandStep: d.bandStep || null, dual: true };
 }
 
 // Same shape as updateHedgePairLeg() — see that function's own comment.
@@ -456,6 +466,8 @@ async function loadDualHedges() {
       dualHedgeLegIndex.set(`${d.underlying}_DH_LONG`,  { ...legMeta, leg: "long" });
       dualHedgeLegIndex.set(`${d.underlying}_DH_SHORT`, { ...legMeta, leg: "short" });
     });
+    // The grid was just rebuilt with +0 placeholders: paint the last known numbers straight back (otherwise it blanks until the next tick).
+    dualHedges.forEach(d => { updateDualHedgeLeg(`${d.underlying}_DH_LONG`, undefined, undefined); updateDualHedgeLeg(`${d.underlying}_DH_SHORT`, undefined, undefined); });
   } catch (err) {
     // best-effort, same as loadHedgePairs
   }

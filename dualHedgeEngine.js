@@ -579,6 +579,7 @@ async function main() {
             emitEvent(leg.context.tgPrefix, "TICK", {
                 price, uPnl, session, position: leg.state.position, entryPrice: leg.state.entryPrice || null,
             });
+            emitEvent(leg.context.tgPrefix, "LTP", { price, uPnl, session, position: leg.state.position || null });   // live price for the dashboard chart (engine key = <underlying>_DH_LONG)
             const posStr = leg.state.position ? `${leg.state.position}@${leg.state.entryPrice.toFixed(2)}${leg.state.flipped ? " (flipped)" : ""}` : "flat";
             const fmt = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
             const color = leg.state.position ? (uPnl >= 0 ? c.green : c.red) : c.dim;

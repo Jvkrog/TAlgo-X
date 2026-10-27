@@ -1250,13 +1250,11 @@ function blocksForDay(engine, fromTs, outLogPath, procName) {
 // Overlay + blocks only (refresh when a new bar opens, without re-fetching minute bars).
 app.get("/api/chart/:name/overlay", async (req, res) => {
     try {
-        const procs = await getEngineProcesses();
-        const p = procs.find(x => x.name === req.params.name);
+        const p = await chartTarget(req.params.name);
         if (!p) return res.status(404).json({ error: "Instrument not found" });
         const exchange = p.exchange || "MCX";
         const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
-        const def = getDefinition(p.underlying, exchange);
-        const { contract } = resolveCurrent(p.underlying, def, repo, pinStore);
+        const contract = chartContract(p, repo, exchange);
         const tf = p.timeframe || STRATEGY_TIMEFRAME[p.strategy] || "15m";
         const now = Date.now();
         const win = chartWindow(tf, now);
@@ -1271,13 +1269,33 @@ app.get("/api/chart/:name/overlay", async (req, res) => {
 // (price, quantity, orders), total buy/sell quantity, volume and OI. Polled by the open chart (~1.5s); cached 1s per
 // instrument so several browsers / a fast poll never exceed Kite's 1 request/second quote limit.
 const depthCache = new Map();
+// Chart / order book target by process name: a regular engine, or a dual hedge deployment (both legs trade one instrument, so the
+// chart shows that instrument on the hedge band's timeframe with a Dynamic Step Band overlay; live prices come from the LONG leg).
+async function chartTarget(name) {
+    const p = (await getEngineProcesses()).find(x => x.name === name);
+    if (p) return p;
+    const d = (await getDualHedgeProcesses()).find(x => x.name === name);
+    if (!d) return null;
+    return {
+        name: d.name, underlying: d.underlying, exchange: d.exchange || "MCX", strategy: "DYNAMIC_MID_COLOR",
+        timeframe: ["5m", "15m", "30m", "1h"].includes(d.bandTimeframe) ? d.bandTimeframe : "15m", bandStep: d.bandStep || null,
+        candleType: d.bandHa ? "HA" : "RAW", outLogPath: d.outLogPath, dual: true,
+        symbolOverride: d.longContract || d.contractSymbol || null, ltpEngine: `${d.underlying}_DH_LONG`,
+    };
+}
+function chartContract(p, repo, exchange) {
+    if (p.symbolOverride) {
+        const row = repo.findBySymbol(p.symbolOverride);
+        if (row) return row;
+    }
+    return resolveCurrent(p.underlying, getDefinition(p.underlying, exchange), repo, pinStore).contract;
+}
 async function resolveDepthTarget(name) {
-    const procs = await getEngineProcesses();
-    const p = procs.find(x => x.name === name);
+    const p = await chartTarget(name);
     if (!p) throw new Error("instrument not found");
     const exchange = p.exchange || "MCX";
     const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
-    const { contract } = resolveCurrent(p.underlying, getDefinition(p.underlying, exchange), repo, pinStore);
+    const contract = chartContract(p, repo, exchange);
     return { name, token: Number(contract.token), key: `${contract.exchange || exchange}:${contract.symbol}` };
 }
 const { createDepthHub } = require("./depthHub");
@@ -1316,13 +1334,11 @@ app.get("/api/depth/:name", async (req, res) => {
     try {
         const hit = depthCache.get(req.params.name);
         if (hit && Date.now() - hit.at < 1000) return res.json(hit.data);
-        const procs = await getEngineProcesses();
-        const p = procs.find(x => x.name === req.params.name);
+        const p = await chartTarget(req.params.name);
         if (!p) return res.status(404).json({ error: "Instrument not found" });
         const exchange = p.exchange || "MCX";
         const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
-        const def = getDefinition(p.underlying, exchange);
-        const { contract } = resolveCurrent(p.underlying, def, repo, pinStore);
+        const contract = chartContract(p, repo, exchange);
         const key = `${contract.exchange || exchange}:${contract.symbol}`;
         const q = (await ensureToolboxKite().getQuote([key]))[key];
         if (!q) return res.status(404).json({ error: `No quote returned for ${key}` });
@@ -1343,13 +1359,11 @@ app.get("/api/depth/:name", async (req, res) => {
 
 app.get("/api/chart/:name", async (req, res) => {
     try {
-        const procs = await getEngineProcesses();
-        const p = procs.find(x => x.name === req.params.name);
+        const p = await chartTarget(req.params.name);
         if (!p) return res.status(404).json({ error: "Instrument not found" });
         const exchange = p.exchange || "MCX";
         const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
-        const def = getDefinition(p.underlying, exchange);
-        const { contract } = resolveCurrent(p.underlying, def, repo, pinStore);
+        const contract = chartContract(p, repo, exchange);
         const tf = p.timeframe || STRATEGY_TIMEFRAME[p.strategy] || "15m";
         if (!TIMEFRAME_MINUTES[tf]) return res.status(400).json({ error: `Unsupported timeframe ${tf}` });
         const kc = ensureToolboxKite();
@@ -1374,7 +1388,7 @@ app.get("/api/chart/:name", async (req, res) => {
         const a = atrFn(tfBars.map(b => ({ open: b.open, high: b.high, low: b.low, close: b.close })), engineConfig.ST_ATR_LEN);
         res.json({
             name: p.name, underlying: p.underlying, exchange, timeframe: tf, tfMinutes: TIMEFRAME_MINUTES[tf], day, fromTs: win.fromTs,
-            strategy: p.strategy,
+            strategy: p.strategy, ltpEngine: p.ltpEngine || null, symbol: contract.symbol || null,
             overlay: await applyJournalColors(p, chartOverlayFor(p, tfBars, win.fromTs), TIMEFRAME_MINUTES[tf]),
             blocks: blocksForDay(p.underlying, win.fromTs, p.outLogPath, p.name),
             tfBars: tfBars.filter(b => b.date.getTime() >= win.fromTs - 8 * 86400000).map(row), minuteBars: mins.map(row),
@@ -2490,6 +2504,7 @@ async function getDualHedgeProcesses() {
             lossAlertRupees: p.pm2_env.env?.DH_LOSS_ALERT_RUPEES || "",
             unwindMode: p.pm2_env.env?.DH_UNWIND_MODE || "BAND_FLIP",
             bandTimeframe: p.pm2_env.env?.DH_BAND_TIMEFRAME || "15m",
+            bandStep: p.pm2_env.env?.DH_BAND_STEP_OVERRIDE ? Number(p.pm2_env.env.DH_BAND_STEP_OVERRIDE) : null,
             contractSymbol: p.pm2_env.env?.DH_CONTRACT_OVERRIDE || null,
             longContract: p.pm2_env.env?.DH_LONG_CONTRACT_OVERRIDE || null,
             shortContract: p.pm2_env.env?.DH_SHORT_CONTRACT_OVERRIDE || null,
