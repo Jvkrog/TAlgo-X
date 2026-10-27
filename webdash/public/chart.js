@@ -154,7 +154,7 @@
   function drawDsb(rebuild) {
     if (!S || !S.chart) return;
     if (rebuild || !S.dsb.show) dsbClear();
-    if (!S.dsb.show || !S.dispTimes || !S.dispTimes.length) { S.dsbMarks = []; return; }
+    if (!S.dsb.show || !S.dispTimes || !S.dispTimes.length) { S.dsbMarks = []; S.dsbMap = null; legend(); return; }
     const key = dsbSourceKey();
     const src = key === "ha" ? toHA(S.bars) : key === "range" ? displayed() : S.bars;
     const pts = dsbCompute(src, dsbStep());
@@ -164,6 +164,7 @@
       S.dsbSeries = { mid: S.chart.addLineSeries({ ...lw0, color: D.up, lineWidth: D.width }) };
       if (D.edges) { S.dsbSeries.hi = S.chart.addLineSeries({ ...lw0, color: D.up, lineWidth: 1, lineStyle: 2 }); S.dsbSeries.lo = S.chart.addLineSeries({ ...lw0, color: D.down, lineWidth: 1, lineStyle: 2 }); }
     }
+    S.dsbMap = new Map(pts.map(p => [Math.floor(p.t / 1000) + IST_S, p]));
     const col = p => (p.color === "red" ? D.down : D.up);
     const mk = f => { const out = []; let prev = 0; for (const p of pts) { const time = Math.floor(p.t / 1000) + IST_S; if (time > prev && time >= cutoff) { out.push(f(p, time)); prev = time; } } return out; };
     S.dsbSeries.mid.setData(mk((p, time) => ({ time, value: p.mid, color: col(p) })));
@@ -172,6 +173,7 @@
     S.dsbMarks = D.dirChanges ? mk((p, time) => (p.flip ? {
       time, position: p.color === "green" ? "belowBar" : "aboveBar", shape: p.color === "green" ? "arrowUp" : "arrowDown", color: col(p), text: p.color === "green" ? "UP" : "DOWN",
     } : null)).filter(Boolean) : [];
+    legend();
   }
   function syncDsbInputs() {
     if (!S) return;
@@ -370,6 +372,7 @@
   function render(fit) {
     const disp = displayed();
     S.lastDisp = disp[disp.length - 1] || null;
+    S.dispList = disp;
     const list = series(disp);
     S.series.setData(list);
     S.listLen = list.length;
@@ -469,16 +472,41 @@
   }
 
   // OHLC of the candle under the crosshair (else the latest candle) + the open position's entry price.
-  function legend(hover) {
+  // Like TradingView: the O/H/L/C line, the DSB value and the two value tags on the price axis follow the candle under the crosshair /
+  // the tapped candle / (when scrolled back) the right-most visible candle. The live price line and tag stay on the real traded price.
+  function refBar() {
+    if (S.hover) return { k: S.hover, time: S.hoverTime, past: true };
+    if (S.pinned) return { k: S.pinned, time: S.pinnedTime, past: true };
+    const i = S.edgeIdx;
+    if (i !== null && i !== undefined && S.dispList && S.dispList[i] && S.dispTimes) {
+      const b = S.dispList[i];
+      return { k: { open: b.o, high: b.h, low: b.l, close: b.c }, time: S.dispTimes[i], past: true };
+    }
+    return null;
+  }
+  function updateTags(ref, pt) {
+    const drop = key => { if (S[key]) { try { S.series.removePriceLine(S[key]); } catch { /* gone */ } S[key] = null; } };
+    const put = (key, price, color) => {
+      const o = { price, color, lineVisible: false, axisLabelVisible: true, title: "" };
+      if (S[key]) S[key].applyOptions(o); else S[key] = S.series.createPriceLine(o);
+    };
+    if (ref && ref.past && ref.k) put("tagClose", Number(ref.k.close), Number(ref.k.close) >= Number(ref.k.open) ? CC.up : CC.down); else drop("tagClose");
+    if (pt && S.dsb.show) put("tagDsb", pt.mid, pt.color === "red" ? S.dsb.down : S.dsb.up); else drop("tagDsb");
+  }
+  function legend() {
     if (!els.legend || !S) return;
-    let k = hover || S.pinned || null;
+    const ref = refBar();
+    let k = ref ? ref.k : null, time = ref ? ref.time : (S.dispTimes && S.dispTimes.length ? S.dispTimes[S.dispTimes.length - 1] : null);
     if (!k) { const l = S.lastDisp; if (l) k = { open: l.o, high: l.h, low: l.l, close: l.c }; }
     const f = v => Number(v).toFixed(2);
     const parts = [];
     if (k) parts.push(`O ${f(k.open)}  H ${f(k.high)}  L ${f(k.low)}  C ${f(k.close)}`);
+    const pt = S.dsb && S.dsb.show && S.dsbMap && time !== null ? S.dsbMap.get(time) : null;
+    if (pt) parts.push(`DSB ${f(pt.mid)} ${pt.color === "red" ? "\u25BC short" : "\u25B2 long"}${S.dsb.edges ? `  (${f(pt.low)} / ${f(pt.high)})` : ""}`);
     if (S.position && S.position.entry_price != null) parts.push(`${S.position.position} entry @ ${f(S.position.entry_price)}`);
     els.legend.textContent = parts.join("   |   ");
     els.legend.style.display = parts.length ? "" : "none";
+    updateTags(ref, pt);
   }
   async function refreshPosition() {
     if (!S) return;
@@ -488,7 +516,7 @@
       const d = await r.json();
       if (S !== mine) return;
       S.position = d.position || null;
-      legend(S.hover || null);
+      legend();
     } catch { /* keep last */ }
   }
 
@@ -516,7 +544,7 @@
     const dc = window.dayChangeFor && S.last !== null ? window.dayChangeFor(S.inst.name, S.last) : null;
     els.status.classList.toggle("up", !!dc && dc.pts > 0); els.status.classList.toggle("down", !!dc && dc.pts < 0);
     els.status.textContent = `${S.data.timeframe} · ${histSpan()} · ${live}${S.last !== null ? " · " + S.last.toFixed(2) : ""}${dc ? "  " + window.fmtDayChange(dc) : ""}`;
-    legend(S.hover || null);
+    legend();
   }
 
   async function ensureMinutes() {
@@ -582,6 +610,7 @@
     const last = disp[disp.length - 1];
     if (!last) return;
     S.lastDisp = last;
+    S.dispList = disp;
     keepLiveVisible(last.c);
     keepLiveVisible(last.h); keepLiveVisible(last.l);
     if (S.type === "range") {
@@ -597,7 +626,7 @@
     S.series.update(x);
     S.lastTime = x.time;
     if (S.dsb.show && Date.now() - (S.dsbAt || 0) > 1000) { S.dsbAt = Date.now(); drawDsb(false); drawMarkers(); }   // follow the forming candle
-    if (!S.hover && !S.pinned) legend(null);   // keep O/H/L/C of the live candle ticking
+    if (!S.hover && !S.pinned) legend();   // keep O/H/L/C of the live (or scrolled-to) candle current
     status();
   }
 
@@ -822,7 +851,7 @@
       };
       if (bars.length) S.last = bars[bars.length - 1].c;
       attachPriceAxisZoom();
-      S.hover = null; S.pinned = null; S.position = null; S.depthOn = true;
+      S.hover = null; S.pinned = null; S.edgeIdx = null; S.position = null; S.depthOn = true;
       S.effType = effType;
       { const L = loadDsb(inst.name); S.dsb = L.d; S.dsbSaved = L.saved; S.dsbSeries = null; S.dsbMarks = []; syncDsbInputs(); }
       els.dsbBtn.classList.toggle("active", els.dsbPanel.style.display !== "none");
@@ -832,13 +861,24 @@
       chart.subscribeCrosshairMove(param => {
         const d = param && param.seriesData ? param.seriesData.get(sr) : null;
         S.hover = d && d.open !== undefined ? d : null;
-        legend(S.hover);
+        S.hoverTime = S.hover ? param.time : null;
+        legend();
       });
       // Tap / click a candle to read its O/H/L/C (touch screens have no hover); tap empty space to go back to the live candle.
       chart.subscribeClick(param => {
         const d = param && param.seriesData ? param.seriesData.get(sr) : null;
         S.pinned = d && d.open !== undefined ? d : null;
-        legend(S.hover);
+        S.pinnedTime = S.pinned ? param.time : null;
+        legend();
+      });
+      // Scrolling back: the right-most visible candle becomes the reference (touch screens have no crosshair).
+      chart.timeScale().subscribeVisibleLogicalRangeChange(r => {
+        if (!S || !r) return;
+        const n = S.listLen || 0, i = Math.min(Math.floor(r.to), n - 1);
+        const next = i >= n - 1 || n === 0 ? null : Math.max(0, i);
+        if (next === S.edgeIdx) return;
+        S.edgeIdx = next;
+        legend();
       });
       refreshPosition();
       S.posTimer = setInterval(refreshPosition, 10000);
