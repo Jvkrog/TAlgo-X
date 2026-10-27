@@ -438,13 +438,16 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
 
     // Losing-reversal limiter stats, restricted to the requested window (warmup days are replayed too).
     let losingSwitch = null;
-    if (context.maxLosingSwitchesPerDay || context.maxLosingTradesPerDay || context.scalpStopForDay) {
+    if (context.maxLosingSwitchesPerDay || context.maxLosingTradesPerDay || context.maxProfitTradesPerDay || context.scalpStopForDay) {
         const st = state.losingSwitchStats || { losingDays: [], blockedDays: [], exhaustedDays: [], tradeLimitDays: [], tradeBlockedDays: [] };
         const fromDay = new Date(from.getTime() + 5.5 * 3600000).toISOString().slice(0, 10);
         const inWin = d => d >= fromDay;
         losingSwitch = {
             max: Number(context.maxLosingSwitchesPerDay) || null,
             maxTrades: Number(context.maxLosingTradesPerDay) || null,
+            maxProfitTrades: Number(context.maxProfitTradesPerDay) || null,
+            profitLimitDays: (st.profitLimitDays || []).filter(inWin).length,
+            profitBlocked: (st.profitBlockedDays || []).filter(inWin).length,
             tradeLimitDays: (st.tradeLimitDays || []).filter(inWin).length,
             tradeBlocked: (st.tradeBlockedDays || []).filter(inWin).length,
             scalpStopDays: context.scalpStopForDay ? (st.scalpStopDays || []).filter(inWin).length : null,
@@ -454,6 +457,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
         };
         if (losingSwitch.max) console.log(`[DSB] Losing-reversal limit ${losingSwitch.max}/day: ${losingSwitch.losingReversals} losing reversals, ${losingSwitch.blockedReversals} blocked, ${losingSwitch.daysExhausted} day(s) exhausted`);
         if (losingSwitch.scalpStopDays !== null) console.log(`[DSB] Scalp target hit on ${losingSwitch.scalpStopDays} day(s) — done for the day each time`);
+        if (losingSwitch.maxProfitTrades) console.log(`[DSB] Profitable-trade limit ${losingSwitch.maxProfitTrades}/day: reached on ${losingSwitch.profitLimitDays} day(s), ${losingSwitch.profitBlocked} entries blocked`);
         if (losingSwitch.maxTrades) console.log(`[DSB] Losing-trade limit ${losingSwitch.maxTrades}/day: reached on ${losingSwitch.tradeLimitDays} day(s), ${losingSwitch.tradeBlocked} entries blocked`);
     }
 

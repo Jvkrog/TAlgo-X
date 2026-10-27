@@ -435,6 +435,11 @@ async function main() {
         const parsedLt = Number(process.env.MAX_LOSING_TRADES_OVERRIDE);
         context.maxLosingTradesPerDay = Number.isFinite(parsedLt) && parsedLt > 0 ? Math.floor(parsedLt) : null;
     }
+    if (process.env.MAX_PROFIT_TRADES_OVERRIDE !== undefined && process.env.MAX_PROFIT_TRADES_OVERRIDE !== "") {
+        const parsedPt = Number(process.env.MAX_PROFIT_TRADES_OVERRIDE);
+        context.maxProfitTradesPerDay = Number.isFinite(parsedPt) && parsedPt > 0 ? Math.floor(parsedPt) : null;
+    }
+    if (context.maxProfitTradesPerDay) console.log(c.dim(`[${context.tgPrefix}] [DSB] profitable-trade limit: ${context.maxProfitTradesPerDay} per day (then cooldown until next session)`));
     if (context.maxLosingTradesPerDay) console.log(c.dim(`[${context.tgPrefix}] [DSB] losing-trade limit: ${context.maxLosingTradesPerDay} per day (then flat until next session)`));
     if (context.maxLosingSwitchesPerDay) console.log(c.dim(`[${context.tgPrefix}] [DSB] losing-reversal limit: ${context.maxLosingSwitchesPerDay} per day (then flat until next session)`));
     console.log(c.dim(`[${context.tgPrefix}] ${context.hardSlRupees ? `HARD SL: \u20b9${context.hardSlRupees} per position (ATR stop off)` : `ATR SL multiplier: ${context.atrSlMult ?? `${engineConfig.ATR_SL_MULT} (default)`}`}${context.strategy === "PURE_HA" ? `  |  flip confirm: ${context.flipConfirmCandles ?? 1} candle(s)` : ""}`));

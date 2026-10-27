@@ -28,7 +28,7 @@ const istDayKey = ms => new Date(ms + IST_MS).toISOString().slice(0, 10);
 function createLosingSwitchGate({ context, state, db, clock = { now: () => new Date() }, tag = "DSB" }) {
     let n = 0;
     let dayKey = null;
-    const stats = state.losingSwitchStats = state.losingSwitchStats || { scalpStopDays: [], scalpBlocked: 0, losingReversals: 0, blocked: 0, daysExhausted: 0, exhaustedDays: [], blockedDays: [], losingDays: [], losingTrades: 0, tradeLimitDays: [], tradeBlocked: 0, tradeBlockedDays: [] };
+    const stats = state.losingSwitchStats = state.losingSwitchStats || { scalpStopDays: [], scalpBlocked: 0, losingReversals: 0, blocked: 0, daysExhausted: 0, exhaustedDays: [], blockedDays: [], losingDays: [], losingTrades: 0, tradeLimitDays: [], tradeBlocked: 0, tradeBlockedDays: [], profitTrades: 0, profitLimitDays: [], profitBlocked: 0, profitBlockedDays: [] };
 
     const max = () => {
         const m = Number(context.maxLosingSwitchesPerDay);
@@ -43,6 +43,14 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
         return Number.isFinite(m) && m > 0 ? m : null;
     };
     const tradesEnabled = () => maxT() !== null;
+    // Fourth, independent limit: PROFITABLE trades (pnl > 0, any exit reason) per IST day. Once the Nth winning trade
+    // closes, no further entries until the next session (the cooldown is the rest of the day).
+    let np = 0;
+    const maxP = () => {
+        const m = Number(context.maxProfitTradesPerDay);
+        return Number.isFinite(m) && m > 0 ? m : null;
+    };
+    const profitEnabled = () => maxP() !== null;
     // Third, independent lock: after a scalp-target (SCALP_TP) exit, take no more entries today (context.scalpStopForDay).
     let nScalp = 0;
     const scalpTracked = () => Number(context.scalpTargetRupees) > 0 && !context.targetPoints;
@@ -61,6 +69,7 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
             if (n > 0 && enabled()) log(`Daily losing-switch counter reset (was ${n})`);
             n = 0;
             nt = 0;
+            np = 0;
             nScalp = 0; state.scalpHitsToday = 0;
         }
     }
@@ -75,6 +84,12 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
                 nt = await db.countLosingTradesSince(context.tgPrefix, since);
                 if (nt > 0) log(`Losing trades today restored after restart: ${nt}/${maxT()}${nt >= maxT() ? " — limit reached, entries blocked for today" : ""}`);
             } catch (err) { console.warn(`[${tag}] could not restore losing-trade counter: ${err.message}`); }
+        }
+        if (profitEnabled() && typeof db.countWinningTradesSince === "function") {
+            try {
+                np = await db.countWinningTradesSince(context.tgPrefix, since);
+                if (np > 0) log(`Profitable trades today restored after restart: ${np}/${maxP()}${np >= maxP() ? " — limit reached, entries blocked for today" : ""}`);
+            } catch (err) { console.warn(`[${tag}] could not restore profitable-trade counter: ${err.message}`); }
         }
         if (scalpTracked() && typeof db.countScalpTpSince === "function") {
             try {
@@ -130,6 +145,18 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
                 note("SCALP_TP_DAY_DONE", { pnl });
             }
         }
+        if (profitEnabled() && pnl > 0) {
+            rollDay();
+            np += 1;
+            stats.profitTrades += 1;
+            log(`Profitable trades today: ${np}/${maxP()} (${reason}, pnl +${Number(pnl).toFixed(2)})`);
+            if (np === maxP()) {
+                const day = istDayKey(clock.now().getTime());
+                if (!stats.profitLimitDays.includes(day)) stats.profitLimitDays.push(day);
+                log("Daily profitable-trade limit reached; cooldown — no further entries today");
+                note("PROFIT_TRADES_LIMIT", { count: np, max: maxP(), reason, pnl });
+            }
+        }
         if (!tradesEnabled() || !(pnl < 0)) return;
         rollDay();
         nt += 1;
@@ -147,12 +174,17 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
 
     function scalpLocked() { return scalpStopEnabled() && (rollDay(), nScalp >= 1); }
     function tradesLocked() { return tradesEnabled() && (rollDay(), nt >= maxT()); }
+    function profitLocked() { return profitEnabled() && (rollDay(), np >= maxP()); }
     function reversalsLocked() { return enabled() && (rollDay(), n > max()); }
 
     // True when entries must not happen (either limit exhausted for today). Checked before every entry.
-    function isLocked() { return reversalsLocked() || tradesLocked() || scalpLocked(); }
+    function isLocked() { return reversalsLocked() || tradesLocked() || profitLocked() || scalpLocked(); }
 
     function lockMessage(side) {
+        if (profitLocked() && !tradesLocked() && !reversalsLocked()) {
+            stats.profitBlocked += 1; stats.profitBlockedDays.push(istDayKey(clock.now().getTime()));
+            return `${side} entry blocked — daily profitable-trade limit reached (${np}/${maxP()}); cooldown, no entries until the next session`;
+        }
         if (scalpLocked() && !tradesLocked() && !reversalsLocked()) {
             stats.scalpBlocked += 1;
             return `${side} entry blocked — scalp target already hit today; done for the day, no entries until the next session`;
@@ -164,7 +196,7 @@ function createLosingSwitchGate({ context, state, db, clock = { now: () => new D
         return `${side} entry blocked — daily losing-switch limit exhausted (${n}/${max()}); no entries until the next session`;
     }
 
-    return { restore, recordFlipExit, isLocked, lockMessage, isFlipReason, get count() { return n; }, get max() { return max(); }, get tradeCount() { return nt; }, stats };
+    return { restore, recordFlipExit, isLocked, lockMessage, isFlipReason, get count() { return n; }, get max() { return max(); }, get tradeCount() { return nt; }, get profitCount() { return np; }, stats };
 }
 
 module.exports = { createLosingSwitchGate, FLIP_REASONS };

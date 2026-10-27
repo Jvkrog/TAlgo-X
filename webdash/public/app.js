@@ -1691,6 +1691,7 @@ function renderRiskList() {
     else if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
     if (inst.dsbExitMode === "SL") badges.push(`<span class="mode-pill live">exit: SL only</span>`);
     if (inst.scalpTarget) badges.push(`<span class="mode-pill live">scalp \u20b9${inst.scalpTarget}${inst.scalpStopDay ? " · stop day" : (inst.scalpNext ? " · then " + (inst.scalpNext === "TARGET:0" ? "no target" : inst.scalpNext.replace("TARGET:", "tgt \u20b9").replace("SL:", "SL \u20b9")) : "")}</span>`);
+    if (inst.maxProfitTrades) badges.push(`<span class="mode-pill">max ${inst.maxProfitTrades} profit trades/day</span>`);
     if (inst.maxLosingTrades) badges.push(`<span class="mode-pill">max ${inst.maxLosingTrades} losing trades/day</span>`);
     if (inst.maxLosingSwitches) badges.push(`<span class="mode-pill">max ${inst.maxLosingSwitches} losing flips/day</span>`);
     if (inst.maxDailyLoss) badges.push(`<span class="mode-pill">maxloss -₹${inst.maxDailyLoss}</span>`);
@@ -2008,6 +2009,10 @@ function openEditModal(inst) {
       <input type="number" id="editMaxLosingSwitches" min="1" step="1" value="${inst.maxLosingSwitches ?? ""}">
     </div>
     <div class="tb-form-row" style="${isDynamicBand ? "" : "display:none"}">
+      <div class="tb-form-label">Max profitable trades per day (any exit), then cooldown until next session (blank = off)</div>
+      <input type="number" id="editMaxProfitTrades" min="1" step="1" value="${inst.maxProfitTrades ?? ""}">
+    </div>
+    <div class="tb-form-row" style="${isDynamicBand ? "" : "display:none"}">
       <div class="tb-form-label">Max losing trades per day (any exit: flip, stop-loss, target), then flat until next session (blank = off)</div>
       <input type="number" id="editMaxLosingTrades" min="1" step="1" value="${inst.maxLosingTrades ?? ""}">
     </div>
@@ -2136,6 +2141,7 @@ function openEditModal(inst) {
       body.bandStep = tbEditBody.querySelector("#editBandStep").value || null;
       body.maxLosingSwitches = tbEditBody.querySelector("#editMaxLosingSwitches").value || null;
       body.maxLosingTrades = tbEditBody.querySelector("#editMaxLosingTrades").value || null;
+      body.maxProfitTrades = tbEditBody.querySelector("#editMaxProfitTrades").value || null;
       body.scalpTarget = tbEditBody.querySelector("#editScalpTarget").value || null;
       body.scalpStopDay = tbEditBody.querySelector("#editScalpStopDay").checked;
       body.scalpNext = scalpNextValue(tbEditBody, "edit");
@@ -2467,6 +2473,10 @@ function renderAddConfigStep() {
       <input type="number" id="addMaxLosingSwitches" min="1" step="1">
     </div>
     <div class="tb-form-row">
+      <div class="tb-form-label">Max profitable trades per day, any exit, then cooldown until next session (Dynamic Step Band family only, blank = off)</div>
+      <input type="number" id="addMaxProfitTrades" min="1" step="1">
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">Max losing trades per day, any exit (Dynamic Step Band family only, blank = off)</div>
       <input type="number" id="addMaxLosingTrades" min="1" step="1">
     </div>
@@ -2660,6 +2670,7 @@ function renderAddConfigStep() {
         maxDailyLoss: tbAddBody.querySelector("#addMaxDailyLoss").value || undefined,
         maxLosingSwitches: tbAddBody.querySelector("#addMaxLosingSwitches").value || undefined,
         maxLosingTrades: tbAddBody.querySelector("#addMaxLosingTrades").value || undefined,
+        maxProfitTrades: tbAddBody.querySelector("#addMaxProfitTrades").value || undefined,
         scalpTarget: tbAddBody.querySelector("#addScalpTarget").value || undefined,
         scalpStopDay: tbAddBody.querySelector("#addScalpStopDay").checked,
         scalpNext: scalpNextValue(tbAddBody, "add") || undefined,
@@ -2923,6 +2934,10 @@ async function renderBacktestParamsStep() {
       <input type="number" id="btMaxLosingSwitches" min="1" step="1">
     </div>
     <div class="tb-form-row">
+      <div class="tb-form-label">Max profitable trades per day, any exit, then cooldown until next session (Dynamic Step Band family only, blank = off)</div>
+      <input type="number" id="btMaxProfitTrades" min="1" step="1">
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">Max losing trades per day, any exit (Dynamic Step Band family only, blank = off)</div>
       <input type="number" id="btMaxLosingTrades" min="1" step="1">
     </div>
@@ -3006,6 +3021,7 @@ async function renderBacktestParamsStep() {
     setC("#btDailyHaGate", pf.dailyHaGateEnabled !== false);
     setV("#btDsbExitMode", pf.dsbExitMode);
     setV("#btMaxLosingTrades", pf.maxLosingTrades);
+    setV("#btMaxProfitTrades", pf.maxProfitTrades);
     setV("#btScalpTarget", pf.scalpTarget);
     setV("#btTarget", pf.targetPoints);
     { const ad = tbBacktestBody.querySelector("#btAdaptive"); if (ad) ad.checked = pf.targetMode === "adaptive" && !pf.targetPoints; }
@@ -3056,6 +3072,7 @@ async function renderBacktestParamsStep() {
       maxDailyLoss: tbBacktestBody.querySelector("#btMaxLoss").value || undefined,
       maxLosingSwitches: tbBacktestBody.querySelector("#btMaxLosingSwitches").value || undefined,
       maxLosingTrades: tbBacktestBody.querySelector("#btMaxLosingTrades").value || undefined,
+      maxProfitTrades: tbBacktestBody.querySelector("#btMaxProfitTrades").value || undefined,
       targetPoints: tbBacktestBody.querySelector("#btTarget").value || undefined,
       targetMode: tbBacktestBody.querySelector("#btAdaptive").checked ? "adaptive" : undefined,
       scalpTarget: tbBacktestBody.querySelector("#btScalpTarget").value || undefined,
@@ -3087,7 +3104,7 @@ async function renderBacktestParamsStep() {
           <div class="tb-summary-cell"><div class="k">Max drawdown</div><div class="v">${Math.round(Math.abs(m.maxDrawdown)).toLocaleString()}</div></div>
           <div class="tb-summary-cell"><div class="k">Avg trade</div><div class="v">${fmtMoney(m.avgTrade)}</div></div>
         </div>
-        ${data.losingSwitch ? `<div class="tb-form-label" style="margin:8px 0">${data.losingSwitch.max ? `Losing-reversal limit ${data.losingSwitch.max}/day: ${data.losingSwitch.losingReversals} losing reversals · ${data.losingSwitch.blockedReversals} blocked · ${data.losingSwitch.daysExhausted} day(s) exhausted` : ""}${data.losingSwitch.max && data.losingSwitch.maxTrades ? "<br>" : ""}${data.losingSwitch.scalpStopDays != null ? `Scalp stop-for-day: hit on ${data.losingSwitch.scalpStopDays} day(s)<br>` : ""}${data.losingSwitch.maxTrades ? `Losing-trade limit ${data.losingSwitch.maxTrades}/day: reached on ${data.losingSwitch.tradeLimitDays} day(s) · ${data.losingSwitch.tradeBlocked} entries blocked` : ""}</div>` : ""}
+        ${data.losingSwitch ? `<div class="tb-form-label" style="margin:8px 0">${data.losingSwitch.max ? `Losing-reversal limit ${data.losingSwitch.max}/day: ${data.losingSwitch.losingReversals} losing reversals · ${data.losingSwitch.blockedReversals} blocked · ${data.losingSwitch.daysExhausted} day(s) exhausted` : ""}${data.losingSwitch.max && data.losingSwitch.maxTrades ? "<br>" : ""}${data.losingSwitch.scalpStopDays != null ? `Scalp stop-for-day: hit on ${data.losingSwitch.scalpStopDays} day(s)<br>` : ""}${data.losingSwitch.maxProfitTrades ? `Profitable-trade limit ${data.losingSwitch.maxProfitTrades}/day: reached on ${data.losingSwitch.profitLimitDays} day(s) · ${data.losingSwitch.profitBlocked} entries blocked<br>` : ""}${data.losingSwitch.maxTrades ? `Losing-trade limit ${data.losingSwitch.maxTrades}/day: reached on ${data.losingSwitch.tradeLimitDays} day(s) · ${data.losingSwitch.tradeBlocked} entries blocked` : ""}</div>` : ""}
         <a class="tb-report-link" href="${data.reportUrl}" target="_blank" rel="noopener">Open full report ↗</a>
         <button type="button" class="btn btn-ghost" id="btAiBtn" style="margin-top:10px;width:100%">Analyse this backtest with AI</button>
         <div id="btAiOut"></div>
@@ -3105,7 +3122,7 @@ async function renderBacktestParamsStep() {
         if (!confirm(`Apply these backtest settings to ${name}? This saves them and restarts the process (an open position is not touched by the save itself, but check it first).`)) return;
         const keys = ["chopFilterEnabled", "chopPeriod", "chopMax", "longCandleFilterEnabled", "longCandleAtrPeriod", "longCandleAtrMult", "longCandleCooldownCandles",
           "disableDoubleOrders", "atrSlMult", "hardSlRupees", "dailyBiasEntryTime", "entryTime", "dailyBiasCandle", "volumeFilterEnabled", "volumeSmaPeriod", "carryOvernight",
-          "maxDailyLoss", "maxLosingSwitches", "maxLosingTrades", "targetPoints", "targetMode", "scalpTarget", "scalpStopDay", "scalpNext", "dsbExitMode", "sessionTargetRupees",
+          "maxDailyLoss", "maxLosingSwitches", "maxLosingTrades", "maxProfitTrades", "targetPoints", "targetMode", "scalpTarget", "scalpStopDay", "scalpNext", "dsbExitMode", "sessionTargetRupees",
           "dailyHaGateEnabled"];
         const payload = { name };
         keys.forEach(k => { if (k in body || body[k] === undefined) payload[k] = body[k] === undefined ? null : body[k]; });
@@ -3184,6 +3201,7 @@ function renderBtDeployView(bt) {
     ["Carry overnight", bt.carryOvernight ? "Yes" : "No"],
     ["Max daily loss", bt.maxDailyLoss ? "₹" + bt.maxDailyLoss : "—"],
     ...(bt.maxLosingSwitches ? [["Max losing reversals/day", bt.maxLosingSwitches]] : []),
+    ...(bt.maxProfitTrades ? [["Max profitable trades/day", bt.maxProfitTrades]] : []),
     ...(bt.maxLosingTrades ? [["Max losing trades/day", bt.maxLosingTrades]] : []),
     ...(bt.targetPoints ? [["Target", bt.targetPoints + " points, then done for the day if day net \u2265 0"]] : bt.targetMode === "adaptive" ? [["Target", "Adaptive (sized at entry from CHOP + DPI efficiency)"]] : []),
     ...(bt.scalpTarget ? [["Scalp target", "\u20b9" + bt.scalpTarget + " per trade" + (bt.scalpStopDay ? ", then done for the day" : (bt.scalpNext ? ", then " + (bt.scalpNext === "TARGET:0" ? "no target" : bt.scalpNext.replace("TARGET:", "target \u20b9").replace("SL:", "stop-loss \u20b9")) : ""))]] : []),
@@ -3234,6 +3252,7 @@ function renderBtDeployView(bt) {
       maxDailyLoss: bt.maxDailyLoss,
       maxLosingSwitches: bt.maxLosingSwitches,
       maxLosingTrades: bt.maxLosingTrades,
+      maxProfitTrades: bt.maxProfitTrades,
       targetPoints: bt.targetPoints,
       targetMode: bt.targetMode,
       scalpTarget: bt.scalpTarget,

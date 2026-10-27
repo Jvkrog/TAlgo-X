@@ -482,6 +482,7 @@ async function getEngineProcesses() {
             // DSB-family daily losing-reversal limit; null = off
             maxLosingSwitches: p.pm2_env.env?.MAX_LOSING_SWITCHES_OVERRIDE ? p.pm2_env.env.MAX_LOSING_SWITCHES_OVERRIDE : null,
             maxLosingTrades: p.pm2_env.env?.MAX_LOSING_TRADES_OVERRIDE ? p.pm2_env.env.MAX_LOSING_TRADES_OVERRIDE : null,
+            maxProfitTrades: p.pm2_env.env?.MAX_PROFIT_TRADES_OVERRIDE ? p.pm2_env.env.MAX_PROFIT_TRADES_OVERRIDE : null,
             // Choppiness entry filter: an unset env var means OFF at runtime, so report it as such (never silently turn it on).
             chopFilterEnabled: p.pm2_env.env?.CHOP_FILTER_OVERRIDE === "true",
             chopPeriod: p.pm2_env.env?.CHOP_PERIOD_OVERRIDE ? Number(p.pm2_env.env.CHOP_PERIOD_OVERRIDE) : null,
@@ -568,6 +569,7 @@ function buildProcessEnv(p, overrides = {}) {
     env.SCALP_NEXT_OVERRIDE = (p.scalpTarget && !p.scalpStopDay && SCALP_NEXT_RE.test(p.scalpNext || "")) ? p.scalpNext : "";
     env.DSB_EXIT_MODE_OVERRIDE = (p.dsbExitMode === "SL" && ["DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(p.strategy)) ? "SL" : "";
     env.SCALP_TARGET_OVERRIDE = (p.scalpTarget !== null && p.scalpTarget !== undefined && p.scalpTarget !== "") ? String(p.scalpTarget) : "";
+    env.MAX_PROFIT_TRADES_OVERRIDE = (p.maxProfitTrades !== null && p.maxProfitTrades !== undefined && p.maxProfitTrades !== "") ? String(p.maxProfitTrades) : "";
     env.MAX_LOSING_TRADES_OVERRIDE = (p.maxLosingTrades !== null && p.maxLosingTrades !== undefined && p.maxLosingTrades !== "") ? String(p.maxLosingTrades) : "";
     env.MAX_LOSING_SWITCHES_OVERRIDE = (p.maxLosingSwitches !== null && p.maxLosingSwitches !== undefined && p.maxLosingSwitches !== "") ? String(p.maxLosingSwitches) : "";
     env.GREY_EXIT_OVERRIDE = p.greyExitEnabled !== undefined ? String(!!p.greyExitEnabled) : "";
@@ -879,7 +881,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight } = req.body || {};
+    const { name, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight } = req.body || {};
     if (!name) return res.status(400).json({ error: "Name is required" });
 
     try {
@@ -943,6 +945,14 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 const n = Number(scalpTarget);
                 if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: "Invalid scalpTarget value (rupees > 0, or blank for off)" });
                 updated.scalpTarget = n;
+            }
+        }
+        if (maxProfitTrades !== undefined) {
+            if (maxProfitTrades === null || maxProfitTrades === "" || maxProfitTrades === "0" || maxProfitTrades === "clear") updated.maxProfitTrades = null;
+            else {
+                const n = Number(maxProfitTrades);
+                if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "Invalid maxProfitTrades value (whole number >= 1, or blank for off)" });
+                updated.maxProfitTrades = n;
             }
         }
         if (maxLosingTrades !== undefined) {
@@ -1474,7 +1484,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, maxLosingSwitches, maxLosingTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "Underlying is required" });
@@ -1581,6 +1591,10 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && scalpTarget !== undefined && scalpTarget !== null && scalpTarget !== "") {
             const n = Number(scalpTarget);
             if (Number.isFinite(n) && n > 0) env.SCALP_TARGET_OVERRIDE = String(n);
+        }
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && maxProfitTrades !== undefined && maxProfitTrades !== null && maxProfitTrades !== "") {
+            const n = Number(maxProfitTrades);
+            if (Number.isInteger(n) && n >= 1) env.MAX_PROFIT_TRADES_OVERRIDE = String(n);
         }
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && maxLosingTrades !== undefined && maxLosingTrades !== null && maxLosingTrades !== "") {
             const n = Number(maxLosingTrades);
@@ -1696,7 +1710,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // params (merged onto a per-run engineConfig by backtestRun.js,
         // same as the CLI's params.CHOP_GATE_ALWAYS_FORCE etc.) — everything
         // else mutates context directly, exactly like backtestFlow.js does.
-        chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches, maxLosingTrades, targetPoints, targetMode, scalpTarget, scalpStopDay, scalpNext, dsbExitMode,
+        chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches, maxLosingTrades, maxProfitTrades, targetPoints, targetMode, scalpTarget, scalpStopDay, scalpNext, dsbExitMode,
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
         disableDoubleOrders, atrSlMult, hardSlRupees, dailyBiasEntryTime, dailyBiasCandle, entryTime,
         volumeFilterEnabled, volumeSmaPeriod,
@@ -1840,6 +1854,11 @@ app.post("/api/toolbox/backtest", async (req, res) => {
             const n = Number(maxLosingSwitches);
             if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "MaxLosingSwitches must be a whole number >= 1 (blank = off)" });
             context.maxLosingSwitchesPerDay = n;
+        }
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && maxProfitTrades !== undefined && maxProfitTrades !== null && maxProfitTrades !== "") {
+            const n = Number(maxProfitTrades);
+            if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "MaxProfitTrades must be a whole number >= 1 (blank = off)" });
+            context.maxProfitTradesPerDay = n;
         }
         if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && maxLosingTrades !== undefined && maxLosingTrades !== null && maxLosingTrades !== "") {
             const n = Number(maxLosingTrades);

@@ -304,6 +304,17 @@ function createDb(context) {
         });
     }
 
+    // Profitable trades (pnl > 0, any exit reason) since `sinceIso` (losingSwitchGate.js max-profitable-trades limit).
+    function countWinningTradesSince(engine, sinceIso) {
+        return new Promise((resolve, reject) => {
+            db.get(
+                `SELECT COUNT(*) AS n FROM trades WHERE engine = ? AND status = 'CLOSED' AND pnl > 0 AND exit_time >= ?`,
+                [engine, sinceIso],
+                (err, row) => err ? reject(err) : resolve(row ? row.n : 0)
+            );
+        });
+    }
+
     function countLosingFlipExitsSince(engine, reasons, sinceIso) {
         const marks = reasons.map(() => "?").join(",");
         return new Promise((resolve, reject) => {
@@ -393,7 +404,7 @@ function createDb(context) {
 
     return {
         initDB, savePosition, loadPosition, saveRegime, loadRegime, clearAllPositions,
-        insertOpenTrade, closeTrade, updateTradeEntry, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince, countScalpTpSince, setEntryContext, logRiskEvent,
+        insertOpenTrade, closeTrade, updateTradeEntry, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince, countWinningTradesSince, countScalpTpSince, setEntryContext, logRiskEvent,
     };
 }
 
