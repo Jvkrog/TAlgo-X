@@ -1622,3 +1622,11 @@ body.chart-page .depth-panel { height: auto; }
 .cc-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--dim); }
 #chartColorsBtn.active, .chart-controls [data-r="colorsBtn"].active { color: var(--cyan); border-color: var(--cyan); }
 .chart-colors .btn { width: auto; flex: 0 0 auto; white-space: nowrap; }
+
+/* DSB indicator panel */
+.dsb-num { width: 70px; background: var(--panel-solid); color: inherit; border: 1px solid var(--border-strong); border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 11px; }
+.dsb-sel { background: var(--panel-solid); color: inherit; border: 1px solid var(--border-strong); border-radius: 6px; padding: 4px 6px; font: inherit; font-size: 11px; }
+.dsb-bt { font-size: 11px; color: var(--dim); flex: 1 1 100%; line-height: 1.5; }
+.dsb-bt a { color: var(--cyan); }
+.dsb-pos { color: #33ff88; } .dsb-neg { color: #ff5266; }
+.chart-controls [data-r="dsbBtn"].active { color: var(--cyan); border-color: var(--cyan); }

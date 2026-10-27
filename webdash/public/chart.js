@@ -105,6 +105,149 @@
     syncColorInputs();
   }
 
+  // ── DSB indicator: configurable like TradingView (band step, source candles, direction-change markers, style) ──
+  // Computed in the browser from the loaded bars with the same stepper the engine uses (dynamicBandReader.js createBandStepper),
+  // so changing a value redraws instantly; "Backtest" runs the real engine replay with the same band step.
+  const DSB_KEY = "talgox.chartDsb.";
+  const DSB_DEFAULT = { show: false, step: "", source: "auto", dirChanges: true, up: "#33ff88", down: "#ff5266", width: 2, edges: false, days: 30 };
+  function loadDsb(name) {
+    let o = {}, saved = false;
+    try { const raw = localStorage.getItem(DSB_KEY + name); if (raw) { o = JSON.parse(raw) || {}; saved = true; } } catch { o = {}; }
+    const d = { ...DSB_DEFAULT };
+    if (typeof o.show === "boolean") d.show = o.show;
+    if (o.step === "" || Number(o.step) > 0) d.step = o.step;
+    if (["auto", "raw", "ha", "range"].includes(o.source)) d.source = o.source;
+    if (typeof o.dirChanges === "boolean") d.dirChanges = o.dirChanges;
+    if (isHex(o.up)) d.up = o.up;
+    if (isHex(o.down)) d.down = o.down;
+    if ([1, 2, 3, 4].includes(Number(o.width))) d.width = Number(o.width);
+    if (typeof o.edges === "boolean") d.edges = o.edges;
+    if ([7, 15, 30, 60, 90].includes(Number(o.days))) d.days = Number(o.days);
+    return { d, saved };
+  }
+  function saveDsb() { if (!S) return; S.dsbSaved = true; try { localStorage.setItem(DSB_KEY + S.inst.name, JSON.stringify(S.dsb)); } catch { /* not remembered */ } }
+  const dsbStep = () => { const v = Number(S.dsb.step); return v > 0 ? v : (Number(S.data.bandStep) > 0 ? Number(S.data.bandStep) : 1); };
+  const dsbSourceKey = () => S.dsb.source !== "auto" ? S.dsb.source : (S.effType === "HA" ? "ha" : S.effType === "RANGE" ? "range" : "raw");
+  function dsbCompute(src, step) {
+    let mid = null, high = null, low = null, pos = null, prevColor = "green";
+    const pts = [];
+    for (const b of src) {
+      const close = b.c;
+      if (mid === null) { mid = close; high = mid + step; low = mid - step; }
+      else {
+        const bh = close > high, bl = close < low;
+        if (pos === "LONG") { if (bh) mid += step; else if (bl) { pos = "SHORT"; mid -= step; } }
+        else if (pos === "SHORT") { if (bl) mid -= step; else if (bh) { pos = "LONG"; mid += step; } }
+        else { if (bh) { pos = "LONG"; mid += step; } else if (bl) { pos = "SHORT"; mid -= step; } }
+        high = mid + step; low = mid - step;
+      }
+      const color = pos === "SHORT" ? "red" : "green";
+      pts.push({ t: b.t, mid, high, low, color, flip: color !== prevColor });
+      prevColor = color;
+    }
+    return pts;
+  }
+  function dsbClear() {
+    if (S.dsbSeries) { Object.values(S.dsbSeries).forEach(ls => { try { S.chart.removeSeries(ls); } catch { /* already gone */ } }); }
+    S.dsbSeries = null; S.dsbMarks = [];
+  }
+  function drawDsb(rebuild) {
+    if (!S || !S.chart) return;
+    if (rebuild || !S.dsb.show) dsbClear();
+    if (!S.dsb.show || !S.dispTimes || !S.dispTimes.length) { S.dsbMarks = []; return; }
+    const key = dsbSourceKey();
+    const src = key === "ha" ? toHA(S.bars) : key === "range" ? displayed() : S.bars;
+    const pts = dsbCompute(src, dsbStep());
+    const cutoff = S.dispTimes[0];
+    const D = S.dsb, lw0 = { priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false };
+    if (!S.dsbSeries) {
+      S.dsbSeries = { mid: S.chart.addLineSeries({ ...lw0, color: D.up, lineWidth: D.width }) };
+      if (D.edges) { S.dsbSeries.hi = S.chart.addLineSeries({ ...lw0, color: D.up, lineWidth: 1, lineStyle: 2 }); S.dsbSeries.lo = S.chart.addLineSeries({ ...lw0, color: D.down, lineWidth: 1, lineStyle: 2 }); }
+    }
+    const col = p => (p.color === "red" ? D.down : D.up);
+    const mk = f => { const out = []; let prev = 0; for (const p of pts) { const time = Math.floor(p.t / 1000) + IST_S; if (time > prev && time >= cutoff) { out.push(f(p, time)); prev = time; } } return out; };
+    S.dsbSeries.mid.setData(mk((p, time) => ({ time, value: p.mid, color: col(p) })));
+    if (S.dsbSeries.hi) S.dsbSeries.hi.setData(mk((p, time) => ({ time, value: p.high, color: col(p) + "88" })));
+    if (S.dsbSeries.lo) S.dsbSeries.lo.setData(mk((p, time) => ({ time, value: p.low, color: col(p) + "88" })));
+    S.dsbMarks = D.dirChanges ? mk((p, time) => (p.flip ? {
+      time, position: p.color === "green" ? "belowBar" : "aboveBar", shape: p.color === "green" ? "arrowUp" : "arrowDown", color: col(p), text: p.color === "green" ? "UP" : "DOWN",
+    } : null)).filter(Boolean) : [];
+  }
+  function syncDsbInputs() {
+    if (!S) return;
+    const q = k => els.dsbPanel.querySelector(`[data-d="${k}"]`), D = S.dsb;
+    q("show").checked = D.show; q("step").value = D.step; q("step").placeholder = String(Number(S.data.bandStep) > 0 ? S.data.bandStep : 1);
+    q("source").value = D.source; q("dirChanges").checked = D.dirChanges; q("up").value = D.up; q("down").value = D.down;
+    q("width").value = String(D.width); q("edges").checked = D.edges; q("days").value = String(D.days);
+  }
+  function buildDsbPanel() {
+    els.dsbPanel.innerHTML = `
+      <div class="cc-row"><span class="cc-label">Inputs</span>
+        <label class="cc-chk"><input type="checkbox" data-d="show"> Show DSB</label>
+        <label class="cc-pick">Band step<input type="number" class="dsb-num" data-d="step" min="0" step="any"></label>
+        <label class="cc-pick">Source<select class="dsb-sel" data-d="source"><option value="auto">Instrument default</option><option value="raw">Raw candles</option><option value="ha">Heikin-Ashi</option><option value="range">Range bars (chart)</option></select></label>
+        <label class="cc-chk"><input type="checkbox" data-d="dirChanges"> Show direction changes</label>
+      </div>
+      <div class="cc-row"><span class="cc-label">Style</span>
+        <label class="cc-pick">Up<input type="color" data-d="up"></label>
+        <label class="cc-pick">Down<input type="color" data-d="down"></label>
+        <label class="cc-pick">Line<select class="dsb-sel" data-d="width"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></label>
+        <label class="cc-chk"><input type="checkbox" data-d="edges"> Band edges</label>
+        <button class="btn btn-ghost" data-d="reset">Reset</button>
+      </div>
+      <div class="cc-row"><span class="cc-label">Backtest</span>
+        <label class="cc-pick">Last<select class="dsb-sel" data-d="days"><option value="7">7 days</option><option value="15">15 days</option><option value="30">30 days</option><option value="60">60 days</option><option value="90">90 days</option></select></label>
+        <button class="btn btn-ghost" data-d="backtest">Backtest with these values</button>
+        <span class="dsb-bt" data-d="btOut"></span>
+      </div>`;
+    const redraw = rebuild => { drawDsb(rebuild); drawMarkers(); };
+    els.dsbPanel.addEventListener("input", e => {
+      const el = e.target.closest("[data-d]"); if (!el || !S) return;
+      const k = el.dataset.d, D = S.dsb;
+      if (k === "step") D.step = el.value === "" ? "" : (Number(el.value) > 0 ? Number(el.value) : D.step);
+      else if (k === "up" || k === "down") D[k] = el.value;
+      else return;
+      saveDsb(); redraw(false);
+    });
+    els.dsbPanel.addEventListener("change", e => {
+      const el = e.target.closest("[data-d]"); if (!el || !S) return;
+      const k = el.dataset.d, D = S.dsb;
+      if (k === "show" || k === "dirChanges" || k === "edges") D[k] = el.checked;
+      else if (k === "source") D.source = el.value;
+      else if (k === "width" || k === "days") D[k] = Number(el.value);
+      else return;
+      saveDsb(); redraw(k === "edges" || k === "show" || k === "width");
+    });
+    els.dsbPanel.addEventListener("click", e => {
+      const b = e.target.closest("button[data-d]"); if (!b || !S) return;
+      if (b.dataset.d === "reset") { S.dsb = { ...DSB_DEFAULT, show: true }; saveDsb(); syncDsbInputs(); redraw(true); }
+      else if (b.dataset.d === "backtest") runDsbBacktest(b);
+    });
+  }
+  const DSB_FAMILY = ["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"];
+  async function runDsbBacktest(btn) {
+    const out = els.dsbPanel.querySelector('[data-d="btOut"]');
+    const D = S.dsb, key = dsbSourceKey(), inst = S.inst, step = dsbStep();
+    const strategy = DSB_FAMILY.includes(inst.strategy) ? inst.strategy : "DYNAMIC_MID_COLOR";
+    const body = {
+      underlying: S.data.underlying, exchange: S.data.exchange || "MCX", strategy, timeframe: S.data.timeframe, days: D.days,
+      params: { BAND_STEP_DEFAULT: step }, candleType: key === "ha" ? "HA" : key === "range" ? "RANGE" : "RAW",
+    };
+    if (key === "range") body.rangeSize = S.range;
+    if (inst.lotMult) body.lotMultOverride = inst.lotMult;
+    btn.disabled = true; out.className = "dsb-bt"; out.textContent = "running backtest…";
+    try {
+      const r = await fetch("/api/toolbox/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "backtest failed");
+      const m = j.summary || {}, f = (v, d = 2) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? "–" : Number(v).toFixed(d));
+      const pnl = Number(m.netPnL);
+      out.innerHTML = `${strategy.replace(/_/g, " ")} · step ${step} · ${key.toUpperCase()} · ${D.days}d &mdash; ${m.trades ?? 0} trades · win ${f(m.winRate, 1)}% · PF ${f(m.profitFactor)} · net <b class="${pnl >= 0 ? "dsb-pos" : "dsb-neg"}">${pnl >= 0 ? "+" : ""}${f(m.netPnL, 0)}</b> · max DD ${f(m.maxDrawdown, 0)} · <a href="${j.reportUrl}" target="_blank" rel="noopener">open report</a>`;
+    } catch (err) {
+      out.className = "dsb-bt dsb-neg"; out.textContent = "backtest error: " + err.message;
+    } finally { btn.disabled = false; }
+  }
+
   function build() {
     modal = document.createElement("div");
     modal.className = "tb-modal";
@@ -128,12 +271,14 @@
             <button class="btn btn-ghost chart-toggle" data-toggle="indicator">Indicator</button>
             <button class="btn btn-ghost chart-toggle" data-toggle="filters">Filters</button>
             <button class="btn btn-ghost chart-toggle active" data-toggle="depth">Order book</button>
+            <button class="btn btn-ghost" data-r="dsbBtn" title="Dynamic Step Band — settings, direction changes, backtest">DSB &#9881;</button>
             <button class="btn btn-ghost" data-r="colorsBtn" title="Candle and chart colours">Colors</button>
           </div>
           <label class="chart-range" data-r="rangeWrap" style="display:none">range <input type="number" data-r="range" min="0.01" step="any"></label>
           <span class="chart-status" data-r="status"></span>
         </div>
         <div class="chart-colors" data-r="colors" style="display:none"></div>
+        <div class="chart-colors chart-dsb" data-r="dsbPanel" style="display:none"></div>
         <div class="chart-legend" data-r="legend"></div>
         <div class="chart-info" data-r="info"></div>
         <div class="chart-main">
@@ -150,6 +295,13 @@
     modal.querySelectorAll(".chart-type").forEach(b => b.addEventListener("click", () => setType(b.dataset.type)));
     modal.querySelectorAll(".chart-toggle").forEach(b => b.addEventListener("click", () => toggle(b.dataset.toggle)));
     buildColorPanel();
+    buildDsbPanel();
+    els.dsbBtn.addEventListener("click", () => {
+      const on = els.dsbPanel.style.display === "none";
+      els.dsbPanel.style.display = on ? "" : "none";
+      els.dsbBtn.classList.toggle("active", on);
+      if (on && S && !S.dsbSaved && !S.dsb.show) { S.dsb.show = true; saveDsb(); syncDsbInputs(); drawDsb(true); drawMarkers(); }   // first open: switch it on so there is something to configure
+    });
     els.colorsBtn.addEventListener("click", () => {
       const on = els.colors.style.display === "none";
       els.colors.style.display = on ? "" : "none";
@@ -229,7 +381,7 @@
       const n = list.length;
       if (n > 160) S.chart.timeScale().setVisibleLogicalRange({ from: n - 140, to: n + 6 }); else S.chart.timeScale().fitContent();
     }
-    drawOverlay(); drawMarkers();
+    drawOverlay(); drawDsb(false); drawMarkers();
     status();
   }
 
@@ -254,7 +406,8 @@
 
   // ── Filters tab: markers where an entry gate blocked a signal ──
   function drawMarkers() {
-    if (!S.filters || !S.dispT || !S.dispT.length) { S.series.setMarkers([]); return; }
+    const dsbMarks = S.dsbMarks || [];
+    if (!S.filters || !S.dispT || !S.dispT.length) { S.series.setMarkers(dsbMarks.slice().sort((a, b) => a.time - b.time)); return; }
     const groups = new Map();   // "time|side" -> Set(reasons)
     for (const b of S.blocks) {
       let idx = -1;   // last displayed bar that started at/before the block
@@ -268,7 +421,7 @@
       const [time, side] = key.split("|");
       return { time: Number(time), position: side === "LONG" ? "belowBar" : "aboveBar", shape: side === "LONG" ? "arrowUp" : "arrowDown", color: "#ffb347", text: [...rs].map(r => SHORT[r] || r).join("+") };
     }).sort((a, b) => a.time - b.time);
-    S.series.setMarkers(marks);
+    S.series.setMarkers(marks.concat(dsbMarks).sort((a, b) => a.time - b.time));
   }
 
   function toggle(which) {
@@ -318,7 +471,7 @@
   // OHLC of the candle under the crosshair (else the latest candle) + the open position's entry price.
   function legend(hover) {
     if (!els.legend || !S) return;
-    let k = hover || null;
+    let k = hover || S.pinned || null;
     if (!k) { const l = S.lastDisp; if (l) k = { open: l.o, high: l.h, low: l.l, close: l.c }; }
     const f = v => Number(v).toFixed(2);
     const parts = [];
@@ -443,6 +596,8 @@
     if (x.time < S.lastTime) return;
     S.series.update(x);
     S.lastTime = x.time;
+    if (S.dsb.show && Date.now() - (S.dsbAt || 0) > 1000) { S.dsbAt = Date.now(); drawDsb(false); drawMarkers(); }   // follow the forming candle
+    if (!S.hover && !S.pinned) legend(null);   // keep O/H/L/C of the live candle ticking
     status();
   }
 
@@ -667,13 +822,22 @@
       };
       if (bars.length) S.last = bars[bars.length - 1].c;
       attachPriceAxisZoom();
-      S.hover = null; S.position = null; S.depthOn = true;
+      S.hover = null; S.pinned = null; S.position = null; S.depthOn = true;
+      S.effType = effType;
+      { const L = loadDsb(inst.name); S.dsb = L.d; S.dsbSaved = L.saved; S.dsbSeries = null; S.dsbMarks = []; syncDsbInputs(); }
+      els.dsbBtn.classList.toggle("active", els.dsbPanel.style.display !== "none");
       els.depth.style.display = "";
       modal.querySelector('[data-toggle="depth"]').classList.add("active");
       startDepth();
       chart.subscribeCrosshairMove(param => {
         const d = param && param.seriesData ? param.seriesData.get(sr) : null;
         S.hover = d && d.open !== undefined ? d : null;
+        legend(S.hover);
+      });
+      // Tap / click a candle to read its O/H/L/C (touch screens have no hover); tap empty space to go back to the live candle.
+      chart.subscribeClick(param => {
+        const d = param && param.seriesData ? param.seriesData.get(sr) : null;
+        S.pinned = d && d.open !== undefined ? d : null;
         legend(S.hover);
       });
       refreshPosition();
