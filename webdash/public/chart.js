@@ -159,7 +159,7 @@
     const src = key === "ha" ? toHA(S.bars) : key === "range" ? displayed() : S.bars;
     const pts = dsbCompute(src, dsbStep());
     const cutoff = S.dispTimes[0];
-    const D = S.dsb, lw0 = { priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false };
+    const D = S.dsb, lw0 = { priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, autoscaleInfoProvider: manualScale };
     if (!S.dsbSeries) {
       S.dsbSeries = { mid: S.chart.addLineSeries({ ...lw0, color: D.up, lineWidth: D.width }) };
       if (D.edges) { S.dsbSeries.hi = S.chart.addLineSeries({ ...lw0, color: D.up, lineWidth: 1, lineStyle: 2 }); S.dsbSeries.lo = S.chart.addLineSeries({ ...lw0, color: D.down, lineWidth: 1, lineStyle: 2 }); }
@@ -392,6 +392,8 @@
   // ── Indicator tab: the instrument's own indicator lines (server computes via chartOverlay.js) ──
   const SHORT = { CHOP: "CHOP", VOLUME: "VOL", LONG_CANDLE: "LONGC", HTF: "HTF", DOUBLE_ORDER: "2X", DAILY_HA: "DHA", ENTRY_TIME: "TIME" };
   const LONGNAME = { CHOP: "choppiness index", VOLUME: "volume below SMA", LONG_CANDLE: "long-candle filter", HTF: "higher-timeframe trend", DOUBLE_ORDER: "double-order guard", DAILY_HA: "daily HA direction", ENTRY_TIME: "before entry time" };
+  // Indicator / DSB lines must obey a manual price zoom too, or their own range keeps the axis from zooming in.
+  const manualScale = orig => (S && S.manual ? { priceRange: { minValue: S.manual.min, maxValue: S.manual.max } } : orig());
   function drawOverlay() {
     (S.lineSeries || []).forEach(ls => S.chart.removeSeries(ls));
     S.lineSeries = [];
@@ -400,7 +402,7 @@
     const step = window.LightweightCharts.LineType ? window.LightweightCharts.LineType.WithSteps : undefined;
     for (const l of ov.lines) {
       const stepped = step !== undefined && !l.width;   // bands step; a "mid" style line (width set) draws as a plain line
-      const ls = S.chart.addLineSeries({ color: l.color, lineWidth: l.width || 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, ...(stepped ? { lineType: step } : {}) });
+      const ls = S.chart.addLineSeries({ color: l.color, lineWidth: l.width || 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false, autoscaleInfoProvider: manualScale, ...(stepped ? { lineType: step } : {}) });
       let prev = 0; const data = [];
       for (const [t, v, col] of l.points) { const time = Math.floor(t / 1000) + IST_S; if (time > prev) { data.push(col ? { time, value: v, color: col } : { time, value: v }); prev = time; } }
       ls.setData(data);
