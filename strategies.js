@@ -4252,7 +4252,8 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
         // for LONG, red down-triangle for SHORT, same glyph style as a
         // SuperTrend flip marker so it's easy to spot scrolling a long log.
         const arrow = side === "LONG" ? "▲" : "▼";
-        console.log(c[directionColor(side)](`[${context.tgPrefix}] ${arrow} ${side} ${reason}  @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  Band:[${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        console.log(c[directionColor(side)](`[${context.tgPrefix}] ${arrow} ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        console.log(c[directionColor(side)](`    Tr:${slTrail?.toFixed(2) ?? "-"}  Band:[${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
         emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null, arrow });
         tg(`${arrow} ${side} ${reason} @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}\nBand: [${state.bandLow.toFixed(2)}, ${state.bandHigh.toFixed(2)}]`);
         return true;
@@ -4375,7 +4376,8 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
                 state.bandMid  = replay.bandMid;
                 state.bandHigh = replay.bandHigh;
                 state.bandLow  = replay.bandLow;
-                console.log(c.cyan(`[${context.tgPrefix}] HIST REPLAY  ${replayWindow.length} candles -> MID:${replay.bandMid.toFixed(2)} HIGH:${replay.bandHigh.toFixed(2)} LOW:${replay.bandLow.toFixed(2)}  implied:${replay.position ?? "flat"}`));
+                console.log(c.cyan(`[${context.tgPrefix}] HIST REPLAY  ${replayWindow.length} candles`));
+                console.log(c.cyan(`    MID:${replay.bandMid.toFixed(2)} HIGH:${replay.bandHigh.toFixed(2)} LOW:${replay.bandLow.toFixed(2)}  implied:${replay.position ?? "flat"}`));
                 // No white: color persists across a flat gap — start red
                 // if history already implies SHORT, green otherwise
                 // (covers both "implies LONG" and "implies nothing yet"),
@@ -4675,7 +4677,8 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
 
         persist(side, livePrice, "DYNAMIC_MID_COLOR_HL");
         const arrow = side === "LONG" ? "▲" : "▼";
-        console.log(c[directionColor(side)](`[${context.tgPrefix}] ${arrow} ${side} ${reason}  @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  Band:[${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
+        console.log(c[directionColor(side)](`[${context.tgPrefix}] ${arrow} ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        console.log(c[directionColor(side)](`    Tr:${slTrail?.toFixed(2) ?? "-"}  Band:[${state.bandLow.toFixed(2)},${state.bandHigh.toFixed(2)}]`));
         emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null, arrow });
         tg(`${arrow} ${side} ${reason} @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}\nBand: [${state.bandLow.toFixed(2)}, ${state.bandHigh.toFixed(2)}]`);
         return true;
@@ -4786,7 +4789,8 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
                 state.bandMid  = replay.bandMid;
                 state.bandHigh = replay.bandHigh;
                 state.bandLow  = replay.bandLow;
-                console.log(c.cyan(`[${context.tgPrefix}] HIST REPLAY  ${replayWindow.length} candles -> MID:${replay.bandMid.toFixed(2)} HIGH:${replay.bandHigh.toFixed(2)} LOW:${replay.bandLow.toFixed(2)}  implied:${replay.position ?? "flat"}`));
+                console.log(c.cyan(`[${context.tgPrefix}] HIST REPLAY  ${replayWindow.length} candles`));
+                console.log(c.cyan(`    MID:${replay.bandMid.toFixed(2)} HIGH:${replay.bandHigh.toFixed(2)} LOW:${replay.bandLow.toFixed(2)}  implied:${replay.position ?? "flat"}`));
                 if (replay.position === "SHORT") state.lastColor = "red";
             } else {
                 state.bandMid  = rawCandle.close;
