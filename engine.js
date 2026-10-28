@@ -1,0 +1,785 @@
+// engine.js — boot sequence.
+//
+// CHANGED: instrument selection is now a broker underlying name (UNDERLYING
+// env var), not a pre-registered key. getDefinition() supplies sensible
+// defaults for anything not explicitly overridden in context.js, and the
+// Contract Resolver fills in the actual token/symbol/expiry/lotSize from
+// the broker's live instrument dump. No file edit needed to run a new
+// instrument — see toolbox.js's "Add instrument" flow.
+"use strict";
+require("./plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
+
+
+const { getDefinition, buildContext, defaultEodFor } = require("./context");
+const { createCsvRepository }         = require("./csvRepository");
+const { createInstrumentSource }      = require("./instrumentSource");
+const { createContractPinStore }      = require("./contractPins");
+const { resolveCurrent }              = require("./instrumentResolution");
+const engineConfig                    = require("./engineConfig");
+const c                               = require("./c");
+const { KiteConnect, KiteTicker }     = require("kiteconnect");
+
+const { createTelegram }     = require("./telegram");
+const { createState }        = require("./state");
+const { createCandleBuffer } = require("./candleBuilder");
+const { createHtfGate }      = require("./htfGate");
+const { createCandleDeltaBuffer } = require("./candleDeltaBuffer");
+const { createMarketDataHealth } = require("./marketDataHealth");
+const { createSLStore }      = require("./sl");
+const { createTargetStore }  = require("./target");
+const { createDb }           = require("./db");
+const { createOrders }       = require("./orders");
+const { emitEvent, setCurrentCandle } = require("./eventBridge");  // web dashboard only (LTP stream for the chart)
+const positions               = require("./positions");
+const { createPreload }      = require("./preload");
+const { createCandlePoll }   = require("./candlePoll");
+const { createLifecycle }    = require("./lifecycle");
+const { createSignals }      = require("./signals");
+const { STRATEGY_TIMEFRAME, STRATEGY_INFO } = require("./strategies");
+const { TIMEFRAME_TO_INTERVAL } = require("./historicalFetch");
+const { istParts } = require("./istTime");
+const { resolveCandleMode, normalizeCandleType, CANDLE_LABEL, overrideWarning } = require("./candleType");
+const { setHaPassthrough } = require("./indicators");
+const { createRangeFeed } = require("./rangeFeed");
+
+async function main() {
+    // ─── SELECT INSTRUMENT — set by PM2 (toolbox.js), defaults to NATGASMINI
+    // so `node engine.js` with no env still works.
+    const underlying = process.env.UNDERLYING || "NATGASMINI";
+    const def = getDefinition(underlying, process.env.EXCHANGE_OVERRIDE);
+
+    const ACCESS_TOKEN = engineConfig.getAccessToken();
+
+    // ─── RESOLVE CONTRACT — CSV Repository load + Contract Resolver pick.
+    console.log(c.dim(`[${def.tgPrefix}] loading instrument dump...`));
+    const kcForDump = new KiteConnect({ api_key: engineConfig.API_KEY });
+    kcForDump.setAccessToken(ACCESS_TOKEN);
+
+    // CSV path is per-exchange (see engineConfig.js's NSE_INSTRUMENT_CSV_PATH
+    // comment) — toolbox.js's Add Instrument flow already branches on this;
+    // this was still always using the MCX path regardless of def.exchange,
+    // so an NSE boot would try to load MCX's local CSV (or silently fall
+    // through to a live API fetch scoped to the wrong assumption) instead
+    // of the NSE-specific file.
+    const csvFilePath = def.exchange === "NSE"
+        ? engineConfig.NSE_INSTRUMENT_CSV_PATH
+        : engineConfig.INSTRUMENT_CSV_PATH;
+
+    const csvRepo = createCsvRepository({
+        fetchRows: createInstrumentSource({
+            filePath: csvFilePath,
+            kc:       kcForDump,
+            exchange: def.exchange,
+        }).fetchRows,
+    });
+    await csvRepo.load();
+
+    const pinStore = createContractPinStore();
+    const { contract: resolvedContract, source } = resolveCurrent(def.underlying, def, csvRepo, pinStore);
+
+    const context = buildContext(def, resolvedContract);
+    const expiryStr = context.expiry ? context.expiry.toISOString().split("T")[0] : (def.noRoll ? "n/a (equity, no roll)" : "unknown (manual pin)");
+    console.log(c.dim(`[${context.tgPrefix}] resolved contract (${source}): ${context.symbol} (token ${context.token}, expiry ${expiryStr}, lotMult ${context.lotMult})`));
+
+    // Optional position-size / PnL-multiplier overrides — the toolbox's
+    // prompts set these rather than editing context.js by hand.
+    if (process.env.LOTS_OVERRIDE) {
+        const override = Number(process.env.LOTS_OVERRIDE);
+        if (Number.isFinite(override) && override > 0) context.lots = override;
+    }
+    if (process.env.LOTMULT_OVERRIDE) {
+        const override = Number(process.env.LOTMULT_OVERRIDE);
+        if (Number.isFinite(override) && override > 0) context.lotMult = override;
+    }
+    // Which strategy runs this instrument — set by the toolbox's Add
+    // Instrument picker. No validation against the STRATEGIES registry here:
+    // signals.js's createSignals() already throws loudly on an unknown key,
+    // so an invalid value fails fast at signal-creation time below rather
+    // than silently falling back to something the person didn't pick.
+    if (process.env.STRATEGY_OVERRIDE) {
+        context.strategy = process.env.STRATEGY_OVERRIDE;
+        // buildContext() already set context.timeframe from context.js's
+        // static default strategy — this override happened after, so it has
+        // to recompute timeframe too, or an ALMA_BAND pick from the toolbox
+        // would silently keep polling at whatever the static default's
+        // cadence was (15m) instead of ALMA_BAND's required 1h. Unknown-key
+        // case intentionally left undefined here too — same reasoning as
+        // above, surfaces via createSignals()'s throw rather than a silent
+        // 15m fallback.
+        context.timeframe = STRATEGY_TIMEFRAME[context.strategy];
+    }
+    // Explicit timeframe override — set by the toolbox's Add Instrument
+    // picker, independent of whichever strategy is running. Applied LAST,
+    // after the strategy-override block above, so it always wins over
+    // whatever timeframe the strategy's own default would have set.
+    // Validated against the known timeframe set (unlike STRATEGY_OVERRIDE
+    // above) because an unknown value here has nowhere else to fail loud —
+    // candlePoll.js would just silently fall back to the global 15m
+    // default instead of throwing, which is exactly the kind of
+    // silent-wrong-value bug the lotMult guard below exists to prevent.
+    if (process.env.TIMEFRAME_OVERRIDE) {
+        if (!TIMEFRAME_TO_INTERVAL[process.env.TIMEFRAME_OVERRIDE]) {
+            console.error(c.red(`[${context.tgPrefix}] TIMEFRAME_OVERRIDE "${process.env.TIMEFRAME_OVERRIDE}" is not a known timeframe (${Object.keys(TIMEFRAME_TO_INTERVAL).join(", ")}) — refusing to boot.`));
+            process.exit(1);
+        }
+        // EOD force-close time depends on candle granularity (see
+        // context.js's defaultEodFor) — if this instrument is still on
+        // whatever the strategy's OWN default timeframe would have implied
+        // for EOD (i.e. eodHour/eodMinute weren't hand-overridden in
+        // overrides.js), recompute it for the timeframe actually being run
+        // here instead of silently keeping the old default's value.
+        const preOverrideDefault = defaultEodFor(context.timeframe, context.exchange);
+        const eodWasDefault = context.eodHour === preOverrideDefault.eodHour && context.eodMinute === preOverrideDefault.eodMinute;
+
+        context.timeframe = process.env.TIMEFRAME_OVERRIDE;
+
+        if (eodWasDefault) {
+            const newDefault  = defaultEodFor(context.timeframe, context.exchange);
+            context.eodHour   = newDefault.eodHour;
+            context.eodMinute = newDefault.eodMinute;
+        }
+    }
+    // Fail loud, not silently wrong: there is deliberately no fallback to the
+    // broker's lot_size field anymore (it's a contract count, not a price
+    // multiplier — already caused a real PnL bug once). If lotMult is still
+    // unset here, refuse to boot rather than trade with a guessed number.
+    if (!context.lotMult) {
+        console.error(c.red(`[${context.tgPrefix}] lotMult is not set — refusing to boot.`));
+        console.error(c.red(`  Fix: add a lotMult override for "${def.underlying}" in context.js's overrides,`));
+        console.error(c.red(`  or set LOTMULT_OVERRIDE when starting this process (the toolbox does this for you).`));
+        process.exit(1);
+    }
+    // Fail loud, not silently wrong (same reasoning as lotMult above): the
+    // 27 Jul ZINCMINI incident traced back to orders.js rounding order
+    // prices with .toFixed(2) instead of the instrument's tick size —
+    // that's fixed now (see price.js's normalizePrice), but it only works
+    // if context.tickSize is actually populated. A manual contract pin
+    // (contractPins.js) can leave tickSize null — catch that here at boot
+    // instead of discovering it via an exchange rejection mid-session.
+    if (!context.tickSize) {
+        console.error(c.red(`[${context.tgPrefix}] tickSize is not set — refusing to boot.`));
+        console.error(c.red(`  Fix: the resolved contract for "${def.underlying}" has no tickSize —`));
+        console.error(c.red(`  if this is a manual pin (contractPins.js), add tickSize to it.`));
+        process.exit(1);
+    }
+    // Live/paper mode — set per-process by the toolbox, since a single static
+    // engineConfig.LIVE_ORDERS would force every instrument into the same
+    // mode. Safe to mutate here: each PM2 process is its own OS process with
+    // its own require() cache, so this never leaks across instruments.
+    if (process.env.LIVE_ORDERS_OVERRIDE !== undefined) {
+        engineConfig.LIVE_ORDERS = process.env.LIVE_ORDERS_OVERRIDE === "true";
+    }
+    console.log(c.bold(engineConfig.LIVE_ORDERS ? c.red(`[${context.tgPrefix}] LIVE — real orders will be placed`)
+                                                  : c.cyan(`[${context.tgPrefix}] PAPER — shadow mode, no real orders`)));
+
+    // Carry-overnight — set per-process by the toolbox's live/paper prompt,
+    // same pattern as LIVE_ORDERS_OVERRIDE above. Drives three things: the
+    // order product type (NRML vs MIS, orders.js), whether EOD force-closes
+    // or logs-and-holds (lifecycle.js), and whether a restored position on a
+    // later calendar day is honored or wiped (strategies.js initSignals).
+    if (process.env.CARRY_OVERNIGHT_OVERRIDE !== undefined) {
+        context.carryOvernight = process.env.CARRY_OVERNIGHT_OVERRIDE === "true";
+    }
+    // A daily-timeframe engine decides once a day on a completed daily bar, so its positions are meant to
+    // live across days — an EOD force-close would turn every trade into a one-day trade.
+    if (context.timeframe === "1d" && !context.carryOvernight) {
+        context.carryOvernight = true;
+        console.log(c.dim(`[${context.tgPrefix}] 1d timeframe: carry overnight forced ON (positions are held across days)`));
+    }
+    if (context.carryOvernight) {
+        const { hours: bootH } = istParts();
+        if (bootH >= 9) console.log(c.yellow(`[${context.tgPrefix}] carry overnight: started after 09:00 IST — if a position was carried overnight it was unmanaged until now. Start carry-overnight engines before 09:00.`));
+    }
+    console.log(c.dim(`[${context.tgPrefix}] carry overnight: ${context.carryOvernight ? c.yellow("ON — NRML, EOD will not force-close") : "off — MIS, EOD force-closes as usual"}`));
+
+    // Target points — set per-process by the toolbox's strategy-selection
+    // prompt, same override pattern as above. A blank/unset env means no
+    // fixed take-profit (strategy's own exits are the only way out, today's
+    // default). Applies uniformly to every strategy — see context.js and
+    // candlePoll.js's checkTarget() for how it's actually armed/monitored.
+    if (process.env.TARGET_POINTS_OVERRIDE !== undefined && process.env.TARGET_POINTS_OVERRIDE !== "") {
+        const parsedTarget = Number(process.env.TARGET_POINTS_OVERRIDE);
+        context.targetPoints = Number.isFinite(parsedTarget) && parsedTarget > 0 ? parsedTarget : null;
+    }
+    context.dsbExitMode = process.env.DSB_EXIT_MODE_OVERRIDE === "SL" ? "SL" : null;
+    if (context.dsbExitMode) console.log(c.dim(`[${context.tgPrefix}] [DSB] exit mode: stop-loss only (flip signals are ignored while in a position)`));
+    if (process.env.SCALP_TARGET_OVERRIDE !== undefined && process.env.SCALP_TARGET_OVERRIDE !== "") {
+        const parsedScalp = Number(process.env.SCALP_TARGET_OVERRIDE);
+        context.scalpTargetRupees = Number.isFinite(parsedScalp) && parsedScalp > 0 ? parsedScalp : null;
+    }
+    context.scalpStopForDay = process.env.SCALP_STOP_DAY_OVERRIDE === "1";
+    context.scalpNextMode = null; context.scalpNextValue = null;
+    if (context.scalpTargetRupees && !context.scalpStopForDay && /^(TARGET:\d*(\.\d+)?|SL:\d+(\.\d+)?)$/.test(process.env.SCALP_NEXT_OVERRIDE || "")) {
+        const [m, v] = process.env.SCALP_NEXT_OVERRIDE.split(":");
+        context.scalpNextMode = m; context.scalpNextValue = Number(v) || 0;
+        console.log(c.dim(`[${context.tgPrefix}] [SCALP] after the first scalp hit of the day: ${m === "TARGET" ? (Number(v) > 0 ? "next target = ₹" + v : "no target") : "stop-loss = ₹" + v}`));
+    }
+    if (context.scalpTargetRupees && context.scalpStopForDay) console.log(c.dim(`[${context.tgPrefix}] [SCALP] after a scalp target hit: done for the day (no more entries until next session)`));
+    if (context.scalpTargetRupees) console.log(c.dim(`[${context.tgPrefix}] [SCALP] target: ₹${context.scalpTargetRupees} per trade (tick-monitored, then wait for the next strategy signal)`));
+    // Target mode — "adaptive" only means anything once targetPoints itself
+    // is unset (adaptive picks its own points per-position, see
+    // adaptiveTarget.js); an explicit TARGET_POINTS_OVERRIDE still wins as
+    // a fixed target regardless of mode, same as it always has.
+    if (process.env.TARGET_MODE_OVERRIDE === "adaptive") {
+        context.targetMode = "adaptive";
+    }
+    const targetDesc = context.targetPoints
+        ? `+${context.targetPoints} points from entry (tick-monitored, FIXED)`
+        : context.targetMode === "adaptive"
+            ? "ADAPTIVE — sized from CHOP/DPI efficiency at entry, frozen per-position"
+            : "off — no fixed take-profit";
+    console.log(c.dim(`[${context.tgPrefix}] target: ${context.targetPoints || context.targetMode === "adaptive" ? c.yellow(targetDesc) : targetDesc}`));
+
+    // Band step — only meaningful for DYNAMIC_BAND, read unconditionally
+    // same as everything else here. Left null (not defaulted here) when no
+    // override is set — createDynamicBandStrategy falls back to
+    // engineConfig.BAND_STEP_DEFAULT itself, same pattern as targetPoints,
+    // so a backtest tuning BAND_STEP_DEFAULT via STRATEGY_PARAMS actually
+    // takes effect instead of being shadowed by a value fixed here.
+    if (process.env.BAND_STEP_OVERRIDE !== undefined && process.env.BAND_STEP_OVERRIDE !== "") {
+        const parsedStep = Number(process.env.BAND_STEP_OVERRIDE);
+        context.bandStep = Number.isFinite(parsedStep) && parsedStep > 0 ? parsedStep : null;
+    }
+    if (process.env.BAND_STEP2_OVERRIDE !== undefined && process.env.BAND_STEP2_OVERRIDE !== "") {
+        const parsedStep2 = Number(process.env.BAND_STEP2_OVERRIDE);
+        context.bandStep2 = Number.isFinite(parsedStep2) && parsedStep2 > 0 ? parsedStep2 : null;
+    }
+    if (context.strategy === "DSB_DUAL") {
+        const m = String(process.env.DSB_DUAL_MODE_OVERRIDE || "").toUpperCase();
+        context.dsbDualMode = ["HOLD", "EXIT", "DISAGREE"].includes(m) ? m : "HOLD";
+        const s1 = context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
+        console.log(c.dim(`[${context.tgPrefix}] DSB dual: DSB1 step ${s1}, DSB2 step ${context.bandStep2 ?? engineConfig.BAND_STEP2_DEFAULT}, DSB1 flip mode ${context.dsbDualMode}`));
+    }
+    if (context.strategy === "DYNAMIC_BAND" || context.strategy === "DYNAMIC_MID_COLOR" || (context.strategy === "DYNAMIC_MID_COLOR_HL" || context.strategy === "ALMA_DSB" || context.strategy === "DSB_DUAL")) {
+        console.log(c.dim(`[${context.tgPrefix}] band step: ${context.bandStep ?? `default (${engineConfig.BAND_STEP_DEFAULT})`}`));
+    }
+
+    // Grey-exit toggle — only meaningful for ALMA_TRI_BAND, left null
+    // (not defaulted here) when unset, same "let the strategy fall back to
+    // its own engineConfig default" reasoning as bandStep above.
+    if (process.env.GREY_EXIT_OVERRIDE !== undefined && process.env.GREY_EXIT_OVERRIDE !== "") {
+        context.greyExitEnabled = process.env.GREY_EXIT_OVERRIDE === "true";
+    }
+    if (context.strategy === "ALMA_TRI_BAND") {
+        const greyExitResolved = context.greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT;
+        console.log(c.dim(`[${context.tgPrefix}] grey state: ${greyExitResolved ? "exits flat" : "holds through it"}`));
+    }
+
+    // ALMA band gate toggle — only meaningful for ALMA_PRO_FAST. Defaults
+    // true (context.js), so ALMA_BAND_OVERRIDE only ever gets WRITTEN by
+    // the toolbox when explicitly turning it off — reading it unconditionally
+    // here is still safe either way.
+    if (process.env.ALMA_BAND_OVERRIDE !== undefined && process.env.ALMA_BAND_OVERRIDE !== "") {
+        context.almaBandEnabled = process.env.ALMA_BAND_OVERRIDE === "true";
+    }
+    if (context.strategy === "ALMA_PRO_FAST") {
+        console.log(c.dim(`[${context.tgPrefix}] ALMA band gate: ${context.almaBandEnabled ? "ON" : c.yellow("off — trading on slope alone, no band/breakout check")}`));
+    }
+
+    // ALMA fast/band length overrides — only meaningful for ALMA_PRO_FAST,
+    // read unconditionally same as everything else here. null (unset) when
+    // no override is given — createAlmaProFastStrategy falls back to
+    // engineConfig.ALMA_PRO_FAST_LEN / ALMA_PRO_BAND_LEN itself.
+    if (process.env.ALMA_FAST_LEN_OVERRIDE !== undefined && process.env.ALMA_FAST_LEN_OVERRIDE !== "") {
+        const parsedFastLen = Number(process.env.ALMA_FAST_LEN_OVERRIDE);
+        context.almaFastLen = Number.isFinite(parsedFastLen) && parsedFastLen > 0 ? parsedFastLen : null;
+    }
+    if (process.env.ALMA_BAND_LEN_OVERRIDE !== undefined && process.env.ALMA_BAND_LEN_OVERRIDE !== "") {
+        const parsedBandLen = Number(process.env.ALMA_BAND_LEN_OVERRIDE);
+        context.almaBandLen = Number.isFinite(parsedBandLen) && parsedBandLen > 0 ? parsedBandLen : null;
+    }
+    if (context.strategy === "ALMA_PRO_FAST" && (context.almaFastLen || context.almaBandLen)) {
+        console.log(c.dim(`[${context.tgPrefix}] ALMA config: fast=${context.almaFastLen ?? engineConfig.ALMA_PRO_FAST_LEN}  band=${context.almaBandLen ?? engineConfig.ALMA_PRO_BAND_LEN}`));
+    }
+
+    // Chop filter toggle — only meaningful for ALMA_PRO_FAST/ALMA_PRO_SLOW,
+    // read unconditionally same as everything else here. null (unset) when
+    // no override is given — both strategies fall back to their own
+    // engineConfig USE_ALMA_PRO_*_CHOP_FILTER default (true) themselves.
+    if (process.env.ALMA_CHOP_FILTER_OVERRIDE !== undefined && process.env.ALMA_CHOP_FILTER_OVERRIDE !== "") {
+        context.almaChopFilterEnabled = process.env.ALMA_CHOP_FILTER_OVERRIDE === "true";
+    }
+    if (context.strategy === "ALMA_PRO_FAST" || context.strategy === "ALMA_PRO_SLOW") {
+        const chopResolved = context.almaChopFilterEnabled ?? (context.strategy === "ALMA_PRO_FAST" ? engineConfig.USE_ALMA_PRO_FAST_CHOP_FILTER : engineConfig.USE_ALMA_PRO_SLOW_CHOP_FILTER);
+        console.log(c.dim(`[${context.tgPrefix}] chop filter: ${chopResolved ? "ON" : c.yellow("off — no chop gate on entries")}`));
+    }
+
+    // Dual SuperTrend + Chop overrides — only meaningful for DUAL_ST_CHOP,
+    // read unconditionally same as everything else here. null (unset) when
+    // no override is given — createDualStChopStrategy falls back to its
+    // own engineConfig.DST_* defaults itself.
+    if (process.env.DST_ST1_ATR_LEN_OVERRIDE !== undefined && process.env.DST_ST1_ATR_LEN_OVERRIDE !== "") {
+        const parsed = Number(process.env.DST_ST1_ATR_LEN_OVERRIDE);
+        context.dstSt1AtrLen = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (process.env.DST_ST1_FACTOR_OVERRIDE !== undefined && process.env.DST_ST1_FACTOR_OVERRIDE !== "") {
+        const parsed = Number(process.env.DST_ST1_FACTOR_OVERRIDE);
+        context.dstSt1Factor = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (process.env.DST_ST2_ATR_LEN_OVERRIDE !== undefined && process.env.DST_ST2_ATR_LEN_OVERRIDE !== "") {
+        const parsed = Number(process.env.DST_ST2_ATR_LEN_OVERRIDE);
+        context.dstSt2AtrLen = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (process.env.DST_ST2_FACTOR_OVERRIDE !== undefined && process.env.DST_ST2_FACTOR_OVERRIDE !== "") {
+        const parsed = Number(process.env.DST_ST2_FACTOR_OVERRIDE);
+        context.dstSt2Factor = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (process.env.DST_CHOP_LEN_OVERRIDE !== undefined && process.env.DST_CHOP_LEN_OVERRIDE !== "") {
+        const parsed = Number(process.env.DST_CHOP_LEN_OVERRIDE);
+        context.dstChopLen = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (process.env.DST_CHOP_MAX_OVERRIDE !== undefined && process.env.DST_CHOP_MAX_OVERRIDE !== "") {
+        const parsed = Number(process.env.DST_CHOP_MAX_OVERRIDE);
+        context.dstChopMax = Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    }
+    if (context.strategy === "DUAL_ST_CHOP") {
+        console.log(c.dim(`[${context.tgPrefix}] Dual SuperTrend: ST1(${context.dstSt1AtrLen ?? engineConfig.DST_ST1_ATR_LEN},${context.dstSt1Factor ?? engineConfig.DST_ST1_FACTOR})  ST2(${context.dstSt2AtrLen ?? engineConfig.DST_ST2_ATR_LEN},${context.dstSt2Factor ?? engineConfig.DST_ST2_FACTOR})  CHOP(${context.dstChopLen ?? engineConfig.DST_CHOP_LEN}, max ${context.dstChopMax ?? engineConfig.DST_CHOP_MAX})`));
+    }
+
+    // Max daily loss circuit breaker — every strategy, not strategy-gated
+    // like the ALMA-specific overrides above. null/unset = disabled, no
+    // floor (today's original behavior).
+    if (process.env.MAX_DAILY_LOSS_OVERRIDE !== undefined && process.env.MAX_DAILY_LOSS_OVERRIDE !== "") {
+        const parsedLoss = Number(process.env.MAX_DAILY_LOSS_OVERRIDE);
+        context.maxDailyLoss = Number.isFinite(parsedLoss) && parsedLoss > 0 ? parsedLoss : null;
+    }
+    console.log(c.dim(`[${context.tgPrefix}] max daily loss: ${context.maxDailyLoss ? c.yellow(`-₹${context.maxDailyLoss} — quits for the day if breached`) : "off — no floor"}`));
+
+    // Session-level profit target — the alternative to a per-trade
+    // targetPoints/targetMode target (mutually exclusive at setup time,
+    // see toolbox.js's target-type picker). null/unset = disabled.
+    if (process.env.SESSION_TARGET_OVERRIDE !== undefined && process.env.SESSION_TARGET_OVERRIDE !== "") {
+        const parsedTarget = Number(process.env.SESSION_TARGET_OVERRIDE);
+        context.sessionTargetRupees = Number.isFinite(parsedTarget) && parsedTarget > 0 ? parsedTarget : null;
+    }
+    console.log(c.dim(`[${context.tgPrefix}] session target: ${context.sessionTargetRupees ? c.yellow(`+₹${context.sessionTargetRupees} — quits for the day once reached (session total, irrespective of interim losses)`) : "off"}`));
+
+    // Choppiness Index entry filter — VOLUME_DELTA_CVD only (see
+    // context.js). null stays null here if the override isn't set; the
+    // strategy itself applies its own default when it sees null, not this
+    // block — same "context carries the override, the strategy carries
+    // the default" split every other per-instrument knob here uses.
+    if (process.env.CHOP_FILTER_OVERRIDE !== undefined && process.env.CHOP_FILTER_OVERRIDE !== "") {
+        context.chopFilterEnabled = process.env.CHOP_FILTER_OVERRIDE === "true";
+    }
+    if (process.env.CHOP_PERIOD_OVERRIDE !== undefined && process.env.CHOP_PERIOD_OVERRIDE !== "") {
+        const parsedPeriod = Number(process.env.CHOP_PERIOD_OVERRIDE);
+        context.chopPeriod = Number.isFinite(parsedPeriod) && parsedPeriod > 0 ? parsedPeriod : null;
+    }
+    if (process.env.CHOP_MAX_OVERRIDE !== undefined && process.env.CHOP_MAX_OVERRIDE !== "") {
+        const parsedMax = Number(process.env.CHOP_MAX_OVERRIDE);
+        context.chopMax = Number.isFinite(parsedMax) && parsedMax > 0 ? parsedMax : null;
+    }
+
+    // Double-order gate — every strategy, opt-in, false/unset = disabled
+    // (today's original behavior: unlimited re-entries per session, each
+    // strategy's own gates decide). See doubleOrderGate.js and
+    // context.disableDoubleOrders.
+    if (process.env.DISABLE_DOUBLE_ORDERS_OVERRIDE !== undefined && process.env.DISABLE_DOUBLE_ORDERS_OVERRIDE !== "") {
+        context.disableDoubleOrders = process.env.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true";
+    }
+    console.log(c.dim(`[${context.tgPrefix}] double orders: ${context.disableDoubleOrders ? c.yellow("disabled — only 1 entry allowed per session") : "allowed (default) — 2nd+ entry forces a Choppiness Index check regardless of the chop filter setting"}`));
+
+    // PURE_HA anti-whipsaw filter — consecutive opposite-color candles
+    // required before an open position actually flips. Harmless/unread by
+    // every other strategy. See context.flipConfirmCandles.
+    if (process.env.FLIP_CONFIRM_CANDLES_OVERRIDE !== undefined && process.env.FLIP_CONFIRM_CANDLES_OVERRIDE !== "") {
+        const parsedConfirm = Number(process.env.FLIP_CONFIRM_CANDLES_OVERRIDE);
+        context.flipConfirmCandles = Number.isFinite(parsedConfirm) && parsedConfirm >= 1 ? parsedConfirm : null;
+    }
+
+    // Per-instrument ATR stop-loss multiplier override — every
+    // computeTrail() falls back to the global engineConfig.ATR_SL_MULT
+    // when this is unset. See context.atrSlMult.
+    if (process.env.ATR_SL_MULT_OVERRIDE !== undefined && process.env.ATR_SL_MULT_OVERRIDE !== "") {
+        const parsedAtrMult = Number(process.env.ATR_SL_MULT_OVERRIDE);
+        context.atrSlMult = Number.isFinite(parsedAtrMult) && parsedAtrMult > 0 ? parsedAtrMult : null;
+    }
+    // DAILY_HA_BIAS (Oct 2026): SL is ATR-based like every other strategy
+    // (was the previous daily HA candle's high/low) — the ATR banner line
+    // applies. It still wires in no chop/volume/HTF gates, so those banner
+    // lines stay skipped for it.
+    const bannerSkip = context.strategy === "DAILY_HA_BIAS";
+    // Universal entry time ("HH:MM" IST) — see entryTimeGate.js. Not used by DAILY_HA_BIAS.
+    if (!bannerSkip && process.env.ENTRY_TIME_OVERRIDE) {
+        const m = String(process.env.ENTRY_TIME_OVERRIDE).trim().match(/^(\d{1,2}):(\d{2})$/);
+        if (m && Number(m[1]) <= 23 && Number(m[2]) <= 59) {
+            context.entryTimeHour = Number(m[1]);
+            context.entryTimeMinute = Number(m[2]);
+            console.log(c.dim(`[${context.tgPrefix}] entry time: no new entries before ${String(m[1]).padStart(2, "0")}:${m[2]} IST`));
+        } else {
+            console.warn(`[${context.tgPrefix}] ENTRY_TIME_OVERRIDE "${process.env.ENTRY_TIME_OVERRIDE}" is not HH:MM — no entry-time restriction`);
+        }
+    }
+    // DAILY_HA_BIAS daily-candle source — see context.dailyBiasCandle.
+    if (process.env.DAILY_BIAS_CANDLE_OVERRIDE) {
+        const v = String(process.env.DAILY_BIAS_CANDLE_OVERRIDE).trim().toUpperCase();
+        if (v === "CURRENT" || v === "PREVIOUS") context.dailyBiasCandle = v;
+        else console.warn(`[${context.tgPrefix}] DAILY_BIAS_CANDLE_OVERRIDE "${process.env.DAILY_BIAS_CANDLE_OVERRIDE}" must be PREVIOUS or CURRENT — using PREVIOUS`);
+    }
+    // DAILY_HA_BIAS entry time ("HH:MM" IST) — see context.dailyBiasEntryHour.
+    // Invalid/blank = unset, strategies.js falls back to 10:00.
+    if (process.env.DAILY_BIAS_ENTRY_TIME_OVERRIDE !== undefined && process.env.DAILY_BIAS_ENTRY_TIME_OVERRIDE !== "") {
+        const m = String(process.env.DAILY_BIAS_ENTRY_TIME_OVERRIDE).trim().match(/^(\d{1,2}):(\d{2})$/);
+        if (m && Number(m[1]) <= 23 && Number(m[2]) <= 59) {
+            context.dailyBiasEntryHour = Number(m[1]);
+            context.dailyBiasEntryMinute = Number(m[2]);
+        } else {
+            console.warn(`[${context.tgPrefix}] DAILY_BIAS_ENTRY_TIME_OVERRIDE "${process.env.DAILY_BIAS_ENTRY_TIME_OVERRIDE}" is not HH:MM — using the default 10:00`);
+        }
+    }
+    if (bannerSkip) {
+        const eh = context.dailyBiasEntryHour ?? 10, em = context.dailyBiasEntryMinute ?? 0;
+        console.log(c.dim(`[${context.tgPrefix}] entry time: ${String(eh).padStart(2, "0")}:${String(em).padStart(2, "0")} IST${context.dailyBiasEntryHour === null ? " (default)" : ""} — first ${context.timeframe} candle at/after it takes the ${context.dailyBiasCandle === "CURRENT" ? "present-day (forming)" : "previous completed"} daily HA candle's side`));
+    }
+    if (process.env.HARD_SL_RUPEES_OVERRIDE !== undefined && process.env.HARD_SL_RUPEES_OVERRIDE !== "") {
+        const parsedHard = Number(process.env.HARD_SL_RUPEES_OVERRIDE);
+        context.hardSlRupees = Number.isFinite(parsedHard) && parsedHard > 0 ? parsedHard : null;
+    }
+    // DSB-family daily limit on losing reversals (losingSwitchGate.js). Blank/0 = off.
+    if (process.env.MAX_LOSING_SWITCHES_OVERRIDE !== undefined && process.env.MAX_LOSING_SWITCHES_OVERRIDE !== "") {
+        const parsedLs = Number(process.env.MAX_LOSING_SWITCHES_OVERRIDE);
+        context.maxLosingSwitchesPerDay = Number.isFinite(parsedLs) && parsedLs > 0 ? Math.floor(parsedLs) : null;
+    }
+    if (process.env.MAX_LOSING_TRADES_OVERRIDE !== undefined && process.env.MAX_LOSING_TRADES_OVERRIDE !== "") {
+        const parsedLt = Number(process.env.MAX_LOSING_TRADES_OVERRIDE);
+        context.maxLosingTradesPerDay = Number.isFinite(parsedLt) && parsedLt > 0 ? Math.floor(parsedLt) : null;
+    }
+    if (process.env.MAX_PROFIT_TRADES_OVERRIDE !== undefined && process.env.MAX_PROFIT_TRADES_OVERRIDE !== "") {
+        const parsedPt = Number(process.env.MAX_PROFIT_TRADES_OVERRIDE);
+        context.maxProfitTradesPerDay = Number.isFinite(parsedPt) && parsedPt > 0 ? Math.floor(parsedPt) : null;
+    }
+    if (context.maxProfitTradesPerDay) console.log(c.dim(`[${context.tgPrefix}] [DSB] profitable-trade limit: ${context.maxProfitTradesPerDay} per day (then cooldown until next session)`));
+    if (context.maxLosingTradesPerDay) console.log(c.dim(`[${context.tgPrefix}] [DSB] losing-trade limit: ${context.maxLosingTradesPerDay} per day (then flat until next session)`));
+    if (context.maxLosingSwitchesPerDay) console.log(c.dim(`[${context.tgPrefix}] [DSB] losing-reversal limit: ${context.maxLosingSwitchesPerDay} per day (then flat until next session)`));
+    console.log(c.dim(`[${context.tgPrefix}] ${context.hardSlRupees ? `HARD SL: \u20b9${context.hardSlRupees} per position (ATR stop off)` : `ATR SL multiplier: ${context.atrSlMult ?? `${engineConfig.ATR_SL_MULT} (default)`}`}${context.strategy === "PURE_HA" ? `  |  flip confirm: ${context.flipConfirmCandles ?? 1} candle(s)` : ""}`));
+
+    // volumeGate.js's universal "volume above its own SMA" entry gate —
+    // off by default. See context.volumeFilterEnabled/volumeSmaPeriod.
+    if (process.env.VOLUME_FILTER_OVERRIDE !== undefined && process.env.VOLUME_FILTER_OVERRIDE !== "") {
+        context.volumeFilterEnabled = process.env.VOLUME_FILTER_OVERRIDE === "true";
+    }
+    if (process.env.VOLUME_SMA_PERIOD_OVERRIDE !== undefined && process.env.VOLUME_SMA_PERIOD_OVERRIDE !== "") {
+        const parsedVolPeriod = Number(process.env.VOLUME_SMA_PERIOD_OVERRIDE);
+        context.volumeSmaPeriod = Number.isFinite(parsedVolPeriod) && parsedVolPeriod > 0 ? parsedVolPeriod : null;
+    }
+    if (!bannerSkip) console.log(c.dim(`[${context.tgPrefix}] volume filter: ${context.volumeFilterEnabled ? c.yellow(`on — entries only above SMA(${context.volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT})`) : "off (default)"}`));
+
+    // longCandleGate.js's "Long-Candle / Volatility-Shock Entry Filter" —
+    // built for the Sep 2 2026 NATGASMINI/DYNAMIC_BAND incident. On by
+    // default (see context.js's longCandleFilterEnabled comment).
+    if (process.env.LONG_CANDLE_FILTER_OVERRIDE !== undefined && process.env.LONG_CANDLE_FILTER_OVERRIDE !== "") {
+        context.longCandleFilterEnabled = process.env.LONG_CANDLE_FILTER_OVERRIDE === "true";
+    }
+    if (process.env.LONG_CANDLE_ATR_PERIOD_OVERRIDE !== undefined && process.env.LONG_CANDLE_ATR_PERIOD_OVERRIDE !== "") {
+        const parsedLcPeriod = Number(process.env.LONG_CANDLE_ATR_PERIOD_OVERRIDE);
+        context.longCandleAtrPeriod = Number.isFinite(parsedLcPeriod) && parsedLcPeriod > 0 ? parsedLcPeriod : null;
+    }
+    if (process.env.LONG_CANDLE_ATR_MULT_OVERRIDE !== undefined && process.env.LONG_CANDLE_ATR_MULT_OVERRIDE !== "") {
+        const parsedLcMult = Number(process.env.LONG_CANDLE_ATR_MULT_OVERRIDE);
+        context.longCandleAtrMult = Number.isFinite(parsedLcMult) && parsedLcMult > 0 ? parsedLcMult : null;
+    }
+    if (process.env.LONG_CANDLE_COOLDOWN_OVERRIDE !== undefined && process.env.LONG_CANDLE_COOLDOWN_OVERRIDE !== "") {
+        const parsedLcCooldown = Number(process.env.LONG_CANDLE_COOLDOWN_OVERRIDE);
+        context.longCandleCooldownCandles = Number.isInteger(parsedLcCooldown) && parsedLcCooldown >= 0 ? parsedLcCooldown : null;
+    }
+    if (process.env.LONG_CANDLE_BODY_FILTER_OVERRIDE !== undefined && process.env.LONG_CANDLE_BODY_FILTER_OVERRIDE !== "") {
+        context.longCandleUseBodyFilter = process.env.LONG_CANDLE_BODY_FILTER_OVERRIDE === "true";
+    }
+    if (process.env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE !== undefined && process.env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE !== "") {
+        const parsedBodyMult = Number(process.env.LONG_CANDLE_BODY_ATR_MULT_OVERRIDE);
+        context.longCandleBodyAtrMult = Number.isFinite(parsedBodyMult) && parsedBodyMult > 0 ? parsedBodyMult : null;
+    }
+    if (!bannerSkip) console.log(c.dim(`[${context.tgPrefix}] long-candle filter: ${context.longCandleFilterEnabled ? c.yellow(`on — ATR(${context.longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}) x${context.longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}, cooldown ${context.longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT} candle(s)${context.longCandleUseBodyFilter ? `, body x${context.longCandleBodyAtrMult ?? engineConfig.LONG_CANDLE_BODY_ATR_MULT_DEFAULT}` : ""}`) : "off"}`));
+
+    // htfGate.js's universal higher-timeframe confirmation gate — on by
+    // default (see context.js's htfGateEnabled comment).
+    if (process.env.HTF_GATE_ENABLED_OVERRIDE !== undefined && process.env.HTF_GATE_ENABLED_OVERRIDE !== "") {
+        context.htfGateEnabled = false;   // gate removed: stale HTF_GATE_ENABLED_OVERRIDE values in old PM2 envs are ignored
+    }
+    if (process.env.HTF_TIMEFRAME_OVERRIDE !== undefined && process.env.HTF_TIMEFRAME_OVERRIDE !== "") {
+        context.htfTimeframe = process.env.HTF_TIMEFRAME_OVERRIDE;
+    }
+    if (process.env.HTF_CHOP_PERIOD_OVERRIDE !== undefined && process.env.HTF_CHOP_PERIOD_OVERRIDE !== "") {
+        const parsedHtfPeriod = Number(process.env.HTF_CHOP_PERIOD_OVERRIDE);
+        context.htfChopPeriod = Number.isFinite(parsedHtfPeriod) && parsedHtfPeriod > 0 ? parsedHtfPeriod : null;
+    }
+    if (process.env.HTF_CHOP_MAX_OVERRIDE !== undefined && process.env.HTF_CHOP_MAX_OVERRIDE !== "") {
+        const parsedHtfMax = Number(process.env.HTF_CHOP_MAX_OVERRIDE);
+        context.htfChopMax = Number.isFinite(parsedHtfMax) && parsedHtfMax > 0 ? parsedHtfMax : null;
+    }
+    // htfGate.js's ALMA-band clause — independently configurable since
+    // Sep 2026, see htfGate.js's header. On by default (unchanged prior
+    // behavior).
+    if (process.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE !== undefined && process.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE !== "") {
+        context.htfBandBlockEnabled = process.env.HTF_BAND_BLOCK_ENABLED_OVERRIDE === "true";
+    }
+    if (!bannerSkip) console.log(c.dim(`[${context.tgPrefix}] HTF gate: ${context.htfGateEnabled ? c.yellow(`on — ${context.timeframe} chop(${context.htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}) < ${context.htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${context.htfBandBlockEnabled === false ? "" : " + inside its own ALMA band"} blocks entries`) : "off"}`));
+
+    // dailyHaGate.js's universal daily-HA directional gate (orders.js) —
+    // on by default, same opt-out posture as htfGateEnabled. See
+    // dailyHaGate.js's own header for why this one isn't wired here
+    // per-strategy the way the gates above are — it lives in orders.js
+    // instead, applying to every strategy without a per-file wire-up.
+    if (process.env.DAILY_HA_GATE_ENABLED_OVERRIDE !== undefined && process.env.DAILY_HA_GATE_ENABLED_OVERRIDE !== "") {
+        context.dailyHaGateEnabled = process.env.DAILY_HA_GATE_ENABLED_OVERRIDE === "true";
+    }
+    console.log(c.dim(`[${context.tgPrefix}] Daily HA gate: ${context.dailyHaGateEnabled === false ? "off" : c.yellow("on — blocks entries against the previous completed daily candle's color")}`));
+
+    // Candle type (RAW / HA / RANGE) — chosen at deploy, independent of strategy. Unset = the
+    // strategy's own native type (legacy behaviour). Must be resolved BEFORE createDb (file name).
+    context.candleType = normalizeCandleType(process.env.CANDLE_TYPE_OVERRIDE) || resolveCandleMode(context.strategy, null).type;
+    if (process.env.RANGE_SIZE_OVERRIDE) {
+        const rs = Number(process.env.RANGE_SIZE_OVERRIDE);
+        context.rangeSize = Number.isFinite(rs) && rs > 0 ? rs : null;
+    }
+    const candleMode = resolveCandleMode(context.strategy, context.candleType);
+    context.candleMode = candleMode;
+    setHaPassthrough(candleMode.haPassthrough);
+    console.log(c.dim(`[${context.tgPrefix}] Candle type: ${CANDLE_LABEL[context.candleType]}${candleMode.type === "RANGE" ? ` (range ${context.rangeSize ?? "ATR default"})` : ""}`));
+    const candleWarn = overrideWarning(context.strategy, context.candleType);
+    if (candleWarn) console.log(c.yellow(`[${context.tgPrefix}] ⚠ ${candleWarn}`));
+
+    const strategyLabel = (STRATEGY_INFO[context.strategy] || { label: context.strategy }).label;
+    console.log(c.bold(`[${context.tgPrefix}] Strategy: ${strategyLabel} (${context.strategy})  Timeframe: ${context.timeframe}`));
+
+    console.log();
+    console.log();
+    console.log(c.bold(`--- ${context.name.padEnd(12)} ${new Date().toLocaleString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })} ---`));
+
+    // ─── INSTANTIATE — one of each, scoped to `context` ────────────────────────
+    const { tg }   = createTelegram(context, engineConfig);
+    const state    = createState();
+    const candles  = createCandleBuffer({ view: candleMode.view === "HA" ? "HA" : "native" });
+    const htf      = createHtfGate({ context, engineConfig, tg });
+    const deltaBuffer = createCandleDeltaBuffer();
+    const marketDataHealth = createMarketDataHealth({ tg });
+    const slStore  = createSLStore();
+    const targetStore = createTargetStore();
+    const db       = createDb(context);
+    const orders   = createOrders(context, tg);
+
+    db.initDB();
+
+    // TAlgo-Ai: attach an entry-time snapshot to every new trade row. Observer only — failures are swallowed
+    // and the wrapper returns exactly what insertOpenTrade returned.
+    { const rawInsert = db.insertOpenTrade;
+      db.insertOpenTrade = async function (engine, instrument, side, qty, entryPrice) {
+          const id = await rawInsert.apply(this, arguments);
+          try { await db.setEntryContext(id, require("./entrySnapshot").snapshot({ context, engineConfig, state, candles, side, price: entryPrice })); } catch { /* observer only */ }
+          return id;
+      }; }
+
+    // Live: book the trade at the broker's actual fills (entry order + exit order) instead of the signal prices.
+    // Falls back to the signal price (with a warning) if a fill can't be read, and does nothing different in paper mode.
+    // A fill more than 3% away from the signal is treated as unreadable rather than booked.
+    const positionsClose = async (price, reason) => {
+        let exitPx = price, entryPx = null, signalPx = null;
+        if (engineConfig.LIVE_ORDERS && state.position) {
+            try {
+                const ex = orders.getLastExit(), en = orders.getLastEntry();
+                const sane = (fill, ref) => Number.isFinite(fill) && fill > 0 && Math.abs(fill - ref) / ref <= 0.03;
+                if (ex) {
+                    const f = await orders.fillPriceFor(ex.id);
+                    if (sane(f, price)) { signalPx = price; exitPx = f; }
+                    else console.log(c.yellow(`[${context.tgPrefix}] exit fill price unavailable — booking at signal price ${price.toFixed(2)}`));
+                }
+                if (en && en.side === state.position) {
+                    const f = await orders.fillPriceFor(en.id);
+                    if (sane(f, state.entryPrice)) {
+                        entryPx = f;
+                        if (f !== state.entryPrice) await db.updateTradeEntry(state.openTradeId, f);
+                    }
+                }
+            } catch (e) { console.log(c.yellow(`[${context.tgPrefix}] fill lookup failed (${e.message}) — booking at signal price`)); }
+        }
+        const pnl = await positions.close(context, state, db, tg, exitPx, reason, entryPx, signalPx);
+        orders.clearTrade();
+        return pnl;
+    };
+    const positionsUnrealised = (price)          => positions.unrealised(context, state, price);
+
+    const preloadInstance   = createPreload({ context, engineConfig, candles, tg });
+    const lifecycleInstance = createLifecycle({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, tg });
+    const signalsInstance   = await createSignals({
+        context, engineConfig, state, db, candles, slStore, targetStore, orders,
+        positionsClose, positionsUnrealised, lifecycle: lifecycleInstance, tg, deltaBuffer, htf,
+        // Reuses orders.js's OWN internal dailyHaGate instance (exposed via
+        // orders.dailyHaGate) rather than constructing a second one here —
+        // no duplicate KiteConnect client/cache, and the inline check every
+        // strategy now runs agrees with what orders.enter() itself already
+        // enforces (this makes it double-checked for live, harmlessly —
+        // the SAME wiring is what gives backtestRun.js's replay real
+        // enforcement, since its stub broker never calls orders.js at all).
+        dailyHa: orders.dailyHaGate,
+    });
+    // Remember the candle each decision is made on, so ENTRY/EXIT events can carry its OHLC for the dashboard log.
+    { const rawProcess = signalsInstance.processCandle;
+      signalsInstance.processCandle = async function (candle, ...rest) {
+          // End of day reached and flat: a candle closing right on the EOD time (e.g. the 23:00 close of a 1h bar) must not
+          // open a position the EOD routine has just closed. Open positions still go through, so exits keep working.
+          if (!state.position && lifecycleInstance.eodReached()) {
+              console.log(c.dim(`[${context.tgPrefix}] end of day reached — no new entries, candle skipped`));
+              return;
+          }
+          setCurrentCandle(candle); return rawProcess.call(this, candle, ...rest);
+      }; }
+    const rangeKc = candleMode.view === "RANGE" ? new KiteConnect({ api_key: engineConfig.API_KEY }) : null;
+    if (rangeKc) rangeKc.setAccessToken(ACCESS_TOKEN);
+    const rangeFeed = rangeKc ? createRangeFeed({ context, engineConfig, kc: rangeKc, candles, tg }) : null;
+    let rangeQueue = Promise.resolve();
+    const candlePollInstance = createCandlePoll({
+        context, engineConfig, state, candles, slStore, targetStore, orders,
+        positionsClose, processCandle: signalsInstance.processCandle, db, tg, deltaBuffer,
+    });
+
+    // ─── BOOT — WebSocket ticker ────────────────────────────────────────────
+    const ticker = new KiteTicker({ api_key: engineConfig.API_KEY, access_token: ACCESS_TOKEN });
+
+    ticker.connect();
+
+    ticker.on("connect", async () => {
+        marketDataHealth.onConnect();
+        ticker.subscribe([context.token]);
+        marketDataHealth.onSubscribe();
+        // CHANGED: LTP -> Full. LTP mode only ever sent instrument_token +
+        // last_price — no volume_traded field at all, which
+        // createVolumeDeltaCvdStrategy's tick delta estimator needs (see
+        // tickVolumeDelta.js). Full mode is a strict superset for every
+        // OTHER strategy too (they only ever read tick.last_price /
+        // tick.instrument_token, same as before) — this is additive, not a
+        // behavior change for anything already running, just a larger tick
+        // payload every strategy now receives but only this one uses.
+        ticker.setMode(ticker.modeFull, [context.token]);
+
+        await signalsInstance.initSignals();
+
+        await new Promise(resolve => {
+            const now    = new Date();
+            const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 8, 45, 0);
+            if (now >= target) { resolve(); return; }
+            setTimeout(resolve, target - now);
+        });
+
+        if (rangeFeed) {
+            try { await rangeFeed.load(); }
+            catch (err) { console.error(c.red(`RANGE load failed: ${err.message}`)); tg(`⚠ Range-bar load failed: ${err.message}`); }
+        } else {
+            await preloadInstance.preload();
+        }
+        htf.prewarm();
+
+        const bufLen = candles.getRawCandles().length;
+        const info   = state.position ? `${state.position}@${state.entryPrice}` : "-";
+
+        if (bufLen < 35) {
+            console.error(c.red(`preload returned only ${bufLen} candles — cannot start`));
+            tg(`⚠ Preload failed: only ${bufLen} candles. Restart required.`);
+            process.exit(1);
+        }
+
+        const now2 = new Date();
+        const tradeTarget = new Date(now2.getFullYear(), now2.getMonth(), now2.getDate(),
+            engineConfig.TRADE_START_HOUR, engineConfig.TRADE_START_MINUTE, 0);
+        const minsLeft = Math.round((tradeTarget - now2) / 60000);
+        if (minsLeft > 0) {
+            const hh = String(engineConfig.TRADE_START_HOUR).padStart(2, "0");
+            const mm = String(engineConfig.TRADE_START_MINUTE).padStart(2, "0");
+            console.log(c.dim(`waiting  ${minsLeft}m until ${hh}:${mm}`));
+            const heartbeat = setInterval(() => {
+                const n = new Date();
+                const { hours: nHour, minutes: nMinute } = istParts(n);
+                const entryOpen = nHour > engineConfig.TRADE_START_HOUR ||
+                    (nHour === engineConfig.TRADE_START_HOUR && nMinute >= engineConfig.TRADE_START_MINUTE);
+                if (entryOpen) { clearInterval(heartbeat); return; }
+                const mins = Math.round((tradeTarget - n) / 60000);
+                console.log(c.dim(`waiting  ${mins}m until ${hh}:${mm}`));
+            }, 15 * 60 * 1000);
+        }
+
+        tg(`${strategyLabel} started  ${info}`);
+
+        // Range bars close on price, not on the clock — the tick handler drives processCandle instead.
+        if (!rangeFeed) candlePollInstance.startPoll();
+        lifecycleInstance.startLifecycle();
+
+        // Section 17 diagnostic — throttled inside marketDataHealth itself
+        // (won't spam Telegram every 10s during a prolonged outage, just
+        // once per throttleMs while the condition persists). 10s poll is
+        // cheap and independent of candle/tick cadence.
+        //
+        // FIX Sep 2026: only actually check while the exchange session for
+        // THIS instrument is open (engineConfig.TRADE_START_HOUR/MINUTE
+        // through context.eodHour/eodMinute — the same "entryOpen" bounds
+        // used above, not the broker's raw session end, since ticks are
+        // expected to stop the moment this instrument force-closes for the
+        // day anyway). The WS subscribes and ticker connects well before
+        // this (see the 8:45 wait above), so pre-market/post-session there
+        // legitimately are no ticks — that's not a fault, and warning
+        // about it was just noise ("why is it checking for ticks when the
+        // market isn't open").
+        setInterval(() => {
+            const { hours, minutes } = istParts(new Date());
+            const pastOpen  = hours > engineConfig.TRADE_START_HOUR ||
+                (hours === engineConfig.TRADE_START_HOUR && minutes >= engineConfig.TRADE_START_MINUTE);
+            const pastClose = hours > context.eodHour ||
+                (hours === context.eodHour && minutes >= context.eodMinute);
+            if (!pastOpen || pastClose) return;
+            marketDataHealth.checkStale();
+        }, 10 * 1000);
+    });
+
+    let lastLtpEmitAt = 0;
+    ticker.on("ticks", async (ticks) => {
+        if (!ticks.length) return;
+        for (const tick of ticks) {
+            if (tick.instrument_token === context.token && tick.last_price) {
+                candles.onTick(tick.last_price);
+                // Live price stream for the web dashboard's chart (throttled, fail-soft, see eventBridge.js).
+                const nowMs = Date.now();
+                if (nowMs - lastLtpEmitAt >= 400) { lastLtpEmitAt = nowMs; {
+                    // Live unrealized/session PnL rides on the price stream, so the dashboard cards stay current between
+                    // candle closes (strategies only emit TICK once per candle — hourly for 1h strategies).
+                    let uPnl = null, session = null;
+                    try { uPnl = positionsUnrealised(tick.last_price); session = (state.pnl || 0) + uPnl; } catch { /* price only */ }
+                    if (uPnl !== null && state.position) { // journal: observed excursion of the open trade
+                        if (state.peakPnl === null || uPnl > state.peakPnl) state.peakPnl = uPnl;
+                        if (state.troughPnl === null || uPnl < state.troughPnl) state.troughPnl = uPnl;
+                    }
+                    emitEvent(context.tgPrefix, "LTP", { price: tick.last_price, uPnl, session, position: state.position || null });
+                } }
+                deltaBuffer.onTick(tick.last_price, tick.volume_traded);
+                if (rangeFeed) {
+                    for (const bar of rangeFeed.onTick(tick.last_price, tick.volume_traded)) {
+                        // Serialised: a bar must be fully processed before the next one is.
+                        rangeQueue = rangeQueue.then(async () => {
+                            const seen = candles.appendCandle(bar, engineConfig.MAX_CANDLES);
+                            await signalsInstance.processCandle(seen);
+                        }).catch(err => console.error(c.red("RANGE processCandle: " + (err.message || err))));
+                    }
+                }
+                marketDataHealth.onTick(tick);
+                await candlePollInstance.checkSL(tick.last_price);
+                await candlePollInstance.checkTarget(tick.last_price);
+                await candlePollInstance.checkDailyLoss(tick.last_price);
+                await candlePollInstance.checkSessionTarget(tick.last_price);
+            }
+        }
+    });
+
+    ticker.on("error",       err => {
+        if (err.message?.includes("403")) console.log(c.dim("WS  market closed"));
+        else console.error(c.red("WS ERROR " + (err.message || err)));
+    });
+    ticker.on("close",       ()  => { console.log(c.dim("WS  closed")); marketDataHealth.onClose(); });
+    ticker.on("reconnect",   n   => { console.log(c.dim(`WS  reconnect #${n}`)); deltaBuffer.resync(); });
+    ticker.on("noreconnect", ()  => { console.error(c.red("WS  max reconnects")); process.exit(1); });
+}
+
+main().catch(err => {
+    console.error("BOOT FAILED", err);
+    process.exit(1);
+});
+
+process.on("uncaughtException",  err => console.error("UNCAUGHT",  err));
+process.on("unhandledRejection", err => console.error("UNHANDLED", err));
