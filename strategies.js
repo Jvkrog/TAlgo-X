@@ -6875,7 +6875,7 @@ function createDsbDualStrategy({ context, engineConfig, state, db, candles, slSt
         return side === "LONG" ? livePrice - offset : livePrice + offset;
     }
 
-    async function doExit(side, livePrice, reason) {
+    async function doExit(side, livePrice, reason, info) {
         // DSB exit mode "SL": ignore the strategy's own flip exit and hold the position until the stop-loss (or scalp target / EOD) closes it.
         if (context.dsbExitMode === "SL" && lsGate.isFlipReason(reason)) {
             console.log(`[DSB] ${side} flip exit ignored (${reason}) — exit mode is stop-loss only; holding until the stop`);
@@ -6894,6 +6894,7 @@ function createDsbDualStrategy({ context, engineConfig, state, db, candles, slSt
         persist(null, 0);
         const exitCol = exitPnl > 0 ? c.green : exitPnl < 0 ? c.red : c.white;
         console.log(exitCol(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        if (info) console.log(exitCol(`    DSB1:${info.c1} DSB2:${info.c2}`));
         return true;
     }
 
@@ -6935,7 +6936,8 @@ function createDsbDualStrategy({ context, engineConfig, state, db, candles, slSt
         }
         persist(side, livePrice, SRC);
         const arrow = side === "LONG" ? "▲" : "▼";
-        console.log(c[side === "LONG" ? "green" : "red"](`[${context.tgPrefix}] ${arrow} ${side} ENTRY (${SRC}) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  DSB1:${info.c1} DSB2:${info.c2}`));
+        console.log(c[side === "LONG" ? "green" : "red"](`[${context.tgPrefix}] ${arrow} ${side} ENTRY (${SRC}) @ ${livePrice.toFixed(2)}`));
+        console.log(c[side === "LONG" ? "green" : "red"](`    Tr:${slTrail?.toFixed(2) ?? "-"}  DSB1:${info.c1} DSB2:${info.c2}`));
         emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null, arrow });
         tg(`${arrow} ${side} ENTRY (${SRC}) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}\nDSB1 ${info.c1}  DSB2 ${info.c2}`);
         return true;
@@ -6976,7 +6978,7 @@ function createDsbDualStrategy({ context, engineConfig, state, db, candles, slSt
                 // exit whenever the pair is no longer both aligned with the position
                 if (!(c1 === want && c2 === want)) reason = "DSB FLIP EXIT";
             }
-            if (reason) await doExit(side, livePrice, reason);
+            if (reason) await doExit(side, livePrice, reason, { c1, c2 });
         }
 
         // ── entry: flat only, and only when BOTH DSBs agree (disagree = no trade) ──
