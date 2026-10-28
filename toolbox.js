@@ -876,7 +876,7 @@ async function editInstrument(procs) {
         }
         let bandStep2 = p.bandStep2 ?? null, dsbDualMode = p.dsbDualMode || "HOLD";
         if (p.strategy === "DSB_DUAL") {
-            const in2 = (await ask(`  DSB 2 step in price points (current: ${bandStep2 ?? "2x DSB 1"}, blank = keep, 0 = reset to 2x DSB 1): `)).trim();
+            const in2 = (await ask(`  DSB 2 step in price points (current: ${bandStep2 ?? engineConfig.BAND_STEP2_DEFAULT}, blank = keep, 0 = reset to default ${engineConfig.BAND_STEP2_DEFAULT}): `)).trim();
             if (in2 === "0") bandStep2 = null;
             else if (in2) { const n = Number(in2); if (Number.isFinite(n) && n > 0) bandStep2 = n; else console.log(c.yellow(`  "${in2}" isn't a valid positive number — DSB 2 step left unchanged`)); }
             const mIn = (await ask(`  DSB 1 flip while in a trade: [H]old until DSB 2 agrees then reverse, [E]xit on DSB 1 flip, [D]isagree = exit (current: ${dsbDualMode[0]}, blank = keep): `)).trim().toUpperCase();
@@ -2016,8 +2016,8 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     }
     let bandStep2 = null, dsbDualMode = "HOLD";
     if (strategy === "DSB_DUAL") {
-        const in2 = (await ask(`  DSB 2 step in price points (blank = 2x DSB 1 = ${(bandStep ?? engineConfig.BAND_STEP_DEFAULT) * 2}): `)).trim();
-        if (in2) { const n = Number(in2); if (Number.isFinite(n) && n > 0) bandStep2 = n; else console.log(c.yellow(`  "${in2}" isn't a valid positive number — using 2x DSB 1`)); }
+        const in2 = (await ask(`  DSB 2 step in price points (blank = default ${engineConfig.BAND_STEP2_DEFAULT}): `)).trim();
+        if (in2) { const n = Number(in2); if (Number.isFinite(n) && n > 0) bandStep2 = n; else console.log(c.yellow(`  "${in2}" isn't a valid positive number — using default ${engineConfig.BAND_STEP2_DEFAULT}`)); }
         const mIn = (await ask("  DSB 1 flip while in a trade: [H]old until DSB 2 agrees then reverse (default), [E]xit on DSB 1 flip, [D]isagree = exit: ")).trim().toUpperCase();
         if (mIn === "E") dsbDualMode = "EXIT"; else if (mIn === "D") dsbDualMode = "DISAGREE";
     }

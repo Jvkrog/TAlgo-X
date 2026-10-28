@@ -6849,7 +6849,7 @@ function createAlmaDsbStrategy({ context, engineConfig, state, db, candles, slSt
 //     HOLD     (default) — ignore a DSB 1 flip until DSB 2 agrees; then exit and reverse into the new side.
 //     EXIT     — exit flat as soon as DSB 1 flips against the position; re-enter only once both agree.
 //     DISAGREE — exit whenever the two DSBs no longer both agree with the position.
-//   ATR stop (ATR_SL_MULT x ATR) only ever tightens. Steps: context.bandStep (DSB 1), context.bandStep2 (DSB 2, default 2x DSB 1).
+//   ATR stop (ATR_SL_MULT x ATR) only ever tightens. Steps: context.bandStep (DSB 1), context.bandStep2 (DSB 2, default engineConfig.BAND_STEP2_DEFAULT = 2).
 // ════════════════════════════════════════════════════════════════════════
 function createDsbDualStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() }, htf, dailyHa }) {
     const lsGate = createLosingSwitchGate({ context, state, db, clock, tag: "DSB" });   // daily losing-reversal limit (off unless context.maxLosingSwitchesPerDay)
@@ -7006,7 +7006,7 @@ function createDsbDualStrategy({ context, engineConfig, state, db, candles, slSt
         }
         const haCandles = toHA(rawCandles);
         const step1 = context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
-        const step2 = context.bandStep2 ?? step1 * 2;
+        const step2 = context.bandStep2 ?? engineConfig.BAND_STEP2_DEFAULT;
         const mode = context.dsbDualMode || "HOLD";
         const { createBandStepper } = require("./dynamicBandReader");
         const s1 = createBandStepper(step1), s2 = createBandStepper(step2);

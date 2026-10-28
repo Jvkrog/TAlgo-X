@@ -107,7 +107,8 @@ const STRATEGY_PARAMS = {
         { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
     ],
     DSB_DUAL: [
-        { key: "BAND_STEP_DEFAULT", label: "DSB 1 step (DSB 2 step = 2x unless set per-instrument)" },
+        { key: "BAND_STEP_DEFAULT", label: "DSB 1 step \u2014 faster band (price distance)" },
+        { key: "BAND_STEP2_DEFAULT", label: "DSB 2 step \u2014 slower band (price distance)" },
         { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
         { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
     ],

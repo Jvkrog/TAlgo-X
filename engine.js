@@ -248,7 +248,7 @@ async function main() {
         const m = String(process.env.DSB_DUAL_MODE_OVERRIDE || "").toUpperCase();
         context.dsbDualMode = ["HOLD", "EXIT", "DISAGREE"].includes(m) ? m : "HOLD";
         const s1 = context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
-        console.log(c.dim(`[${context.tgPrefix}] DSB dual: DSB1 step ${s1}, DSB2 step ${context.bandStep2 ?? s1 * 2}, DSB1 flip mode ${context.dsbDualMode}`));
+        console.log(c.dim(`[${context.tgPrefix}] DSB dual: DSB1 step ${s1}, DSB2 step ${context.bandStep2 ?? engineConfig.BAND_STEP2_DEFAULT}, DSB1 flip mode ${context.dsbDualMode}`));
     }
     if (context.strategy === "DYNAMIC_BAND" || context.strategy === "DYNAMIC_MID_COLOR" || (context.strategy === "DYNAMIC_MID_COLOR_HL" || context.strategy === "ALMA_DSB" || context.strategy === "DSB_DUAL")) {
         console.log(c.dim(`[${context.tgPrefix}] band step: ${context.bandStep ?? `default (${engineConfig.BAND_STEP_DEFAULT})`}`));

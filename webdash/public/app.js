@@ -2017,7 +2017,7 @@ function openEditModal(inst) {
       <input type="number" id="editBandStep" min="0" step="any" value="${inst.bandStep ?? ""}">
     </div>
     <div class="tb-form-row" style="${inst.strategy === "DSB_DUAL" ? "" : "display:none"}">
-      <div class="tb-form-label">DSB 2 step in price points (slower band; blank = keep, "0"/"clear" = 2x the DSB 1 step). The step above is DSB 1.</div>
+      <div class="tb-form-label">DSB 2 step in price points (slower band; blank = keep, "0"/"clear" = default 2). The step above is DSB 1.</div>
       <input type="number" id="editBandStep2" min="0" step="any" value="${inst.bandStep2 ?? ""}">
       <div class="tb-form-label" style="margin-top:8px">When DSB 1 flips while in a trade</div>
       <select id="editDsbDualMode">
@@ -2495,7 +2495,7 @@ function renderAddConfigStep() {
       <input type="number" id="addBandStep" min="0" step="any">
     </div>
     <div class="tb-form-row" id="addDsbDualRow" style="display:none">
-      <div class="tb-form-label">DSB_DUAL: DSB 2 step in price points (slower band, blank = 2x the step above, which is DSB 1)</div>
+      <div class="tb-form-label">DSB_DUAL: DSB 2 step in price points (slower band, blank = default 2; the step above is DSB 1)</div>
       <input type="number" id="addBandStep2" min="0" step="any">
       <div class="tb-form-label" style="margin-top:8px">When DSB 1 flips while in a trade</div>
       <select id="addDsbDualMode">
@@ -2996,10 +2996,9 @@ async function renderBacktestParamsStep() {
       <div class="tb-form-label">Exit on (Dynamic Mid / Mid HL / ALMA + Step Band only): the flip signal, or only the stop-loss</div>
       <select id="btDsbExitMode"><option value="FLIP">Signal flip (default)</option><option value="SL">Stop-loss only (hold through flips)</option></select>
     </div>
-    <div class="tb-form-row">
-      <div class="tb-form-label">DSB_DUAL only: DSB 2 step in price points (blank = 2x the DSB 1 step, set in the strategy parameters) and DSB 1 flip handling</div>
-      <input type="number" id="btBandStep2" min="0" step="any">
-      <select id="btDsbDualMode" style="margin-top:6px">
+    <div class="tb-form-row" id="btDsbDualRow" style="display:none">
+      <div class="tb-form-label">DSB 1 flip while in a trade (Dual Dynamic Step Band: DSB 1 / DSB 2 steps are in the parameters above)</div>
+      <select id="btDsbDualMode">
         <option value="HOLD">Hold until DSB 2 agrees, then reverse (default)</option>
         <option value="EXIT">Exit when DSB 1 flips; re-enter when both agree</option>
         <option value="DISAGREE">Exit whenever the two DSBs disagree</option>
@@ -3039,6 +3038,7 @@ async function renderBacktestParamsStep() {
     tfSelect.appendChild(opt);
   });
 
+  tbBacktestBody.querySelector("#btDsbDualRow").style.display = btState.strategy === "DSB_DUAL" ? "" : "none";
   const paramsBox = tbBacktestBody.querySelector("#btParamsBox");
   paramDefs.forEach(pd => {
     const row = document.createElement("div");
@@ -3069,7 +3069,6 @@ async function renderBacktestParamsStep() {
     setC("#btVolEnabled", pf.volumeFilterEnabled); setV("#btVolPeriod", pf.volumeSmaPeriod);
     setC("#btDailyHaGate", pf.dailyHaGateEnabled !== false);
     setV("#btDsbExitMode", pf.dsbExitMode);
-    setV("#btBandStep2", pf.bandStep2);
     setV("#btDsbDualMode", pf.dsbDualMode);
     setV("#btMaxLosingTrades", pf.maxLosingTrades);
     setV("#btMaxProfitTrades", pf.maxProfitTrades);
@@ -3130,7 +3129,6 @@ async function renderBacktestParamsStep() {
       scalpStopDay: tbBacktestBody.querySelector("#btScalpStopDay").checked,
       scalpNext: scalpNextValue(tbBacktestBody, "bt") || undefined,
       dsbExitMode: tbBacktestBody.querySelector("#btDsbExitMode").value,
-      bandStep2: tbBacktestBody.querySelector("#btBandStep2").value || undefined,
       dsbDualMode: tbBacktestBody.querySelector("#btDsbDualMode").value,
       sessionTargetRupees: tbBacktestBody.querySelector("#btSessionTarget").value || undefined,
       dailyHaGateEnabled: tbBacktestBody.querySelector("#btDailyHaGate").checked,

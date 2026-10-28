@@ -171,7 +171,7 @@ function buildContext(def, resolvedContract) {
         scalpStopForDay: false,   // with scalpTargetRupees: after one scalp-target exit take no more entries that IST day (engine.js from SCALP_STOP_DAY_OVERRIDE)
         // DYNAMIC_MID_COLOR / _HL / ALMA_DSB only (engine.js from DSB_EXIT_MODE_OVERRIDE): "SL" = ignore the flip exit and hold until the stop-loss; null/"FLIP" = default (exit on the flip signal).
         dsbExitMode: null,
-        // DSB_DUAL only: DSB 2 step (null = 2x the DSB 1 step, context.bandStep) and DSB 1 flip handling: HOLD (default) | EXIT | DISAGREE.
+        // DSB_DUAL only: DSB 2 step (null = engineConfig.BAND_STEP2_DEFAULT) and DSB 1 flip handling: HOLD (default) | EXIT | DISAGREE.
         bandStep2: null,
         dsbDualMode: null,
         // Overridden per-process by engine.js from TARGET_MODE_OVERRIDE

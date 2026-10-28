@@ -60,7 +60,7 @@ function computeOverlay(strategy, bars, ctx, cfg) {
     }
 
     if (strategy === "DSB_DUAL") {
-        const ha = toHA(bars), s1v = ctx.bandStep ?? cfg.BAND_STEP_DEFAULT, s2v = ctx.bandStep2 ?? s1v * 2;
+        const ha = toHA(bars), s1v = ctx.bandStep ?? cfg.BAND_STEP_DEFAULT, s2v = ctx.bandStep2 ?? cfg.BAND_STEP2_DEFAULT;
         const a = createBandStepper(s1v), b = createBandStepper(s2v), p1 = [], p2 = [];
         const clr = s => s.color === "red" ? "#ff5266" : "#33ff88";
         for (let i = 0; i < bars.length; i++) {

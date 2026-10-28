@@ -397,6 +397,7 @@ module.exports = {
     // prompt (only asked when this strategy is picked) / BAND_STEP_OVERRIDE,
     // same override pattern as context.targetPoints.
     BAND_STEP_DEFAULT: 1,
+    BAND_STEP2_DEFAULT: 2,   // DSB_DUAL: DSB 2 (slower band) step; per-instrument bandStep2 overrides
 
     // ALMA_TRI_BAND — strategy #15. Direct port of the user-provided Pine
     // indicator ("TAlgo — Zinc Optimized v3") — despite the Pine title,
