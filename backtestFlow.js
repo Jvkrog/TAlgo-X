@@ -440,6 +440,8 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
 
     // Hard stop-loss in rupees — either this or the ATR stop; when set it replaces the ATR stop.
     if (strategyKey !== "ALMA_BAND") {
+        const noSlIn = (await ask(`  Disable the stop-loss entirely (exits only on the strategy signal / target / EOD)? [y/N]: `)).trim().toUpperCase();
+        if (noSlIn === "Y") context.slDisabled = true;
         const hardIn = (await ask(`  Hard stop-loss in rupees per position (blank = use the ATR stop): `)).trim();
         if (hardIn) {
             const hv = Number(hardIn);

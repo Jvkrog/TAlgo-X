@@ -109,7 +109,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     // Daily engines hold positions across days (live forces carry-overnight for 1d, see engine.js).
     if (timeframe === "1d") context.carryOvernight = true;
     const state   = createState();
-    const slStore = createSLStore();
+    const slStore = createSLStore({ isDisabled: () => !!context.slDisabled });
     // Every strategy's exit paths now unconditionally call
     // targetStore.clearTarget()/.setTarget() (added this session's universal
     // tick-monitored profit target) — factory() crashes without one.

@@ -13,12 +13,14 @@
 // chain: signals.js → candlePoll.js → signals.js
 "use strict";
 
-function createSLStore() {
+// opts.isDisabled(): when it returns true the store never holds a stop (the "disable stop-loss" option), so every
+// strategy and both SL monitors (live checkSL, backtest) see no stop at all.
+function createSLStore(opts = {}) {
     let trail = null;
     let dir   = 0;
 
     return {
-        setTrail(trailVal, dirVal) { trail = trailVal; dir = dirVal; },
+        setTrail(trailVal, dirVal) { if (opts.isDisabled && opts.isDisabled()) return; trail = trailVal; dir = dirVal; },
         clearTrail()               { trail = null; dir = 0; },
         getTrail()                 { return { trail, dir }; },
     };
