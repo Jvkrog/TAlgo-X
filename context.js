@@ -230,6 +230,7 @@ function buildContext(def, resolvedContract) {
         atrSlMult: null,
         // Hard stop-loss in rupees (null = off -> ATR stop). Either this or the ATR stop applies, never both.
         hardSlRupees: null,
+        slDisabled: false,   // true = no stop-loss at all (engine.js from SL_DISABLED_OVERRIDE); exits come from the strategy signal / target / EOD only
         maxProfitTradesPerDay: null,     // DSB family only: max profitable trades (pnl > 0, any exit) per IST day, then cooldown (flat) until next session (null = off)
         maxLosingTradesPerDay: null,     // DSB family only: max losing trades (any exit reason) per IST day, then flat until next session (null = off)
         maxLosingSwitchesPerDay: null,   // DSB family only: max losing signal-driven reversals per IST day (null = off) — see losingSwitchGate.js

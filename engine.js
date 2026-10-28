@@ -436,6 +436,8 @@ async function main() {
         const parsedHard = Number(process.env.HARD_SL_RUPEES_OVERRIDE);
         context.hardSlRupees = Number.isFinite(parsedHard) && parsedHard > 0 ? parsedHard : null;
     }
+    context.slDisabled = process.env.SL_DISABLED_OVERRIDE === "1";
+    if (context.slDisabled) console.log(c.yellow(`[${context.tgPrefix}] STOP-LOSS DISABLED — no ATR / hard stop will be armed`));
     // DSB-family daily limit on losing reversals (losingSwitchGate.js). Blank/0 = off.
     if (process.env.MAX_LOSING_SWITCHES_OVERRIDE !== undefined && process.env.MAX_LOSING_SWITCHES_OVERRIDE !== "") {
         const parsedLs = Number(process.env.MAX_LOSING_SWITCHES_OVERRIDE);
@@ -554,7 +556,7 @@ async function main() {
     const htf      = createHtfGate({ context, engineConfig, tg });
     const deltaBuffer = createCandleDeltaBuffer();
     const marketDataHealth = createMarketDataHealth({ tg });
-    const slStore  = createSLStore();
+    const slStore  = createSLStore({ isDisabled: () => !!context.slDisabled });
     const targetStore = createTargetStore();
     const db       = createDb(context);
     const orders   = createOrders(context, tg);

@@ -1699,7 +1699,8 @@ function renderRiskList() {
     if (inst.strategy === "PURE_HA") badges.push(`<span class="mode-pill">flip ${inst.flipConfirmCandles ?? 1}</span>`);
     if (inst.strategy === "DAILY_HA_BIAS") badges.push(`<span class="mode-pill">entry ${inst.dailyBiasEntryTime || "10:00"} \u00b7 ${inst.dailyBiasCandle === "CURRENT" ? "today's candle" : "prev candle"}</span>`);
     else if (inst.entryTime) badges.push(`<span class="mode-pill">entry \u2265 ${inst.entryTime}</span>`);
-    if (inst.hardSlRupees) badges.push(`<span class="mode-pill">hard SL \u20b9${inst.hardSlRupees}</span>`);
+    if (inst.slDisabled) badges.push(`<span class="mode-pill live">no stop-loss</span>`);
+    else if (inst.hardSlRupees) badges.push(`<span class="mode-pill">hard SL \u20b9${inst.hardSlRupees}</span>`);
     else if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
     if (inst.dsbExitMode === "SL") badges.push(`<span class="mode-pill live">exit: SL only</span>`);
     if (inst.scalpTarget) badges.push(`<span class="mode-pill live">scalp \u20b9${inst.scalpTarget}${inst.scalpStopDay ? " · stop day" : (inst.scalpNext ? " · then " + (inst.scalpNext === "TARGET:0" ? "no target" : inst.scalpNext.replace("TARGET:", "tgt \u20b9").replace("SL:", "SL \u20b9")) : "")}</span>`);
@@ -2063,6 +2064,9 @@ function openEditModal(inst) {
       <div class="tb-form-label">Hard stop-loss \u20b9 per position \u2014 replaces the ATR stop when set (blank = use ATR)</div>
       <input type="number" id="editHardSl" min="0" step="any" value="${inst.hardSlRupees ?? ""}">
     </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="editSlDisabled" ${inst.slDisabled ? "checked" : ""}><span>Disable stop-loss (no ATR / hard stop; exits only on the strategy signal, target or end of day)</span></label>
+    </div>
     ${inst.strategy === "PURE_HA" ? `
     <div class="tb-form-row">
       <div class="tb-form-label">reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
@@ -2185,6 +2189,7 @@ function openEditModal(inst) {
     body.disableDoubleOrders = tbEditBody.querySelector("#editDisableDouble").checked;
     body.atrSlMult = tbEditBody.querySelector("#editAtrSlMult").value || null;
     body.hardSlRupees = tbEditBody.querySelector("#editHardSl").value || null;
+    body.slDisabled = tbEditBody.querySelector("#editSlDisabled").checked;
     const editFlipConfirmEl = tbEditBody.querySelector("#editFlipConfirm");
     if (editFlipConfirmEl) body.flipConfirmCandles = editFlipConfirmEl.value || null;
     const editDhabEntryEl = tbEditBody.querySelector("#editDhabEntry");
@@ -2541,6 +2546,9 @@ function renderAddConfigStep() {
       <div class="tb-form-label">Hard stop-loss \u20b9 per position \u2014 replaces the ATR stop when set (blank = use ATR)</div>
       <input type="number" id="addHardSl" min="0" step="any">
     </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="addSlDisabled"><span>Disable stop-loss (no ATR / hard stop; exits only on the strategy signal, target or end of day)</span></label>
+    </div>
     <div class="tb-form-row" id="addFlipConfirmRow" style="display:none">
       <div class="tb-form-label">Reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
       <input type="number" id="addFlipConfirm" min="1" step="1">
@@ -2720,6 +2728,7 @@ function renderAddConfigStep() {
         disableDoubleOrders: tbAddBody.querySelector("#addDisableDouble").checked,
         atrSlMult: tbAddBody.querySelector("#addAtrSlMult").value || undefined,
         hardSlRupees: tbAddBody.querySelector("#addHardSl").value || undefined,
+        slDisabled: tbAddBody.querySelector("#addSlDisabled").checked || undefined,
         flipConfirmCandles: pickedStrategy === "PURE_HA" ? (tbAddBody.querySelector("#addFlipConfirm").value || undefined) : undefined,
         dailyBiasEntryTime: pickedStrategy === "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addDhabEntry").value || undefined) : undefined,
         entryTime: pickedStrategy !== "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addEntryTime").value || undefined) : undefined,
@@ -2944,6 +2953,9 @@ async function renderBacktestParamsStep() {
       <div class="tb-form-label">Hard stop-loss \u20b9 per position \u2014 replaces the ATR stop when set (blank = use ATR)</div>
       <input type="number" id="btHardSl" min="0" step="any">
     </div>
+    <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="btSlDisabled"><span>Disable stop-loss (exits only on the strategy signal, target or end of day)</span></label>
+    </div>
     <div class="tb-form-row" id="btEntryTimeRow">
       <div class="tb-form-label">Entry time IST \u2014 no new entries before it (default 09:15 \u2014 clear it for off)</div>
       <input type="time" id="btEntryTime" value="09:15">
@@ -3063,7 +3075,7 @@ async function renderBacktestParamsStep() {
     setV("#btLcPeriod", pf.longCandleAtrPeriod); setV("#btLcMult", pf.longCandleAtrMult);
     { const el = tbBacktestBody.querySelector("#btLcCooldown"); if (el) el.value = pf.longCandleCooldownCandles ?? 0; }
     setC("#btDoubleDisabled", pf.disableDoubleOrders);
-    setV("#btAtrMult", pf.atrSlMult); setV("#btHardSl", pf.hardSlRupees);
+    setV("#btAtrMult", pf.atrSlMult); setV("#btHardSl", pf.hardSlRupees); setC("#btSlDisabled", pf.slDisabled);
     { const el = tbBacktestBody.querySelector("#btEntryTime"); if (el) el.value = pf.entryTime || ""; }
     setV("#btDhabEntry", pf.dailyBiasEntryTime); setV("#btDhabCandle", pf.dailyBiasCandle);
     setC("#btVolEnabled", pf.volumeFilterEnabled); setV("#btVolPeriod", pf.volumeSmaPeriod);
@@ -3112,6 +3124,7 @@ async function renderBacktestParamsStep() {
       longCandleCooldownCandles: tbBacktestBody.querySelector("#btLcCooldown").value || undefined,
       disableDoubleOrders: tbBacktestBody.querySelector("#btDoubleDisabled").checked,
       atrSlMult: btState.strategy === "ALMA_BAND" ? undefined : (tbBacktestBody.querySelector("#btAtrMult").value || undefined),
+      slDisabled: tbBacktestBody.querySelector("#btSlDisabled").checked || undefined,
       hardSlRupees: btState.strategy === "ALMA_BAND" ? undefined : (tbBacktestBody.querySelector("#btHardSl").value || undefined),
       dailyBiasEntryTime: btState.strategy === "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btDhabEntry").value || undefined) : undefined,
       entryTime: btState.strategy !== "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btEntryTime").value || undefined) : undefined,
@@ -3172,7 +3185,7 @@ async function renderBacktestParamsStep() {
         const name = btState.sourceName;
         if (!confirm(`Apply these backtest settings to ${name}? This saves them and restarts the process (an open position is not touched by the save itself, but check it first).`)) return;
         const keys = ["chopFilterEnabled", "chopPeriod", "chopMax", "longCandleFilterEnabled", "longCandleAtrPeriod", "longCandleAtrMult", "longCandleCooldownCandles",
-          "disableDoubleOrders", "atrSlMult", "hardSlRupees", "dailyBiasEntryTime", "entryTime", "dailyBiasCandle", "volumeFilterEnabled", "volumeSmaPeriod", "carryOvernight",
+          "disableDoubleOrders", "atrSlMult", "hardSlRupees", "slDisabled", "dailyBiasEntryTime", "entryTime", "dailyBiasCandle", "volumeFilterEnabled", "volumeSmaPeriod", "carryOvernight",
           "maxDailyLoss", "maxLosingSwitches", "maxLosingTrades", "maxProfitTrades", "targetPoints", "targetMode", "scalpTarget", "scalpStopDay", "scalpNext", "dsbExitMode", "bandStep2", "dsbDualMode", "sessionTargetRupees",
           "dailyHaGateEnabled"];
         const payload = { name };
@@ -3243,7 +3256,7 @@ function renderBtDeployView(bt) {
     ["Lot multiplier", bt.lotMultOverride || "instrument default"],
     [isDhab ? "Entry time" : "Entry time (no entries before)", (isDhab ? bt.dailyBiasEntryTime : bt.entryTime) || "—"],
     ...(isDhab ? [["Daily bias candle", bt.dailyBiasCandle || "default"]] : []),
-    ["Stop-loss", bt.hardSlRupees ? `Hard ₹${bt.hardSlRupees}` : bt.atrSlMult ? `ATR × ${bt.atrSlMult}` : "ATR (default multiplier)"],
+    ["Stop-loss", bt.slDisabled ? "Disabled" : bt.hardSlRupees ? `Hard ₹${bt.hardSlRupees}` : bt.atrSlMult ? `ATR × ${bt.atrSlMult}` : "ATR (default multiplier)"],
     ["Chop filter", onOff(bt.chopFilterEnabled, `period ${bt.chopPeriod || "default"}, max ${bt.chopMax || "default"}`)],
     ["Long-candle block", onOff(bt.longCandleFilterEnabled, `ATR ${bt.longCandleAtrPeriod || "def"} × ${bt.longCandleAtrMult || "def"}, cooldown ${bt.longCandleCooldownCandles || "def"}`)],
     ["Volume filter", onOff(bt.volumeFilterEnabled, `SMA ${bt.volumeSmaPeriod || "default"}`)],
@@ -3314,7 +3327,7 @@ function renderBtDeployView(bt) {
       almaFastLen: bt.strategy === "ALMA_PRO_FAST" ? (almaFastLen || undefined) : undefined,
       almaBandLen: bt.strategy === "ALMA_PRO_FAST" ? (almaBandLen || undefined) : undefined,
       disableDoubleOrders: !!bt.disableDoubleOrders,
-      atrSlMult: bt.atrSlMult, hardSlRupees: bt.hardSlRupees,
+      atrSlMult: bt.atrSlMult, hardSlRupees: bt.hardSlRupees, slDisabled: bt.slDisabled,
       dailyBiasEntryTime: bt.dailyBiasEntryTime, entryTime: bt.entryTime, dailyBiasCandle: bt.dailyBiasCandle,
       volumeFilterEnabled: !!bt.volumeFilterEnabled, volumeSmaPeriod: bt.volumeSmaPeriod,
       longCandleFilterEnabled: !!bt.longCandleFilterEnabled, longCandleAtrPeriod: bt.longCandleAtrPeriod,
