@@ -22,6 +22,17 @@ for (let i = 0; i < args.length; i++) {
 const dir = path.join(process.env.PM2_HOME || path.join(os.homedir(), ".pm2"), "logs");
 let files = [];
 try { files = fs.readdirSync(dir).filter(f => /-(out|error)-color\.log$/.test(f)); } catch { /* handled below */ }
+// Only processes PM2 still knows about: log files of deleted processes stay on disk, so list from `pm2 jlist`.
+// (If pm2 can't be queried the old list-everything behaviour is kept.)
+try {
+    const out = require("child_process").execFileSync("pm2", ["jlist"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15000, maxBuffer: 64 * 1024 * 1024 });
+    const list = JSON.parse(out.slice(out.indexOf("[")));
+    const live = new Set();
+    for (const p of list) for (const lp of [p.pm2_env && p.pm2_env.pm_out_log_path, p.pm2_env && p.pm2_env.pm_err_log_path]) {
+        if (lp) live.add(path.basename(lp).replace(/\.log$/, "-color.log"));
+    }
+    if (live.size) files = files.filter(f => live.has(f));
+} catch { /* pm2 unavailable: show every coloured log */ }
 files = files.filter(f => (withErr || /-out-color\.log$/.test(f)) && (!words.length || words.some(w => f.toLowerCase().includes(w))));
 if (!files.length) { console.error(`no coloured logs found in ${dir}${words.length ? " matching " + words.join(", ") : ""} (they appear once an engine has run with the current version)`); process.exit(1); }
 
