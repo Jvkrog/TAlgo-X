@@ -226,7 +226,7 @@
       else if (b.dataset.d === "backtest") runDsbBacktest(b);
     });
   }
-  const DSB_FAMILY = ["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"];
+  const DSB_FAMILY = ["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"];
   async function runDsbBacktest(btn) {
     const out = els.dsbPanel.querySelector('[data-d="btOut"]');
     const D = S.dsb, key = dsbSourceKey(), inst = S.inst, step = dsbStep();

@@ -240,7 +240,17 @@ async function main() {
         const parsedStep = Number(process.env.BAND_STEP_OVERRIDE);
         context.bandStep = Number.isFinite(parsedStep) && parsedStep > 0 ? parsedStep : null;
     }
-    if (context.strategy === "DYNAMIC_BAND" || context.strategy === "DYNAMIC_MID_COLOR" || (context.strategy === "DYNAMIC_MID_COLOR_HL" || context.strategy === "ALMA_DSB")) {
+    if (process.env.BAND_STEP2_OVERRIDE !== undefined && process.env.BAND_STEP2_OVERRIDE !== "") {
+        const parsedStep2 = Number(process.env.BAND_STEP2_OVERRIDE);
+        context.bandStep2 = Number.isFinite(parsedStep2) && parsedStep2 > 0 ? parsedStep2 : null;
+    }
+    if (context.strategy === "DSB_DUAL") {
+        const m = String(process.env.DSB_DUAL_MODE_OVERRIDE || "").toUpperCase();
+        context.dsbDualMode = ["HOLD", "EXIT", "DISAGREE"].includes(m) ? m : "HOLD";
+        const s1 = context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
+        console.log(c.dim(`[${context.tgPrefix}] DSB dual: DSB1 step ${s1}, DSB2 step ${context.bandStep2 ?? s1 * 2}, DSB1 flip mode ${context.dsbDualMode}`));
+    }
+    if (context.strategy === "DYNAMIC_BAND" || context.strategy === "DYNAMIC_MID_COLOR" || (context.strategy === "DYNAMIC_MID_COLOR_HL" || context.strategy === "ALMA_DSB" || context.strategy === "DSB_DUAL")) {
         console.log(c.dim(`[${context.tgPrefix}] band step: ${context.bandStep ?? `default (${engineConfig.BAND_STEP_DEFAULT})`}`));
     }
 

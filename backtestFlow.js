@@ -106,6 +106,11 @@ const STRATEGY_PARAMS = {
         { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
         { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
     ],
+    DSB_DUAL: [
+        { key: "BAND_STEP_DEFAULT", label: "DSB 1 step (DSB 2 step = 2x unless set per-instrument)" },
+        { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
+    ],
     DYNAMIC_MID_COLOR_HL: [
         { key: "BAND_STEP_DEFAULT", label: "Band step \u2014 fixed price distance between HIGH/MID/LOW (internal only, never plotted \u2014 per-instrument override takes precedence live)" },
         { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
@@ -528,7 +533,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     // (backtestSL.js checkTarget, same fields the live engine and the dashboard backtest use). After a hit the
     // run either stays flat for the rest of the day (the "cooldown", context.scalpStopForDay) or carries on
     // with the same / a new target / a fixed stop (context.scalpNextMode/Value).
-    if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategyKey)) {
+    if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(strategyKey)) {
         const scalpInput = (await ask(`  Scalp target in rupees per trade, exits when a candle reaches it (blank = off): `)).trim();
         if (scalpInput) {
             const parsed = Number(scalpInput);

@@ -1198,7 +1198,7 @@ function wirePanelDragAndResize(panel) {
 // browser (localStorage), keyed by card id, and re-applied whenever a grid re-renders its
 // cards (MutationObserver) so the 30s resync / start-stop never undoes an arrangement.
 const CANDLE_TEXT = { RAW: "Raw", HA: "Heikin-Ashi", RANGE: "Range bars" };
-const NATIVE_HA = new Set(["DYNAMIC_BAND","DYNAMIC_MID_COLOR","DYNAMIC_MID_COLOR_HL","ALMA_BAND","ALMA_DSB","ALMA_FAST","ALMA_DUAL_BAND_SMA5","DUAL_ST_CHOP","MA_SLOPE","MA_SLOPE_SCALP","MA_SLOPE_PURE","MA_SLOPE_HM","DPI_TREND_MEANREV","DPI_MEANREV","ALMA_TRI_BAND","ALMA_PRO_FAST","ALMA_PRO_SLOW","PURE_HA"]);
+const NATIVE_HA = new Set(["DYNAMIC_BAND","DYNAMIC_MID_COLOR","DYNAMIC_MID_COLOR_HL","ALMA_BAND","ALMA_DSB","DSB_DUAL","ALMA_FAST","ALMA_DUAL_BAND_SMA5","DUAL_ST_CHOP","MA_SLOPE","MA_SLOPE_SCALP","MA_SLOPE_PURE","MA_SLOPE_HM","DPI_TREND_MEANREV","DPI_MEANREV","ALMA_TRI_BAND","ALMA_PRO_FAST","ALMA_PRO_SLOW","PURE_HA"]);
 function nativeCandleOf(strategy) { return NATIVE_HA.has(strategy) ? "HA" : "RAW"; }
 window.nativeCandleOf = nativeCandleOf;
 function candleText(inst) {
@@ -1971,7 +1971,7 @@ function openEditModal(inst) {
 
   const isAlmaProFast = inst.strategy === "ALMA_PRO_FAST";
   const isAlmaProSlow = inst.strategy === "ALMA_PRO_SLOW";
-  const isDynamicBand = inst.strategy === "DYNAMIC_BAND" || inst.strategy === "DYNAMIC_MID_COLOR" || (inst.strategy === "DYNAMIC_MID_COLOR_HL" || inst.strategy === "ALMA_DSB");
+  const isDynamicBand = inst.strategy === "DYNAMIC_BAND" || inst.strategy === "DYNAMIC_MID_COLOR" || (inst.strategy === "DYNAMIC_MID_COLOR_HL" || inst.strategy === "ALMA_DSB" || inst.strategy === "DSB_DUAL");
   const isAlmaTriBand = inst.strategy === "ALMA_TRI_BAND";
 
   tbEditBody.innerHTML = `
@@ -2016,6 +2016,16 @@ function openEditModal(inst) {
       <div class="tb-form-label">Band step in price points (blank = keep, "0"/"clear" = reset to default)</div>
       <input type="number" id="editBandStep" min="0" step="any" value="${inst.bandStep ?? ""}">
     </div>
+    <div class="tb-form-row" style="${inst.strategy === "DSB_DUAL" ? "" : "display:none"}">
+      <div class="tb-form-label">DSB 2 step in price points (slower band; blank = keep, "0"/"clear" = 2x the DSB 1 step). The step above is DSB 1.</div>
+      <input type="number" id="editBandStep2" min="0" step="any" value="${inst.bandStep2 ?? ""}">
+      <div class="tb-form-label" style="margin-top:8px">When DSB 1 flips while in a trade</div>
+      <select id="editDsbDualMode">
+        <option value="HOLD" ${inst.dsbDualMode !== "EXIT" && inst.dsbDualMode !== "DISAGREE" ? "selected" : ""}>Hold until DSB 2 agrees, then reverse (default)</option>
+        <option value="EXIT" ${inst.dsbDualMode === "EXIT" ? "selected" : ""}>Exit when DSB 1 flips; re-enter when both agree</option>
+        <option value="DISAGREE" ${inst.dsbDualMode === "DISAGREE" ? "selected" : ""}>Exit whenever the two DSBs disagree</option>
+      </select>
+    </div>
     <div class="tb-form-row" style="${isDynamicBand ? "" : "display:none"}">
       <div class="tb-form-label">Max losing reversals per day, then flat until next session (blank = off)</div>
       <input type="number" id="editMaxLosingSwitches" min="1" step="1" value="${inst.maxLosingSwitches ?? ""}">
@@ -2034,7 +2044,7 @@ function openEditModal(inst) {
       <label class="tb-form-row-inline"><input type="checkbox" id="editScalpStopDay" ${inst.scalpStopDay ? "checked" : ""}><span>After a scalp target hit, take no more trades that day</span></label>
       ${scalpNextFields("edit", inst.scalpNext)}
     </div>
-    <div class="tb-form-row" style="${(inst.strategy === "DYNAMIC_MID_COLOR" || inst.strategy === "DYNAMIC_MID_COLOR_HL" || inst.strategy === "ALMA_DSB") ? "" : "display:none"}">
+    <div class="tb-form-row" style="${(inst.strategy === "DYNAMIC_MID_COLOR" || inst.strategy === "DYNAMIC_MID_COLOR_HL" || inst.strategy === "ALMA_DSB" || inst.strategy === "DSB_DUAL") ? "" : "display:none"}">
       <div class="tb-form-label">Exit on (Dynamic Mid / Mid HL / ALMA + Step Band): the colour/band flip signal, or only the stop-loss</div>
       <select id="editDsbExitMode"><option value="FLIP" ${inst.dsbExitMode !== "SL" ? "selected" : ""}>Signal flip (default)</option><option value="SL" ${inst.dsbExitMode === "SL" ? "selected" : ""}>Stop-loss only (hold through flips)</option></select>
     </div>
@@ -2151,6 +2161,10 @@ function openEditModal(inst) {
     }
     if (isDynamicBand) {
       body.bandStep = tbEditBody.querySelector("#editBandStep").value || null;
+      if (inst.strategy === "DSB_DUAL") {
+        body.bandStep2 = tbEditBody.querySelector("#editBandStep2").value || null;
+        body.dsbDualMode = tbEditBody.querySelector("#editDsbDualMode").value;
+      }
       body.maxLosingSwitches = tbEditBody.querySelector("#editMaxLosingSwitches").value || null;
       body.maxLosingTrades = tbEditBody.querySelector("#editMaxLosingTrades").value || null;
       body.maxProfitTrades = tbEditBody.querySelector("#editMaxProfitTrades").value || null;
@@ -2480,6 +2494,16 @@ function renderAddConfigStep() {
       <div class="tb-form-label">Band step in price points (DYNAMIC_BAND only, blank = default)</div>
       <input type="number" id="addBandStep" min="0" step="any">
     </div>
+    <div class="tb-form-row" id="addDsbDualRow" style="display:none">
+      <div class="tb-form-label">DSB_DUAL: DSB 2 step in price points (slower band, blank = 2x the step above, which is DSB 1)</div>
+      <input type="number" id="addBandStep2" min="0" step="any">
+      <div class="tb-form-label" style="margin-top:8px">When DSB 1 flips while in a trade</div>
+      <select id="addDsbDualMode">
+        <option value="HOLD">Hold until DSB 2 agrees, then reverse (default)</option>
+        <option value="EXIT">Exit when DSB 1 flips; re-enter when both agree</option>
+        <option value="DISAGREE">Exit whenever the two DSBs disagree</option>
+      </select>
+    </div>
     <div class="tb-form-row">
       <div class="tb-form-label">Max losing reversals per day, then flat until next session (Dynamic Step Band family only, blank = off)</div>
       <input type="number" id="addMaxLosingSwitches" min="1" step="1">
@@ -2583,6 +2607,7 @@ function renderAddConfigStep() {
   const almaBandLenRow = tbAddBody.querySelector("#addAlmaBandLenRow");
   const almaChopRow = tbAddBody.querySelector("#addAlmaChopRow");
   const bandStepRow = tbAddBody.querySelector("#addBandStepRow");
+  const dsbDualRow = tbAddBody.querySelector("#addDsbDualRow");
   const greyExitRow = tbAddBody.querySelector("#addGreyExitRow");
   const flipConfirmRow = tbAddBody.querySelector("#addFlipConfirmRow");
   const dhabEntryRow = tbAddBody.querySelector("#addDhabEntryRow");
@@ -2600,7 +2625,8 @@ function renderAddConfigStep() {
       almaFastLenRow.style.display = s.key === "ALMA_PRO_FAST" ? "" : "none";
       almaBandLenRow.style.display = (s.key === "ALMA_PRO_FAST" && tbAddBody.querySelector("#addAlmaBand").checked) ? "" : "none";
       almaChopRow.style.display = (s.key === "ALMA_PRO_FAST" || s.key === "ALMA_PRO_SLOW") ? "" : "none";
-      bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_MID_COLOR" || (s.key === "DYNAMIC_MID_COLOR_HL" || s.key === "ALMA_DSB")) ? "" : "none";
+      bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_MID_COLOR" || (s.key === "DYNAMIC_MID_COLOR_HL" || s.key === "ALMA_DSB" || s.key === "DSB_DUAL")) ? "" : "none";
+      dsbDualRow.style.display = s.key === "DSB_DUAL" ? "" : "none";
       greyExitRow.style.display = s.key === "ALMA_TRI_BAND" ? "" : "none";
       flipConfirmRow.style.display = s.key === "PURE_HA" ? "" : "none";
       dhabEntryRow.style.display = s.key === "DAILY_HA_BIAS" ? "" : "none";
@@ -2687,7 +2713,9 @@ function renderAddConfigStep() {
         scalpStopDay: tbAddBody.querySelector("#addScalpStopDay").checked,
         scalpNext: scalpNextValue(tbAddBody, "add") || undefined,
         dsbExitMode: tbAddBody.querySelector("#addDsbExitMode").value,
-        bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || (pickedStrategy === "DYNAMIC_MID_COLOR_HL" || pickedStrategy === "ALMA_DSB")) ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
+        bandStep2: pickedStrategy === "DSB_DUAL" ? (tbAddBody.querySelector("#addBandStep2").value || undefined) : undefined,
+        dsbDualMode: pickedStrategy === "DSB_DUAL" ? tbAddBody.querySelector("#addDsbDualMode").value : undefined,
+        bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || (pickedStrategy === "DYNAMIC_MID_COLOR_HL" || pickedStrategy === "ALMA_DSB" || pickedStrategy === "DSB_DUAL")) ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
         greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
         disableDoubleOrders: tbAddBody.querySelector("#addDisableDouble").checked,
         atrSlMult: tbAddBody.querySelector("#addAtrSlMult").value || undefined,
@@ -2969,6 +2997,15 @@ async function renderBacktestParamsStep() {
       <select id="btDsbExitMode"><option value="FLIP">Signal flip (default)</option><option value="SL">Stop-loss only (hold through flips)</option></select>
     </div>
     <div class="tb-form-row">
+      <div class="tb-form-label">DSB_DUAL only: DSB 2 step in price points (blank = 2x the DSB 1 step, set in the strategy parameters) and DSB 1 flip handling</div>
+      <input type="number" id="btBandStep2" min="0" step="any">
+      <select id="btDsbDualMode" style="margin-top:6px">
+        <option value="HOLD">Hold until DSB 2 agrees, then reverse (default)</option>
+        <option value="EXIT">Exit when DSB 1 flips; re-enter when both agree</option>
+        <option value="DISAGREE">Exit whenever the two DSBs disagree</option>
+      </select>
+    </div>
+    <div class="tb-form-row">
       <div class="tb-form-label">Session target in rupees, quits for the day once reached (blank = no ceiling)</div>
       <input type="number" id="btSessionTarget" min="0" step="any">
     </div>
@@ -3032,6 +3069,8 @@ async function renderBacktestParamsStep() {
     setC("#btVolEnabled", pf.volumeFilterEnabled); setV("#btVolPeriod", pf.volumeSmaPeriod);
     setC("#btDailyHaGate", pf.dailyHaGateEnabled !== false);
     setV("#btDsbExitMode", pf.dsbExitMode);
+    setV("#btBandStep2", pf.bandStep2);
+    setV("#btDsbDualMode", pf.dsbDualMode);
     setV("#btMaxLosingTrades", pf.maxLosingTrades);
     setV("#btMaxProfitTrades", pf.maxProfitTrades);
     setV("#btScalpTarget", pf.scalpTarget);
@@ -3091,6 +3130,8 @@ async function renderBacktestParamsStep() {
       scalpStopDay: tbBacktestBody.querySelector("#btScalpStopDay").checked,
       scalpNext: scalpNextValue(tbBacktestBody, "bt") || undefined,
       dsbExitMode: tbBacktestBody.querySelector("#btDsbExitMode").value,
+      bandStep2: tbBacktestBody.querySelector("#btBandStep2").value || undefined,
+      dsbDualMode: tbBacktestBody.querySelector("#btDsbDualMode").value,
       sessionTargetRupees: tbBacktestBody.querySelector("#btSessionTarget").value || undefined,
       dailyHaGateEnabled: tbBacktestBody.querySelector("#btDailyHaGate").checked,
     };
@@ -3134,7 +3175,7 @@ async function renderBacktestParamsStep() {
         if (!confirm(`Apply these backtest settings to ${name}? This saves them and restarts the process (an open position is not touched by the save itself, but check it first).`)) return;
         const keys = ["chopFilterEnabled", "chopPeriod", "chopMax", "longCandleFilterEnabled", "longCandleAtrPeriod", "longCandleAtrMult", "longCandleCooldownCandles",
           "disableDoubleOrders", "atrSlMult", "hardSlRupees", "dailyBiasEntryTime", "entryTime", "dailyBiasCandle", "volumeFilterEnabled", "volumeSmaPeriod", "carryOvernight",
-          "maxDailyLoss", "maxLosingSwitches", "maxLosingTrades", "maxProfitTrades", "targetPoints", "targetMode", "scalpTarget", "scalpStopDay", "scalpNext", "dsbExitMode", "sessionTargetRupees",
+          "maxDailyLoss", "maxLosingSwitches", "maxLosingTrades", "maxProfitTrades", "targetPoints", "targetMode", "scalpTarget", "scalpStopDay", "scalpNext", "dsbExitMode", "bandStep2", "dsbDualMode", "sessionTargetRupees",
           "dailyHaGateEnabled"];
         const payload = { name };
         keys.forEach(k => { if (k in body || body[k] === undefined) payload[k] = body[k] === undefined ? null : body[k]; });

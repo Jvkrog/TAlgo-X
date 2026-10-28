@@ -479,6 +479,8 @@ async function getEngineProcesses() {
             bandStep: p.pm2_env.env?.BAND_STEP_OVERRIDE !== undefined && p.pm2_env.env?.BAND_STEP_OVERRIDE !== ""
                 ? p.pm2_env.env.BAND_STEP_OVERRIDE
                 : null,
+            bandStep2: p.pm2_env.env?.BAND_STEP2_OVERRIDE ? p.pm2_env.env.BAND_STEP2_OVERRIDE : null,
+            dsbDualMode: ["HOLD", "EXIT", "DISAGREE"].includes(p.pm2_env.env?.DSB_DUAL_MODE_OVERRIDE) ? p.pm2_env.env.DSB_DUAL_MODE_OVERRIDE : "HOLD",
             // DSB-family daily losing-reversal limit; null = off
             maxLosingSwitches: p.pm2_env.env?.MAX_LOSING_SWITCHES_OVERRIDE ? p.pm2_env.env.MAX_LOSING_SWITCHES_OVERRIDE : null,
             maxLosingTrades: p.pm2_env.env?.MAX_LOSING_TRADES_OVERRIDE ? p.pm2_env.env.MAX_LOSING_TRADES_OVERRIDE : null,
@@ -558,6 +560,8 @@ function buildProcessEnv(p, overrides = {}) {
     env.TARGET_POINTS_OVERRIDE = (p.targetPoints !== null && p.targetPoints !== undefined) ? String(p.targetPoints) : "";
     env.TARGET_MODE_OVERRIDE = p.targetMode === "adaptive" ? "adaptive" : "";
     env.BAND_STEP_OVERRIDE = (p.bandStep !== null && p.bandStep !== undefined) ? String(p.bandStep) : "";
+    env.BAND_STEP2_OVERRIDE = (p.strategy === "DSB_DUAL" && p.bandStep2) ? String(p.bandStep2) : "";
+    env.DSB_DUAL_MODE_OVERRIDE = (p.strategy === "DSB_DUAL" && ["HOLD", "EXIT", "DISAGREE"].includes(p.dsbDualMode)) ? p.dsbDualMode : "";
     if (p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW") {
         // Written explicitly (true AND false): unset means OFF at runtime.
         env.CHOP_FILTER_OVERRIDE = p.chopFilterEnabled === true ? "true" : "false";
@@ -567,7 +571,7 @@ function buildProcessEnv(p, overrides = {}) {
     env.SESSION_TARGET_OVERRIDE = p.sessionTargetRupees ? String(p.sessionTargetRupees) : "";
     env.SCALP_STOP_DAY_OVERRIDE = (p.scalpStopDay && p.scalpTarget) ? "1" : "";
     env.SCALP_NEXT_OVERRIDE = (p.scalpTarget && !p.scalpStopDay && SCALP_NEXT_RE.test(p.scalpNext || "")) ? p.scalpNext : "";
-    env.DSB_EXIT_MODE_OVERRIDE = (p.dsbExitMode === "SL" && ["DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(p.strategy)) ? "SL" : "";
+    env.DSB_EXIT_MODE_OVERRIDE = (p.dsbExitMode === "SL" && ["DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(p.strategy)) ? "SL" : "";
     env.SCALP_TARGET_OVERRIDE = (p.scalpTarget !== null && p.scalpTarget !== undefined && p.scalpTarget !== "") ? String(p.scalpTarget) : "";
     env.MAX_PROFIT_TRADES_OVERRIDE = (p.maxProfitTrades !== null && p.maxProfitTrades !== undefined && p.maxProfitTrades !== "") ? String(p.maxProfitTrades) : "";
     env.MAX_LOSING_TRADES_OVERRIDE = (p.maxLosingTrades !== null && p.maxLosingTrades !== undefined && p.maxLosingTrades !== "") ? String(p.maxLosingTrades) : "";
@@ -881,7 +885,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight } = req.body || {};
+    const { name, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight } = req.body || {};
     if (!name) return res.status(400).json({ error: "Name is required" });
 
     try {
@@ -929,6 +933,15 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 updated.bandStep = parsedStep;
             }
         }
+        if (bandStep2 !== undefined) {
+            if (bandStep2 === null || bandStep2 === "" || bandStep2 === "0" || bandStep2 === "clear") updated.bandStep2 = null;
+            else {
+                const n2 = Number(bandStep2);
+                if (!Number.isFinite(n2) || n2 <= 0) return res.status(400).json({ error: "Invalid DSB 2 step value" });
+                updated.bandStep2 = n2;
+            }
+        }
+        if (dsbDualMode !== undefined) updated.dsbDualMode = ["HOLD", "EXIT", "DISAGREE"].includes(dsbDualMode) ? dsbDualMode : "HOLD";
         if (scalpStopDay !== undefined) updated.scalpStopDay = !!scalpStopDay;
         if (scalpNext !== undefined) {
             if (scalpNext === null || scalpNext === "") updated.scalpNext = null;
@@ -1191,7 +1204,7 @@ function chartWindow(tf, now) {
 function chartOverlayFor(p, tfBars, fromTs) {
     try {
         const bars = tfBars.map(b => ({ t: b.date.getTime(), open: b.open, high: b.high, low: b.low, close: b.close }));
-        const ov = computeOverlay(p.strategy, bars, { bandStep: p.bandStep ? Number(p.bandStep) : null, almaFastLen: p.almaFastLen || null, candleType: p.candleType || null }, engineConfig);
+        const ov = computeOverlay(p.strategy, bars, { bandStep: p.bandStep ? Number(p.bandStep) : null, bandStep2: p.bandStep2 ? Number(p.bandStep2) : null, almaFastLen: p.almaFastLen || null, candleType: p.candleType || null }, engineConfig);
         if (ov.lines) ov.lines.forEach(l => { l.points = l.points.filter(pt => pt[0] >= fromTs); });
         return ov;
     } catch (err) {
@@ -1498,7 +1511,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "Underlying is required" });
@@ -1595,26 +1608,31 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             const parsedLoss = Number(maxDailyLoss);
             if (Number.isFinite(parsedLoss) && parsedLoss > 0) env.MAX_DAILY_LOSS_OVERRIDE = String(parsedLoss);
         }
-        if ((stratKey === "DYNAMIC_BAND" || stratKey === "DYNAMIC_MID_COLOR" || (stratKey === "DYNAMIC_MID_COLOR_HL" || stratKey === "ALMA_DSB")) && bandStep !== undefined && bandStep !== null && bandStep !== "") {
+        if ((stratKey === "DYNAMIC_BAND" || stratKey === "DYNAMIC_MID_COLOR" || (stratKey === "DYNAMIC_MID_COLOR_HL" || stratKey === "ALMA_DSB" || stratKey === "DSB_DUAL")) && bandStep !== undefined && bandStep !== null && bandStep !== "") {
             const parsedStep = Number(bandStep);
             if (Number.isFinite(parsedStep) && parsedStep > 0) env.BAND_STEP_OVERRIDE = String(parsedStep);
         }
-        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && scalpStopDay && scalpTarget) env.SCALP_STOP_DAY_OVERRIDE = "1";
-        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && scalpTarget && !scalpStopDay && SCALP_NEXT_RE.test(scalpNext || "") && (scalpNext.startsWith("TARGET") || Number(scalpNext.split(":")[1]) > 0)) env.SCALP_NEXT_OVERRIDE = scalpNext;
-        if (["DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && dsbExitMode === "SL") env.DSB_EXIT_MODE_OVERRIDE = "SL";
-        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && scalpTarget !== undefined && scalpTarget !== null && scalpTarget !== "") {
+        if (stratKey === "DSB_DUAL") {
+            const n2 = Number(bandStep2);
+            if (bandStep2 !== undefined && bandStep2 !== null && bandStep2 !== "" && Number.isFinite(n2) && n2 > 0) env.BAND_STEP2_OVERRIDE = String(n2);
+            if (["HOLD", "EXIT", "DISAGREE"].includes(dsbDualMode)) env.DSB_DUAL_MODE_OVERRIDE = dsbDualMode;
+        }
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(stratKey) && scalpStopDay && scalpTarget) env.SCALP_STOP_DAY_OVERRIDE = "1";
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(stratKey) && scalpTarget && !scalpStopDay && SCALP_NEXT_RE.test(scalpNext || "") && (scalpNext.startsWith("TARGET") || Number(scalpNext.split(":")[1]) > 0)) env.SCALP_NEXT_OVERRIDE = scalpNext;
+        if (["DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(stratKey) && dsbExitMode === "SL") env.DSB_EXIT_MODE_OVERRIDE = "SL";
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(stratKey) && scalpTarget !== undefined && scalpTarget !== null && scalpTarget !== "") {
             const n = Number(scalpTarget);
             if (Number.isFinite(n) && n > 0) env.SCALP_TARGET_OVERRIDE = String(n);
         }
-        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && maxProfitTrades !== undefined && maxProfitTrades !== null && maxProfitTrades !== "") {
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(stratKey) && maxProfitTrades !== undefined && maxProfitTrades !== null && maxProfitTrades !== "") {
             const n = Number(maxProfitTrades);
             if (Number.isInteger(n) && n >= 1) env.MAX_PROFIT_TRADES_OVERRIDE = String(n);
         }
-        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && maxLosingTrades !== undefined && maxLosingTrades !== null && maxLosingTrades !== "") {
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(stratKey) && maxLosingTrades !== undefined && maxLosingTrades !== null && maxLosingTrades !== "") {
             const n = Number(maxLosingTrades);
             if (Number.isInteger(n) && n >= 1) env.MAX_LOSING_TRADES_OVERRIDE = String(n);
         }
-        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(stratKey) && maxLosingSwitches !== undefined && maxLosingSwitches !== null && maxLosingSwitches !== "") {
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(stratKey) && maxLosingSwitches !== undefined && maxLosingSwitches !== null && maxLosingSwitches !== "") {
             const n = Number(maxLosingSwitches);
             if (Number.isInteger(n) && n >= 1) env.MAX_LOSING_SWITCHES_OVERRIDE = String(n);
         }
@@ -1724,7 +1742,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // params (merged onto a per-run engineConfig by backtestRun.js,
         // same as the CLI's params.CHOP_GATE_ALWAYS_FORCE etc.) — everything
         // else mutates context directly, exactly like backtestFlow.js does.
-        chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches, maxLosingTrades, maxProfitTrades, targetPoints, targetMode, scalpTarget, scalpStopDay, scalpNext, dsbExitMode,
+        chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches, maxLosingTrades, maxProfitTrades, targetPoints, targetMode, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, bandStep2, dsbDualMode,
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
         disableDoubleOrders, atrSlMult, hardSlRupees, dailyBiasEntryTime, dailyBiasCandle, entryTime,
         volumeFilterEnabled, volumeSmaPeriod,
@@ -1864,17 +1882,22 @@ app.post("/api/toolbox/backtest", async (req, res) => {
             const n = Number(volumeSmaPeriod);
             if (Number.isFinite(n) && n > 0) context.volumeSmaPeriod = n;
         }
-        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && maxLosingSwitches !== undefined && maxLosingSwitches !== null && maxLosingSwitches !== "") {
+        if (strategy === "DSB_DUAL") {
+            const n2 = Number(bandStep2);
+            if (bandStep2 !== undefined && bandStep2 !== null && bandStep2 !== "" && Number.isFinite(n2) && n2 > 0) context.bandStep2 = n2;
+            if (["HOLD", "EXIT", "DISAGREE"].includes(dsbDualMode)) context.dsbDualMode = dsbDualMode;
+        }
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(strategy) && maxLosingSwitches !== undefined && maxLosingSwitches !== null && maxLosingSwitches !== "") {
             const n = Number(maxLosingSwitches);
             if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "MaxLosingSwitches must be a whole number >= 1 (blank = off)" });
             context.maxLosingSwitchesPerDay = n;
         }
-        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && maxProfitTrades !== undefined && maxProfitTrades !== null && maxProfitTrades !== "") {
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(strategy) && maxProfitTrades !== undefined && maxProfitTrades !== null && maxProfitTrades !== "") {
             const n = Number(maxProfitTrades);
             if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "MaxProfitTrades must be a whole number >= 1 (blank = off)" });
             context.maxProfitTradesPerDay = n;
         }
-        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && maxLosingTrades !== undefined && maxLosingTrades !== null && maxLosingTrades !== "") {
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(strategy) && maxLosingTrades !== undefined && maxLosingTrades !== null && maxLosingTrades !== "") {
             const n = Number(maxLosingTrades);
             if (!Number.isInteger(n) || n < 1) return res.status(400).json({ error: "MaxLosingTrades must be a whole number >= 1 (blank = off)" });
             context.maxLosingTradesPerDay = n;
@@ -1888,17 +1911,17 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         } else if (targetMode === "adaptive") {
             context.targetMode = "adaptive";
         }
-        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && scalpTarget !== undefined && scalpTarget !== null && scalpTarget !== "") {
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(strategy) && scalpTarget !== undefined && scalpTarget !== null && scalpTarget !== "") {
             const n = Number(scalpTarget);
             if (!Number.isFinite(n) || n <= 0) return res.status(400).json({ error: "ScalpTarget must be a rupee amount > 0 (blank = off)" });
             context.scalpTargetRupees = n;
         }
-        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && scalpStopDay && context.scalpTargetRupees) context.scalpStopForDay = true;
-        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && context.scalpTargetRupees && !context.scalpStopForDay && SCALP_NEXT_RE.test(scalpNext || "")) {
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(strategy) && scalpStopDay && context.scalpTargetRupees) context.scalpStopForDay = true;
+        if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(strategy) && context.scalpTargetRupees && !context.scalpStopForDay && SCALP_NEXT_RE.test(scalpNext || "")) {
             const [nm, nv] = scalpNext.split(":");
             if (nm === "TARGET" || Number(nv) > 0) { context.scalpNextMode = nm; context.scalpNextValue = Number(nv) || 0; }
         }
-        if (["DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB"].includes(strategy) && dsbExitMode === "SL") context.dsbExitMode = "SL";
+        if (["DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(strategy) && dsbExitMode === "SL") context.dsbExitMode = "SL";
         if (carryOvernight !== undefined) context.carryOvernight = !!carryOvernight;
         if (maxDailyLoss !== undefined && maxDailyLoss !== null && maxDailyLoss !== "") {
             const n = Number(maxDailyLoss);

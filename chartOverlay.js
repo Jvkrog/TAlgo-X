@@ -59,6 +59,22 @@ function computeOverlay(strategy, bars, ctx, cfg) {
         ] };
     }
 
+    if (strategy === "DSB_DUAL") {
+        const ha = toHA(bars), s1v = ctx.bandStep ?? cfg.BAND_STEP_DEFAULT, s2v = ctx.bandStep2 ?? s1v * 2;
+        const a = createBandStepper(s1v), b = createBandStepper(s2v), p1 = [], p2 = [];
+        const clr = s => s.color === "red" ? "#ff5266" : "#33ff88";
+        for (let i = 0; i < bars.length; i++) {
+            a.push(ha[i]); b.push(ha[i]);
+            const x = a.state(), y = b.state();
+            if (x) p1.push([bars[i].t, x.bandMid, clr(x)]);
+            if (y) p2.push([bars[i].t, y.bandMid, clr(y)]);
+        }
+        return { label: `Dual Dynamic Step Band — DSB1 step ${s1v}, DSB2 step ${s2v}; trade only when both colours agree`, lines: [
+            { name: "DSB 1 mid", color: "#33ff88", width: 2, points: p1 },
+            { name: "DSB 2 mid", color: "#33ff88", width: 4, points: p2 },
+        ] };
+    }
+
     if (strategy === "ALMA_FAST") {
         const len = ctx.almaFastLen ?? cfg.ALMA_FAST_LEN, ha = toHA(bars);
         const f = vs => alma(vs, len, cfg.ALMA_FAST_OFFSET, cfg.ALMA_FAST_SIGMA);

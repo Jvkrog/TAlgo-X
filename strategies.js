@@ -6841,10 +6841,218 @@ function createAlmaDsbStrategy({ context, engineConfig, state, db, candles, slSt
     return { processCandle, initSignals };
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// DSB_DUAL — two Dynamic Step Bands (DSB 1 fast/small step, DSB 2 slow/large step) must AGREE.
+// (Port of the Pine "Dynamic Step Band Dual [DSB 1 + DSB 2 Agree]".)
+//   Entry (flat only): both green = LONG, both red = SHORT. Disagree / undecided = no trade.
+//   DSB 1 flip handling while in a trade is configurable (context.dsbDualMode):
+//     HOLD     (default) — ignore a DSB 1 flip until DSB 2 agrees; then exit and reverse into the new side.
+//     EXIT     — exit flat as soon as DSB 1 flips against the position; re-enter only once both agree.
+//     DISAGREE — exit whenever the two DSBs no longer both agree with the position.
+//   ATR stop (ATR_SL_MULT x ATR) only ever tightens. Steps: context.bandStep (DSB 1), context.bandStep2 (DSB 2, default 2x DSB 1).
+// ════════════════════════════════════════════════════════════════════════
+function createDsbDualStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() }, htf, dailyHa }) {
+    const lsGate = createLosingSwitchGate({ context, state, db, clock, tag: "DSB" });   // daily losing-reversal limit (off unless context.maxLosingSwitchesPerDay)
+    const SRC = "DSB_DUAL";
+
+    function canEnter() {
+        const { hours, minutes } = istParts(clock.now());
+        return hours > engineConfig.TRADE_START_HOUR ||
+            (hours === engineConfig.TRADE_START_HOUR && minutes >= engineConfig.TRADE_START_MINUTE);
+    }
+    function persist(position, entryPrice, positionSource) {
+        db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
+    }
+    function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
+        if (atrVal === null) return null;
+        const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
+        return side === "LONG" ? livePrice - offset : livePrice + offset;
+    }
+
+    async function doExit(side, livePrice, reason) {
+        // DSB exit mode "SL": ignore the strategy's own flip exit and hold the position until the stop-loss (or scalp target / EOD) closes it.
+        if (context.dsbExitMode === "SL" && lsGate.isFlipReason(reason)) {
+            console.log(`[DSB] ${side} flip exit ignored (${reason}) — exit mode is stop-loss only; holding until the stop`);
+            return false;
+        }
+        const closed = await orders.exit(side);
+        if (engineConfig.LIVE_ORDERS && closed === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} exit failed (${reason}) — will retry next candle`));
+            return false;
+        }
+        tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
+        const exitPnl = await positionsClose(livePrice, reason);
+        lsGate.recordFlipExit(reason, exitPnl, side);
+        slStore.clearTrail();
+        targetStore.clearTarget();
+        persist(null, 0);
+        const exitCol = exitPnl > 0 ? c.green : exitPnl < 0 ? c.red : c.white;
+        console.log(exitCol(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        return true;
+    }
+
+    async function doEnter(side, livePrice, atrVal, isReversal, info) {
+        if (lsGate.isLocked()) {
+            console.log(`[DSB] ${lsGate.lockMessage(side)}`);
+            console.log(`[DSB] State: ${state.position || "FLAT"}`);
+            return false;
+        }
+        const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
+        const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
+        const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
+        const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
+        const htfBlocked = await htf.isBlocked();
+        const dailyHaBlocked = await dailyHa.isBlocked(side);
+        reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
+        if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
+        else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+        else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
+        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+        else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
+        else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
+        const blocked = doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked;
+        const ordered = blocked ? null : await orders.enter(side);
+        if (blocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
+            return false;
+        }
+        const slTrail = computeTrail(livePrice, atrVal, side);
+        state.position = side;
+        state.tradesToday = (state.tradesToday || 0) + 1;
+        state.entryPrice = livePrice;
+        state.positionSource = SRC;
+        state.openTradeId = await db.insertOpenTrade(context.tgPrefix, context.symbol, side, context.lots, livePrice);
+        const trailValid = slTrail !== null && ((side === "LONG" && slTrail < livePrice) || (side === "SHORT" && slTrail > livePrice));
+        if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
+        if (context.targetPoints) {
+            targetStore.setTarget(side === "LONG" ? livePrice + context.targetPoints : livePrice - context.targetPoints, side === "LONG" ? 1 : -1);
+        }
+        persist(side, livePrice, SRC);
+        const arrow = side === "LONG" ? "▲" : "▼";
+        console.log(c[side === "LONG" ? "green" : "red"](`[${context.tgPrefix}] ${arrow} ${side} ENTRY (${SRC}) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  DSB1:${info.c1} DSB2:${info.c2}`));
+        emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null, arrow });
+        tg(`${arrow} ${side} ENTRY (${SRC}) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}\nDSB1 ${info.c1}  DSB2 ${info.c2}`);
+        return true;
+    }
+
+    async function runSignals(rawClose, d1, d2, mode, atrVal) {
+        const livePrice = candles.getLivePrice() ?? rawClose;
+        const positionAtCallStart = state.position;
+        const col = d => d ? (d.position === "SHORT" ? "red" : d.position === "LONG" ? "green" : "none") : "none";
+        const c1 = col(d1), c2 = col(d2);
+        const bothBull = c1 === "green" && c2 === "green";
+        const bothBear = c1 === "red" && c2 === "red";
+
+        const uPnL = positionsUnrealised(livePrice);
+        const ts = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
+        const fmt = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+        const session = (state.pnl || 0) + uPnL;
+        const tickColor = bothBear ? "red" : bothBull ? "green" : "white";
+        console.log(c[tickColor](`[${context.tgPrefix}] ${ts} DDSB  ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}`));
+        console.log(c[tickColor](`${" ".repeat(`[${context.tgPrefix}] ${ts} `.length)}DSB1:${c1} DSB2:${c2} ${bothBull || bothBear ? "AGREE" : "DISAGREE"} [${mode}]`));
+        emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, color: tickColor === "red" ? "red" : "green" });
+
+        if (!engineConfig.ENGINE_ENABLED) return;
+
+        // ── exits (configurable DSB 1 flip handling) ──
+        if (state.position && state.positionSource === SRC) {
+            const side = state.position;
+            const want = side === "LONG" ? "green" : "red";
+            const opp = side === "LONG" ? "red" : "green";
+            let reason = null;
+            if (mode === "HOLD") {
+                // hold through a DSB 1 flip until BOTH DSBs agree on the opposite side
+                if (c1 === opp && c2 === opp) reason = "DSB FLIP EXIT";
+            } else if (mode === "EXIT") {
+                // exit as soon as DSB 1 flips against the position (DSB 2 may still disagree)
+                if (c1 === opp) reason = "DSB FLIP EXIT";
+            } else if (mode === "DISAGREE") {
+                // exit whenever the pair is no longer both aligned with the position
+                if (!(c1 === want && c2 === want)) reason = "DSB FLIP EXIT";
+            }
+            if (reason) await doExit(side, livePrice, reason);
+        }
+
+        // ── entry: flat only, and only when BOTH DSBs agree (disagree = no trade) ──
+        if (!state.position && canEnter()) {
+            let side = null;
+            if (bothBull) side = "LONG";
+            else if (bothBear) side = "SHORT";
+            if (side) {
+                const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+                await doEnter(side, livePrice, atrVal, isReversal, { c1, c2 });
+            }
+        }
+
+        // ── ATR stop: refresh each candle, only ever tightening ──
+        if (state.position && atrVal !== null) {
+            const slTrail = computeTrail(livePrice, atrVal, state.position);
+            const cur = slStore.getTrail ? slStore.getTrail().trail : null;
+            const valid = (state.position === "LONG" && slTrail < livePrice) || (state.position === "SHORT" && slTrail > livePrice);
+            const tighter = cur == null || (state.position === "LONG" ? slTrail > cur : slTrail < cur);
+            if (valid && tighter) slStore.setTrail(slTrail, state.position === "LONG" ? 1 : -1);
+        }
+    }
+
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown()) return;
+        const rawCandles = candles.getRawCandles();
+        const warmupNeeded = engineConfig.ST_ATR_LEN + 5;
+        if (rawCandles.length < warmupNeeded) {
+            console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${rawCandles.length}/${warmupNeeded}`));
+            return;
+        }
+        const haCandles = toHA(rawCandles);
+        const step1 = context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
+        const step2 = context.bandStep2 ?? step1 * 2;
+        const mode = context.dsbDualMode || "HOLD";
+        const { createBandStepper } = require("./dynamicBandReader");
+        const s1 = createBandStepper(step1), s2 = createBandStepper(step2);
+        for (const k of haCandles.slice(-engineConfig.MAX_CANDLES)) { s1.push(k); s2.push(k); }   // both DSBs on Heikin-Ashi
+        const d1 = s1.state(), d2 = s2.state();
+
+        const atrVal = rawCandles.length >= engineConfig.ST_ATR_LEN + 1 ? atr(rawCandles, engineConfig.ST_ATR_LEN) : null;
+        await runSignals(rawCandle.close, d1, d2, mode, atrVal);
+    }
+
+    async function initSignals() {
+        try {
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+            const today = clock.now().toISOString().split("T")[0];
+            if (engineConfig.RESUME_INTRADAY_ONLY && saved?.position) {
+                const shouldResume = (saved.entry_date ?? null) === today || context.carryOvernight;
+                if (shouldResume) {
+                    state.position = saved.position;
+                    state.entryPrice = saved.entry_price;
+                    state.positionSource = saved.position_source || SRC;
+                    const openTrade = await db.getOpenTrade(context.tgPrefix);
+                    state.openTradeId = openTrade ? openTrade.id : null;
+                } else {
+                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                }
+            }
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+            state.tradesToday = await db.getTradeCountToday(context.tgPrefix);
+            await lsGate.restore();
+            console.log();
+            console.log(c.green(`[${context.tgPrefix}] ${state.position ? `${state.position}@${state.entryPrice}` : "flat"}`));
+            console.log();
+            await orders.reconcile(state);
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
 const STRATEGIES = {
     DPI_TREND_MEANREV: createDpiTrendMeanrevStrategy,
     ALMA_BAND:          createAlmaBandStrategy,
     ALMA_DSB:           createAlmaDsbStrategy,
+    DSB_DUAL:           createDsbDualStrategy,
     ALMA_FAST:          createAlmaFastStrategy,
     DUAL_ST_CHOP:       createDualStChopStrategy,
     DPI_SMA5_EXIT:      createDpiSma5ExitStrategy,
@@ -6873,6 +7081,7 @@ const STRATEGIES = {
 const STRATEGY_INFO = {
     DPI_TREND_MEANREV: { label: "DPI Trend (pure)", description: "ST1-confirmed DPI trend only — mean-reversion is the separate DPI_MEANREV strategy", short: "DPI" },
     ALMA_DSB:             { label: "ALMA Band + Dynamic Step Band", description: "enter only when the Dynamic Step Band colour and the ALMA band breakout agree — band green and HA close above the ALMA high line -> LONG; band red and HA close below the ALMA low line -> SHORT; inside the band, no entries; exits on a band colour flip, or on HA close crossing back through the ALMA mid line, plus an ATR stop that only tightens", short: "ADSB" },
+    DSB_DUAL:             { label: "Dual Dynamic Step Band (Agree)", description: "two Dynamic Step Bands (DSB 1 small step, DSB 2 large step) must agree — both green -> LONG, both red -> SHORT, disagree -> no trade; DSB 1 flip handling in a trade is configurable (hold until DSB 2 agrees and reverse / exit on DSB 1 flip / exit on disagreement); ATR stop that only tightens", short: "DDSB" },
     ALMA_BAND:          { label: "ALMA Band",                  description: "ta.alma(high/low) breakout bands, HA-close signal, HA-candle bands", short: "ALMAB" },
     ALMA_FAST:          { label: "ALMA Fast (Color Flip)",     description: "single fast ALMA on HA close, entry on slope-direction flip",       short: "ALMAF" },
     DUAL_ST_CHOP:       { label: "Dual SuperTrend + Chop",     description: "ST1+ST2 agree on direction, Choppiness Index gates entry",          short: "DST" },
@@ -6945,6 +7154,7 @@ const STRATEGY_TIMEFRAME = {
     // otherwise, easy to override per-instrument via TIMEFRAME_OVERRIDE.
     DYNAMIC_MID_COLOR:    "1h",
     ALMA_DSB:             "1h",
+    DSB_DUAL:             "1h",
     DYNAMIC_MID_COLOR_HL: "1h",
     // Pine source has no fixed chart timeframe (reuses whatever the chart
     // is on) — 15m matches the platform default, adjustable as usual.
@@ -6972,4 +7182,4 @@ const STRATEGY_TIMEFRAME = {
 
 const DEFAULT_STRATEGY = "DPI_TREND_MEANREV";
 
-module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaDsbStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy, createVolumeDeltaCvdStrategy, createPureHaStrategy, createDailyHaBiasStrategy };
+module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaDsbStrategy, createDsbDualStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy, createVolumeDeltaCvdStrategy, createPureHaStrategy, createDailyHaBiasStrategy };

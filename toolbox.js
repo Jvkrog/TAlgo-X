@@ -173,6 +173,8 @@ async function getEngineProcesses() {
             targetPoints: p.pm2_env.env?.TARGET_POINTS_OVERRIDE ? Number(p.pm2_env.env.TARGET_POINTS_OVERRIDE) : null,
             targetMode: p.pm2_env.env?.TARGET_MODE_OVERRIDE === "adaptive" ? "adaptive" : "fixed",
             bandStep: p.pm2_env.env?.BAND_STEP_OVERRIDE ? Number(p.pm2_env.env.BAND_STEP_OVERRIDE) : null,
+            bandStep2: p.pm2_env.env?.BAND_STEP2_OVERRIDE ? Number(p.pm2_env.env.BAND_STEP2_OVERRIDE) : null,
+            dsbDualMode: ["HOLD", "EXIT", "DISAGREE"].includes(p.pm2_env.env?.DSB_DUAL_MODE_OVERRIDE) ? p.pm2_env.env.DSB_DUAL_MODE_OVERRIDE : "HOLD",
             scalpStopDay: p.pm2_env.env?.SCALP_STOP_DAY_OVERRIDE === "1",
             scalpNext: p.pm2_env.env?.SCALP_NEXT_OVERRIDE || null,
             dsbExitMode: p.pm2_env.env?.DSB_EXIT_MODE_OVERRIDE === "SL" ? "SL" : "FLIP",
@@ -621,14 +623,16 @@ function buildProcessEnv(p, overrides = {}) {
     // "adaptive" or "" (cleared/fixed) — same reasoning, was previously
     // only ever written as "adaptive" and never explicitly cleared.
     env.TARGET_MODE_OVERRIDE = p.targetMode === "adaptive" ? "adaptive" : "";
-    env.BAND_STEP_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || (p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB")) && p.bandStep ? String(p.bandStep) : "";
-    env.SCALP_STOP_DAY_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.scalpTarget && p.scalpStopDay ? "1" : "";
+    env.BAND_STEP2_OVERRIDE = (p.strategy === "DSB_DUAL" && p.bandStep2) ? String(p.bandStep2) : "";
+    env.DSB_DUAL_MODE_OVERRIDE = (p.strategy === "DSB_DUAL" && ["HOLD", "EXIT", "DISAGREE"].includes(p.dsbDualMode)) ? p.dsbDualMode : "";
+    env.BAND_STEP_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || (p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL")) && p.bandStep ? String(p.bandStep) : "";
+    env.SCALP_STOP_DAY_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL") && p.scalpTarget && p.scalpStopDay ? "1" : "";
     env.SCALP_NEXT_OVERRIDE = (p.scalpTarget && !p.scalpStopDay && /^(TARGET:\d*(\.\d+)?|SL:\d+(\.\d+)?)$/.test(p.scalpNext || "")) ? p.scalpNext : "";
-    env.DSB_EXIT_MODE_OVERRIDE = (p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.dsbExitMode === "SL" ? "SL" : "";
-    env.SCALP_TARGET_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.scalpTarget ? String(p.scalpTarget) : "";
-    env.MAX_PROFIT_TRADES_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.maxProfitTrades ? String(p.maxProfitTrades) : "";
-    env.MAX_LOSING_TRADES_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.maxLosingTrades ? String(p.maxLosingTrades) : "";
-    env.MAX_LOSING_SWITCHES_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") && p.maxLosingSwitches ? String(p.maxLosingSwitches) : "";
+    env.DSB_EXIT_MODE_OVERRIDE = (p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL") && p.dsbExitMode === "SL" ? "SL" : "";
+    env.SCALP_TARGET_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL") && p.scalpTarget ? String(p.scalpTarget) : "";
+    env.MAX_PROFIT_TRADES_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL") && p.maxProfitTrades ? String(p.maxProfitTrades) : "";
+    env.MAX_LOSING_TRADES_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL") && p.maxLosingTrades ? String(p.maxLosingTrades) : "";
+    env.MAX_LOSING_SWITCHES_OVERRIDE = (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL") && p.maxLosingSwitches ? String(p.maxLosingSwitches) : "";
     env.GREY_EXIT_OVERRIDE = p.strategy === "ALMA_TRI_BAND" && p.greyExitEnabled !== null && p.greyExitEnabled !== undefined ? String(p.greyExitEnabled) : "";
     env.ALMA_BAND_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaBandEnabled === false ? "false" : "";
     env.ALMA_FAST_LEN_OVERRIDE = p.strategy === "ALMA_PRO_FAST" && p.almaFastLen ? String(p.almaFastLen) : "";
@@ -858,7 +862,7 @@ async function editInstrument(procs) {
         // Strategy-specific fields — only asked for the strategy actually
         // running, same conditions as configureAndStartInstrument.
         let bandStep = p.bandStep;
-        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || (p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB")) {
+        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || (p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL")) {
             const bandDefault = p.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
             const bandInput = (await ask(`  Band step in price points (current: ${bandDefault}, blank = keep): `)).trim();
             if (bandInput) {
@@ -870,13 +874,21 @@ async function editInstrument(procs) {
                 }
             }
         }
+        let bandStep2 = p.bandStep2 ?? null, dsbDualMode = p.dsbDualMode || "HOLD";
+        if (p.strategy === "DSB_DUAL") {
+            const in2 = (await ask(`  DSB 2 step in price points (current: ${bandStep2 ?? "2x DSB 1"}, blank = keep, 0 = reset to 2x DSB 1): `)).trim();
+            if (in2 === "0") bandStep2 = null;
+            else if (in2) { const n = Number(in2); if (Number.isFinite(n) && n > 0) bandStep2 = n; else console.log(c.yellow(`  "${in2}" isn't a valid positive number — DSB 2 step left unchanged`)); }
+            const mIn = (await ask(`  DSB 1 flip while in a trade: [H]old until DSB 2 agrees then reverse, [E]xit on DSB 1 flip, [D]isagree = exit (current: ${dsbDualMode[0]}, blank = keep): `)).trim().toUpperCase();
+            if (mIn === "H") dsbDualMode = "HOLD"; else if (mIn === "E") dsbDualMode = "EXIT"; else if (mIn === "D") dsbDualMode = "DISAGREE";
+        }
         let dsbExitMode = p.dsbExitMode || "FLIP";
-        if (p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") {
+        if (p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL") {
             const emInput = (await ask(`  Exit on [F]lip signal or [S]top-loss only (hold through flips)? (current: ${dsbExitMode === "SL" ? "S" : "F"}, blank = keep): `)).trim().toUpperCase();
             if (emInput === "S") dsbExitMode = "SL"; else if (emInput === "F") dsbExitMode = "FLIP";
         }
         let scalpTarget = p.scalpTarget ?? null;
-        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") {
+        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL") {
             const stInput = (await ask(`  Scalp target in rupees per trade, exits on the tick then waits for the next signal (current: ${scalpTarget ?? "off"}, blank = keep, 0 = off): `)).trim();
             if (stInput === "0") scalpTarget = null;
             else if (stInput) {
@@ -886,12 +898,12 @@ async function editInstrument(procs) {
             }
         }
         let scalpStopDay = !!p.scalpStopDay;
-        if (scalpTarget && (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB")) {
+        if (scalpTarget && (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL")) {
             const sdInput = (await ask(`  After a scalp target hit, stop for the day? [y/N] (current: ${scalpStopDay ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (sdInput === "Y") scalpStopDay = true; else if (sdInput === "N") scalpStopDay = false;
         }
         let scalpNext = p.scalpNext || null;
-        if (scalpTarget && !scalpStopDay && (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB")) {
+        if (scalpTarget && !scalpStopDay && (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL")) {
             const nx = (await ask(`  After the first scalp hit of the day: [N]one / [T]arget / [S]top-loss (current: ${scalpNext || "none"}, blank = keep): `)).trim().toUpperCase();
             if (nx === "N") scalpNext = null;
             else if (nx === "T" || nx === "S") {
@@ -902,7 +914,7 @@ async function editInstrument(procs) {
             }
         }
         let maxProfitTrades = p.maxProfitTrades ?? null;
-        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") {
+        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL") {
             const ptInput = (await ask(`  Max profitable trades per day (any exit), then cooldown until next session (current: ${maxProfitTrades ?? "off"}, blank = keep, 0 = off): `)).trim();
             if (ptInput === "0") maxProfitTrades = null;
             else if (ptInput) {
@@ -912,7 +924,7 @@ async function editInstrument(procs) {
             }
         }
         let maxLosingTrades = p.maxLosingTrades ?? null;
-        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") {
+        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL") {
             const ltInput = (await ask(`  Max losing trades per day (any exit), then flat until next session (current: ${maxLosingTrades ?? "off"}, blank = keep, 0 = off): `)).trim();
             if (ltInput === "0") maxLosingTrades = null;
             else if (ltInput) {
@@ -922,7 +934,7 @@ async function editInstrument(procs) {
             }
         }
         let maxLosingSwitches = p.maxLosingSwitches ?? null;
-        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB") {
+        if (p.strategy === "DYNAMIC_BAND" || p.strategy === "DYNAMIC_MID_COLOR" || p.strategy === "DYNAMIC_MID_COLOR_HL" || p.strategy === "ALMA_DSB" || p.strategy === "DSB_DUAL") {
             const lsInput = (await ask(`  Max losing reversals per day, then flat until next session (current: ${maxLosingSwitches ?? "off"}, blank = keep, 0 = off): `)).trim();
             if (lsInput === "0") maxLosingSwitches = null;
             else if (lsInput) {
@@ -1151,7 +1163,7 @@ async function editInstrument(procs) {
             }
         }
 
-        const updatedP = { ...p, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles };
+        const updatedP = { ...p, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -1991,7 +2003,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // createDynamicMidColorStrategy in strategies.js. Blank falls back to
     // engineConfig.BAND_STEP_DEFAULT.
     let bandStep = null;
-    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || (strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB"))) {
+    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || (strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB" || strategy === "DSB_DUAL"))) {
         const bandStepInput = await ask(`  Band step in price points (blank = default ${engineConfig.BAND_STEP_DEFAULT}): `);
         if (bandStepInput) {
             const parsedStep = Number(bandStepInput);
@@ -2002,13 +2014,20 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
             }
         }
     }
+    let bandStep2 = null, dsbDualMode = "HOLD";
+    if (strategy === "DSB_DUAL") {
+        const in2 = (await ask(`  DSB 2 step in price points (blank = 2x DSB 1 = ${(bandStep ?? engineConfig.BAND_STEP_DEFAULT) * 2}): `)).trim();
+        if (in2) { const n = Number(in2); if (Number.isFinite(n) && n > 0) bandStep2 = n; else console.log(c.yellow(`  "${in2}" isn't a valid positive number — using 2x DSB 1`)); }
+        const mIn = (await ask("  DSB 1 flip while in a trade: [H]old until DSB 2 agrees then reverse (default), [E]xit on DSB 1 flip, [D]isagree = exit: ")).trim().toUpperCase();
+        if (mIn === "E") dsbDualMode = "EXIT"; else if (mIn === "D") dsbDualMode = "DISAGREE";
+    }
     let dsbExitMode = "FLIP";
-    if (strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB") {
+    if (strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB" || strategy === "DSB_DUAL") {
         const emInput = (await ask("  Exit on [F]lip signal (default) or [S]top-loss only (hold through flips)? ")).trim().toUpperCase();
         if (emInput === "S") dsbExitMode = "SL";
     }
     let scalpTarget = null;
-    if (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB") {
+    if (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB" || strategy === "DSB_DUAL") {
         const stInput = (await ask("  Scalp target in rupees per trade, exits on the tick then waits for the next signal (blank = off): ")).trim();
         if (stInput) {
             const n = Number(stInput);
@@ -2032,7 +2051,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     }
     let maxProfitTrades = null;
-    if (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB") {
+    if (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB" || strategy === "DSB_DUAL") {
         const ptInput = (await ask("  Max profitable trades per day (any exit reason), then cooldown until next session (blank = off): ")).trim();
         if (ptInput) {
             const n = Number(ptInput);
@@ -2041,7 +2060,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     }
     let maxLosingTrades = null;
-    if (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB") {
+    if (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB" || strategy === "DSB_DUAL") {
         const ltInput = (await ask("  Max losing trades per day (any exit reason), then flat until next session (blank = off): ")).trim();
         if (ltInput) {
             const n = Number(ltInput);
@@ -2050,7 +2069,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     }
     let maxLosingSwitches = null;
-    if (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB") {
+    if (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB" || strategy === "DSB_DUAL") {
         const lsInput = (await ask("  Max losing reversals per day, then flat until next session (blank = off): ")).trim();
         if (lsInput) {
             const n = Number(lsInput);
@@ -2162,8 +2181,12 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (htfTimeframe !== null) env.HTF_TIMEFRAME_OVERRIDE = htfTimeframe;
     if (htfChopPeriod !== null) env.HTF_CHOP_PERIOD_OVERRIDE = String(htfChopPeriod);
     if (htfChopMax !== null) env.HTF_CHOP_MAX_OVERRIDE = String(htfChopMax);
-    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || (strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB")) && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
+    if ((strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || (strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB" || strategy === "DSB_DUAL")) && bandStep !== null) env.BAND_STEP_OVERRIDE = String(bandStep);
     if (dsbExitMode === "SL") env.DSB_EXIT_MODE_OVERRIDE = "SL";
+    if (strategy === "DSB_DUAL") {
+        if (bandStep2 !== null) env.BAND_STEP2_OVERRIDE = String(bandStep2);
+        env.DSB_DUAL_MODE_OVERRIDE = dsbDualMode;
+    }
     if (scalpTarget !== null && scalpStopDay) env.SCALP_STOP_DAY_OVERRIDE = "1";
     if (scalpTarget !== null && !scalpStopDay && scalpNext) env.SCALP_NEXT_OVERRIDE = scalpNext;
     if (scalpTarget !== null) env.SCALP_TARGET_OVERRIDE = String(scalpTarget);
@@ -2184,7 +2207,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
             : "";
         const almaChopTag = (strategy === "ALMA_PRO_FAST" || strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
         const vdChopTag = strategy !== "ALMA_PRO_FAST" && strategy !== "ALMA_PRO_SLOW" ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? engineConfig.CHOP_LEN}/${chopMax ?? engineConfig.CHOP_GATE_MAX_DEFAULT}`) : c.yellow(" chop:off")) : "";
-        const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || (strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB")) ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
+        const bandStepTag = (strategy === "DYNAMIC_BAND" || strategy === "DYNAMIC_MID_COLOR" || (strategy === "DYNAMIC_MID_COLOR_HL" || strategy === "ALMA_DSB" || strategy === "DSB_DUAL")) ? c.yellow(` step:${bandStep ?? engineConfig.BAND_STEP_DEFAULT}`) : "";
         const greyExitTag = strategy === "ALMA_TRI_BAND" ? c.yellow(` grey:${(greyExitEnabled ?? engineConfig.GREY_EXIT_DEFAULT) ? "exit" : "hold"}`) : "";
         const maxLossTag = maxDailyLoss !== null ? c.yellow(` maxLoss:-₹${maxDailyLoss}`) : "";
         const volTag = volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
