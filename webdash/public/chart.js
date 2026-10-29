@@ -541,7 +541,7 @@
     }
     const pt = S.dsb && S.dsb.show && S.dsbMap && time !== null ? S.dsbMap.get(time) : null;
     if (pt) {
-      parts.push(`DSB ${f(pt.mid)} ${pt.color === "red" ? "\u25BC short" : "\u25B2 long"}${S.dsb.edges ? `  (${f(pt.low)} / ${f(pt.high)})` : ""}`);
+      parts.push(`DSB (step ${dsbStep()}) ${f(pt.mid)} ${pt.color === "red" ? "\u25BC short" : "\u25B2 long"}${S.dsb.edges ? `  (${f(pt.low)} / ${f(pt.high)})` : ""}`);
       tags.push({ price: pt.mid, color: pt.color === "red" ? S.dsb.down : S.dsb.up });
     }
     if (time !== null) for (const o of overlayValues(time)) { parts.push(`${o.name} ${f(o.v)}`); tags.push({ price: o.v, color: o.color }); }

@@ -1637,3 +1637,7 @@ body.chart-page .depth-panel { height: auto; }
 
 /* fixed-height read-out so a longer / shorter line never shifts the chart under a finger mid-gesture */
 .chart-legend { min-height: 2.9em; }
+
+/* the legend / info read-outs must keep their full height: as shrinkable flex items inside the fixed-height modal they were squeezed to their min-height and the extra lines drew over the next block */
+.chart-legend, .chart-info, .chart-controls, .chart-colors { flex-shrink: 0; }
+.chart-info { overflow-wrap: anywhere; }
