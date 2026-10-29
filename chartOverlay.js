@@ -35,7 +35,7 @@ function computeOverlay(strategy, bars, ctx, cfg) {
             const s = st.state();
             if (s) pts.push([bars[i].t, s.bandMid, s.color === "red" ? "#ff5266" : "#33ff88"]);
         }
-        return { label: `Dynamic mid color (step ${step}) — green = long, red = short`, lines: [{ name: "mid", color: "#33ff88", width: 3, points: pts }] };
+        return { label: `Dynamic mid color (step ${step}) — green = long, red = short`, lines: [{ name: `mid (step ${step})`, color: "#33ff88", width: 3, points: pts }] };
     }
 
     if (strategy === "ALMA_BAND") {
@@ -55,7 +55,7 @@ function computeOverlay(strategy, bars, ctx, cfg) {
         return { label: `ALMA band (len ${len}) + Dynamic Step Band mid (step ${step}) — green = long bias, red = short bias`, lines: [
             line("ALMA high", COLORS.high, rolling(ha.map(b => b.high), len, f), len - 1),
             line("ALMA low", COLORS.low, rolling(ha.map(b => b.low), len, f), len - 1),
-            { name: "DSB mid", color: "#33ff88", width: 3, points: pts },
+            { name: `DSB mid (step ${step})`, color: "#33ff88", width: 3, points: pts },
         ] };
     }
 
@@ -70,8 +70,8 @@ function computeOverlay(strategy, bars, ctx, cfg) {
             if (y) p2.push([bars[i].t, y.bandMid, clr(y)]);
         }
         return { label: `Dual Dynamic Step Band — DSB1 step ${s1v}, DSB2 step ${s2v}; trade only when both colours agree`, lines: [
-            { name: "DSB 1 mid", color: "#33ff88", width: 2, points: p1 },
-            { name: "DSB 2 mid", color: "#33ff88", width: 4, points: p2 },
+            { name: `DSB 1 mid (step ${s1v})`, color: "#33ff88", width: 2, points: p1 },
+            { name: `DSB 2 mid (step ${s2v})`, color: "#33ff88", width: 4, points: p2 },
         ] };
     }
 
