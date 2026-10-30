@@ -441,6 +441,7 @@
     }
     S[which === "indicator" ? "ind" : "filters"] = !S[which === "indicator" ? "ind" : "filters"];
     modal.querySelector(`[data-toggle="${which}"]`).classList.toggle("active", S[which === "indicator" ? "ind" : "filters"]);
+    if (which === "indicator" && S.ind && S.inst.strategy === "DSB_DUAL" && S.dsb.show) { S.dsb.show = false; saveDsb(); syncDsbInputs(); drawDsb(true); }   // the indicator already draws DSB 1 + DSB 2: no duplicate DSB line on top
     drawOverlay(); drawMarkers(); info(); legend();
   }
 
@@ -922,7 +923,7 @@
       ["pointermove", "pointerup", "wheel", "touchmove"].forEach(ev => els.box.addEventListener(ev, markTags, { passive: true, capture: true }));
       S.hover = null; S.pinned = null; S.edgeIdx = null; S.position = null; S.depthOn = true;
       S.effType = effType;
-      { const L = loadDsb(inst.name); S.dsb = L.d; S.dsbSaved = L.saved; S.dsbSeries = null; S.dsbMarks = []; syncDsbInputs(); }
+      { const L = loadDsb(inst.name); S.dsb = L.d; S.dsbSaved = L.saved; if (inst.strategy === "DSB_DUAL") S.dsb.show = false;   /* the Indicator tab draws both DSBs; never start with a stray single DSB line */ S.dsbSeries = null; S.dsbMarks = []; syncDsbInputs(); }
       els.dsbBtn.classList.toggle("active", els.dsbPanel.style.display !== "none");
       els.depth.style.display = "";
       modal.querySelector('[data-toggle="depth"]').classList.add("active");
