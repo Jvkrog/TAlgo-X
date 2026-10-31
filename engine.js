@@ -630,6 +630,32 @@ async function main() {
     if (rangeKc) rangeKc.setAccessToken(ACCESS_TOKEN);
     const rangeFeed = rangeKc ? createRangeFeed({ context, engineConfig, kc: rangeKc, candles, tg }) : null;
     let rangeQueue = Promise.resolve();
+
+    // RISK OBSERVER (shadow / observation only; opt-in with RISK_OBSERVER_OVERRIDE=1, DSB_DUAL only). Reads engine state,
+    // keeps its own 15m feed + SQLite file, and has no handle on orders / SL / target — see riskObserver/observer.js.
+    let riskObserver = null;
+    if (process.env.RISK_OBSERVER_OVERRIDE === "1" && context.strategy === "DSB_DUAL") {
+        try {
+            const { createRiskObserver, resolveParams } = require("./riskObserver/observer");
+            const { createSqliteStore, riskDbPath, riskDbBase } = require("./riskObserver/riskStore");
+            const { DB_DIR } = require("./dbDir");
+            let overrides = {}; try { overrides = process.env.RISK_OBS_PARAMS_OVERRIDE ? JSON.parse(process.env.RISK_OBS_PARAMS_OVERRIDE) : {}; } catch { console.log(c.yellow(`[${context.tgPrefix}] RISK_OBS_PARAMS_OVERRIDE is not valid JSON — defaults used`)); }
+            const obsKc = new KiteConnect({ api_key: engineConfig.API_KEY }); obsKc.setAccessToken(ACCESS_TOKEN);
+            const obsStore = await createSqliteStore(riskDbPath(DB_DIR, riskDbBase(context)));
+            riskObserver = createRiskObserver({
+                context, engineConfig, state, candles, store: obsStore, tg, emit: emitEvent, params: resolveParams(engineConfig, overrides),
+                fetchRaw: (from, to) => obsKc.getHistoricalData(context.token, "15minute", from, to),
+                marketOpen: now => {
+                    const p = istParts(now); const dow = new Date(now.getTime() + 5.5 * 3600000).getUTCDay();
+                    if (dow === 0 || dow === 6) return false;
+                    const mins = p.hours * 60 + p.minutes;
+                    return mins >= engineConfig.TRADE_START_HOUR * 60 + engineConfig.TRADE_START_MINUTE && mins < context.eodHour * 60 + context.eodMinute;
+                },
+                log: m => console.log(c.dim(`[${context.tgPrefix}] ${m}`)),
+            });
+            console.log(c.dim(`[${context.tgPrefix}] Risk Observer: ON (shadow — observation only, 15m)`));
+        } catch (err) { riskObserver = null; console.log(c.yellow(`[${context.tgPrefix}] Risk Observer failed to initialise (${err.message}) — trading unaffected`)); }
+    }
     const candlePollInstance = createCandlePoll({
         context, engineConfig, state, candles, slStore, targetStore, orders,
         positionsClose, processCandle: signalsInstance.processCandle, db, tg, deltaBuffer,
@@ -704,6 +730,7 @@ async function main() {
         // Range bars close on price, not on the clock — the tick handler drives processCandle instead.
         if (!rangeFeed) candlePollInstance.startPoll();
         lifecycleInstance.startLifecycle();
+        if (riskObserver) riskObserver.start();   // fail-soft: errors are contained inside the observer
 
         // Section 17 diagnostic — throttled inside marketDataHealth itself
         // (won't spam Telegram every 10s during a prolonged outage, just
@@ -765,6 +792,7 @@ async function main() {
                 await candlePollInstance.checkTarget(tick.last_price);
                 await candlePollInstance.checkDailyLoss(tick.last_price);
                 await candlePollInstance.checkSessionTarget(tick.last_price);
+                if (riskObserver) riskObserver.onTick(tick.last_price);   // after every trading check; read-only, contained
             }
         }
     });

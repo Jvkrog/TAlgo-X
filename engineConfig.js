@@ -399,6 +399,23 @@ module.exports = {
     BAND_STEP_DEFAULT: 1,
     BAND_STEP2_DEFAULT: 2,   // DSB_DUAL: DSB 2 (slower band) step; per-instrument bandStep2 overrides
 
+    // RISK OBSERVER (riskObserver/, observation only — never places orders). Defaults are deliberately conservative and
+    // observable; override per instrument with RISK_OBS_PARAMS_OVERRIDE (JSON, same keys without the RISK_OBS_ prefix).
+    RISK_OBS_TIMEFRAME: "15m",
+    RISK_OBS_WATCH_ADVERSE_ATR: 1.0,      // WATCH when adverse excursion from entry reaches this many 15m ATRs ...
+    RISK_OBS_WATCH_DISAGREE_CANDLES: 2,   // ... or the 15m DSBs have disagreed for this many consecutive completed candles
+    RISK_OBS_DANGER_ADVERSE_ATR: 2.0,     // DANGER: adverse >= this AND adverse candles persist ...
+    RISK_OBS_DANGER_ADVERSE_CANDLES: 2,   //   (consecutive adverse completed 15m candles)
+    RISK_OBS_DANGER_OPPOSITE_ATR: 1.5,    // DANGER: both 15m DSBs agree AGAINST the position AND adverse >= this
+    RISK_OBS_DANGER_DISAGREE_CANDLES: 4,  // DANGER: DSB disagreement this long AND adverse >= WATCH level
+    RISK_OBS_ESCALATE_CONFIRM: 2,         // evaluations a worse state must hold before it is entered (hysteresis)
+    RISK_OBS_CLEAR_CONFIRM: 3,            // evaluations conditions must stay clear before WATCH/DANGER -> RECOVERY
+    RISK_OBS_NORMAL_CONFIRM: 3,           // further clear evaluations before RECOVERY -> NORMAL
+    RISK_OBS_CLEAR_ADVERSE_ATR: 0.5,      // "clear" means adverse below this many ATRs (the exit threshold is lower than the entry one)
+    RISK_OBS_EVAL_SECONDS: 30,            // evaluation cadence (also runs on every completed 15m candle)
+    RISK_OBS_STALE_GRACE_SECONDS: 180,    // a completed 15m candle later than this after its close = STALE
+    RISK_OBS_ERROR_AFTER_FAILS: 3,        // consecutive failed 15m fetches before health = ERROR
+
     // ALMA_TRI_BAND — strategy #15. Direct port of the user-provided Pine
     // indicator ("TAlgo — Zinc Optimized v3") — despite the Pine title,
     // kept fully instrument-agnostic here (own namespace, no "ZINC" in any

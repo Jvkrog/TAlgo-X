@@ -201,6 +201,8 @@ async function getEngineProcesses() {
             entryTime: p.pm2_env.env?.ENTRY_TIME_OVERRIDE || null,
             atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
             slDisabled: p.pm2_env.env?.SL_DISABLED_OVERRIDE === "1",
+            riskObserver: p.pm2_env.env?.RISK_OBSERVER_OVERRIDE === "1",
+            riskObsParams: p.pm2_env.env?.RISK_OBS_PARAMS_OVERRIDE || "",
             hardSlRupees: p.pm2_env.env?.HARD_SL_RUPEES_OVERRIDE ? Number(p.pm2_env.env.HARD_SL_RUPEES_OVERRIDE) : null,
             volumeFilterEnabled: p.pm2_env.env?.VOLUME_FILTER_OVERRIDE === "true",
             volumeSmaPeriod: p.pm2_env.env?.VOLUME_SMA_PERIOD_OVERRIDE ? Number(p.pm2_env.env.VOLUME_SMA_PERIOD_OVERRIDE) : null,
@@ -670,6 +672,8 @@ function buildProcessEnv(p, overrides = {}) {
     // Hard stop in rupees — when set it replaces the ATR stop (either/or).
     env.HARD_SL_RUPEES_OVERRIDE = p.hardSlRupees ? String(p.hardSlRupees) : "";
     env.SL_DISABLED_OVERRIDE = p.slDisabled ? "1" : "";
+    env.RISK_OBSERVER_OVERRIDE = (p.strategy === "DSB_DUAL" && p.riskObserver) ? "1" : "";
+    env.RISK_OBS_PARAMS_OVERRIDE = (p.strategy === "DSB_DUAL" && p.riskObserver && p.riskObsParams) ? String(p.riskObsParams) : "";
     // PURE_HA only, but harmless to always write regardless of p.strategy —
     // every other strategy simply never reads it.
     env.FLIP_CONFIRM_CANDLES_OVERRIDE = p.flipConfirmCandles ? String(p.flipConfirmCandles) : "";
@@ -1124,6 +1128,11 @@ async function editInstrument(procs) {
                 }
             }
         }
+        let riskObserver = p.riskObserver === true;
+        if (p.strategy === "DSB_DUAL") {
+            const roIn = (await ask(`  Risk Observer (15m shadow monitor, never trades): current ${riskObserver ? "ON" : "off"}, [y]es / [n]o, blank = keep: `)).trim().toUpperCase();
+            if (roIn === "Y") riskObserver = true; else if (roIn === "N") riskObserver = false;
+        }
         let slDisabled = p.slDisabled === true;
         {
             const sdIn = (await ask(`  Stop-loss disabled? (current: ${slDisabled ? "YES — no stop" : "no"}, [y]es / [n]o, blank = keep): `)).trim().toUpperCase();
@@ -1170,7 +1179,7 @@ async function editInstrument(procs) {
             }
         }
 
-        const updatedP = { ...p, slDisabled, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles };
+        const updatedP = { ...p, slDisabled, riskObserver, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -1323,6 +1332,11 @@ async function riskManagement(procs) {
                     else hardSlRupees = hv;
                 }
             }
+        }
+        let riskObserver = p.riskObserver === true;
+        if (p.strategy === "DSB_DUAL") {
+            const roIn = (await ask(`  Risk Observer (15m shadow monitor, never trades): current ${riskObserver ? "ON" : "off"}, [y]es / [n]o, blank = keep: `)).trim().toUpperCase();
+            if (roIn === "Y") riskObserver = true; else if (roIn === "N") riskObserver = false;
         }
         let slDisabled = p.slDisabled === true;
         {
@@ -1488,7 +1502,7 @@ async function riskManagement(procs) {
             }
         }
 
-        const updatedP = { ...p, slDisabled, dailyBiasEntryTime, dailyBiasCandle, entryTime, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, longCandleUseBodyFilter, longCandleBodyAtrMult, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, maxDailyLoss };
+        const updatedP = { ...p, slDisabled, riskObserver, dailyBiasEntryTime, dailyBiasCandle, entryTime, almaChopFilterEnabled, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, longCandleUseBodyFilter, longCandleBodyAtrMult, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, maxDailyLoss };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -1871,6 +1885,8 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         else hardSlRupees = hv;
     }
     let slDisabled = false;
+    let riskObserver = false;
+    if (strategy === "DSB_DUAL") riskObserver = (await ask("  Risk Observer — 15m shadow monitor, alerts + Risk Observer tab, NEVER trades? [y/N]: ")).trim().toUpperCase() === "Y";
     if ((await ask(`  Disable the stop-loss entirely (exits only on the strategy signal / target / EOD)? [y/N]: `)).trim().toUpperCase() === "Y") slDisabled = true;
 
     // Anti-whipsaw flip confirmation — PURE_HA only. How many CONSECUTIVE
@@ -2175,6 +2191,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     if (atrSlMult !== null) env.ATR_SL_MULT_OVERRIDE = String(atrSlMult);
     env.HARD_SL_RUPEES_OVERRIDE = hardSlRupees ? String(hardSlRupees) : "";
     env.SL_DISABLED_OVERRIDE = slDisabled ? "1" : "";
+    env.RISK_OBSERVER_OVERRIDE = (strategy === "DSB_DUAL" && riskObserver) ? "1" : "";
     if (strategy === "PURE_HA" && flipConfirmCandles !== null) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(flipConfirmCandles);
     if (strategy === "DAILY_HA_BIAS" && dailyBiasEntryTime !== null) env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = dailyBiasEntryTime;
     if (strategy === "DAILY_HA_BIAS" && dailyBiasCandle !== null) env.DAILY_BIAS_CANDLE_OVERRIDE = dailyBiasCandle;

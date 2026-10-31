@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=41">
+<link rel="stylesheet" href="style.css?v=42">
 </head>
 <body>
 
@@ -87,6 +87,7 @@
   <button class="tab active" id="tabDashboard" data-tab="dashboard">Dashboard</button>
   <button class="tab" id="tabToolbox" data-tab="toolbox">Toolbox</button>
   <button class="tab" id="tabRisk" data-tab="risk">Risk</button>
+  <button class="tab" id="tabRiskObs" data-tab="riskobs">Risk Observer</button>
   <button class="tab" id="tabAi" data-tab="ai">AI Review</button>
   <div class="tabbar-spacer"></div>
   <button class="btn btn-ghost tabbar-layout-btn" id="layoutEditToggle" title="Drag panels by their header, resize from the bottom-right corner">⛶ Layout</button>
@@ -227,6 +228,17 @@
     </div>
     <div class="tb-form-hint" style="padding:8px 16px 0">Per-instrument entry gates — chop filter, double-order cap, ATR SL, volume SMA, and the long-candle/volatility-shock filter. Tap an instrument to open its full risk settings.</div>
     <div class="toolbox-list" id="riskList"></div>
+  </section>
+</main>
+
+<main class="layout" id="riskObsView" style="display:none">
+  <section class="panel toolbox-panel" style="flex:1">
+    <div class="panel-head">
+      <span class="panel-title">┌─ RISK OBSERVER · 15M SHADOW MONITOR ─┐</span>
+      <button class="btn btn-ghost" id="riskObsRefreshBtn">Refresh</button>
+    </div>
+    <div class="tb-form-hint" style="padding:8px 16px 0">Read-only. The 1H Dual DSB is the trading brain and decides every entry and exit. This tab only shows how the 15M layer sees an open position: <b>trend direction</b>, <b>risk state</b> (NORMAL / WATCH / DANGER / RECOVERY) and <b>observer health</b> are three separate things. DANGER means adverse conditions, not that the strategy has reversed. Enable per instrument (DSB_DUAL) with the "Risk Observer" option.</div>
+    <div id="riskObsBody" class="riskobs-body"></div>
   </section>
 </main>
 
@@ -388,6 +400,6 @@
 
 <script src="strategyBuilder.js?v=3"></script>
 <script src="chart.js?v=33"></script>
-<script src="app.js?v=91"></script>
+<script src="app.js?v=92"></script>
 </body>
 </html>

@@ -511,6 +511,8 @@ async function getEngineProcesses() {
             disableDoubleOrders: p.pm2_env.env?.DISABLE_DOUBLE_ORDERS_OVERRIDE === "true",
             atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
             slDisabled: p.pm2_env.env?.SL_DISABLED_OVERRIDE === "1",
+            riskObserver: p.pm2_env.env?.RISK_OBSERVER_OVERRIDE === "1",
+            riskObsParams: p.pm2_env.env?.RISK_OBS_PARAMS_OVERRIDE || "",
             hardSlRupees: p.pm2_env.env?.HARD_SL_RUPEES_OVERRIDE ? Number(p.pm2_env.env.HARD_SL_RUPEES_OVERRIDE) : null,
             flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
             candleType: normalizeCandleType(p.pm2_env.env?.CANDLE_TYPE_OVERRIDE) || null,
@@ -591,6 +593,8 @@ function buildProcessEnv(p, overrides = {}) {
     env.DISABLE_DOUBLE_ORDERS_OVERRIDE = String(!!p.disableDoubleOrders);
     env.ATR_SL_MULT_OVERRIDE = p.atrSlMult ? String(p.atrSlMult) : "";
     env.SL_DISABLED_OVERRIDE = p.slDisabled ? "1" : "";
+    env.RISK_OBSERVER_OVERRIDE = (p.strategy === "DSB_DUAL" && p.riskObserver) ? "1" : "";
+    env.RISK_OBS_PARAMS_OVERRIDE = (p.strategy === "DSB_DUAL" && p.riskObserver && p.riskObsParams) ? String(p.riskObsParams) : "";
     env.HARD_SL_RUPEES_OVERRIDE = p.hardSlRupees ? String(p.hardSlRupees) : "";   // replaces the ATR stop when set
     env.FLIP_CONFIRM_CANDLES_OVERRIDE = p.flipConfirmCandles ? String(p.flipConfirmCandles) : "";
     // DAILY_HA_BIAS only (entry time, IST "HH:MM"); blank = default 10:00. Always written explicitly.
@@ -887,7 +891,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight } = req.body || {};
+    const { name, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight } = req.body || {};
     if (!name) return res.status(400).json({ error: "Name is required" });
 
     try {
@@ -1000,6 +1004,7 @@ app.post("/api/toolbox/edit", async (req, res) => {
             }
         }
         if (slDisabled !== undefined) updated.slDisabled = !!slDisabled;
+        if (riskObserver !== undefined) updated.riskObserver = !!riskObserver;
         if (hardSlRupees !== undefined) {
             if (hardSlRupees === null || hardSlRupees === "" || hardSlRupees === "0" || hardSlRupees === "clear") {
                 updated.hardSlRupees = null;
@@ -1514,7 +1519,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "Underlying is required" });
@@ -1651,6 +1656,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             if (Number.isFinite(parsedAtrMult) && parsedAtrMult > 0) env.ATR_SL_MULT_OVERRIDE = String(parsedAtrMult);
         }
         if (slDisabled) env.SL_DISABLED_OVERRIDE = "1";
+        if (riskObserver && stratKey === "DSB_DUAL") env.RISK_OBSERVER_OVERRIDE = "1";
         if (hardSlRupees !== undefined && hardSlRupees !== null && hardSlRupees !== "") {
             const hv = Number(hardSlRupees);
             if (!Number.isFinite(hv) || hv <= 0) return res.status(400).json({ error: "HardSlRupees must be a positive number" });
@@ -1748,7 +1754,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // else mutates context directly, exactly like backtestFlow.js does.
         chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches, maxLosingTrades, maxProfitTrades, targetPoints, targetMode, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, bandStep2, dsbDualMode,
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
-        disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, dailyBiasEntryTime, dailyBiasCandle, entryTime,
+        disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, dailyBiasEntryTime, dailyBiasCandle, entryTime,
         volumeFilterEnabled, volumeSmaPeriod,
         carryOvernight, maxDailyLoss, sessionTargetRupees, dailyHaGateEnabled,
         htfGateEnabled, htfChopPeriod, htfChopMax, htfBandBlockEnabled,
@@ -3259,11 +3265,43 @@ function broadcastToBrowsers(raw) {
     });
 }
 
+const riskObsLatest = new Map();   // engine tgPrefix -> { snapshot, receivedAt } — read-only view of each Risk Observer
+
+// Risk Observer tab (read-only: nothing here can reach a trading decision).
+app.get("/api/riskobs", async (req, res) => {
+    try {
+        const procs = await getEngineProcesses();
+        const out = [];
+        for (const p of procs) {
+            if (!p.riskObserver) continue;
+            const key = p.underlying || p.name;
+            const hit = [...riskObsLatest.entries()].find(([engine, v]) => engine === key || (v.snapshot && (v.snapshot.instrument === p.underlying)));
+            out.push({ name: p.name, underlying: p.underlying, strategy: p.strategy, status: p.status, snapshot: hit ? hit[1].snapshot : null, ageMs: hit ? Date.now() - hit[1].receivedAt : null });
+        }
+        res.json({ instruments: out, mode: "SHADOW — observation only" });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.get("/api/riskobs/events/:engine", (req, res) => {
+    const hit = riskObsLatest.get(req.params.engine);
+    const file = hit && hit.snapshot && hit.snapshot.storeFile;
+    if (!file || !/^[a-z0-9_]+_riskobs\.db$/.test(file)) return res.json({ events: [] });   // the file name comes from the engine's own snapshot, never from the client
+    const full = path.join(DB_DIR, file);
+    if (!fs.existsSync(full)) return res.json({ events: [] });
+    const db = new sqlite3.Database(full, sqlite3.OPEN_READONLY, err => {
+        if (err) return res.json({ events: [] });
+        db.all("SELECT id, pos_id, ts, kind, from_state, to_state, detail FROM obs_events ORDER BY id DESC LIMIT 100", [], (e, rows) => {
+            db.close();
+            res.json({ events: e ? [] : rows.map(x => ({ id: x.id, posId: x.pos_id, ts: x.ts, kind: x.kind, from: x.from_state, to: x.to_state, detail: x.detail ? (() => { try { return JSON.parse(x.detail); } catch { return null; } })() : null })) });
+        });
+    });
+});
+
 engineWss.on("connection", ws => {
     ws.on("message", raw => {
         const str = raw.toString();
         // High-rate LTP stream is live-only (chart): never replayed from the ring buffer.
         if (!str.includes('"type":"LTP"')) pushToRing(str);
+        if (str.includes('"type":"RISKOBS"')) { try { const m = JSON.parse(str); if (m && m.snapshot) riskObsLatest.set(m.engine, { snapshot: m.snapshot, receivedAt: Date.now(), proc: m.proc || null }); } catch { /* ignore */ } return; }   // Risk Observer: cached, never replayed through the log ring
         if (str.includes('"type":"BLOCK"')) { try { recordBlock(JSON.parse(str)); } catch { /* ignore */ } }
         broadcastToBrowsers(str);
     });
