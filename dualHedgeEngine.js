@@ -75,6 +75,7 @@
 //   DH_LOTMULT_OVERRIDE       required unless the underlying already has a
 //                             lotMult override in context.js
 //   DH_BAND_STEP_OVERRIDE     optional, else engineConfig.BAND_STEP_DEFAULT (DSB step)
+//   DH_BAND_STEP2_OVERRIDE    optional DSB 2 step: when set, BOTH DSBs must agree on the colour (disagree = no entry, no flip)
 //   DH_RANGE_SIZE_OVERRIDE    range bar size in price units, default = the band step
 //   DH_RANGE_START_OVERRIDE   fixed range-bar anchor, IST "YYYY-MM-DD HH:mm:ss",
 //                             default "2026-06-01 09:00:00" (bars are path-
@@ -341,9 +342,11 @@ async function main() {
         console.error(c.red(`invalid band step (${bandStep}) / range size (${rangeSize}) — refusing to boot.`));
         process.exit(1);
     }
-    console.log(c.dim(`signal: Dynamic Step Band on range bars  step ${bandStep}  range ${rangeSize}  from ${RANGE_START} IST`));
+    const bandStep2 = process.env.DH_BAND_STEP2_OVERRIDE ? Number(process.env.DH_BAND_STEP2_OVERRIDE) : null;
+    if (bandStep2 !== null && !(bandStep2 > 0)) { console.error(c.red(`invalid DSB 2 step (${bandStep2}) — refusing to boot.`)); process.exit(1); }
+    console.log(c.dim(`signal: ${bandStep2 ? `DSB AGREE — DSB 1 step ${bandStep} + DSB 2 step ${bandStep2} must both show the colour (disagree = no trade, no flip)` : `Dynamic Step Band  step ${bandStep}`} on range bars  range ${rangeSize}  from ${RANGE_START} IST`));
     const bandReader = createRangeBandReader({
-        getKc: () => longKc, token: long.context.token, step: bandStep, rangeSize, startDate: RANGE_START, label: "DUAL_HEDGE",
+        getKc: () => longKc, token: long.context.token, step: bandStep, step2: bandStep2, rangeSize, startDate: RANGE_START, label: "DUAL_HEDGE",
     });
 
     // ─── Live price — one websocket on the LONG user's credentials (market

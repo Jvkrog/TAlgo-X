@@ -3117,6 +3117,9 @@ async function addDualHedge() {
     const bandStepInput = await ask("  Band step override (blank = engine default): ");
     const bandStep = bandStepInput ? Number(bandStepInput) : null;
     if (bandStep !== null && (!Number.isFinite(bandStep) || bandStep <= 0)) { console.log(c.yellow("  Invalid band step")); await pauseForReview(); return; }
+    const bs2In = (await ask("  DSB 2 step — both DSBs must agree before a leg enters/flips, fewer false trades (blank = single DSB): ")).trim();
+    const bandStep2 = bs2In ? Number(bs2In) : null;
+    if (bandStep2 !== null && (!Number.isFinite(bandStep2) || bandStep2 <= 0)) { console.log(c.yellow("  Invalid DSB 2 step")); await pauseForReview(); return; }
 
     const rangeInput = await ask("  Range bar size in price points (blank = same as the band step): ");
     const rangeSize = rangeInput ? Number(rangeInput) : null;
@@ -3171,6 +3174,7 @@ async function addDualHedge() {
     };
     if (lotMultOverride) env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
     if (bandStep)        env.DH_BAND_STEP_OVERRIDE = String(bandStep);
+    env.DH_BAND_STEP2_OVERRIDE = bandStep2 ? String(bandStep2) : "";
     env.DH_CONTRACT_OVERRIDE = contractSymbol || "";
     // Always written explicitly (PM2 restart merges env, never clears it).
     env.DH_TAKE_PROFIT_RUPEES_OVERRIDE = String(takeProfit);

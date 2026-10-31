@@ -114,7 +114,7 @@ function candlesToPoints(candles) {
 //   step       — DSB step
 //   rangeSize  — range bar size (price units)
 //   startDate  — fixed anchor, IST "YYYY-MM-DD HH:mm:ss"
-function createRangeBandReader({ getKc, token, step, rangeSize, startDate, label }) {
+function createRangeBandReader({ getKc, token, step, step2 = null, rangeSize, startDate, label }) {
     const minutes = new Map();   // epoch ms -> candle
     let lastState = null;
     let lastErrorLoggedAt = 0;
@@ -151,6 +151,15 @@ function createRangeBandReader({ getKc, token, step, rangeSize, startDate, label
         const state = dsbFromBars(bars, step);
         if (!state) throw new Error(`no completed range bars yet (range ${rangeSize})`);
         lastState = { ...state, bars: bars.length, rangeSize, step };
+        // AGREE mode (step2 set): a second, slower DSB on the same bars. The signal colour is green / red only when BOTH
+        // DSBs show it; any disagreement (or an undecided DSB) is "white" = no entry and no flip, which cuts false trades.
+        if (step2 > 0) {
+            const s2 = dsbFromBars(bars, step2);
+            const c2 = s2 ? s2.color : "white";
+            lastState.color1 = state.color; lastState.color2 = c2; lastState.step2 = step2;
+            lastState.color = state.color === c2 && state.color !== "white" ? state.color : "white";
+            lastState.position = lastState.color === "green" ? 1 : lastState.color === "red" ? -1 : 0;
+        }
     }
 
     // { color, position, mid, high, low, bars, rangeSize, step } for the latest
