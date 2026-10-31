@@ -2533,6 +2533,7 @@ async function getDualHedgeProcesses() {
             unwindMode: p.pm2_env.env?.DH_UNWIND_MODE || "BAND_FLIP",
             bandTimeframe: p.pm2_env.env?.DH_BAND_TIMEFRAME || "15m",
             bandStep: p.pm2_env.env?.DH_BAND_STEP_OVERRIDE ? Number(p.pm2_env.env.DH_BAND_STEP_OVERRIDE) : null,
+            bandStep2: p.pm2_env.env?.DH_BAND_STEP2_OVERRIDE ? Number(p.pm2_env.env.DH_BAND_STEP2_OVERRIDE) : null,
             contractSymbol: p.pm2_env.env?.DH_CONTRACT_OVERRIDE || null,
             longContract: p.pm2_env.env?.DH_LONG_CONTRACT_OVERRIDE || null,
             shortContract: p.pm2_env.env?.DH_SHORT_CONTRACT_OVERRIDE || null,
@@ -2646,7 +2647,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     const {
         underlying, longUser, shortUser, lots, maxLossRupees, takeProfitRupees, rangeSize,
         slMode: slModeIn, atrSlMult, atrTimeframe: atrTfIn,
-        lotMultOverride, bandStepOverride, live, confirmLive,
+        lotMultOverride, bandStepOverride, bandStep2Override, live, confirmLive,
         gapCapture, gcEntry, gcExit,
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
         coreSignal: coreSignalIn, bandHa: bandHaIn, coreEod: coreEodIn, coreAccount: coreAccountIn, flipCore: flipCoreIn,
@@ -2709,6 +2710,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     };
     if (lotMultOverride)  env.DH_LOTMULT_OVERRIDE = String(lotMultOverride);
     if (bandStepOverride) env.DH_BAND_STEP_OVERRIDE = String(bandStepOverride);
+    env.DH_BAND_STEP2_OVERRIDE = (strategy === "DUAL" && Number(bandStep2Override) > 0) ? String(Number(bandStep2Override)) : "";
 
     if (strategy === "REALIZE") {
         for (const [label, v] of [["realizeRupees", realizeRupees], ["lossAlertRupees", lossAlertRupees]]) {

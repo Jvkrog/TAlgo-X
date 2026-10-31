@@ -4500,6 +4500,7 @@ async function renderDualHedgeAddForm() {
     </div>
     <div class="tb-form-row" id="dhSingleContract"><div class="tb-form-label">Contract (both accounts)</div><select id="dhContract">${contractOpts}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">Band step override (blank = engine default)</div><input type="number" id="dhBandStep" min="0" step="any"></div>
+    <div class="tb-form-row" id="dhBandStep2Row"><div class="tb-form-label">DSB 2 step (DUAL only): when set, both DSBs must agree before a leg enters or flips, so fewer false trades (blank = single DSB, as before)</div><input type="number" id="dhBandStep2" min="0" step="any"></div>
     <div id="dhDualOnly2">
     <div class="tb-form-row"><div class="tb-form-label">Range bar size in price points (blank = same as the band step)</div><input type="number" id="dhRangeSize" min="0" step="any"></div>
     <div class="tb-form-row">
@@ -4569,6 +4570,7 @@ async function renderDualHedgeAddForm() {
       rangeSize: tbDualHedgeBody.querySelector("#dhRangeSize")?.value || undefined,
       lotMultOverride: tbDualHedgeBody.querySelector("#dhLotMult")?.value || undefined,
       bandStepOverride: tbDualHedgeBody.querySelector("#dhBandStep")?.value || undefined,
+      bandStep2Override: tbDualHedgeBody.querySelector("#dhStrategy").value === "DUAL" ? (tbDualHedgeBody.querySelector("#dhBandStep2")?.value || undefined) : undefined,
       contractSymbol: tbDualHedgeBody.querySelector("#dhStrategy").value !== "BIAS" ? (tbDualHedgeBody.querySelector("#dhContract").value || undefined) : undefined,
       longContract: tbDualHedgeBody.querySelector("#dhStrategy").value === "BIAS" ? (tbDualHedgeBody.querySelector("#dhLongContract").value || undefined) : undefined,
       shortContract: tbDualHedgeBody.querySelector("#dhStrategy").value === "BIAS" ? (tbDualHedgeBody.querySelector("#dhShortContract").value || undefined) : undefined,
