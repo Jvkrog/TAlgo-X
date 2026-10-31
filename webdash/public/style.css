@@ -1641,3 +1641,19 @@ body.chart-page .depth-panel { height: auto; }
 /* the legend / info read-outs must keep their full height: as shrinkable flex items inside the fixed-height modal they were squeezed to their min-height and the extra lines drew over the next block */
 .chart-legend, .chart-info, .chart-controls, .chart-colors { flex-shrink: 0; }
 .chart-info { overflow-wrap: anywhere; }
+
+/* Risk Observer tab */
+.riskobs-body { padding: 10px 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+.ro-card { border: 1px solid var(--border-strong, #1f4d36); border-radius: 10px; padding: 10px 12px; }
+.ro-head { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; margin-bottom: 8px; }
+.ro-pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; letter-spacing: .04em; }
+.ro-normal, .ro-h-healthy { color: #33ff88; } .ro-watch, .ro-h-stale { color: #ffb347; } .ro-danger-state, .ro-danger.ro-pill { color: #ff5266; }
+.ro-pill.ro-danger { color: #ff5266; } .ro-recovery { color: #5fd3ff; } .ro-unknown, .ro-h-error { color: #ff5266; } .ro-shadow { color: var(--dim, #7aa88c); }
+.ro-warn { font-size: 12px; color: #ffb347; border: 1px solid #5a4318; background: rgba(255,179,71,.07); border-radius: 8px; padding: 6px 10px; margin: 0 0 8px; }
+.ro-warn.ro-danger { color: #ff8a98; border-color: #5a1f29; background: rgba(255,82,102,.07); }
+.ro-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
+.ro-box { border: 1px solid var(--border, #173a29); border-radius: 8px; padding: 8px 10px; min-width: 0; }
+.ro-box-title { font-size: 11px; color: var(--dim, #7aa88c); letter-spacing: .06em; text-transform: uppercase; margin-bottom: 6px; }
+.ro-row { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 2px 0; } .ro-row b { text-align: right; overflow-wrap: anywhere; font-weight: 600; }
+.ro-ev { display: grid; grid-template-columns: 150px 150px 1fr; gap: 8px; font-size: 12px; padding: 3px 0; border-top: 1px solid rgba(255,255,255,.04); } .ro-ev i { color: var(--dim, #7aa88c); font-style: normal; overflow-wrap: anywhere; }
+@media (max-width: 700px) { .ro-ev { grid-template-columns: 1fr; gap: 0; } }

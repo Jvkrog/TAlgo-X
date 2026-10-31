@@ -1646,14 +1646,18 @@ let riskInstruments = [];
 
 const tabAi = document.getElementById("tabAi");
 const aiView = document.getElementById("aiView");
+const tabRiskObs = document.getElementById("tabRiskObs");
+const riskObsView = document.getElementById("riskObsView");
 function switchTab(tab) {
-  const tabs = { dashboard: [tabDashboard, dashboardView], toolbox: [tabToolbox, toolboxView], risk: [tabRisk, riskView], ai: [tabAi, aiView] };
+  const tabs = { dashboard: [tabDashboard, dashboardView], toolbox: [tabToolbox, toolboxView], risk: [tabRisk, riskView], riskobs: [tabRiskObs, riskObsView], ai: [tabAi, aiView] };
   for (const [name, [btn, view]] of Object.entries(tabs)) {
     btn.classList.toggle("active", name === tab);
     if (name !== tab) view.style.display = "none";
   }
   if (tab === "dashboard") { dashboardView.style.display = ""; return; }
   if (tab === "risk") { riskView.style.display = ""; loadRiskList(); return; }
+  if (tab === "riskobs") { riskObsView.style.display = ""; startRiskObs(); return; }
+  stopRiskObs();
   if (tab === "ai") { aiView.style.display = ""; loadAiSummary(aiSummaryDays); loadAiTrades(); return; }
   if (toolboxBooting) return;
   if (toolboxBootPlayed) {
@@ -1667,6 +1671,7 @@ function switchTab(tab) {
 tabDashboard.addEventListener("click", () => switchTab("dashboard"));
 tabToolbox.addEventListener("click", () => switchTab("toolbox"));
 tabRisk.addEventListener("click", () => switchTab("risk"));
+tabRiskObs.addEventListener("click", () => switchTab("riskobs"));
 tabAi.addEventListener("click", () => switchTab("ai"));
 document.getElementById("aiRefreshBtn").addEventListener("click", () => { loadAiSummary(aiSummaryDays); loadAiTrades(); });
 
@@ -1699,6 +1704,7 @@ function renderRiskList() {
     if (inst.strategy === "PURE_HA") badges.push(`<span class="mode-pill">flip ${inst.flipConfirmCandles ?? 1}</span>`);
     if (inst.strategy === "DAILY_HA_BIAS") badges.push(`<span class="mode-pill">entry ${inst.dailyBiasEntryTime || "10:00"} \u00b7 ${inst.dailyBiasCandle === "CURRENT" ? "today's candle" : "prev candle"}</span>`);
     else if (inst.entryTime) badges.push(`<span class="mode-pill">entry \u2265 ${inst.entryTime}</span>`);
+    if (inst.riskObserver) badges.push(`<span class="mode-pill">risk observer</span>`);
     if (inst.slDisabled) badges.push(`<span class="mode-pill live">no stop-loss</span>`);
     else if (inst.hardSlRupees) badges.push(`<span class="mode-pill">hard SL \u20b9${inst.hardSlRupees}</span>`);
     else if (inst.atrSlMult) badges.push(`<span class="mode-pill">atr ${inst.atrSlMult}x</span>`);
@@ -2065,6 +2071,7 @@ function openEditModal(inst) {
       <input type="number" id="editHardSl" min="0" step="any" value="${inst.hardSlRupees ?? ""}">
     </div>
     <div class="tb-form-row">
+      <label class="tb-form-row-inline" style="${inst.strategy === "DSB_DUAL" ? "" : "display:none"}"><input type="checkbox" id="editRiskObserver" ${inst.riskObserver ? "checked" : ""}><span>Risk Observer: 15m shadow monitor (alerts + Risk Observer tab, never places or changes orders)</span></label>
       <label class="tb-form-row-inline"><input type="checkbox" id="editSlDisabled" ${inst.slDisabled ? "checked" : ""}><span>Disable stop-loss (no ATR / hard stop; exits only on the strategy signal, target or end of day)</span></label>
     </div>
     ${inst.strategy === "PURE_HA" ? `
@@ -2190,6 +2197,7 @@ function openEditModal(inst) {
     body.atrSlMult = tbEditBody.querySelector("#editAtrSlMult").value || null;
     body.hardSlRupees = tbEditBody.querySelector("#editHardSl").value || null;
     body.slDisabled = tbEditBody.querySelector("#editSlDisabled").checked;
+    body.riskObserver = !!(tbEditBody.querySelector("#editRiskObserver") && tbEditBody.querySelector("#editRiskObserver").checked);
     const editFlipConfirmEl = tbEditBody.querySelector("#editFlipConfirm");
     if (editFlipConfirmEl) body.flipConfirmCandles = editFlipConfirmEl.value || null;
     const editDhabEntryEl = tbEditBody.querySelector("#editDhabEntry");
@@ -2547,6 +2555,7 @@ function renderAddConfigStep() {
       <input type="number" id="addHardSl" min="0" step="any">
     </div>
     <div class="tb-form-row">
+      <label class="tb-form-row-inline"><input type="checkbox" id="addRiskObserver"><span>Risk Observer (DSB_DUAL only): 15m shadow monitor, alerts + Risk Observer tab, never places or changes orders</span></label>
       <label class="tb-form-row-inline"><input type="checkbox" id="addSlDisabled"><span>Disable stop-loss (no ATR / hard stop; exits only on the strategy signal, target or end of day)</span></label>
     </div>
     <div class="tb-form-row" id="addFlipConfirmRow" style="display:none">
@@ -2729,6 +2738,7 @@ function renderAddConfigStep() {
         atrSlMult: tbAddBody.querySelector("#addAtrSlMult").value || undefined,
         hardSlRupees: tbAddBody.querySelector("#addHardSl").value || undefined,
         slDisabled: tbAddBody.querySelector("#addSlDisabled").checked || undefined,
+        riskObserver: (pickedStrategy === "DSB_DUAL" && tbAddBody.querySelector("#addRiskObserver").checked) || undefined,
         flipConfirmCandles: pickedStrategy === "PURE_HA" ? (tbAddBody.querySelector("#addFlipConfirm").value || undefined) : undefined,
         dailyBiasEntryTime: pickedStrategy === "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addDhabEntry").value || undefined) : undefined,
         entryTime: pickedStrategy !== "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addEntryTime").value || undefined) : undefined,
@@ -4969,4 +4979,65 @@ async function loadAiTrades() {
       btn.disabled = false;
     });
   });
+}
+
+// ── Risk Observer tab (read-only; polls /api/riskobs while visible) ─────────────────────────
+let riskObsTimer = null;
+function stopRiskObs() { if (riskObsTimer) { clearInterval(riskObsTimer); riskObsTimer = null; } }
+function startRiskObs() { stopRiskObs(); loadRiskObs(); riskObsTimer = setInterval(loadRiskObs, 5000); }
+document.getElementById("riskObsRefreshBtn").addEventListener("click", () => loadRiskObs());
+const roF = (v, d = 2) => (v === null || v === undefined || !Number.isFinite(Number(v)) ? "–" : Number(v).toFixed(d));
+const roDir = c => (c === "green" ? "LONG" : c === "red" ? "SHORT" : "–");
+const roTs = ms => (ms ? new Date(ms).toLocaleString("en-IN", { hour12: false, timeZone: "Asia/Kolkata", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "–");
+const roAge = ms => (ms == null ? "–" : ms < 90000 ? Math.round(ms / 1000) + "s ago" : ms < 5400000 ? Math.round(ms / 60000) + "m ago" : (ms / 3600000).toFixed(1) + "h ago");
+const roDur = ms => (!ms ? "0m" : Math.round(ms / 60000) + "m");
+const roSecs = s => (s < 90 ? Math.round(s) + "s" : Math.round(s / 60) + "m");
+function roBox(title, rows) {
+  return `<div class="ro-box"><div class="ro-box-title">${title}</div>${rows.map(([k, v, cls]) => `<div class="ro-row"><span>${k}</span><b class="${cls || ""}">${v}</b></div>`).join("")}</div>`;
+}
+function roCard(inst, events) {
+  const s = inst.snapshot, name = escHtml(inst.underlying || inst.name);
+  if (!s) return `<div class="ro-card"><div class="ro-head"><b>${name}</b> <span class="ro-pill ro-unknown">no data yet</span></div><div class="tb-form-hint">The observer is enabled but has not reported (engine ${escHtml(inst.status || "?")}). It starts with the engine's market-data connection.</div></div>`;
+  const now = Date.now(), m = s.metrics, tr = s.trend1h, o = s.obs15, fr = s.freshness;
+  const stCls = "ro-" + String(s.riskState).toLowerCase();
+  const hCls = "ro-h-" + String(s.health.status).toLowerCase();
+  const rel = { aligned: "aligned with position", opposite: "agree AGAINST position", disagree: "disagree", undecided: "undecided" }[o.relation] || (o.agree ? "agree" : "disagree");
+  const sc = (v) => (v === null || v === undefined ? "" : v >= 0 ? "dsb-pos" : "dsb-neg");
+  const boxes = [
+    roBox("Position", [["Instrument", name], ["Position", s.position || "FLAT"], ["Entry price", roF(s.entryPrice)], ["Unrealised P&L", m && m.pnl !== null ? "₹" + roF(m.pnl, 0) : "–", m ? sc(m.pnl) : ""]]),
+    roBox("Trend authority · 1H Dual DSB", [["DSB 1", roDir(tr.c1)], ["DSB 2", roDir(tr.c2)], ["Agreement", tr.agree ? "AGREE → " + tr.dir : tr.dir === "NONE" ? "undecided" : "DISAGREE"]]),
+    roBox("Risk observer · 15M Dual DSB", [["DSB 1", roDir(o.c1)], ["DSB 2", roDir(o.c2)], ["Agreement", o.agree ? "AGREE" : "DISAGREE"], ["Relation", s.position ? rel : "–"], ["Disagreement", o.disagreeCandles ? o.disagreeCandles + " candles · " + roDur(o.disagreeMs) : "none"], ["Last 15M candle", roTs(o.lastCandleTs)]]),
+    roBox("Risk metrics", m ? [["MAE (candle / live)", roF(m.maeCandlePts) + " / " + roF(m.maeLivePts) + " pts"], ["MFE (candle / live)", roF(m.mfeCandlePts) + " / " + roF(m.mfeLivePts) + " pts"], ["Adverse now", roF(m.currentAdversePts) + " pts"], ["15M ATR · ratio", roF(m.atr15) + " · " + roF(m.atrRatio) + "×"], ["Adverse candles", m.adverseCandles], ["Peak unrealised", "₹" + roF(m.peakPnl, 0)], ["Giveback now / max", "₹" + roF(m.giveback, 0) + " / ₹" + roF(m.maxGiveback, 0)], ["Recovery from MAE", m.recovery === null ? "–" : Math.round(m.recovery * 100) + "%"], ["Time in state", ["NORMAL", "WATCH", "DANGER", "RECOVERY"].map(k => k.toLowerCase() + " " + roSecs(m.stateSecs[k] || 0)).join(", ")]] : [["No open position", "metrics start at entry"]]),
+    roBox("Data freshness", [["Last 15M update", roTs(fr.last15mFetchOkAt) + " (" + roAge(fr.last15mFetchOkAt ? now - fr.last15mFetchOkAt : null) + ")"], ["Last 1H candle", roTs(fr.last1hCandleTs)], ["Last runtime event", roAge(fr.lastRuntimeEventAt ? now - fr.lastRuntimeEventAt : null)], ["Last observer report", roAge(inst.ageMs)]]),
+  ].join("");
+  const evRows = (events || []).slice(0, 25).map(e => {
+    const what = e.kind === "STATE" ? `${e.from} → ${e.to}` : e.kind === "HEALTH" ? `health ${e.from ? e.from + " → " : ""}${e.to}` : e.kind.replace(/_/g, " ").toLowerCase();
+    const why = e.detail && e.detail.reasons ? e.detail.reasons.join("; ") : e.detail && e.detail.reason ? e.detail.reason : e.detail && e.detail.result ? e.detail.result : e.detail && e.detail.note ? e.detail.note : "";
+    return `<div class="ro-ev"><span>${roTs(e.ts)}</span><b>${escHtml(what)}</b><i>${escHtml(why)}</i></div>`;
+  }).join("") || `<div class="tb-form-hint">No risk events recorded yet.</div>`;
+  return `<div class="ro-card">
+    <div class="ro-head"><b>${name}</b> <span class="tb-form-hint">${escHtml(s.strategy)} · ${escHtml(s.timeframe)}</span>
+      <span class="ro-pill ${stCls}" title="Risk state — a monitoring label, not a trading signal">RISK ${escHtml(s.riskState)}</span>
+      <span class="ro-pill ${hCls}" title="Observer health — is the 15M data trustworthy?">OBSERVER ${escHtml(s.health.status)}</span>
+      <span class="ro-pill ro-shadow">SHADOW · observation only</span></div>
+    ${s.health.reason ? `<div class="ro-warn">Observer health: ${escHtml(s.health.reason)}${s.riskState === "UNKNOWN" ? " — risk state is frozen (last known: " + escHtml(s.lastKnownRiskState) + ")" : ""}</div>` : ""}
+    ${s.reconcileNote ? `<div class="ro-warn">Reconciliation: ${escHtml(s.reconcileNote)}</div>` : ""}
+    ${s.riskState === "DANGER" ? `<div class="ro-warn ro-danger">DANGER = persistent adverse conditions on the 15M layer. The 1H Dual DSB has not reversed and the position was NOT touched; this is an alert only.</div>` : ""}
+    <div class="ro-grid">${boxes}</div>
+    <div class="ro-box" style="margin-top:8px"><div class="ro-box-title">Risk event timeline</div>${evRows}</div>
+  </div>`;
+}
+async function loadRiskObs() {
+  const body = document.getElementById("riskObsBody");
+  try {
+    const d = await (await fetch("/api/riskobs")).json();
+    if (!d.instruments || !d.instruments.length) { body.innerHTML = `<div class="tb-form-hint" style="padding:16px">No instrument has the Risk Observer enabled. Turn on "Risk Observer" when adding or editing a DSB_DUAL instrument.</div>`; return; }
+    const cards = [];
+    for (const inst of d.instruments) {
+      let events = [];
+      if (inst.snapshot) { try { events = (await (await fetch("/api/riskobs/events/" + encodeURIComponent(inst.snapshot.tgPrefix))).json()).events || []; } catch { /* timeline optional */ } }
+      cards.push(roCard(inst, events));
+    }
+    body.innerHTML = cards.join("");
+  } catch (err) { body.innerHTML = `<div class="ro-warn" style="margin:12px 16px">Could not load Risk Observer data: ${escHtml(err.message)}</div>`; }
 }
