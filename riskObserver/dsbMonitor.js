@@ -9,15 +9,21 @@ const { toHAAlways } = require("../indicators");
 const colorOf = st => (st && st.position === "LONG" ? "green" : st && st.position === "SHORT" ? "red" : "none");
 
 // Dual DSB read of a bar series: per-bar colours for both bands (so streaks can be derived) + the latest state.
-function dualReplay(bars, step1, step2) {
-    const ha = toHAAlways(bars);
+// replayHa(haBars, step1, step2): steppers over bars that are ALREADY Heikin-Ashi — no conversion here. This is the
+// strategy's exact shape: convert once, then feed the same HA candle to both steppers (createDsbDualStrategy).
+function replayHa(haBars, step1, step2) {
     const s1 = createBandStepper(step1), s2 = createBandStepper(step2);
     const rows = [];
-    for (let i = 0; i < ha.length; i++) {
-        s1.push(ha[i]); s2.push(ha[i]);
-        rows.push({ ts: bars[i].ts, c1: colorOf(s1.state()), c2: colorOf(s2.state()) });
+    for (let i = 0; i < haBars.length; i++) {
+        s1.push(haBars[i]); s2.push(haBars[i]);
+        rows.push({ ts: haBars[i].ts, c1: colorOf(s1.state()), c2: colorOf(s2.state()) });
     }
     return rows;
+}
+// dualReplay(rawBars, ...): converts RAW bars to Heikin-Ashi exactly once, then replays. Only for raw input (the 15m feed).
+function dualReplay(bars, step1, step2) {
+    const ha = toHAAlways(bars).map((k, i) => ({ ...k, ts: bars[i].ts }));
+    return replayHa(ha, step1, step2);
 }
 
 // How a colour pair relates to a position: aligned / disagree / opposite / undecided
@@ -56,7 +62,7 @@ function createDsbMonitor({ step1, step2, tfMs = 15 * 60000, maxBars = 600 }) {
         for (let i = r.length - 1; i >= 0; i--) { if (r[i].c1 !== "none" && r[i].c2 !== "none" && r[i].c1 !== r[i].c2) n++; else break; }
         return { candles: n, durationMs: n ? (r[r.length - 1].ts + tfMs) - r[r.length - n].ts : 0 };
     }
-    return { addCandles, latest, disagreement, size: () => byTs.size, lastTs: () => (byTs.size ? Math.max(...byTs.keys()) : null), candles: ordered };
+    return { addCandles, latest, disagreement, size: () => byTs.size, lastTs: () => (byTs.size ? Math.max(...byTs.keys()) : null), firstTs: () => (byTs.size ? Math.min(...byTs.keys()) : null), candles: ordered };
 }
 
-module.exports = { createDsbMonitor, dualReplay, relation, colorOf };
+module.exports = { createDsbMonitor, dualReplay, replayHa, relation, colorOf };

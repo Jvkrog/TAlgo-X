@@ -4995,36 +4995,81 @@ const roSecs = s => (s < 90 ? Math.round(s) + "s" : Math.round(s / 60) + "m");
 function roBox(title, rows) {
   return `<div class="ro-box"><div class="ro-box-title">${title}</div>${rows.map(([k, v, cls]) => `<div class="ro-row"><span>${k}</span><b class="${cls || ""}">${v}</b></div>`).join("")}</div>`;
 }
-function roCard(inst, events) {
+const roBadge = (txt, cls) => `<span class="ro-badge ${cls}">${txt}</span>`;
+const roPct = v => (v === null || v === undefined ? "–" : Math.round(v * 100) + "%");
+let roAnCache = {};   // tgPrefix -> { at, data }
+function roAnalytics(an) {
+  const wrap = inner => `<div class="ro-box" style="margin-top:8px"><div class="ro-box-title">Historical analytics ${roBadge("HISTORICAL", "hist")}</div>${inner}</div>`;
+  if (!an) return wrap(`<div class="tb-form-hint">Loading…</div>`);
+  if (!an.available) return wrap(`<div class="tb-form-hint">Not available: ${escHtml(an.reason || "")}</div>`);
+  const s = an.summary, sm = s.sample, c = s.counts, r = s.rates;
+  const head = `<div class="ro-warn${sm.sufficient ? "" : " ro-danger"}">${sm.sufficient ? "" : "INSUFFICIENT SAMPLE — descriptive only, not evidence. "}${sm.closedFullyObserved} fully observed closed position(s) of ${sm.positions} recorded${sm.incomplete ? " · " + sm.incomplete + " " + roBadge("PARTIAL", "partial") + " excluded from the aggregates" : ""}${sm.open ? " · " + sm.open + " still open (provisional)" : ""}.</div>`;
+  const tot = Object.values(s.stateSecs).reduce((a, b) => a + b, 0), st = k => roSecs(s.stateSecs[k] || 0) + (tot ? " (" + roPct((s.stateSecs[k] || 0) / tot) + ")" : "");
+  const boxes = [
+    roBox("Risk transitions", [["Entered WATCH", c.enteredWatch], ["Entered DANGER", c.enteredDanger], ["WATCH → DANGER", c.watchToDanger + " (" + roPct(r.watchEscalatedToDanger) + " of WATCH)"], ["Direct NORMAL → DANGER", c.directDanger], ["DANGER → RECOVERY", c.dangerToRecovery + " (" + roPct(r.dangerRecovered) + " of DANGER)"], ["DANGER recovered before close", c.dangerRecoveredBeforeClose]]),
+    roBox("Adverse movement & giveback", [["MAE avg / max", roF(s.mae.avgPts) + " / " + roF(s.mae.maxPts) + " pts"], ["MFE avg / max", roF(s.mfe.avgPts) + " / " + roF(s.mfe.maxPts) + " pts"], ["Max giveback avg / max", "₹" + roF(s.giveback.avgMax, 0) + " / ₹" + roF(s.giveback.max, 0)], ["Adverse before DANGER", roF(s.adverseBeforeDanger.avgPts) + " pts · " + roF(s.adverseBeforeDanger.avgAtr) + " ATR (n=" + s.adverseBeforeDanger.n + ")"], ["Giveback at DANGER (avg)", "₹" + roF(s.giveback.avgAtDanger, 0)]]),
+    roBox("Time in risk state (all observed)", [["NORMAL", st("NORMAL")], ["WATCH", st("WATCH")], ["DANGER", st("DANGER")], ["RECOVERY", st("RECOVERY")]]),
+    roBox("15M vs position while 1H aligned", [["Observed", roSecs(s.dsbRelationWhile1hAligned.totalSecs)], ["15M DSB disagree", roPct(s.dsbRelationWhile1hAligned.disagreeShare)], ["15M DSBs agree AGAINST", roPct(s.dsbRelationWhile1hAligned.oppositeShare)]]),
+  ].join("");
+  const rows = s.positions.slice(-15).reverse().map(p => {
+    const path = p.transitions.length ? ["NORMAL", ...p.transitions.map(t => t.to + (t.skippedWatch ? "*" : ""))].join(" → ") : "NORMAL throughout";
+    return `<div class="ro-ev"><span>#${p.id} ${p.side} · ${p.status}${p.complete ? "" : " " + roBadge("PARTIAL", "partial")}</span><b>${escHtml(path)}</b><i>MAE ${roF(p.maePts)} · MFE ${roF(p.mfePts)} · max giveback ₹${roF(p.maxGiveback, 0)} · entered ${roTs(p.entryTs)}${p.complete ? "" : " · " + escHtml(p.partialReasons.join("; "))}</i></div>`;
+  }).join("") || `<div class="tb-form-hint">No positions recorded yet.</div>`;
+  let cal = "";
+  const k = an.calibration;
+  if (k && !k.error) {
+    const crow = k.configurations.slice(0, 21).map(x => `<tr${x.name === "defaults" ? ' class="ro-def"' : ""}><td>${escHtml(x.name)}</td><td>${x.all.warnings}</td><td>${x.all.dangerEvents}</td><td>${roF(x.all.avgAdverseAtWarningPts)}</td><td>${roF(x.all.avgGivebackAtWarningPts, 1)}</td><td>${x.all.unhelpfulWarnings}/${x.all.unhelpfulMeasured}</td><td>${x.all.dangerRecovered}/${x.all.dangerEvents}</td><td>${x.earlier.warnings}/${x.later.warnings}</td></tr>`).join("");
+    cal = `<div class="ro-box" style="margin-top:8px"><div class="ro-box-title">Threshold evaluation (offline replay) ${roBadge("HISTORICAL", "hist")} ${roBadge(k.sample.sufficient ? "n=" + k.sample.positionsUsed : "INSUFFICIENT n=" + k.sample.positionsUsed, k.sample.sufficient ? "hist" : "partial")}</div>
+      <div class="tb-form-hint">Replays recorded 15M candles through the same state machine for one-at-a-time threshold changes. Nothing is recommended and no default is changed. ${k.sample.excluded.length} position(s) excluded (partial / uncovered).</div>
+      <div style="overflow-x:auto"><table class="ro-cal"><tr><th>config</th><th>warnings</th><th>DANGER</th><th>adverse@warn (pts)</th><th>giveback@warn</th><th>unhelpful</th><th>DANGER recovered</th><th>warnings earlier/later</th></tr>${crow}</table></div>
+      <div class="tb-form-hint">${k.limitations.map(escHtml).join("<br>")}</div></div>`;
+  } else if (k && k.error) cal = `<div class="ro-warn">Threshold evaluation unavailable: ${escHtml(k.error)}</div>`;
+  return wrap(`${head}<div class="ro-grid">${boxes}</div><div class="ro-box-title" style="margin-top:8px">Per-position risk timeline</div>${rows}
+    <div class="tb-form-hint" style="margin-top:6px">* = WATCH skipped (direct escalation). ${escHtml(s.earlyWarning.note)}</div>${s.limitations.map(l => `<div class="tb-form-hint">${escHtml(l)}</div>`).join("")}`) + cal;
+}
+function roCard(inst, events, an) {
   const s = inst.snapshot, name = escHtml(inst.underlying || inst.name);
   if (!s) return `<div class="ro-card"><div class="ro-head"><b>${name}</b> <span class="ro-pill ro-unknown">no data yet</span></div><div class="tb-form-hint">The observer is enabled but has not reported (engine ${escHtml(inst.status || "?")}). It starts with the engine's market-data connection.</div></div>`;
   const now = Date.now(), m = s.metrics, tr = s.trend1h, o = s.obs15, fr = s.freshness;
   const stCls = "ro-" + String(s.riskState).toLowerCase();
-  const hCls = "ro-h-" + String(s.health.status).toLowerCase();
+  const rest = s.restHealth || s.health, lt = s.ltpHealth || { status: "NONE" }, gd = s.candleDiagnostics || {}, cov = m && m.coverage;
+  const hCls = "ro-h-" + String(rest.status).toLowerCase();
+  const lCls = "ro-h-" + ({ HEALTHY: "healthy", STALE: "stale", NONE: "error", CLOSED: "healthy" }[lt.status] || "stale");
+  const gr0 = gd.missingRanges && gd.missingRanges[0], gapRange = gr0 ? roTs(Date.parse(gr0.from)) + " → " + roTs(Date.parse(gr0.to)) + (gd.missingRanges.length > 1 ? " (+" + (gd.missingRanges.length - 1) + " more ranges)" : "") : "–";
   const rel = { aligned: "aligned with position", opposite: "agree AGAINST position", disagree: "disagree", undecided: "undecided" }[o.relation] || (o.agree ? "agree" : "disagree");
   const sc = (v) => (v === null || v === undefined ? "" : v >= 0 ? "dsb-pos" : "dsb-neg");
   const boxes = [
-    roBox("Position", [["Instrument", name], ["Position", s.position || "FLAT"], ["Entry price", roF(s.entryPrice)], ["Unrealised P&L", m && m.pnl !== null ? "₹" + roF(m.pnl, 0) : "–", m ? sc(m.pnl) : ""]]),
+    roBox("Position " + roBadge("LIVE", "live"), [["Instrument", name], ["Position", s.position || "FLAT"], ["Entry price", roF(s.entryPrice)], ["Unrealised P&L", m && m.pnl !== null ? "₹" + roF(m.pnl, 0) : "–", m ? sc(m.pnl) : ""]]),
     roBox("Trend authority · 1H Dual DSB", [["DSB 1", roDir(tr.c1)], ["DSB 2", roDir(tr.c2)], ["Agreement", tr.agree ? "AGREE → " + tr.dir : tr.dir === "NONE" ? "undecided" : "DISAGREE"]]),
     roBox("Risk observer · 15M Dual DSB", [["DSB 1", roDir(o.c1)], ["DSB 2", roDir(o.c2)], ["Agreement", o.agree ? "AGREE" : "DISAGREE"], ["Relation", s.position ? rel : "–"], ["Disagreement", o.disagreeCandles ? o.disagreeCandles + " candles · " + roDur(o.disagreeMs) : "none"], ["Last 15M candle", roTs(o.lastCandleTs)]]),
-    roBox("Risk metrics", m ? [["MAE (candle / live)", roF(m.maeCandlePts) + " / " + roF(m.maeLivePts) + " pts"], ["MFE (candle / live)", roF(m.mfeCandlePts) + " / " + roF(m.mfeLivePts) + " pts"], ["Adverse now", roF(m.currentAdversePts) + " pts"], ["15M ATR · ratio", roF(m.atr15) + " · " + roF(m.atrRatio) + "×"], ["Adverse candles", m.adverseCandles], ["Peak unrealised", "₹" + roF(m.peakPnl, 0)], ["Giveback now / max", "₹" + roF(m.giveback, 0) + " / ₹" + roF(m.maxGiveback, 0)], ["Recovery from MAE", m.recovery === null ? "–" : Math.round(m.recovery * 100) + "%"], ["Time in state", ["NORMAL", "WATCH", "DANGER", "RECOVERY"].map(k => k.toLowerCase() + " " + roSecs(m.stateSecs[k] || 0)).join(", ")]] : [["No open position", "metrics start at entry"]]),
+    roBox("Position metrics " + roBadge("LIVE", "live") + (cov && (cov.candle !== "FULL" || cov.live !== "FULL") ? " " + roBadge("PARTIAL", "partial") : ""), m ? [["MAE (candle / live)", roF(m.maeCandlePts) + " / " + roF(m.maeLivePts) + " pts"], ["MFE (candle / live)", roF(m.mfeCandlePts) + " / " + roF(m.mfeLivePts) + " pts"], ["Adverse now", roF(m.currentAdversePts) + " pts"], ["15M ATR · ratio", roF(m.atr15) + " · " + roF(m.atrRatio) + "×"], ["Adverse candles", m.adverseCandles], ["Peak unrealised", "₹" + roF(m.peakPnl, 0)], ["Giveback now / max", "₹" + roF(m.giveback, 0) + " / ₹" + roF(m.maxGiveback, 0)], ["Recovery from MAE", m.recovery === null ? "–" : Math.round(m.recovery * 100) + "%"], ["Time in state", ["NORMAL", "WATCH", "DANGER", "RECOVERY"].map(k => k.toLowerCase() + " " + roSecs(m.stateSecs[k] || 0)).join(", ")], ["Candle metrics coverage", cov ? cov.candle : "–", cov && cov.candle !== "FULL" ? "dsb-neg" : ""], ["Live metrics coverage", cov ? cov.live : "–", cov && cov.live !== "FULL" ? "dsb-neg" : ""]] : [["No open position", "metrics start at entry"]]),
     roBox("Data freshness", [["Last 15M update", roTs(fr.last15mFetchOkAt) + " (" + roAge(fr.last15mFetchOkAt ? now - fr.last15mFetchOkAt : null) + ")"], ["Last 1H candle", roTs(fr.last1hCandleTs)], ["Last runtime event", roAge(fr.lastRuntimeEventAt ? now - fr.lastRuntimeEventAt : null)], ["Last observer report", roAge(inst.ageMs)]]),
+    roBox("Data health · REST candles vs live price", [["REST 15M candles", rest.status, hCls], ["Last completed 15M candle", roTs(o.lastCandleTs)], ["Missing candles", (gd.missingCount ?? 0) + (gd.missingCount ? " · " + gapRange : ""), gd.missingCount ? "dsb-neg" : ""], ["Broker-empty slots", gd.brokerEmptyCount ?? 0], ["Live price (LTP)", lt.status, lCls], ["Last LTP", roTs(lt.lastAt) + " (" + (lt.ageMs == null ? "none since startup" : roAge(lt.ageMs)) + ")"], ["LTP stale after", Math.round((lt.staleAfterMs || 0) / 1000) + "s"]]),
   ].join("");
   const evRows = (events || []).slice(0, 25).map(e => {
-    const what = e.kind === "STATE" ? `${e.from} → ${e.to}` : e.kind === "HEALTH" ? `health ${e.from ? e.from + " → " : ""}${e.to}` : e.kind.replace(/_/g, " ").toLowerCase();
-    const why = e.detail && e.detail.reasons ? e.detail.reasons.join("; ") : e.detail && e.detail.reason ? e.detail.reason : e.detail && e.detail.result ? e.detail.result : e.detail && e.detail.note ? e.detail.note : "";
+    const what = e.kind === "STATE" ? `${e.from} → ${e.to}${e.detail && e.detail.skippedWatch ? " (WATCH skipped — direct escalation)" : ""}` : e.kind === "HEALTH" ? `health ${e.from ? e.from + " → " : ""}${e.to}` : e.kind.replace(/_/g, " ").toLowerCase();
+    const inp = e.detail && e.detail.inputs ? " [adverse " + roF(e.detail.inputs.adverseAtr) + " ATR, " + (e.detail.inputs.adverseCandles ?? 0) + " adverse candles, 15M disagree " + (e.detail.inputs.disagreeCandles ?? 0) + (e.detail.inputs.oppositeAgree ? ", DSBs against" : "") + "]" : "";
+    const why = e.detail && e.detail.reasons ? e.detail.reasons.join("; ") + inp : e.detail && e.detail.reason ? e.detail.reason : e.detail && e.detail.result ? e.detail.result : e.detail && e.detail.note ? e.detail.note : "";
     return `<div class="ro-ev"><span>${roTs(e.ts)}</span><b>${escHtml(what)}</b><i>${escHtml(why)}</i></div>`;
   }).join("") || `<div class="tb-form-hint">No risk events recorded yet.</div>`;
   return `<div class="ro-card">
     <div class="ro-head"><b>${name}</b> <span class="tb-form-hint">${escHtml(s.strategy)} · ${escHtml(s.timeframe)}</span>
       <span class="ro-pill ${stCls}" title="Risk state — a monitoring label, not a trading signal">RISK ${escHtml(s.riskState)}</span>
-      <span class="ro-pill ${hCls}" title="Observer health — is the 15M data trustworthy?">OBSERVER ${escHtml(s.health.status)}</span>
+      <span class="ro-pill ro-h-${String(s.overallHealth || "stale").toLowerCase()}" title="Overall observer health — the worst of candle feed, live price and startup">OBSERVER ${escHtml(s.overallHealth || "–")}</span>
+      <span class="ro-pill ${hCls}" title="REST health — the 15M candle feed">CANDLES ${escHtml(rest.status)}</span>
+      <span class="ro-pill ${lCls}" title="Live price health — age of the last WebSocket tick">LTP ${escHtml(lt.status)}</span>
       <span class="ro-pill ro-shadow">SHADOW · observation only</span></div>
-    ${s.health.reason ? `<div class="ro-warn">Observer health: ${escHtml(s.health.reason)}${s.riskState === "UNKNOWN" ? " — risk state is frozen (last known: " + escHtml(s.lastKnownRiskState) + ")" : ""}</div>` : ""}
+    ${rest.reason ? `<div class="ro-warn">Candle feed: ${escHtml(rest.reason)}</div>` : ""}
+    ${s.position && (lt.status === "STALE" || lt.status === "NONE") ? `<div class="ro-warn">Live price: ${lt.status === "NONE" ? "no tick received since startup" : "last tick " + roAge(lt.ageMs)}.</div>` : ""}
+    ${s.riskState === "UNKNOWN" ? `<div class="ro-warn">Risk state is UNKNOWN while data is unreliable (last known state: ${escHtml(s.lastKnownRiskState)}). Classification resumes automatically when fresh data returns.</div>` : ""}
+    ${s.init && s.init.state === "failed" ? `<div class="ro-warn">Observer start failed (attempt ${s.init.failures}): ${escHtml(s.init.error)} — retrying automatically. Trading is unaffected.</div>` : ""}
+    ${s.storeHealth && s.storeHealth.errors ? `<div class="ro-warn">Observer database write errors: ${s.storeHealth.errors} (${escHtml(s.storeHealth.lastError || "")}). History may be incomplete; trading is unaffected.</div>` : ""}
+    ${cov && (cov.candle !== "FULL" || cov.live !== "FULL") ? `<div class="ro-warn">Metrics coverage is PARTIAL: ${escHtml(cov.candle !== "FULL" ? cov.candleNote : cov.liveNote)}</div>` : ""}
     ${s.reconcileNote ? `<div class="ro-warn">Reconciliation: ${escHtml(s.reconcileNote)}</div>` : ""}
-    ${s.riskState === "DANGER" ? `<div class="ro-warn ro-danger">DANGER = persistent adverse conditions on the 15M layer. The 1H Dual DSB has not reversed and the position was NOT touched; this is an alert only.</div>` : ""}
+    ${s.riskState === "DANGER" ? `<div class="ro-warn ro-danger">DANGER${s.lastTransition && s.lastTransition.skippedWatch ? " (reached directly, WATCH skipped)" : ""} = adverse conditions on the 15M layer. The 1H Dual DSB has not reversed and the position was NOT touched; this is an alert only.</div>` : ""}
     <div class="ro-grid">${boxes}</div>
-    <div class="ro-box" style="margin-top:8px"><div class="ro-box-title">Risk event timeline</div>${evRows}</div>
+    <div class="ro-box" style="margin-top:8px"><div class="ro-box-title">Recent risk events (persisted, survives restarts) ${roBadge("HISTORICAL", "hist")}</div>${evRows}</div>
+    ${roAnalytics(an)}
   </div>`;
 }
 async function loadRiskObs() {
@@ -5036,7 +5081,13 @@ async function loadRiskObs() {
     for (const inst of d.instruments) {
       let events = [];
       if (inst.snapshot) { try { events = (await (await fetch("/api/riskobs/events/" + encodeURIComponent(inst.snapshot.tgPrefix))).json()).events || []; } catch { /* timeline optional */ } }
-      cards.push(roCard(inst, events));
+      let an = null;
+      if (inst.snapshot) {
+        const key = inst.snapshot.tgPrefix, hit = roAnCache[key];
+        if (!hit || Date.now() - hit.at > 25000) { try { roAnCache[key] = { at: Date.now(), data: await (await fetch("/api/riskobs/analytics/" + encodeURIComponent(key))).json() }; } catch { roAnCache[key] = { at: Date.now(), data: { available: false, reason: "dashboard could not reach the analytics endpoint" } }; } }
+        an = roAnCache[key].data;
+      }
+      cards.push(roCard(inst, events, an));
     }
     body.innerHTML = cards.join("");
   } catch (err) { body.innerHTML = `<div class="ro-warn" style="margin:12px 16px">Could not load Risk Observer data: ${escHtml(err.message)}</div>`; }

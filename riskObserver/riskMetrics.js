@@ -14,6 +14,7 @@ function createPositionMetrics({ side, entryPrice, perPoint, entryTs, tradeId = 
         candleMae: 0, candleMfe: 0, liveMae: 0, liveMfe: 0,
         lastPrice: null, currentAdverse: 0, currentFavorable: 0, pnl: null, peakPnl: 0, maxGiveback: 0, giveback: 0,
         adverseCandles: 0, candlesSeen: 0, lastCandleTs: null,
+        liveSince: null, liveGaps: 0, partial: false, partialNote: null,   // coverage bookkeeping: what the numbers do / do not cover
         stateSecs: { NORMAL: 0, WATCH: 0, DANGER: 0, RECOVERY: 0 },
     };
     const adv = p => (long ? m.entryPrice - p : p - m.entryPrice);   // + = against the position
@@ -34,6 +35,7 @@ function createPositionMetrics({ side, entryPrice, perPoint, entryTs, tradeId = 
     function onPrice(p) {
         if (!Number.isFinite(p)) return;
         m.lastPrice = p;
+        if (m.liveSince === null) m.liveSince = Date.now();
         const a = adv(p);
         m.currentAdverse = Math.max(0, a); m.currentFavorable = Math.max(0, -a);
         m.liveMae = Math.max(m.liveMae, a); m.liveMfe = Math.max(m.liveMfe, -a);
@@ -43,6 +45,10 @@ function createPositionMetrics({ side, entryPrice, perPoint, entryTs, tradeId = 
         if (m.giveback > m.maxGiveback) m.maxGiveback = m.giveback;
     }
 
+    // Live extremes / peak / giveback only cover moments this observer actually saw prices: every time observation was
+    // interrupted (stale LTP, restart) is counted so the numbers are never presented as covering the whole trade.
+    function markLiveGap() { m.liveGaps++; }
+    function markPartial(note) { m.partial = true; m.partialNote = note; }
     function addStateTime(state, secs) { if (m.stateSecs[state] !== undefined && secs > 0) m.stateSecs[state] += secs; }
     // how much of the worst adverse move has been won back (0..1); null when there was no adverse move
     function recovery() {
@@ -56,18 +62,24 @@ function createPositionMetrics({ side, entryPrice, perPoint, entryTs, tradeId = 
             maePts: Math.max(m.candleMae, m.liveMae), mfePts: Math.max(m.candleMfe, m.liveMfe),
             currentAdversePts: m.currentAdverse, peakPnl: m.peakPnl, giveback: m.giveback, maxGiveback: m.maxGiveback,
             adverseCandles: m.adverseCandles, recovery: recovery(), stateSecs: { ...m.stateSecs },
-            entryTs: m.entryTs, tradeId: m.tradeId,
+            entryTs: m.entryTs, tradeId: m.tradeId, perPoint: m.perPoint,
+            coverage: {
+                candle: m.partial ? "PARTIAL" : "FULL", candleNote: m.partial ? m.partialNote : "completed 15m candles since entry",
+                live: m.partial || m.liveGaps > 0 ? "PARTIAL" : "FULL",
+                liveNote: m.partial ? m.partialNote : m.liveGaps > 0 ? `${m.liveGaps} interruption(s) in live price observation (stale LTP / restart); extremes, peak P&L and giveback may be understated` : "continuous live price observation since entry",
+                liveSince: m.liveSince,
+            },
         };
     }
     // Restore from a persisted row (same position only — the caller checks identity)
     function restore(row) {
-        for (const k of ["candleMae", "candleMfe", "liveMae", "liveMfe", "peakPnl", "maxGiveback", "adverseCandles", "lastCandleTs"]) if (row[k] !== undefined && row[k] !== null) m[k] = row[k];
+        for (const k of ["candleMae", "candleMfe", "liveMae", "liveMfe", "peakPnl", "maxGiveback", "adverseCandles", "lastCandleTs", "liveSince", "liveGaps", "partial", "partialNote"]) if (row[k] !== undefined && row[k] !== null) m[k] = row[k];
         if (row.stateSecs) Object.assign(m.stateSecs, row.stateSecs);
     }
     function persistable() {
-        return { candleMae: m.candleMae, candleMfe: m.candleMfe, liveMae: m.liveMae, liveMfe: m.liveMfe, peakPnl: m.peakPnl, maxGiveback: m.maxGiveback, adverseCandles: m.adverseCandles, lastCandleTs: m.lastCandleTs, stateSecs: { ...m.stateSecs } };
+        return { candleMae: m.candleMae, candleMfe: m.candleMfe, liveMae: m.liveMae, liveMfe: m.liveMfe, peakPnl: m.peakPnl, maxGiveback: m.maxGiveback, adverseCandles: m.adverseCandles, lastCandleTs: m.lastCandleTs, liveSince: m.liveSince, liveGaps: m.liveGaps, partial: m.partial, partialNote: m.partialNote, perPoint: m.perPoint, stateSecs: { ...m.stateSecs } };
     }
-    return { onCandle, onPrice, addStateTime, snapshot, recovery, restore, persistable, raw: m };
+    return { onCandle, onPrice, markLiveGap, markPartial, addStateTime, snapshot, recovery, restore, persistable, raw: m };
 }
 
 module.exports = { createPositionMetrics };
