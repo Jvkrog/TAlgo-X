@@ -27,6 +27,7 @@ const { createPositionMetrics } = require("./riskMetrics");
 const { newMachine, step: stepMachine } = require("./riskState");
 const { coverageReport, fmt: fmtTs } = require("./coverage");
 const { atr } = require("../indicators");
+const { createAlertGate } = require("./alerts");
 
 const CFG_KEYS = {
     watchAdverseAtr: "RISK_OBS_WATCH_ADVERSE_ATR", watchDisagreeCandles: "RISK_OBS_WATCH_DISAGREE_CANDLES",
@@ -50,11 +51,14 @@ const fx = (v, d = 2) => (v === null || v === undefined || !Number.isFinite(v) ?
 const fmtDur = ms => (ms < 90000 ? Math.round(ms / 1000) + "s" : ms < 5400000 ? Math.round(ms / 60000) + "m" : (ms / 3600000).toFixed(1) + "h");
 const ACCOUNTING_CAP_SECS = 120;   // longest single interval credited to a state; anything beyond is booked as UNOBSERVED
 
-function createRiskObserver({ context, engineConfig, state, candles, store, tg: tgRaw = () => {}, emit: emitRaw = () => {}, clock = { now: () => Date.now() }, fetchRaw, params, marketOpen = () => true, log = () => {},
+function createRiskObserver({ context, engineConfig, state, candles, store, tg: tgSend = () => {}, emit: emitRaw = () => {}, clock = { now: () => Date.now() }, fetchRaw, params, marketOpen = () => true, log = () => {},
     timers = { setInterval, clearInterval, setTimeout, clearTimeout }, getEntryMeta = async () => null }) {
     const cfg = params;
     // dashboard / Telegram failures (disconnected WebSocket, bad token) must never reach the evaluation or the trading loop
-    const tg = (...a) => { try { const r = tgRaw(...a); if (r && r.catch) r.catch(() => {}); } catch { /* ignore */ } };
+    // Alert gate: identical alerts are de-duplicated and bursts are rate-limited (one summary when the window ends); failures are contained.
+    const gate = createAlertGate({ send: tgSend, now: () => clock.now() });
+    const tg = (text, opts) => { try { gate(text, opts); } catch { /* ignore */ } };
+    let lastEvalMs = null, startedAt = null;
     const emit = (...a) => { try { emitRaw(...a); } catch { /* ignore */ } };
     const tfMs = 15 * 60000;
     const step1 = context.bandStep ?? engineConfig.BAND_STEP_DEFAULT, step2 = context.bandStep2 ?? engineConfig.BAND_STEP2_DEFAULT;
@@ -263,7 +267,8 @@ function createRiskObserver({ context, engineConfig, state, candles, store, tg: 
     }
 
     // ── one evaluation ──────────────────────────────────────────────────────
-    async function evaluate() {
+    async function evaluate() { const t0 = nowMs(); try { return await evaluateCore(); } finally { lastEvalMs = nowMs() - t0; } }
+    async function evaluateCore() {
         if (busy) return; busy = true;
         try {
             const t = nowMs();
@@ -362,6 +367,7 @@ function createRiskObserver({ context, engineConfig, state, candles, store, tg: 
             riskState: x.displayUnknown ? "UNKNOWN" : x.riskState, lastKnownRiskState: x.riskState, riskReliable: !x.displayUnknown, unreliableCause: x.cause,
             health, restHealth: health, ltpHealth: ltp, candleDiagnostics: gd, overallHealth: overall(x.open), lastBackfillOkAt: info.lastBackfillOkAt,
             init: { state: initState, error: initError, failures: initFailures }, storeHealth: { errors: storeErrors, lastError: lastStoreError, schemaVersion: store.schemaVersion ?? null },
+            runtime: { startedAt, lastEvalMs, alerts: gate.stats() },
             reconcileNote, lastTransition,
             metrics: m ? { ...m, atr15: x.atrVal, atrRatio: m.atrRatio } : null,
             freshness: { last15mCandleTs: monitor.lastTs(), last15mFetchOkAt: info.lastOkAt, last1hCandleTs: x.tr.lastTs, lastRuntimeEventAt, lastPriceAt, ltpAgeMs: ltp.ageMs },
@@ -403,7 +409,7 @@ function createRiskObserver({ context, engineConfig, state, candles, store, tg: 
             }
             if (!evalTimer) { evalTimer = timers.setInterval(() => { evaluate().catch(() => {}); }, Math.max(5, cfg.evalSeconds) * 1000); if (evalTimer && evalTimer.unref) evalTimer.unref(); }
             const recovered = initFailures > 0;
-            initState = "running"; initError = null;
+            initState = "running"; initError = null; startedAt = nowMs();
             await ev("OBSERVER", { event: recovered ? "recovered" : "started", failedAttempts: initFailures });
         } catch (err) {
             strictStore = false;
