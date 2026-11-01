@@ -3296,6 +3296,30 @@ app.get("/api/riskobs/events/:engine", (req, res) => {
     });
 });
 
+// Historical risk analytics + threshold evaluation over the observer's OWN sqlite history (opened read-only, cached 30s).
+// Pure reporting: nothing here can change a threshold, a position or an order.
+const riskObsAnalyticsCache = new Map();
+app.get("/api/riskobs/analytics/:engine", async (req, res) => {
+    try {
+        const hit = riskObsLatest.get(req.params.engine);
+        const file = hit && hit.snapshot && hit.snapshot.storeFile;
+        if (!file || !/^[a-z0-9_]+_riskobs\.db$/.test(file)) return res.json({ available: false, reason: "observer has not reported a database yet" });
+        const cached = riskObsAnalyticsCache.get(file);
+        if (cached && Date.now() - cached.at < 30000) return res.json(cached.body);
+        const full = path.join(DB_DIR, file);
+        if (!fs.existsSync(full)) return res.json({ available: false, reason: "observer database not found" });
+        const { loadHistoryReadOnly, summarize } = require("../riskObserver/analytics");
+        const { evaluate } = require("../riskObserver/calibrate");
+        const history = await loadHistoryReadOnly(full);
+        const summary = summarize(history); for (const p of summary.positions) p.timeline = p.timeline.slice(-60);   // keep the payload small; full timeline stays in the db
+        let calibration = null;
+        try { const snap = hit.snapshot; calibration = evaluate(history, { steps: snap.obs15.steps, base: snap.params }); } catch (e) { calibration = { error: e.message }; }
+        const body = { available: true, summary, calibration };
+        riskObsAnalyticsCache.set(file, { at: Date.now(), body });
+        res.json(body);
+    } catch (err) { res.json({ available: false, reason: err.message }); }
+});
+
 engineWss.on("connection", ws => {
     ws.on("message", raw => {
         const str = raw.toString();

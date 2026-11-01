@@ -415,6 +415,12 @@ module.exports = {
     RISK_OBS_EVAL_SECONDS: 30,            // evaluation cadence (also runs on every completed 15m candle)
     RISK_OBS_STALE_GRACE_SECONDS: 180,    // a completed 15m candle later than this after its close = STALE
     RISK_OBS_ERROR_AFTER_FAILS: 3,        // consecutive failed 15m fetches before health = ERROR
+    RISK_OBS_LTP_STALE_SECONDS: 120,      // LIVE-PRICE freshness: no tick for this long (market open) = LTP STALE -> risk classification freezes, shown UNKNOWN.
+                                          // Independent of the 15m REST feed health; raise it for very illiquid contracts that can go quiet this long.
+    RISK_OBS_BACKFILL_TRIES: 3,           // empty Kite answers for a missing 15m slot before it is recorded as broker-empty (still shown in diagnostics)
+    RISK_OBS_START_RETRY_SECONDS: 15,     // retry delay after a failed observer start (reconciliation / store / first fetch)
+    RISK_OBS_SESSION_START_MIN: null,     // IST minutes-from-midnight session window used for gap detection (null = MCX 09:00-23:30, NSE 09:15-15:30)
+    RISK_OBS_SESSION_END_MIN: null,
 
     // ALMA_TRI_BAND — strategy #15. Direct port of the user-provided Pine
     // indicator ("TAlgo — Zinc Optimized v3") — despite the Pine title,

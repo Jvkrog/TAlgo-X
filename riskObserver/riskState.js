@@ -70,7 +70,9 @@ function step(m, inp, cfg) {
 
     if (to && to !== m.state) {
         next.state = to; next.worseTarget = null; next.worseCount = 0; next.clearCount = 0; next.normalCount = 0;
-        return { machine: next, transition: { from: m.state, to, reasons: cls.reasons } };
+        // NORMAL/RECOVERY -> DANGER without passing through WATCH is allowed (severe conditions) but always recorded as such.
+        const skippedWatch = to === "DANGER" && (m.state === "NORMAL" || m.state === "RECOVERY");
+        return { machine: next, transition: { from: m.state, to, reasons: cls.reasons, skippedWatch, skipped: skippedWatch ? ["WATCH"] : [], inputs: { ...inp }, confirmations: cfg.escalateConfirm } };
     }
     return { machine: next, transition: null };
 }

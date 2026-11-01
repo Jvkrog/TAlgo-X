@@ -44,6 +44,10 @@ async function createSqliteStore(file) {
         async addEvent(e) { await run(db, `INSERT INTO obs_events (pos_id,ts,kind,from_state,to_state,detail) VALUES (?,?,?,?,?,?)`, [e.posId ?? null, e.ts, e.kind, e.from ?? null, e.to ?? null, json(e.detail)]); },
         async recentEvents(limit = 100) { return (await all(db, `SELECT * FROM obs_events ORDER BY id DESC LIMIT ?`, [limit])).map(x => ({ id: x.id, posId: x.pos_id, ts: x.ts, kind: x.kind, from: x.from_state, to: x.to_state, detail: x.detail ? JSON.parse(x.detail) : null })); },
         // candle de-duplication across restarts: true when the candle is new
+        // read APIs for analytics / calibration (no schema change)
+        async allPositions() { return (await all(db, `SELECT * FROM obs_positions ORDER BY id`)).map(x => ({ id: x.id, side: x.side, entryPrice: x.entry_price, entryTs: x.entry_ts, tradeId: x.trade_id, openedAt: x.opened_at, closedAt: x.closed_at, closeNote: x.close_note, riskState: x.risk_state, metrics: x.metrics ? JSON.parse(x.metrics) : null, reconciled: !!x.reconciled })); },
+        async allEvents() { return (await all(db, `SELECT * FROM obs_events ORDER BY id`)).map(x => ({ id: x.id, posId: x.pos_id, ts: x.ts, kind: x.kind, from: x.from_state, to: x.to_state, detail: x.detail ? JSON.parse(x.detail) : null })); },
+        async allCandles() { return all(db, `SELECT ts,open,high,low,close FROM obs_candles ORDER BY ts`); },
         async markCandle(c) { const r = await run(db, `INSERT OR IGNORE INTO obs_candles (ts,open,high,low,close,c1,c2) VALUES (?,?,?,?,?,?,?)`, [c.ts, c.open, c.high, c.low, c.close, c.c1 ?? null, c.c2 ?? null]); return r.changes > 0; },
         async lastCandleTs() { const r = await all(db, `SELECT MAX(ts) AS t FROM obs_candles`); return r[0] && r[0].t !== null ? r[0].t : null; },
         close() { return new Promise(res => db.close(() => res())); },
@@ -61,6 +65,9 @@ function createMemoryStore() {
         async closePosition(id, note, ts) { const p = positions.find(x => x.id === id); if (p && p.closedAt == null) { p.closedAt = ts; p.closeNote = note; } },
         async addEvent(e) { events.push({ id: ++eid, posId: e.posId ?? null, ts: e.ts, kind: e.kind, from: e.from ?? null, to: e.to ?? null, detail: e.detail ?? null }); },
         async recentEvents(limit = 100) { return events.slice(-limit).reverse(); },
+        async allPositions() { return JSON.parse(JSON.stringify(positions)); },
+        async allEvents() { return JSON.parse(JSON.stringify(events)); },
+        async allCandles() { return [...candles.values()].sort((a, b) => a.ts - b.ts).map(c => ({ ts: c.ts, open: c.open, high: c.high, low: c.low, close: c.close })); },
         async markCandle(c) { if (candles.has(c.ts)) return false; candles.set(c.ts, c); return true; },
         async lastCandleTs() { return candles.size ? Math.max(...candles.keys()) : null; },
         async close() {}, _positions: positions, _events: events,
