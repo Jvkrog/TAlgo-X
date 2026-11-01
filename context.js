@@ -149,6 +149,7 @@ function buildContext(def, resolvedContract) {
         // orders.js (MIS vs NRML product), lifecycle.js (EOD skip), and
         // strategies.js (initSignals' shouldResume gate) for what this drives.
         carryOvernight: false,
+        product: null,   // "MIS" | "NRML" — set by engine.js from PRODUCT_OVERRIDE; null = legacy (carry => NRML, else MIS)
         // Overridden per-process by engine.js from TARGET_POINTS_OVERRIDE
         // (toolbox prompt, asked right after strategy selection — see
         // configureAndStartInstrument in toolbox.js). null = no fixed

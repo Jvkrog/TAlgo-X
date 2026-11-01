@@ -170,6 +170,7 @@ async function getEngineProcesses() {
             lotMult:   p.pm2_env.env?.LOTMULT_OVERRIDE || null,
             live:      p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             carryOvernight: p.pm2_env.env?.CARRY_OVERNIGHT_OVERRIDE === "true",
+            product: p.pm2_env.env?.PRODUCT_OVERRIDE === "MIS" || p.pm2_env.env?.PRODUCT_OVERRIDE === "NRML" ? p.pm2_env.env.PRODUCT_OVERRIDE : (p.pm2_env.env?.CARRY_OVERNIGHT_OVERRIDE === "true" ? "NRML" : "MIS"),
             targetPoints: p.pm2_env.env?.TARGET_POINTS_OVERRIDE ? Number(p.pm2_env.env.TARGET_POINTS_OVERRIDE) : null,
             targetMode: p.pm2_env.env?.TARGET_MODE_OVERRIDE === "adaptive" ? "adaptive" : "fixed",
             bandStep: p.pm2_env.env?.BAND_STEP_OVERRIDE ? Number(p.pm2_env.env.BAND_STEP_OVERRIDE) : null,
@@ -593,6 +594,7 @@ function buildProcessEnv(p, overrides = {}) {
         UNDERLYING: p.underlying,
         LIVE_ORDERS_OVERRIDE: String(!!p.live),
         CARRY_OVERNIGHT_OVERRIDE: String(!!p.carryOvernight),
+        PRODUCT_OVERRIDE: p.product === "MIS" || p.product === "NRML" ? p.product : (p.carryOvernight ? "NRML" : "MIS"),
         STRATEGY_OVERRIDE: p.strategy || DEFAULT_STRATEGY,
         TIMEFRAME_OVERRIDE: p.timeframe || STRATEGY_TIMEFRAME[p.strategy || DEFAULT_STRATEGY] || "15m",
         // Was missing here — same bug class as the one found in webdash's
@@ -734,7 +736,7 @@ async function toggleMode(procs) {
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
-                env: buildProcessEnv(p, { LIVE_ORDERS_OVERRIDE: String(goingLive), CARRY_OVERNIGHT_OVERRIDE: String(carryOvernight) }),
+                env: buildProcessEnv(p, { LIVE_ORDERS_OVERRIDE: String(goingLive), CARRY_OVERNIGHT_OVERRIDE: String(carryOvernight), PRODUCT_OVERRIDE: carryOvernight ? "NRML" : (p.product === "NRML" ? "NRML" : "MIS") }),
             });
             const carryTag = carryOvernight ? c.yellow(" CARRY") : "";
             console.log(c.green(`  ${p.underlying} -> ${goingLive ? c.red("LIVE") : c.cyan("PAPER")}${carryTag} (restarted)`));
@@ -1587,8 +1589,15 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     // should still simulate the same restore-across-days behavior a live
     // carry would have. Default is NO (MIS, EOD force-close) — carrying
     // overnight is a deliberate opt-in, not the safe default.
-    const carryInput = (await ask(`  Carry position overnight instead of EOD close? [y/N] (default: N): `)).trim().toUpperCase();
-    const carryOvernight = carryInput === "Y";
+    // Order product: MIS (intraday, closed at EOD) or NRML. NRML adds a second choice: carry overnight, or still close at EOD like MIS.
+    const productInput = (await ask(`  Order product  [1] MIS (closed at EOD)  [2] NRML (default 1): `)).trim();
+    const product = productInput === "2" ? "NRML" : "MIS";
+    let carryOvernight = false;
+    if (product === "NRML") {
+        const eodInput = (await ask(`  NRML at EOD  [1] Carry overnight  [2] Close at EOD like MIS (default 1): `)).trim();
+        carryOvernight = eodInput !== "2";
+        if (!carryOvernight) console.log(c.dim(`  NRML orders, but the engine still closes the position at EOD.`));
+    }
     if (carryOvernight) {
         console.log(c.yellow(`  ⚠ carry-overnight ON — entries will use NRML (not MIS), EOD will hold the position instead of closing it.`));
         console.log(c.yellow(`    Overnight/margin risk is real: MCX can gap against an open position between sessions. Your call.`));
@@ -2157,7 +2166,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         }
     }
 
-    const env  = { UNDERLYING: underlying, EXCHANGE_OVERRIDE: exchange, LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), CARRY_OVERNIGHT_OVERRIDE: String(carryOvernight), STRATEGY_OVERRIDE: strategy, TIMEFRAME_OVERRIDE: timeframe, PROCESS_NAME: name };
+    const env  = { UNDERLYING: underlying, EXCHANGE_OVERRIDE: exchange, LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), CARRY_OVERNIGHT_OVERRIDE: String(carryOvernight), PRODUCT_OVERRIDE: carryOvernight ? "NRML" : (product === "NRML" ? "NRML" : "MIS"), STRATEGY_OVERRIDE: strategy, TIMEFRAME_OVERRIDE: timeframe, PROCESS_NAME: name };
     if (candleType) env.CANDLE_TYPE_OVERRIDE = candleType;
     if (rangeSize !== null) env.RANGE_SIZE_OVERRIDE = String(rangeSize);
     if (lotMultOverride !== null) env.LOTMULT_OVERRIDE = String(lotMultOverride);

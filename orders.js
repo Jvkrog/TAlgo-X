@@ -151,7 +151,10 @@ function createOrders(context, tg, kcOverride) {
             // closed with an MIS exit, same for NRML) — context.carryOvernight
             // is fixed per-process (set once at boot from the toolbox prompt),
             // so this is safe to read at every _place() call, not just entry.
-            const product = context.carryOvernight ? "NRML" : "MIS";
+            // context.product (MIS | NRML) is set once at boot from PRODUCT_OVERRIDE. NRML + carry-overnight OFF means "NRML orders, still
+            // closed by the engine at EOD". Carry-overnight ALWAYS implies NRML (an MIS position would be squared off by the broker),
+            // and with no explicit product the legacy rule applies unchanged: carry => NRML, otherwise MIS.
+            const product = context.carryOvernight || context.product === "NRML" ? "NRML" : "MIS";
 
             const order = await kc.placeOrder("regular", {
                 tradingsymbol:    context.symbol,

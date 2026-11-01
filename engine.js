@@ -186,11 +186,19 @@ async function main() {
         context.carryOvernight = true;
         console.log(c.dim(`[${context.tgPrefix}] 1d timeframe: carry overnight forced ON (positions are held across days)`));
     }
+    // Order product: PRODUCT_OVERRIDE = MIS | NRML (unset = legacy: carry => NRML, else MIS). The invariant is that carry-overnight
+    // implies NRML — an MIS position would be squared off by the broker even though the engine holds it. NRML with carry OFF
+    // is valid: NRML orders, and the engine still force-closes at EOD (lifecycle.js, unchanged).
+    if (process.env.PRODUCT_OVERRIDE === "MIS" || process.env.PRODUCT_OVERRIDE === "NRML") context.product = process.env.PRODUCT_OVERRIDE;
+    if (context.carryOvernight && context.product === "MIS") {
+        console.log(c.yellow(`[${context.tgPrefix}] product MIS conflicts with carry-overnight — using NRML (an MIS position cannot be carried)`));
+    }
+    context.product = context.carryOvernight ? "NRML" : (context.product === "NRML" ? "NRML" : "MIS");
     if (context.carryOvernight) {
         const { hours: bootH } = istParts();
         if (bootH >= 9) console.log(c.yellow(`[${context.tgPrefix}] carry overnight: started after 09:00 IST — if a position was carried overnight it was unmanaged until now. Start carry-overnight engines before 09:00.`));
     }
-    console.log(c.dim(`[${context.tgPrefix}] carry overnight: ${context.carryOvernight ? c.yellow("ON — NRML, EOD will not force-close") : "off — MIS, EOD force-closes as usual"}`));
+    console.log(c.dim(`[${context.tgPrefix}] product: ${context.product} · carry overnight: ${context.carryOvernight ? c.yellow("ON — NRML, EOD will not force-close") : `off — ${context.product}, EOD force-closes as usual`}`));
 
     // Target points — set per-process by the toolbox's strategy-selection
     // prompt, same override pattern as above. A blank/unset env means no
