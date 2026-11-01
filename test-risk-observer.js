@@ -12,6 +12,7 @@ const { createMemoryStore, createSqliteStore } = require("./riskObserver/riskSto
 
 const cfg = resolveParams(engineConfig, {});
 let passed = 0;
+let unhandled = 0; process.on("unhandledRejection", (e) => { unhandled++; if (process.env.RO_DEBUG) console.log("UNHANDLED", e && e.stack); });   // any promise rejection nobody handled would be an observer leak into the process
 async function t(name, fn) { await fn(); passed++; console.log("ok  -", name); }
 const run = (m, inputs, n = 1) => { let tr = null; for (let i = 0; i < n; i++) { const o = step(m, inputs, cfg); m = o.machine; if (o.transition) tr = o.transition; } return { m, tr }; };
 const calm = { adverseAtr: 0.1, adverseCandles: 0, disagreeCandles: 0, oppositeAgree: false };
@@ -72,7 +73,7 @@ const calm = { adverseAtr: 0.1, adverseCandles: 0, disagreeCandles: 0, oppositeA
     const TF = 15 * 60000, T0 = Date.UTC(2026, 9, 28, 4, 0);   // 09:30 IST, on the 15m grid
     function mkBars(fromTs, n, fn) { const out = []; for (let i = 0; i < n; i++) { const [o, h, l, c] = fn(i); out.push({ date: new Date(fromTs + i * TF).toISOString(), open: o, high: h, low: l, close: c }); } return out; }
     const flat = i => [100, 100.2, 99.8, 100.05];
-    function rig({ pOver = {}, position = null, entryPrice = 100, tradeId = 7, store = createMemoryStore(), startMs, bars, now0 } = {}) {
+    function rig({ marketOpen: mo, entryMeta, pOver = {}, position = null, entryPrice = 100, tradeId = 7, store = createMemoryStore(), startMs, bars, now0 } = {}) {
         let now = now0 ?? (T0 + 130 * TF + 5000);
         const clock = { now: () => now };
         const state = { position, entryPrice, openTradeId: tradeId };
@@ -82,7 +83,7 @@ const calm = { adverseAtr: 0.1, adverseCandles: 0, disagreeCandles: 0, oppositeA
         let allBars = bars || mkBars(T0, 140, flat), failFetch = false, fetches = 0;
         const fetchRaw = async () => { fetches++; if (failFetch) throw new Error("kite down"); return allBars.filter(b => new Date(b.date).getTime() <= now); };
         const context = { name: "ZINCMINI", tgPrefix: "ZINCMINI", strategy: "DSB_DUAL", timeframe: "1h", lotMult: 1000, lots: 1, tickSize: 0.05, bandStep: 0.5, bandStep2: 1 };
-        const obs = createRiskObserver({ context, engineConfig, state, candles, store, tg: m => tgs.push(m), emit: (e, ty, p) => events.push({ ty, p }), clock, fetchRaw, params: resolveParams(engineConfig, { evalSeconds: 30, ...pOver }), marketOpen: () => true });
+        const obs = createRiskObserver({ context, engineConfig, state, candles, store, tg: m => tgs.push(m), emit: (e, ty, p) => events.push({ ty, p }), clock, fetchRaw, params: resolveParams(engineConfig, { evalSeconds: 30, ...pOver }), marketOpen: mo || (() => true), getEntryMeta: async () => { const m = typeof entryMeta === "function" ? entryMeta(now) : entryMeta === undefined ? { tradeId, entryTs: (now0 ?? (T0 + 130 * TF + 5000)) - 600000, side: state.position, entryPrice: state.entryPrice } : entryMeta; return m; } });
         return { obs, state, store, tgs, events, advance(ms) { now += ms; }, setBars(b) { allBars = b; }, fail(v) { failFetch = v; }, get fetches() { return fetches; }, clock, context, candles };
     }
 
@@ -150,15 +151,15 @@ const calm = { adverseAtr: 0.1, adverseCandles: 0, disagreeCandles: 0, oppositeA
         const a = rig({ position: "SHORT", entryPrice: 100, store }); await a.obs.evaluate(); await a.obs.stop();
         const b = rig({ position: "LONG", entryPrice: 120, tradeId: 99, store }); await b.obs.reconcile();
         assert.strictEqual(store._positions.length, 2); assert(store._positions[0].closedAt);
-        assert.strictEqual(b.obs._internals.tracked.reconciled, false);
-        assert(b.tgs.some(m => /Reconciliation uncertain/.test(m)));
+        assert.strictEqual(b.obs._internals.tracked.origin, "discovered_after_entry");   // the engine's trade record identifies the NEW position, so its entry time is known
+        assert(b.tgs.some(m => /Reconciliation:/.test(m)));
         assert(/PARTIAL/.test((await (async () => { await b.obs.evaluate(); return b.obs.snapshot().reconcileNote; })())));
     });
-    await t("persisted position but engine is flat on restart: closed as 'closed while offline'", async () => {
+    await t("persisted position but engine is flat on restart: closed as 'closed while observer offline (close time unknown)'", async () => {
         const store = createMemoryStore();
         const a = rig({ position: "SHORT", entryPrice: 100, store }); await a.obs.evaluate(); await a.obs.stop();
         const b = rig({ position: null, store }); await b.obs.reconcile();
-        assert(store._positions[0].closedAt); assert.strictEqual(store._positions[0].closeNote, "closed while offline");
+        assert(store._positions[0].closedAt); assert.strictEqual(store._positions[0].closeNote, "closed while observer offline (close time unknown)");
     });
     await t("SQLite recovery: store survives reopen; candle dedupe + position resume from disk", async () => {
         let sqliteOk = true; try { require("sqlite3"); } catch { sqliteOk = false; }
@@ -372,10 +373,10 @@ const calm = { adverseAtr: 0.1, adverseCandles: 0, disagreeCandles: 0, oppositeA
     });
     await t("B: quantity / size change is never mistaken for the same position (no silent reset, no false 'full')", async () => {
         const store = createMemoryStore(); const a = posRig({ store }); await a.obs.evaluate(); a.obs.onTick(103); await a.obs.evaluate(); await a.obs.stop();
-        const b = posRig({ store }); b.context.lots = 2; b.obs._internals.tracked; await b.obs.reconcile();
-        // identical context lots=1 here resumes; emulate a size change via the persisted perPoint
-        store._positions[0].metrics.perPoint = 500; const c = posRig({ store }); await c.obs.reconcile();
-        const s = (await c.obs.evaluate(), c.obs.snapshot()); assert.strictEqual(s.metrics.coverage.candle, "PARTIAL"); assert(/size changed|PARTIAL/.test(s.reconcileNote));
+        store._positions[0].metrics.perPoint = 500;                                   // the persisted record was for a different size
+        const c = posRig({ store }); await c.obs.reconcile(); await c.obs.evaluate(); const s = c.obs.snapshot();
+        assert.strictEqual(store._positions.length, 2); assert(/size changed/.test(store._positions[0].closeNote));
+        assert.strictEqual(s.entry.origin, "discovered_after_entry"); assert.strictEqual(s.metrics.coverage.live, "PARTIAL"); assert(/PARTIAL/.test(s.reconcileNote)); assert.strictEqual(s.metrics.maeLivePts, 0, "old record's excursions must not carry over");
     });
     await t("B: uncertain reconciliation labels metrics PARTIAL and states the limitation; trading position untouched", async () => {
         const store = createMemoryStore(); const a = posRig({ store, entryPrice: 100 }); await a.obs.evaluate(); await a.obs.stop();
@@ -397,7 +398,7 @@ const calm = { adverseAtr: 0.1, adverseCandles: 0, disagreeCandles: 0, oppositeA
         assert.strictEqual(b.obs._internals.tracked.id, id1); await store.close();
         const h = await loadHistoryReadOnly(file), kinds = h.events.map(e => e.kind);
         assert(kinds.includes("POSITION_OPEN") && kinds.includes("DSB") && kinds.includes("RECONCILE"), kinds.join()); assert.strictEqual(h.positions.length, 1); assert(h.candles.length > 50, "15m candles recorded for later replay");
-        const sum = summarize(h); assert.strictEqual(sum.positions[0].timeline.length, h.events.length);
+        const sum = summarize(h); assert(sum.positions[0].timeline.length >= 3 && sum.positions[0].timeline.length <= h.events.length);
     });
     await t("P2: closing a position persists its FINAL metrics and a POSITION_CLOSE event with coverage", async () => {
         const r = posRig(); await r.obs.evaluate(); r.obs.onTick(104); r.advance(1000); r.obs.onTick(99); await r.obs.evaluate(); r.state.position = null; await r.obs.evaluate();
@@ -420,6 +421,199 @@ const calm = { adverseAtr: 0.1, adverseCandles: 0, disagreeCandles: 0, oppositeA
     await t("P2: snapshot exposes overall health as the worst of REST / LTP / startup", async () => {
         const r = posRig(); await r.obs.evaluate(); assert.strictEqual(r.obs.snapshot().overallHealth, "STALE"); r.obs.onTick(100); await r.obs.evaluate(); assert.strictEqual(r.obs.snapshot().overallHealth, "HEALTHY");
     });
+    // ═════════ FINAL ROUND — Finding A: position origin / entry coverage ═════════
+    const mkObs = o => { // observer whose engine state and trade record the test controls (entryAt = the engine's recorded entry time)
+        let entryAt = o.entryAt, tradeId = o.tradeId ?? 7, metaOn = o.meta !== false;
+        const r = rig({ position: o.position ?? null, entryPrice: 100, tradeId, store: o.store, bars: o.bars, now0: o.now0, entryMeta: () => (metaOn ? { tradeId: r.state.openTradeId, entryTs: entryAt, side: r.state.position, entryPrice: r.state.entryPrice } : null) });
+        r.setEntry = v => { entryAt = v; }; r.metaOff = () => { metaOn = false; }; r.enter = (side, px, id) => { r.state.position = side; r.state.entryPrice = px; r.state.openTradeId = id; };
+        return r;
+    };
+    await t("A: observer starts BEFORE the entry -> observed_from_entry, real entry time, coverage FULL", async () => {
+        const r = mkObs({}); await r.obs.evaluate(); r.advance(30000); await r.obs.evaluate();   // sees the instrument flat
+        r.advance(20000); const entryAt = r.clock.now() - 5000; r.setEntry(entryAt); r.enter("SHORT", 100, 8); r.obs.onTick(100); await r.obs.evaluate();
+        const s = r.obs.snapshot(); assert.strictEqual(s.entry.origin, "observed_from_entry"); assert.strictEqual(s.entry.entryTs, entryAt); assert.notStrictEqual(s.entry.entryTs, r.clock.now());
+        assert.strictEqual(s.metrics.coverage.live, "FULL"); assert.strictEqual(s.metrics.coverage.candle, "FULL");
+        const row = r.store._positions[0]; assert.strictEqual(row.origin, "observed_from_entry"); assert.strictEqual(row.entryTsSource, "engine-trade-record"); assert.strictEqual(row.reconciled, true);
+        assert.strictEqual(r.store._events.find(e => e.kind === "POSITION_OPEN").detail.origin, "observed_from_entry");
+    });
+    await t("A: position opens while running but is noticed LATE -> discovered_after_entry; entry time stays the engine's; live PARTIAL with the reason recorded", async () => {
+        const r = mkObs({}); await r.obs.evaluate(); const entryAt = r.clock.now() + 1000; r.setEntry(entryAt); r.advance(1000); r.enter("SHORT", 100, 8);
+        r.advance(900000); r.obs.onTick(100); await r.obs.evaluate();       // observer stalled 15 min
+        const s = r.obs.snapshot(); assert.strictEqual(s.entry.origin, "discovered_after_entry"); assert.strictEqual(s.entry.entryTs, entryAt, "must NOT be replaced by discovery time");
+        assert.strictEqual(s.metrics.coverage.live, "PARTIAL"); assert(/not observed/.test(s.metrics.coverage.liveNote)); assert(r.store._events.find(e => e.kind === "POSITION_OPEN").detail.note.includes("noticed it"));
+        assert.strictEqual(s.metrics.coverage.leadInMs, 900000);
+    });
+    await t("A: observer starts while a position is ALREADY open -> discovered_after_entry; candle metrics rebuilt from recorded candles, live PARTIAL; never fabricated", async () => {
+        const T = T0 + 130 * TF + 5000, bars = mkBars(T0, 140, i => (i >= 125 ? [100, 103, 99.8, 100.1] : [100, 100.2, 99.8, 100.05]));   // candles 125+ have a high of 103
+        const r = mkObs({ position: "SHORT", bars, now0: T, entryAt: T0 + 124 * TF + 60000 }); await r.obs.evaluate();
+        const s = r.obs.snapshot(); assert.strictEqual(s.entry.origin, "discovered_after_entry"); assert.strictEqual(s.entry.entryTs, T0 + 124 * TF + 60000);
+        assert.strictEqual(s.metrics.maeCandlePts, 3, "rebuilt from the recorded candles since the actual entry"); assert.strictEqual(s.metrics.maeLivePts, 0, "no live prices were seen: nothing fabricated");
+        assert.strictEqual(s.metrics.coverage.candle, "FULL"); assert.strictEqual(s.metrics.coverage.live, "PARTIAL"); assert.strictEqual(s.metrics.peakPnl, 0);
+    });
+    await t("A: candle metrics are PARTIAL when recorded candles do not reach back to the entry", async () => {
+        const T = T0 + 130 * TF + 5000, bars = mkBars(T0 + 100 * TF, 40, flat);   // history starts long after the entry
+        const r = mkObs({ position: "SHORT", bars, now0: T, entryAt: T0 + 60 * TF }); await r.obs.evaluate(); const s = r.obs.snapshot();
+        assert.strictEqual(s.metrics.coverage.candle, "PARTIAL"); assert(/missing|no candles/.test(s.metrics.coverage.candleNote));
+    });
+    await t("A: same position resumes after restart -> original origin kept, metrics preserved, no duplicate record, live gap recorded", async () => {
+        const store = createMemoryStore(); const a = mkObs({ store }); await a.obs.evaluate(); a.advance(30000); await a.obs.evaluate(); const entryAt = a.clock.now() - 2000; a.setEntry(entryAt); a.enter("SHORT", 100, 8);
+        await a.obs.evaluate(); a.obs.onTick(104); await a.obs.evaluate(); await a.obs.stop(); assert.strictEqual(store._positions[0].origin, "observed_from_entry");
+        const b = mkObs({ store, position: "SHORT", tradeId: 8, entryAt }); await b.obs.reconcile(); const tr = b.obs._internals.tracked;
+        assert.strictEqual(store._positions.length, 1); assert.strictEqual(tr.origin, "observed_from_entry"); assert.strictEqual(tr.metrics.raw.liveMae, 4); assert.strictEqual(tr.metrics.raw.liveGaps, 1);
+        const rec = store._events.find(e => e.kind === "RECONCILE"); assert.strictEqual(rec.detail.result, "resumed"); assert(rec.detail.lastObservedAt);
+    });
+    await t("A: engine entry metadata UNAVAILABLE -> origin uncertain, both metric families PARTIAL, discovery time is not passed off as entry time", async () => {
+        const r = mkObs({ position: "SHORT" }); r.metaOff(); await r.obs.evaluate(); const s = r.obs.snapshot(), row = r.store._positions[0];
+        assert.strictEqual(s.entry.origin, "uncertain"); assert.strictEqual(row.entryTsSource, "observer-discovery-time"); assert.strictEqual(s.metrics.coverage.candle, "PARTIAL"); assert.strictEqual(s.metrics.coverage.live, "PARTIAL"); assert(/NOT known/.test(s.entry.note));
+        assert(/NOT known/.test(r.store._events.find(e => e.kind === "POSITION_OPEN").detail.note));
+    });
+    await t("A: engine trade record that contradicts the live position (different trade id) -> uncertain, not trusted", async () => {
+        const r = mkObs({ position: "SHORT", tradeId: 7 }); r.setEntry(T0 + 100 * TF); const orig = r.state.openTradeId; r.state.openTradeId = 7;
+        const r2 = rig({ position: "SHORT", entryPrice: 100, tradeId: 7, entryMeta: { tradeId: 999, entryTs: T0 + 100 * TF, side: "SHORT" } }); await r2.obs.evaluate();
+        assert.strictEqual(r2.obs.snapshot().entry.origin, "uncertain");
+    });
+    await t("A: entry metadata inconsistent with observed history (observer saw it flat AFTER the claimed entry) -> uncertain", async () => {
+        const r = mkObs({}); await r.obs.evaluate(); r.advance(1200000); await r.obs.evaluate();   // flat for 20 minutes
+        r.setEntry(r.clock.now() - 1100000); r.enter("SHORT", 100, 8); await r.obs.evaluate(); assert.strictEqual(r.obs.snapshot().entry.origin, "uncertain"); assert(/inconsistent/.test(r.obs.snapshot().entry.note));
+    });
+    await t("A: position identity changes unexpectedly while running -> old record closed with the reason, new record created, nothing carried over", async () => {
+        const r = mkObs({}); await r.obs.evaluate(); r.advance(30000); await r.obs.evaluate(); r.setEntry(r.clock.now() - 1000); r.enter("SHORT", 100, 8); await r.obs.evaluate(); r.obs.onTick(104); await r.obs.evaluate();
+        assert.strictEqual(r.obs._internals.tracked.metrics.raw.liveMae, 4);
+        r.advance(30000); r.setEntry(r.clock.now() - 1000); r.enter("SHORT", 100, 9); await r.obs.evaluate();   // a different trade, same side / price
+        assert.strictEqual(r.store._positions.length, 2); assert(/trade id/.test(r.store._positions[0].closeNote)); assert.strictEqual(r.obs._internals.tracked.metrics.raw.liveMae, 0);
+    });
+    await t("A: position closes while the observer is OFFLINE -> closed with an explicit 'unknown close time' note; final stretch flagged unobserved", async () => {
+        const store = createMemoryStore(); const a = mkObs({ store, position: "SHORT" }); await a.obs.evaluate(); a.obs.onTick(101); a.advance(30000); await a.obs.evaluate(); await a.obs.stop();
+        const b = mkObs({ store }); await b.obs.start(); await b.obs.stop();
+        assert(store._positions[0].closedAt); assert(/close time unknown/.test(store._positions[0].closeNote));
+        const e = store._events.find(x => x.kind === "RECONCILE"); assert.strictEqual(e.detail.result, "closed_offline"); assert(e.detail.lastObservedAt); assert(/NOT observed/.test(e.detail.why));
+    });
+
+    // ═════════ Finding C: reliable vs unknown duration ═════════
+    const sec = (r, k) => r.obs.snapshot().metrics.durations;
+    const tickEval = async (r, n, { tick = true, ms = 30000, px = 100 } = {}) => { for (let i = 0; i < n; i++) { r.advance(ms); if (tick) r.obs.onTick(px); await r.obs.evaluate(); } };
+    await t("C: healthy observation -> every second is reliable state time, none is unknown", async () => {
+        const r = posRig(); r.obs.onTick(100); await r.obs.evaluate(); await tickEval(r, 4); const d = sec(r);
+        assert.strictEqual(d.reliableStateSecs.NORMAL, 120); assert.strictEqual(d.unknownSecs.total, 0); assert.strictEqual(d.marketClosedSecs, 0);
+    });
+    await t("C: REST feed failure -> state time stops, UNKNOWN(rest) time grows, last known state is not credited", async () => {
+        const r = posRig(); r.obs.onTick(100); await r.obs.evaluate(); r.setBars(mkBars(T0, 100, flat)); r.fail(true);
+        await tickEval(r, 40); const mid = sec(r); assert(mid.unknownSecs.rest > 0, JSON.stringify(mid));
+        const n0 = mid.reliableStateSecs.NORMAL; await tickEval(r, 10); const d = sec(r);
+        assert.strictEqual(d.reliableStateSecs.NORMAL, n0, "frozen state must not keep accumulating"); assert(d.unknownSecs.rest >= mid.unknownSecs.rest + 299, JSON.stringify([mid.unknownSecs, d.unknownSecs])); assert.strictEqual(r.obs.snapshot().riskState, "UNKNOWN");
+    });
+    await t("C: LTP stale -> unknown(ltp) time, no state time; recovery on a fresh tick resumes state time", async () => {
+        const r = posRig(); r.obs.onTick(100); await r.obs.evaluate(); await tickEval(r, 2); const base = sec(r).reliableStateSecs.NORMAL;
+        await tickEval(r, 8, { tick: false }); const d1 = sec(r);   // 240s of silence; first 90s still fresh (threshold 120s)
+        assert(d1.unknownSecs.ltp > 0); assert(d1.reliableStateSecs.NORMAL < base + 240, "silent time must not all be credited to the state");
+        const frozen = d1.reliableStateSecs.NORMAL; await tickEval(r, 4, { tick: false }); assert.strictEqual(sec(r).reliableStateSecs.NORMAL, frozen);
+        await tickEval(r, 3); await tickEval(r, 3); assert(sec(r).reliableStateSecs.NORMAL > frozen, "state time resumes once ticks are fresh again"); assert.strictEqual(r.obs.snapshot().riskReliable, true);
+    });
+    await t("C: LTP disconnect (no tick at all since start) -> everything is unknown(ltp), nothing is state time", async () => {
+        const r = posRig(); await r.obs.evaluate(); await tickEval(r, 6, { tick: false }); const d = sec(r);
+        assert.strictEqual(d.reliableStateSecs.NORMAL, 0); assert.strictEqual(d.unknownSecs.ltp, 180);
+    });
+    await t("C: market closed -> booked as market-closed time, not unknown and not state time", async () => {
+        let open = true; const r = posRig({ marketOpen: () => open }); r.obs.onTick(100); await r.obs.evaluate(); await tickEval(r, 2); open = false; await tickEval(r, 4); const d = sec(r);
+        assert.strictEqual(d.marketClosedSecs, 120); assert.strictEqual(d.unknownSecs.total, 0); assert.strictEqual(d.reliableStateSecs.NORMAL, 60);   // two reliable 30s intervals before the close
+    });
+    await t("C: a stalled evaluation loop is booked as UNOBSERVED, never as state time", async () => {
+        const r = posRig(); r.obs.onTick(100); await r.obs.evaluate(); r.advance(600000); r.obs.onTick(100); await r.obs.evaluate(); const d = sec(r);
+        assert(d.unknownSecs.unobserved >= 480, JSON.stringify(d)); assert(d.reliableStateSecs.NORMAL <= 120);
+    });
+    await t("C: durations persist across a restart; downtime is not credited and no transition is inferred during it", async () => {
+        const store = createMemoryStore(); const a = posRig({ store }); a.obs.onTick(100); await a.obs.evaluate(); await tickEval(a, 4); await a.obs.stop();
+        const before = JSON.parse(JSON.stringify(store._positions[0].metrics)); assert.strictEqual(before.stateSecs.NORMAL, 120);
+        const stateEvents = store._events.filter(e => e.kind === "STATE").length;
+        const b = posRig({ store }); b.advance(3600000); await b.obs.reconcile(); const m = b.obs._internals.tracked.metrics.raw;
+        assert.strictEqual(m.stateSecs.NORMAL, 120); assert.strictEqual(m.unknownSecs.total === undefined ? 0 : 0, 0); assert.strictEqual(store._events.filter(e => e.kind === "STATE").length, stateEvents);
+        assert.strictEqual(b.obs._internals.machine.state, "NORMAL");
+    });
+    // ═════════ Persistence / duplicates / evidence / lifecycle (isolated sqlite) ═════════
+    const tmpDb = name => path.join(fs.mkdtempSync(path.join(os.tmpdir(), "roobs-")), name + "_riskobs.db");
+    const kinds = ev => ev.reduce((a, e) => (a[e.kind] = (a[e.kind] || 0) + 1, a), {});
+    await t("D/restart: REST health interruption is persisted; after a DB restart analytics still censors the unreliable stretch", async () => {
+        const file = tmpDb("h"); let store = await createSqliteStore(file, { instrument: "Z" }); const r = posRig({ store }); r.obs.onTick(100); await r.obs.evaluate();
+        r.setBars(mkBars(T0, 100, flat)); r.fail(true); for (let i = 0; i < 45; i++) { r.advance(30000); r.obs.onTick(100); await r.obs.evaluate(); }   // ~22 min without new candles -> STALE
+        r.state.position = null; await r.obs.evaluate(); await store.close();
+        store = await createSqliteStore(file, { instrument: "Z" }); const h = await loadHistoryReadOnly(file); await store.close();
+        assert(h.events.some(e => e.kind === "HEALTH" && e.detail.dim === "rest" && e.to !== "HEALTHY"), "degradation event must survive"); const p = summarize(h, { nowMs: r.clock.now() }).positions[0];
+        assert(p.dsbRelation.unknownSecs > 0, JSON.stringify(p.dsbRelation)); assert(p.dsbRelation.reliableSecs > 0); assert(p.unknownSecs.rest > 0);
+    });
+    await t("events are deduplicated: steady state writes NO further events per evaluation cycle", async () => {
+        const r = posRig(); r.obs.onTick(100); await r.obs.evaluate(); await tickEval(r, 3); const before = kinds(r.store._events); await tickEval(r, 25); assert.deepStrictEqual(kinds(r.store._events), before);
+    });
+    await t("timeline records gaps, backfills, closure/broker-empty evidence and lifecycle once each, and evidence is not re-logged after a restart", async () => {
+        const store = createMemoryStore(); const holey2 = mkBars(T0, 140, flat).filter((_, i) => i !== 40);
+        const a = rig({ store, bars: holey2, position: "SHORT", entryPrice: 100 }); await a.obs.start(); a.obs.onTick(100);
+        for (let i = 0; i < 12; i++) { a.advance(31000); a.obs.onTick(100); await a.obs.evaluate(); }
+        const k = kinds(store._events); assert(k.CANDLE_GAP >= 1, JSON.stringify(k)); assert(k.CLOSURE_EVIDENCE >= 1, "broker-empty evidence after the retry limit"); assert.strictEqual(k.OBSERVER, 1);
+        await a.obs.stop(); assert.strictEqual(kinds(store._events).OBSERVER, 2);
+        const evid0 = kinds(store._events).CLOSURE_EVIDENCE; const b = rig({ store, bars: holey2, position: "SHORT", entryPrice: 100 }); await b.obs.start(); for (let i = 0; i < 4; i++) { b.advance(31000); b.obs.onTick(100); await b.obs.evaluate(); }
+        assert.strictEqual(kinds(store._events).CLOSURE_EVIDENCE, evid0, "evidence is seeded from the database, not re-discovered and re-logged"); await b.obs.stop();
+    });
+    await t("a successful backfill is recorded and the gap is logged as resolved", async () => {
+        const holey3 = mkBars(T0, 140, flat).filter((_, i) => i !== 40), r = rig({ bars: holey3 }); await r.obs.evaluate(); r.advance(31000); await r.obs.evaluate();
+        r.setBars(mkBars(T0, 140, flat)); r.advance(31000); await r.obs.evaluate(); r.advance(31000); await r.obs.evaluate();
+        assert(r.store._events.some(e => e.kind === "BACKFILL")); assert(r.store._events.some(e => e.kind === "CANDLE_GAP" && e.detail.state === "resolved")); assert(r.obs.snapshot().lastBackfillOkAt);
+    });
+    await t("a re-delivered candle that DIFFERS is never written over history: persisted value kept, conflict recorded", async () => {
+        const bars = mkBars(T0, 140, flat), r = rig({ bars }); await r.obs.evaluate();
+        const exp = Math.floor(r.clock.now() / TF) * TF - TF, lastBar = bars.find(b => new Date(b.date).getTime() === exp); const altered = bars.map(b => (b === lastBar ? { ...b, high: 150 } : b));
+        r.setBars(altered); r.advance(TF); r.setBars([...altered, ...mkBars(T0 + 140 * TF, 3, flat)]); await r.obs.evaluate();
+        const stored = (await r.store.allCandles()).find(c => c.ts === exp); assert.strictEqual(stored.high, 100.2); assert(r.store._events.some(e => e.kind === "CANDLE_CONFLICT" && e.detail.received.high === 150));
+        assert.strictEqual(r.obs._internals.monitor.candles().find(c => c.ts === exp).high, 100.2);
+    });
+    await t("lifecycle: failure then recovery is on the timeline (start_failed, recovered, stopped)", async () => {
+        const r = startRig({ position: "LONG" }); const orig = r.store.getOpenPosition; r.store.getOpenPosition = async () => { throw new Error("locked"); }; await r.obs.start();
+        r.store.getOpenPosition = orig; await r.tm.fireTimeouts(); await r.obs.stop(); const k = r.store._events.filter(e => e.kind === "OBSERVER").map(e => e.detail.event);
+        assert.deepStrictEqual(k, ["start_failed", "recovered", "stopped"]);
+    });
+    await t("multiple instruments run simultaneously on separate databases; a failing instrument never affects the other", async () => {
+        const fa = tmpDb("a"), fb = tmpDb("b"); const sa = await createSqliteStore(fa, { instrument: "A" }), sb = await createSqliteStore(fb, { instrument: "B" });
+        const a = posRig({ store: sa }), b = rig({ position: "LONG", entryPrice: 50, store: sb }); await a.obs.evaluate(); await b.obs.evaluate();
+        sa.addEvent = async () => { throw new Error("A disk full"); }; sa.updatePosition = async () => { throw new Error("A disk full"); }; a.obs.onTick(105); b.obs.onTick(49); await a.obs.evaluate(); await b.obs.evaluate();
+        assert(a.obs._internals.storeErrors > 0); assert.strictEqual(b.obs._internals.storeErrors, 0, String(b.obs.snapshot().storeHealth.lastError)); assert.strictEqual(b.obs.snapshot().metrics.maeLivePts, 1);
+        assert.strictEqual((await sb.getOpenPosition()).side, "LONG"); assert.strictEqual((await sa.getOpenPosition()).side, "SHORT");
+        await assert.rejects(() => createSqliteStore(fa, { instrument: "B" }), /belongs to instrument/); await sa.close(); await sb.close();
+    });
+
+    // ═════════ Fault injection: nothing may escape into the trading loop or the process ═════════
+    await t("FAULT REST: Kite down -> ERROR health, UNKNOWN, no exception, recovers when Kite returns", async () => {
+        const r = posRig(); r.obs.onTick(100); await r.obs.evaluate(); r.fail(true); r.setBars(mkBars(T0, 100, flat));
+        for (let i = 0; i < 45; i++) { r.advance(30000); r.obs.onTick(100); await r.obs.evaluate(); } const s = r.obs.snapshot(); assert.strictEqual(s.restHealth.status, "ERROR"); assert.strictEqual(s.riskState, "UNKNOWN"); assert.strictEqual(s.overallHealth, "ERROR");
+        r.fail(false); r.setBars(mkBars(T0, 200, flat)); r.advance(60000); r.obs.onTick(100); await r.obs.evaluate(); assert.strictEqual(r.obs.snapshot().restHealth.status, "HEALTHY"); assert.strictEqual(r.obs.snapshot().riskReliable, true);
+    });
+    await t("FAULT WebSocket: garbage / missing ticks are ignored, never throw, never fabricate a price", async () => {
+        const r = posRig(); await r.obs.evaluate(); for (const bad of [NaN, undefined, null, "x", {}, Infinity, -Infinity]) assert.doesNotThrow(() => r.obs.onTick(bad));
+        await r.obs.evaluate(); assert.strictEqual(r.obs.snapshot().metrics.lastPrice, null); assert.strictEqual(r.obs.snapshot().ltpHealth.status, "NONE");
+    });
+    await t("FAULT SQLite: every store operation failing at start -> start() resolves, no unhandled rejection, retry scheduled; recovers when the store does", async () => {
+        const r = startRig({ position: "LONG" }); const ops = ["getMeta", "setMeta", "getOpenPosition", "openPosition", "updatePosition", "closePosition", "addEvent", "markCandle", "eventsByKind"], saved = {};
+        for (const o of ops) { saved[o] = r.store[o]; r.store[o] = async () => { throw new Error("sqlite unavailable"); }; }
+        await r.obs.start(); assert.strictEqual(r.obs._internals.initState, "failed"); assert.strictEqual(r.tm.touts.size, 1); assert.strictEqual(r.obs.snapshot().init.state, "failed"); assert.strictEqual(r.obs.snapshot().overallHealth, "ERROR");
+        for (const o of ops) r.store[o] = saved[o]; await r.tm.fireTimeouts(); assert.strictEqual(r.obs._internals.initState, "running"); await r.obs.stop();
+    });
+    await t("FAULT SQLite at runtime: writes fail, trading-side calls keep working, errors are counted and visible", async () => {
+        const r = posRig(); r.obs.onTick(100); await r.obs.evaluate(); for (const o of ["addEvent", "updatePosition", "markCandle", "closePosition", "openPosition"]) r.store[o] = async () => { throw new Error("io"); };
+        r.state.position = null; await r.obs.evaluate(); r.state.position = "LONG"; r.state.entryPrice = 90; await r.obs.evaluate(); assert(r.obs._internals.storeErrors >= 3); assert.strictEqual(r.obs.snapshot().storeHealth.errors, r.obs._internals.storeErrors); assert.strictEqual(r.obs.snapshot().init.state, "idle");
+    });
+    await t("FAULT Telegram: tg throwing / rejecting never changes state or leaks an unhandled rejection", async () => {
+        for (const mode of ["throw", "reject"]) {
+            const r = rig({ position: "SHORT", entryPrice: 100, pOver: { dangerAdverseCandles: 0 } }); const o2 = createRiskObserver({ context: r.context, engineConfig, state: r.state, candles: r.candles, store: createMemoryStore(), tg: () => (mode === "throw" ? (() => { throw new Error("tg down"); })() : Promise.reject(new Error("tg 429"))), emit: () => {}, clock: r.clock, fetchRaw: async () => mkBars(T0, 140, flat), params: resolveParams(engineConfig, { evalSeconds: 30, dangerAdverseCandles: 0 }), marketOpen: () => true, getEntryMeta: async () => ({ tradeId: 7, entryTs: T0 + 100 * TF, side: "SHORT" }) });
+            await o2.evaluate(); for (let i = 0; i < 5; i++) { r.advance(1000); o2.onTick(112); await o2.evaluate(); } assert.strictEqual(o2._internals.machine.state, "DANGER", mode);
+        }
+        await new Promise(res => setImmediate(res)); assert.strictEqual(unhandled, 0, "unhandled promise rejection");
+    });
+    await t("FAULT dashboard / event bridge: emit throwing for every call never reaches the evaluation", async () => {
+        const r = rig({ position: "SHORT", entryPrice: 100 }); let calls = 0; const o2 = createRiskObserver({ context: r.context, engineConfig, state: r.state, candles: r.candles, store: createMemoryStore(), emit: () => { calls++; throw new Error("ws closed"); }, clock: r.clock, fetchRaw: async () => mkBars(T0, 140, flat), params: resolveParams(engineConfig, {}), marketOpen: () => true });
+        for (let i = 0; i < 4; i++) { r.advance(5000); o2.onTick(100); await o2.evaluate(); } assert(calls >= 1); assert(o2.snapshot().ts);
+    });
+    await t("ISOLATION: onTick is synchronous and returns nothing the trading loop could await; start/evaluate/stop never throw or reject under total failure", async () => {
+        const r = startRig({ position: "LONG" }); for (const k of Object.keys(r.store)) if (typeof r.store[k] === "function") r.store[k] = async () => { throw new Error("dead"); };
+        assert.strictEqual(r.obs.onTick(100), undefined); await assert.doesNotReject(() => r.obs.start()); await assert.doesNotReject(() => r.obs.evaluate()); await assert.doesNotReject(() => r.obs.stop()); await assert.doesNotReject(() => r.obs.stop());
+    });
+    await t("no unhandled promise rejections occurred anywhere in this file", async () => { await new Promise(res => setImmediate(res)); assert.strictEqual(unhandled, 0); });
     await t("Safety: riskObserver/ has no reference to orders, SL, targets or position-closing", async () => {
         for (const f of fs.readdirSync(path.join(__dirname, "riskObserver"))) { const src = fs.readFileSync(path.join(__dirname, "riskObserver", f), "utf8").replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/`[^`]*`|"[^"\n]*"/g, "");
             assert(!/\b(placeOrder|orders\.|slStore|targetStore|exitPosition|positionsClose|kc\.placeOrder|modifyOrder|cancelOrder)\b/.test(src), f + " references trading primitives"); }

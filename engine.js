@@ -645,6 +645,9 @@ async function main() {
             riskObserver = createRiskObserver({
                 context, engineConfig, state, candles, store: obsStore, tg, emit: emitEvent, params: resolveParams(engineConfig, overrides),
                 fetchRaw: (from, to) => obsKc.getHistoricalData(context.token, "15minute", from, to),
+                // READ-ONLY look at the engine's own open-trade record (SELECT only) so the observer can tell the REAL entry time from the
+                // moment it noticed the position. Never writes; a failure only makes the observer label the position's metrics PARTIAL.
+                getEntryMeta: async () => { const tr = await db.getOpenTrade(context.tgPrefix); return tr ? { tradeId: tr.id, entryTs: Date.parse(tr.entry_time), side: tr.side, entryPrice: tr.entry_price, qty: tr.qty } : null; },
                 marketOpen: now => {
                     const p = istParts(now); const dow = new Date(now.getTime() + 5.5 * 3600000).getUTCDay();
                     if (dow === 0 || dow === 6) return false;
