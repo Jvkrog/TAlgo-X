@@ -419,6 +419,7 @@ module.exports = {
                                           // Independent of the 15m REST feed health; raise it for very illiquid contracts that can go quiet this long.
     RISK_OBS_BACKFILL_TRIES: 3,           // empty Kite answers for a missing 15m slot before it is recorded as broker-empty (still shown in diagnostics)
     RISK_OBS_START_RETRY_SECONDS: 15,     // retry delay after a failed observer start (reconciliation / store / first fetch)
+    RISK_OBS_ENTRY_TOLERANCE_SECONDS: 90,  // a position discovered within this long of the engine's recorded entry (after the observer saw the instrument flat) counts as observed FROM ENTRY; later = discovered after entry (live metrics PARTIAL). Valid 0-3600
     RISK_OBS_SESSION_START_MIN: null,     // IST minutes-from-midnight session window used for gap detection (null = MCX 09:00-23:30, NSE 09:15-15:30)
     RISK_OBS_SESSION_END_MIN: null,
 

@@ -37,7 +37,7 @@ function isSessionSlot(ts, session) {
 // createCandleFeed({ fetchRaw(fromStr, toStr) -> Promise<bars[]>, monitor, tfMs, now, session, ... })
 function createCandleFeed({ fetchRaw, monitor, tfMs = 15 * 60000, now = () => Date.now(), initialDays = 8, staleGraceMs = 180000, errorAfterFails = 3,
     session = sessionFor("MCX"), maxBackfillTries = 3, backfillGapMs = 30000, maxGapSlotsReported = 200 }) {
-    const f = { fails: 0, lastOkAt: null, lastError: null, lastRequestAt: 0, requests: 0, backfillRequests: 0, lastBackfillAt: 0 };
+    const f = { fails: 0, lastOkAt: null, lastError: null, lastRequestAt: 0, requests: 0, backfillRequests: 0, lastBackfillAt: 0, lastBackfillOkAt: null, lastBackfillFilled: 0 };
     const tries = new Map();          // slot ts -> empty backfill answers so far
     const brokerEmpty = new Set();    // slots Kite confirmed it has no candle for (kept visible in diagnostics)
     const closures = new Set();       // IST day keys with no candles at all after a probe (holidays)
@@ -107,6 +107,7 @@ function createCandleFeed({ fetchRaw, monitor, tfMs = 15 * 60000, now = () => Da
             const n = (tries.get(s) || 0) + 1; tries.set(s, n);
             if (n >= maxBackfillTries) brokerEmpty.add(s);
         }
+        if (res.added > 0 || filled > 0) { f.lastBackfillOkAt = now(); f.lastBackfillFilled = res.added; }
         return { ...res, backfilled: filled };
     }
 
@@ -151,7 +152,10 @@ function createCandleFeed({ fetchRaw, monitor, tfMs = 15 * 60000, now = () => Da
         }
         return { status: "HEALTHY", reason: null, ...base, incomplete: d.brokerEmptyCount > 0 };
     }
-    return { poll, health, expectedTs, diagnostics, gaps, info: () => ({ ...f }) };
+    // Evidence the observer persists (so offline calibration can tell a holiday / empty slot from missing data) and re-seeds after a restart.
+    function evidence() { const g = gaps(); return { closures: [...closures], brokerEmpty: [...brokerEmpty].sort((a, b) => a - b), gapSlots: g.missing }; }
+    function seed({ closures: c = [], brokerEmpty: b = [] } = {}) { for (const d of c) { closures.add(d); probedDays.add(d); } for (const t of b) if (Number.isFinite(t)) brokerEmpty.add(t); }
+    return { poll, health, expectedTs, diagnostics, gaps, evidence, seed, info: () => ({ ...f }) };
 }
 
 module.exports = { createCandleFeed, fmtIST, sessionFor, isSessionSlot };

@@ -11,22 +11,26 @@
 //     Outcomes ("did it get worse afterwards?") look ahead ONLY to score a warning, never to decide it.
 //   * Chronological split: positions are ordered by entry time; the earlier 60% and later 40% are reported separately
 //     so a configuration's behaviour out-of-sample is visible. Nothing is fitted, so there is no tuning on a holdout.
-//   * Positions with PARTIAL metrics or missing candle coverage are excluded unless includePartial is set.
+//   * CLEAN SAMPLE (conservative): a position is used only when it is CLOSED with a known close time, its entry time is trusted,
+//     and the recorded candles PROVABLY cover entry → close against the instrument's exchange session (first and last expected
+//     slots, internal gaps, whole missing days). Weekends / overnight are not slots; a missing day is a holiday ONLY with recorded
+//     closure evidence; broker-empty slots count only with recorded evidence. If completeness cannot be established the position is
+//     EXCLUDED and listed with reasons. includePartial adds those positions to a SEPARATE exploratory aggregate that stays labelled
+//     partial — they are never mixed into the clean numbers.
+//   * The replay consumes candles only, so live-price interruptions do not exclude a position; candle completeness does.
+//   * Read-only: loads history through a read-only connection (or in-memory data) and never writes anywhere.
 "use strict";
 
 const { newMachine, step } = require("./riskState");
 const { dualReplay, relation } = require("./dsbMonitor");
 const { atr } = require("../indicators");
 const { summarisePosition } = require("./analytics");
+const { coverageReport } = require("./coverage");
+const { sessionFor } = require("./priceMonitor");
 
 const IST_MS = 5.5 * 3600 * 1000, TF = 15 * 60000;
 const dayKey = ts => new Date(ts + IST_MS).toISOString().slice(0, 10);
 const UNHELPFUL_FURTHER_ATR = 0.5;   // a warning is "unhelpful" when the position never got more than this much (in ATR) worse afterwards
-
-function candlesCover(cs) {   // contiguous within each IST day (weekend/overnight gaps are fine)
-    for (let i = 1; i < cs.length; i++) if (cs[i].ts - cs[i - 1].ts > TF && dayKey(cs[i].ts) === dayKey(cs[i - 1].ts)) return false;
-    return cs.length >= 3;
-}
 
 // Replay one position under one configuration. rows = dualReplay over ALL candles (causal), idx = index of first candle >= entryTs.
 function replayPosition({ side, entryPrice, entryTs, endTs }, candles, rows, cfg, { atrLen = 10, evalsPerCandle = 1 } = {}) {
@@ -94,55 +98,73 @@ function configGrid(base) {
     return list;
 }
 
-// history = { positions, events, candles }; steps = [step1, step2]; base = resolved params (see observer.resolveParams)
-function evaluate(history, { steps, base, includePartial = false, nowMs = Date.now(), atrLen = 10, evalsPerCandle = 1, configs = null } = {}) {
+// Evidence recorded by the observer: closure days (Kite had no candles for the whole session day) and broker-empty slots.
+function evidenceFrom(events) {
+    const closureDays = new Set(), brokerEmpty = new Set();
+    for (const e of events || []) if (e && e.kind === "CLOSURE_EVIDENCE" && e.detail) { if (e.detail.type === "closure_day" && e.detail.day) closureDays.add(e.detail.day); else if (e.detail.type === "broker_empty" && Number.isFinite(e.detail.slotTs)) brokerEmpty.add(e.detail.slotTs); }
+    return { closureDays, brokerEmpty };
+}
+
+// history = { positions, events, candles, meta? }; steps = [step1, step2]; base = resolved params (see observer.resolveParams)
+// session: { startMin, endMin } IST minutes (defaults to history.meta.session, else the exchange default from history.meta.exchange / MCX)
+function evaluate(history, { steps, base, includePartial = false, nowMs = Date.now(), atrLen = 10, evalsPerCandle = 1, configs = null, session = null, tfMs = TF } = {}) {
     const candles = history.candles.slice().sort((a, b) => a.ts - b.ts);
+    const sess = session || (history.meta && history.meta.session) || sessionFor(history.meta && history.meta.exchange);
+    const have = new Set(candles.map(c => c.ts)), { closureDays, brokerEmpty } = evidenceFrom(history.events);
     const rows = candles.length ? dualReplay(candles.map(c => ({ ...c })), steps[0], steps[1]) : [];
-    const usable = [], excluded = [];
+    const clean = [], partial = [], excluded = [];
     for (const p of history.positions) {
-        const sum = summarisePosition(p, history.events, nowMs);
-        const endTs = p.closedAt != null ? p.closedAt : (candles.length ? candles[candles.length - 1].ts + TF : nowMs);
-        const inWin = candles.filter(c => c.ts >= p.entryTs && c.ts < endTs);
-        const reasons = [...sum.partialReasons];
-        if (!candlesCover(inWin)) reasons.push(`recorded candles do not cover the position (${inWin.length} candle(s), or gaps)`);
-        if (reasons.length && !includePartial) { excluded.push({ id: p.id, side: p.side, reasons }); continue; }
-        usable.push({ id: p.id, side: p.side, entryPrice: p.entryPrice, entryTs: p.entryTs, endTs, partial: reasons });
+        const sum = summarisePosition(p, history.events || [], nowMs);
+        const reasons = [...sum.candleReasons];
+        if (p.closedAt == null) reasons.push("position still open (outcome not final)");
+        if (!sum.closeTimeKnown) reasons.push("close time unknown (closed while the observer was offline)");
+        const endTs = p.closedAt != null && sum.closeTimeKnown ? p.closedAt : (candles.length ? candles[candles.length - 1].ts + tfMs : nowMs);
+        const cov = coverageReport({ haveTs: have, fromTs: p.entryTs, toTs: endTs, tfMs, session: sess, brokerEmpty, closureDays });
+        if (!cov.complete) reasons.push(...cov.reasons);
+        else if (cov.expected === 0) reasons.push("no expected session candle inside the position window (too short to evaluate)");
+        const rec = { id: p.id, side: p.side, entryPrice: p.entryPrice, entryTs: p.entryTs, endTs, coverage: { expected: cov.expected, have: cov.have, missing: cov.missing.length, brokerEmpty: cov.brokerEmptySlots, closureSlots: cov.closureSlots } };
+        if (!reasons.length) clean.push(rec);
+        else if (includePartial) partial.push({ ...rec, partialReasons: reasons });
+        else excluded.push({ id: p.id, side: p.side, reasons });
     }
-    usable.sort((a, b) => a.entryTs - b.entryTs);
-    const cut = Math.ceil(usable.length * 0.6), earlier = usable.slice(0, cut), later = usable.slice(cut);
-    const results = (cfgs) => cfgs.map(({ name, cfg }) => {
+    clean.sort((a, b) => a.entryTs - b.entryTs); partial.sort((a, b) => a.entryTs - b.entryTs);
+    const cut = Math.ceil(clean.length * 0.6), earlier = clean.slice(0, cut), later = clean.slice(cut);
+    const cfgList = configs || configGrid(base);
+    const out = cfgList.map(({ name, cfg }) => {
         const run = list => aggregate(list.map(u => replayPosition(u, candles, rows, cfg, { atrLen, evalsPerCandle })));
-        return { name, cfg, all: run(usable), earlier: run(earlier), later: run(later) };
+        const o = { name, cfg, all: run(clean), earlier: run(earlier), later: run(later) };
+        if (includePartial) o.partialExploratory = { ...run(partial), label: "PARTIAL — exploratory only, not part of the clean sample" };
+        return o;
     });
-    const out = results(configs || configGrid(base));
     return {
-        generatedAt: nowMs, method: { price: "completed 15m close (intra-candle moves not reproduced)", evalsPerCandle, atrLen, unhelpfulRule: `warning followed by < ${UNHELPFUL_FURTHER_ATR} ATR further adverse movement`, split: "chronological 60% earlier / 40% later by entry time; nothing is fitted" },
-        sample: { positionsUsed: usable.length, earlier: earlier.length, later: later.length, excluded, candles: candles.length, sufficient: usable.length >= 20 },
+        generatedAt: nowMs, method: { price: "completed 15m close (intra-candle moves not reproduced)", evalsPerCandle, atrLen, unhelpfulRule: `warning followed by < ${UNHELPFUL_FURTHER_ATR} ATR further adverse movement`, split: "chronological 60% earlier / 40% later by entry time; nothing is fitted", session: sess },
+        sample: { positionsUsed: clean.length, earlier: earlier.length, later: later.length, partialIncluded: partial.length, partialPositions: partial.map(p => ({ id: p.id, reasons: p.partialReasons })), excluded, candles: candles.length, evidence: { closureDays: [...closureDays], brokerEmptySlots: brokerEmpty.size }, sufficient: clean.length >= 20 },
         configurations: out,
         limitations: [
-            ...(usable.length < 20 ? [`Only ${usable.length} usable position(s). Thresholds are NOT validated by this sample; the output only shows how the machinery behaves.`] : []),
-            "Candle-close price proxy understates intra-candle adverse moves; confirmations are counted in candles, stricter than the live 30s evaluations.",
+            ...(clean.length < 20 ? [`Only ${clean.length} clean position(s). Thresholds are NOT validated by this sample; the output only shows how the machinery behaves.`] : []),
+            "Candle-close replay cannot reproduce intra-candle adverse movements or the live evaluation timing (30s evaluations, tick-level confirmation): replayed adverse moves are understated and confirmations are counted in candles. This is a description of the state machine on recorded candles, NOT predictive validation.",
             "No realised P&L is recorded by the observer, so 'unhelpful' is a movement-based proxy, not a profit/loss judgement.",
-            "Configurations are one-at-a-time perturbations of the current defaults for comparison; none is recommended and production defaults are never changed by this tool.",
+            "Configurations are one-at-a-time perturbations of the current defaults for comparison; none is recommended or selected, and production defaults are never changed by this tool.",
         ],
     };
 }
 
 function formatReport(rep) {
     const f = (v, d = 2) => (v === null || v === undefined ? "–" : Number(v).toFixed(d));
-    const lines = [`Risk Observer threshold evaluation (offline, read-only) — ${new Date(rep.generatedAt).toISOString()}`, `Positions used: ${rep.sample.positionsUsed} (earlier ${rep.sample.earlier} / later ${rep.sample.later}), excluded: ${rep.sample.excluded.length}, candles: ${rep.sample.candles}`, ""];
+    const lines = [`Risk Observer threshold evaluation (offline, read-only) — ${new Date(rep.generatedAt).toISOString()}`, `Clean positions used: ${rep.sample.positionsUsed} (earlier ${rep.sample.earlier} / later ${rep.sample.later}), excluded: ${rep.sample.excluded.length}${rep.sample.partialIncluded ? `, PARTIAL included (exploratory, separate): ${rep.sample.partialIncluded}` : ""}, candles: ${rep.sample.candles}`, ""];
     for (const c of rep.configurations) { const a = c.all; lines.push(`${c.name.padEnd(30)} warnings ${a.warnings}  danger ${a.dangerEvents}  adverse@warn ${f(a.avgAdverseAtWarningPts)}pts/${f(a.avgAdverseAtWarningAtr)}ATR  max adverse ${f(a.maxAdversePts)}  giveback@warn ${f(a.avgGivebackAtWarningPts)}  unhelpful ${a.unhelpfulWarnings}/${a.unhelpfulMeasured}  danger-recovered ${a.dangerRecovered}/${a.dangerEvents}  | earlier w${c.earlier.warnings} d${c.earlier.dangerEvents} · later w${c.later.warnings} d${c.later.dangerEvents}`); }
     lines.push("", "Limitations:", ...rep.limitations.map(l => "  - " + l)); return lines.join("\n");
 }
 
-module.exports = { evaluate, replayPosition, aggregate, configGrid, formatReport };
+module.exports = { evaluate, replayPosition, aggregate, configGrid, formatReport, evidenceFrom };
 
 if (require.main === module) {
     (async () => {
         const file = process.argv[2]; if (!file) { console.error("usage: node riskObserver/calibrate.js <instrument>_riskobs.db [step1 step2] [--include-partial]"); process.exit(2); }
         const engineConfig = require("../engineConfig"), { resolveParams } = require("./observer"), { loadHistoryReadOnly } = require("./analytics");
         const nums = process.argv.slice(3).filter(a => !a.startsWith("--")).map(Number);
-        const steps = [nums[0] || engineConfig.BAND_STEP_DEFAULT, nums[1] || engineConfig.BAND_STEP2_DEFAULT];
-        console.log(formatReport(evaluate(await loadHistoryReadOnly(file), { steps, base: resolveParams(engineConfig, {}), includePartial: process.argv.includes("--include-partial") })));
+        const hist = await loadHistoryReadOnly(file);
+        const steps = [nums[0] || (hist.meta.steps && hist.meta.steps[0]) || engineConfig.BAND_STEP_DEFAULT, nums[1] || (hist.meta.steps && hist.meta.steps[1]) || engineConfig.BAND_STEP2_DEFAULT];
+        console.log(formatReport(evaluate(hist, { steps, base: resolveParams(engineConfig, {}), includePartial: process.argv.includes("--include-partial") })));
     })().catch(e => { console.error(e.message); process.exit(1); });
 }

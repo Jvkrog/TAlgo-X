@@ -3289,7 +3289,7 @@ app.get("/api/riskobs/events/:engine", (req, res) => {
     if (!fs.existsSync(full)) return res.json({ events: [] });
     const db = new sqlite3.Database(full, sqlite3.OPEN_READONLY, err => {
         if (err) return res.json({ events: [] });
-        db.all("SELECT id, pos_id, ts, kind, from_state, to_state, detail FROM obs_events ORDER BY id DESC LIMIT 100", [], (e, rows) => {
+        db.all("SELECT id, pos_id, ts, kind, from_state, to_state, detail FROM obs_events ORDER BY ts DESC, id DESC LIMIT 100", [], (e, rows) => {
             db.close();
             res.json({ events: e ? [] : rows.map(x => ({ id: x.id, posId: x.pos_id, ts: x.ts, kind: x.kind, from: x.from_state, to: x.to_state, detail: x.detail ? (() => { try { return JSON.parse(x.detail); } catch { return null; } })() : null })) });
         });
@@ -3313,7 +3313,7 @@ app.get("/api/riskobs/analytics/:engine", async (req, res) => {
         const history = await loadHistoryReadOnly(full);
         const summary = summarize(history); for (const p of summary.positions) p.timeline = p.timeline.slice(-60);   // keep the payload small; full timeline stays in the db
         let calibration = null;
-        try { const snap = hit.snapshot; calibration = evaluate(history, { steps: snap.obs15.steps, base: snap.params }); } catch (e) { calibration = { error: e.message }; }
+        try { const snap = hit.snapshot; calibration = evaluate(history, { steps: (history.meta && history.meta.steps) || snap.obs15.steps, base: snap.params }); } catch (e) { calibration = { error: e.message }; }
         const body = { available: true, summary, calibration };
         riskObsAnalyticsCache.set(file, { at: Date.now(), body });
         res.json(body);
