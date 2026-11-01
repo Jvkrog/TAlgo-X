@@ -5081,12 +5081,51 @@ function roCard(inst, events, an) {
     ${roAnalytics(an)}
   </div>`;
 }
+// ── Phases 3-6 panels: all read-only views; labels make LIVE / STALE / SIMULATED / UNKNOWN explicit ──
+const roLvl = { OK: "live", DEGRADED: "partial", DOWN: "partial", UNKNOWN: "partial" };
+function roOverview(h, pf) {
+  if (!h && !pf) return "";
+  const obs = (h && h.observers) || [];
+  const hrows = obs.map(o => `<div class="ro-row"><span>${escHtml(o.engine)}</span><b>${roBadge(escHtml(o.level), roLvl[o.level] || "partial")} ${o.liveness === "SILENT" ? roBadge("STALE — silent", "partial") : roBadge("LIVE", "live")}</b></div>` + (o.reasons && o.reasons.length ? `<div class="tb-form-hint">${o.reasons.map(escHtml).join(" · ")}</div>` : "") + `<div class="tb-form-hint">uptime ${o.uptimeMs != null ? roDur(o.uptimeMs) : "–"} · eval latency ${o.processingLatencyMs != null ? o.processingLatencyMs + " ms" : "–"} · data ${escHtml(o.dataReliability || "UNKNOWN")} · db schema v${o.database && o.database.schemaVersion != null ? o.database.schemaVersion : "–"}</div>`).join("");
+  const a = pf && pf.portfolio, dd = pf && pf.drawdown;
+  let prow = "";
+  if (a) {
+    const inst = (a.byInstrument || []).map(g => `<div class="ro-row"><span>${escHtml(g.key)}</span><b>gross ${roF(g.gross, 0)} (${roPct(g.share)}) · net ${roF(g.net, 0)}</b></div>`).join("");
+    const eng = (a.byEngine || []).map(g => `<div class="ro-row"><span>engine ${escHtml(g.key)}</span><b>${g.positions} pos · P&L ${roF(g.pnl, 0)}</b></div>`).join("");
+    const shared = ((pf.sharedRisk) || []).map(x => `<div class="tb-form-hint">${escHtml(x.pair.join(" / "))}: ${x.status === "UNKNOWN" ? "UNKNOWN — " + escHtml(x.reason || "") : escHtml(x.effect) + " (corr " + roF(x.correlation) + ", " + x.overlap + " bars)"}</div>`).join("");
+    prow = `<div class="ro-sub"><b>Portfolio</b> ${roBadge("LIVE snapshots", "live")} ${roBadge("ESTIMATE", "partial")}</div>
+      <div class="ro-row"><span>Open positions</span><b>${a.positions} (${a.reliablePositions} reliable${a.unreliable && a.unreliable.length ? ", " + a.unreliable.length + " UNRELIABLE excluded" : ""})</b></div>
+      <div class="ro-row"><span>Gross exposure</span><b>${roF(a.gross.value, 0)} <span class="tb-form-hint">estimate</span></b></div>
+      <div class="ro-row"><span>Concentration</span><b>${escHtml(a.concentration.level)}${a.concentration.top ? " (top " + escHtml(a.concentration.top.instrument) + " " + roPct(a.concentration.top.share) + ")" : ""}</b></div>
+      <div class="ro-row"><span>Unrealised P&L</span><b>${a.pnl.complete ? roF(a.pnl.value, 0) : "UNKNOWN (partial " + roF(a.pnl.partialValue, 0) + ")"}</b></div>
+      <div class="ro-row"><span>Drawdown from peak</span><b>${dd && dd.current ? roF(dd.current.drawdown, 0) + " (max " + roF(dd.maxDrawdown, 0) + ")" : "UNKNOWN"}</b></div>
+      ${inst}${eng}${shared}${(a.netPooled && a.netPooled.note) ? `<div class="tb-form-hint">${escHtml(a.netPooled.note)}</div>` : ""}
+      <div class="tb-form-hint">${((pf.limitations) || []).map(escHtml).join(" ")}</div>`;
+  }
+  return `<div class="ro-card"><div class="ro-head"><b>Overview</b> ${roBadge("READ-ONLY", "shadow")}</div>${hrows}${prow}</div>`;
+}
+function roIntel(i) {
+  if (!i || !i.available) return `<div class="ro-sub"><b>Market intelligence</b> ${roBadge("UNKNOWN", "partial")}</div><div class="tb-form-hint">${escHtml((i && i.reason) || "not available")}</div>`;
+  const lab = i.label === "LIVE" ? roBadge("LIVE", "live") : roBadge("STALE", "partial");
+  if (!i.assessment) { const m = i.market || {}; return `<div class="ro-sub"><b>Market intelligence</b> ${lab}</div><div class="tb-form-hint">No open position. ${m.condition ? "Volatility " + escHtml(m.condition.volatility) + " · trend " + escHtml(m.condition.trend) : escHtml((m.reasons || []).join("; ") || "insufficient data")}</div>`; }
+  const a = i.assessment, cls = a.classification === "HIGH" ? "ro-danger" : a.classification === "ELEVATED" ? "ro-watch" : a.classification === "LOW" ? "ro-normal" : "ro-unknown";
+  const ev = (a.events || []).map(e => `<div class="tb-form-hint"><b>${escHtml(e.kind)}</b> [${escHtml(e.severity)}] — ${escHtml(e.explanation)}</div>`).join("");
+  return `<div class="ro-sub"><b>Market intelligence</b> ${lab} ${roBadge("INFORMATIONAL", "shadow")} <span class="ro-pill ${cls}">${escHtml(a.classification)}</span></div>
+    <div class="tb-form-hint">${escHtml(a.explanation)}</div>${ev}<div class="tb-form-hint">evidence quality ${escHtml(a.evidenceQuality)} · candle ${escHtml(a.completeness.candle)} · live ${escHtml(a.completeness.live)} · origin ${escHtml(String(a.completeness.origin).replace(/_/g, " "))}</div>`;
+}
+function roSim(sm) {
+  if (!sm || !sm.available) return `<div class="ro-sub"><b>Stress simulation</b> ${roBadge("SIMULATED", "partial")}</div><div class="tb-form-hint">${escHtml((sm && sm.reason) || "not available")}</div>`;
+  const rows = (sm.results || []).map(r => `<div class="ro-row"><span>${escHtml(r.name)}</span><b>worst ${escHtml(r.baseline.worstState)} → ${escHtml(r.simulated.worstState)} · P&L Δ ${roF(r.sensitivity.finalPnl, 0)} · UNKNOWN bars ${r.simulated.unknownBars}</b></div>`).join("");
+  return `<div class="ro-sub"><b>Stress simulation</b> ${roBadge("SIMULATED — not actual results", "partial")}</div>${rows}<div class="tb-form-hint">${(sm.limitations || []).map(escHtml).join(" ")}</div>`;
+}
 async function loadRiskObs() {
   const body = document.getElementById("riskObsBody");
   try {
     const d = await (await fetch("/api/riskobs")).json();
     if (!d.instruments || !d.instruments.length) { body.innerHTML = `<div class="tb-form-hint" style="padding:16px">No instrument has the Risk Observer enabled. Turn on "Risk Observer" when adding or editing a DSB_DUAL instrument.</div>`; return; }
     const cards = [];
+    let ovH = null, ovP = null; try { ovH = await (await fetch("/api/riskobs/health")).json(); } catch { /* optional */ } try { ovP = await (await fetch("/api/riskobs/portfolio")).json(); } catch { /* optional */ }
+    cards.push(roOverview(ovH, ovP));
     for (const inst of d.instruments) {
       let events = [];
       if (inst.snapshot) { try { events = (await (await fetch("/api/riskobs/events/" + encodeURIComponent(inst.snapshot.tgPrefix))).json()).events || []; } catch { /* timeline optional */ } }
@@ -5096,7 +5135,9 @@ async function loadRiskObs() {
         if (!hit || Date.now() - hit.at > 25000) { try { roAnCache[key] = { at: Date.now(), data: await (await fetch("/api/riskobs/analytics/" + encodeURIComponent(key))).json() }; } catch { roAnCache[key] = { at: Date.now(), data: { available: false, reason: "dashboard could not reach the analytics endpoint" } }; } }
         an = roAnCache[key].data;
       }
-      cards.push(roCard(inst, events, an));
+      let intel = null, sim = null;
+      if (inst.snapshot) { const k = encodeURIComponent(inst.snapshot.tgPrefix); try { intel = await (await fetch("/api/riskobs/intel/" + k)).json(); } catch { /* optional */ } try { sim = await (await fetch("/api/riskobs/sim/" + k)).json(); } catch { /* optional */ } }
+      cards.push(roCard(inst, events, an) + `<div class="ro-card">${roIntel(intel)}${roSim(sim)}</div>`);
     }
     body.innerHTML = cards.join("");
   } catch (err) { body.innerHTML = `<div class="ro-warn" style="margin:12px 16px">Could not load Risk Observer data: ${escHtml(err.message)}</div>`; }

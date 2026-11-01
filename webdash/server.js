@@ -3320,12 +3320,86 @@ app.get("/api/riskobs/analytics/:engine", async (req, res) => {
     } catch (err) { res.json({ available: false, reason: err.message }); }
 });
 
+// ── Risk Observer phases 3-6 (read-only views; every route is GET and opens SQLite read-only) ───────────────────────
+const riskObsHistCache = new Map();   // db file -> { at, history }   (60s)
+async function riskObsHistory(file) {
+    if (!file || !/^[a-z0-9_]+_riskobs\.db$/.test(file)) return null;
+    const c = riskObsHistCache.get(file); if (c && Date.now() - c.at < 60000) return c.history;
+    const full = path.join(DB_DIR, file); if (!fs.existsSync(full)) return null;
+    const history = await require("../riskObserver/analytics").loadHistoryReadOnly(full);
+    riskObsHistCache.set(file, { at: Date.now(), history }); return history;
+}
+const riskObsDrawdown = require("../riskObserver/portfolio/aggregate").createDrawdownTracker();
+function riskObsPortfolioRows() {
+    const rows = [];
+    for (const [engine, v] of riskObsLatest.entries()) {
+        const sn = v.snapshot, live = Date.now() - v.receivedAt <= 60000;
+        if (!sn || !sn.position) continue;
+        const raw = (sn.metrics && sn.metrics.raw) || {};
+        rows.push({ engine, instrument: sn.instrument, layer: null, id: raw.tradeId ?? engine, side: sn.position, lastPrice: sn.lastPrice, perPoint: raw.perPoint, pnl: sn.pnl, pnlSource: "estimate", reliable: live && sn.riskReliable !== false && !sn.pnlStale });
+    }
+    return rows;
+}
+function riskObsPortfolioSample() {   // called on every observer message: reliable aggregate samples only
+    try {
+        const { aggregate } = require("../riskObserver/portfolio/aggregate"), a = aggregate(riskObsPortfolioRows());
+        const contrib = {}; for (const g of a.byEngine) contrib[g.key] = g.pnl;
+        riskObsDrawdown.update(Date.now(), { pnl: a.pnl.value, complete: a.pnl.complete, contributions: contrib });
+    } catch { /* observation only */ }
+}
+app.get("/api/riskobs/health", (req, res) => {
+    try {
+        const { observerHealth } = require("../riskObserver/obsHealth"), now = Date.now();
+        res.json({ generatedAt: now, observers: [...riskObsLatest.entries()].map(([engine, v]) => ({ engine, ...observerHealth(v.snapshot, v.receivedAt, now) })) });
+    } catch (err) { res.json({ generatedAt: Date.now(), observers: [], error: err.message }); }
+});
+app.get("/api/riskobs/portfolio", async (req, res) => {
+    try {
+        const { aggregate, correlation, sharedRisk } = require("../riskObserver/portfolio/aggregate"), { observerHealth } = require("../riskObserver/obsHealth"), now = Date.now();
+        const agg = aggregate(riskObsPortfolioRows());
+        const hist = [];
+        for (const [engine, v] of riskObsLatest.entries()) { try { const h = await riskObsHistory(v.snapshot && v.snapshot.storeFile); if (h && h.candles.length) hist.push({ instrument: v.snapshot.instrument, candles: h.candles.slice(-400) }); } catch { /* optional */ } }
+        const corr = {}; for (let i = 0; i < hist.length; i++) for (let j = i + 1; j < hist.length; j++) corr[hist[i].instrument + "|" + hist[j].instrument] = correlation(hist[i].candles, hist[j].candles);
+        const rows = riskObsPortfolioRows().map(r => ({ instrument: r.instrument, sign: r.side === "LONG" ? 1 : -1, notional: Math.abs((r.lastPrice || 0) * (r.perPoint || 0)) }));
+        res.json({ generatedAt: now, label: "LIVE snapshots (instruments whose observer is silent are excluded and listed)", portfolio: agg, drawdown: riskObsDrawdown.state(), correlation: corr, sharedRisk: sharedRisk(rows, corr), observers: [...riskObsLatest.entries()].map(([engine, v]) => ({ engine, level: observerHealth(v.snapshot, v.receivedAt, now).level })),
+            limitations: ["Exposure is an estimate (price x per-point at the last observed price), not broker margin.", "Drawdown is measured from the peak of reliable aggregate samples since the dashboard process started.", "Correlation uses recorded 15m closes and is reported as insufficient when bars are missing or asynchronous."] });
+    } catch (err) { res.json({ generatedAt: Date.now(), error: err.message, portfolio: null }); }
+});
+app.get("/api/riskobs/intel/:engine", async (req, res) => {
+    try {
+        const hit = riskObsLatest.get(req.params.engine), sn = hit && hit.snapshot; if (!sn) return res.json({ available: false, reason: "no snapshot for this engine" });
+        const h = await riskObsHistory(sn.storeFile); if (!h) return res.json({ available: false, reason: "observer database not available" });
+        const { analyseMarket } = require("../riskObserver/intel/marketCondition"), { assess } = require("../riskObserver/intel/assess"), { observerHealth } = require("../riskObserver/obsHealth");
+        const hl = observerHealth(sn, hit.receivedAt, Date.now()), market = analyseMarket(h.candles.slice(-120)), raw = (sn.metrics && sn.metrics.raw) || {}, m = sn.metrics || {};
+        const label = hl.liveness === "LIVE" ? "LIVE" : "STALE";
+        if (!sn.position) return res.json({ available: true, label, position: null, market: market.status === "OK" ? { condition: market.condition, atrRatio: market.atrRatio, adx: market.adx, chop: market.chop, rsi: market.rsi } : { status: market.status, reasons: market.reasons } });
+        const a = assess({ side: sn.position, nowMs: Date.now(), market, metrics: { currentAdverse: m.currentAdverse, peakPnl: m.peakPnl, giveback: m.giveback, adverseCandles: m.adverseCandles, perPoint: raw.perPoint }, dsb: { agreeAgainst: sn.obs15 && sn.obs15.relation === "opposite", disagreeCandles: sn.obs15 ? sn.obs15.disagreeCandles : 0 }, health: { reliable: hl.liveness === "LIVE" && sn.riskReliable !== false, causes: [sn.unreliableCause || (hl.liveness === "SILENT" ? "observer silent" : null)].filter(Boolean) }, completeness: { candle: (m.coverage || {}).candle || "UNKNOWN", live: (m.coverage || {}).live || "UNKNOWN", origin: (sn.entry || {}).origin || "uncertain" } });
+        res.json({ available: true, label, assessment: a, informational: true });
+    } catch (err) { res.json({ available: false, reason: err.message }); }
+});
+const riskObsSimCache = new Map();
+app.get("/api/riskobs/sim/:engine", async (req, res) => {
+    try {
+        const hit = riskObsLatest.get(req.params.engine), sn = hit && hit.snapshot; if (!sn) return res.json({ available: false, reason: "no snapshot for this engine" });
+        const key = sn.storeFile, c = riskObsSimCache.get(key); if (c && Date.now() - c.at < 60000) return res.json(c.body);
+        const h = await riskObsHistory(sn.storeFile); if (!h || !h.candles.length) return res.json({ available: false, reason: "no recorded candles" });
+        const pos = h.positions.filter(p => p.closedAt != null).slice(-1)[0] || h.positions.slice(-1)[0]; if (!pos) return res.json({ available: false, reason: "no recorded positions to simulate" });
+        const { stressPosition } = require("../riskObserver/sim/simulate"), steps = (h.meta && h.meta.steps) || (sn.obs15 && sn.obs15.steps), last = h.candles[h.candles.length - 1].ts;
+        const p = { side: pos.side, entryPrice: pos.entryPrice, entryTs: pos.entryTs, endTs: pos.closedAt ?? last + 1, perPoint: (pos.metrics && pos.metrics.perPoint) || 1 };
+        const idx = h.candles.findIndex(x => x.ts >= p.entryTs); const at = Math.min(h.candles.length - 1, idx + 4);
+        const suite = [["Adverse gap (3 x median bar range)", [{ type: "adverse_gap", atIndex: at, points: 3 * Math.max(0.01, h.candles.slice(-60).map(x => x.high - x.low).sort((a, b) => a - b)[30] || 1) }]], ["Volatility expansion x3", [{ type: "volatility_expansion", fromIndex: at, factor: 3 }]], ["REST outage (10 bars)", [{ type: "rest_failure", fromIndex: at, bars: 10 }]], ["Observer restart", [{ type: "observer_restart", atIndex: at }]]];
+        const results = suite.map(([name, sc]) => { const r = stressPosition(p, h.candles, steps, sc, { riskCfg: sn.params, atrLen: 10 }); return { name, sensitivity: r.sensitivity, baseline: { worstState: r.baseline.worstState, finalPnl: r.baseline.finalPnl }, simulated: { worstState: r.simulated.worstState, finalPnl: r.simulated.finalPnl, unknownBars: r.simulated.unknownBars } }; });
+        const body = { available: true, label: "SIMULATED", positionId: pos.id, results, limitations: require("../riskObserver/sim/simulate").LIMITS };
+        riskObsSimCache.set(key, { at: Date.now(), body }); res.json(body);
+    } catch (err) { res.json({ available: false, reason: err.message }); }
+});
+
 engineWss.on("connection", ws => {
     ws.on("message", raw => {
         const str = raw.toString();
         // High-rate LTP stream is live-only (chart): never replayed from the ring buffer.
         if (!str.includes('"type":"LTP"')) pushToRing(str);
-        if (str.includes('"type":"RISKOBS"')) { try { const m = JSON.parse(str); if (m && m.snapshot) riskObsLatest.set(m.engine, { snapshot: m.snapshot, receivedAt: Date.now(), proc: m.proc || null }); } catch { /* ignore */ } return; }   // Risk Observer: cached, never replayed through the log ring
+        if (str.includes('"type":"RISKOBS"')) { try { const m = JSON.parse(str); if (m && m.snapshot) riskObsLatest.set(m.engine, { snapshot: m.snapshot, receivedAt: Date.now(), proc: m.proc || null }); if (m && m.snapshot) riskObsPortfolioSample(); } catch { /* ignore */ } return; }   // Risk Observer: cached, never replayed through the log ring
         if (str.includes('"type":"BLOCK"')) { try { recordBlock(JSON.parse(str)); } catch { /* ignore */ } }
         broadcastToBrowsers(str);
     });

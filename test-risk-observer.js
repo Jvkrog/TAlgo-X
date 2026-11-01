@@ -615,7 +615,8 @@ const calm = { adverseAtr: 0.1, adverseCandles: 0, disagreeCandles: 0, oppositeA
     });
     await t("no unhandled promise rejections occurred anywhere in this file", async () => { await new Promise(res => setImmediate(res)); assert.strictEqual(unhandled, 0); });
     await t("Safety: riskObserver/ has no reference to orders, SL, targets or position-closing", async () => {
-        for (const f of fs.readdirSync(path.join(__dirname, "riskObserver"))) { const src = fs.readFileSync(path.join(__dirname, "riskObserver", f), "utf8").replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/`[^`]*`|"[^"\n]*"/g, "");
+        const walk = d => fs.readdirSync(d, { withFileTypes: true }).flatMap(e => (e.isDirectory() ? walk(path.join(d, e.name)) : e.name.endsWith(".js") ? [path.join(d, e.name)] : []));   // recursive: intel/, portfolio/, sim/ are covered too
+        for (const f of walk(path.join(__dirname, "riskObserver"))) { const src = fs.readFileSync(f, "utf8").replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/`[^`]*`|"[^"\n]*"/g, "");
             assert(!/\b(placeOrder|orders\.|slStore|targetStore|exitPosition|positionsClose|kc\.placeOrder|modifyOrder|cancelOrder)\b/.test(src), f + " references trading primitives"); }
     });
     console.log(`\n${passed} scenarios passed`); process.exit(0);
