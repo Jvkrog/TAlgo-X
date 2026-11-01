@@ -2121,7 +2121,10 @@ function openEditModal(inst) {
       <input type="number" id="editChopMax" placeholder="Max threshold, default 58" min="0" step="any" value="${inst.chopMax ?? ""}">
     </div>
     <div class="tb-form-row">
-      <label class="tb-form-row-inline"><input type="checkbox" id="editCarry" ${inst.carryOvernight ? "checked" : ""}><span>Carry positions overnight past EOD, NRML-style</span></label>
+      <div class="tb-form-label">Order product</div>
+      <select id="editProduct"><option value="MIS" ${inst.product !== "NRML" ? "selected" : ""}>MIS — intraday, closed at EOD</option><option value="NRML" ${inst.product === "NRML" ? "selected" : ""}>NRML</option></select>
+      <select id="editNrmlEod" style="${inst.product === "NRML" ? "" : "display:none"}"><option value="CARRY" ${inst.carryOvernight ? "selected" : ""}>NRML: carry overnight (not closed at EOD)</option><option value="CLOSE" ${!inst.carryOvernight ? "selected" : ""}>NRML: close at EOD (like MIS)</option></select>
+      <div class="tb-form-hint">Takes effect when the engine restarts. A daily (1d) engine always carries (NRML).</div>
     </div>
     <div class="tb-form-row">
       <div class="tb-form-label">Candle type</div>
@@ -2192,7 +2195,8 @@ function openEditModal(inst) {
     body.chopFilterEnabled = tbEditBody.querySelector("#editChopEnabled").checked;
     body.chopPeriod = tbEditBody.querySelector("#editChopPeriod").value || null;
     body.chopMax = tbEditBody.querySelector("#editChopMax").value || null;
-    body.carryOvernight = tbEditBody.querySelector("#editCarry").checked;
+    body.product = tbEditBody.querySelector("#editProduct").value;
+    body.nrmlEod = body.product === "NRML" ? tbEditBody.querySelector("#editNrmlEod").value : undefined;
     body.disableDoubleOrders = tbEditBody.querySelector("#editDisableDouble").checked;
     body.atrSlMult = tbEditBody.querySelector("#editAtrSlMult").value || null;
     body.hardSlRupees = tbEditBody.querySelector("#editHardSl").value || null;
@@ -2345,6 +2349,13 @@ tbModeModal.addEventListener("click", e => { if (e.target === tbModeModal) tbMod
 // ── add instrument modal ─────────────────────────────────────────────────
 const tbAddModal = document.getElementById("tbAddModal");
 const tbAddBody = document.getElementById("tbAddBody");
+// Product select shows the NRML end-of-day choice only for NRML (delegated: the add form is re-rendered per step).
+document.addEventListener("change", e => {
+  const t = e.target; if (!t || (t.id !== "addProduct" && t.id !== "editProduct")) return;
+  const pre = t.id === "addProduct" ? "add" : "edit", eod = document.getElementById(pre + "NrmlEod"), hint = document.getElementById("addProductHint");
+  if (eod) eod.style.display = t.value === "NRML" ? "" : "none";
+  if (hint && pre === "add") hint.textContent = t.value === "NRML" ? "NRML orders are not squared off by the broker. Choose below whether the engine carries the position overnight or still closes it at EOD." : "MIS orders are squared off by the broker and closed by the engine at EOD.";
+});
 const tbAddClose = document.getElementById("tbAddClose");
 document.getElementById("tbOpenAddInstrument").addEventListener("click", openAddInstrumentModal);
 tbAddClose.addEventListener("click", () => tbAddModal.classList.remove("open"));
@@ -2484,7 +2495,12 @@ function renderAddConfigStep() {
         <input type="text" id="addConfirmLiveInput" placeholder="Type LIVE">
       </div>
     </div>
-    <label class="tb-form-row-inline"><input type="checkbox" id="addCarry"><span>Carry position overnight instead of EOD close</span></label>
+    <div class="tb-form-row">
+      <div class="tb-form-label">Order product</div>
+      <select id="addProduct"><option value="MIS" selected>MIS — intraday, closed at EOD</option><option value="NRML">NRML</option></select>
+      <select id="addNrmlEod" style="display:none"><option value="CARRY">NRML: carry overnight (not closed at EOD)</option><option value="CLOSE">NRML: close at EOD (like MIS)</option></select>
+      <div class="tb-form-hint" id="addProductHint">MIS orders are squared off by the broker and closed by the engine at EOD.</div>
+    </div>
     <div class="tb-form-row">
       <div class="tb-form-label">Profit target in points (tick-monitored, blank = none)</div>
       <input type="number" id="addTarget" min="0" step="any">
@@ -2712,7 +2728,8 @@ function renderAddConfigStep() {
         lotMultOverride: p.lotMultRequired ? lotMultInput.value : undefined,
         live: isLive,
         confirmLive: isLive ? tbAddBody.querySelector("#addConfirmLiveInput").value : undefined,
-        carryOvernight: tbAddBody.querySelector("#addCarry").checked,
+        product: tbAddBody.querySelector("#addProduct").value,
+        nrmlEod: tbAddBody.querySelector("#addProduct").value === "NRML" ? tbAddBody.querySelector("#addNrmlEod").value : undefined,
         strategy: pickedStrategy,
         candleType: candleSel.value || undefined,
         rangeSize: candleSel.value === "RANGE" ? (rangeInp.value || undefined) : undefined,

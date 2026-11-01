@@ -463,6 +463,7 @@ async function getEngineProcesses() {
             lotMult:    p.pm2_env.env?.LOTMULT_OVERRIDE || null,
             live:       p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             carryOvernight: p.pm2_env.env?.CARRY_OVERNIGHT_OVERRIDE === "true",
+            product:    p.pm2_env.env?.PRODUCT_OVERRIDE === "MIS" || p.pm2_env.env?.PRODUCT_OVERRIDE === "NRML" ? p.pm2_env.env.PRODUCT_OVERRIDE : (p.pm2_env.env?.CARRY_OVERNIGHT_OVERRIDE === "true" ? "NRML" : "MIS"),
             strategy:   p.pm2_env.env?.STRATEGY_OVERRIDE || "DPI_TREND_MEANREV",
             timeframe:  p.pm2_env.env?.TIMEFRAME_OVERRIDE || null,
             exchange:   p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -541,6 +542,25 @@ async function getEngineProcesses() {
         }));
 }
 
+// ── Order product (MIS / NRML) and what happens at EOD ──────────────────────────────────────────────────────────
+// Three valid combinations (engine.js enforces the same invariant: carry-overnight always implies NRML):
+//   MIS                 intraday product, closed at EOD                       (carryOvernight=false)
+//   NRML + close at EOD NRML product, but the engine still closes at EOD      (carryOvernight=false)
+//   NRML + carry        NRML product, position is held past EOD               (carryOvernight=true)
+// Legacy callers send only carryOvernight (true = NRML+carry, false = MIS) and keep working unchanged.
+function resolveProductMode({ product, nrmlEod, carryOvernight } = {}, { timeframe = null } = {}) {
+    const prod = product === undefined || product === null || product === "" ? null : String(product).toUpperCase();
+    if (prod !== null && prod !== "MIS" && prod !== "NRML") return { error: "Product must be MIS or NRML" };
+    const eod = nrmlEod === undefined || nrmlEod === null || nrmlEod === "" ? null : String(nrmlEod).toUpperCase();
+    if (eod !== null && eod !== "CARRY" && eod !== "CLOSE") return { error: "NRML end-of-day handling must be CARRY or CLOSE" };
+    let out;
+    if (prod === null) out = carryOvernight === undefined ? null : { product: carryOvernight ? "NRML" : "MIS", carryOvernight: !!carryOvernight };   // legacy
+    else if (prod === "MIS") out = { product: "MIS", carryOvernight: false };
+    else out = { product: "NRML", carryOvernight: eod === "CLOSE" ? false : eod === "CARRY" ? true : carryOvernight === undefined ? true : !!carryOvernight };
+    if (out && timeframe === "1d") out = { product: "NRML", carryOvernight: true };   // daily engines hold positions across days (same rule as engine.js)
+    return out || {};
+}
+
 // Same env-shape toolbox.js's toggleMode/restartSelected build before every
 // pm2Restart — kept in exact parity so a mode switch from the web produces
 // the identical process env an equivalent CLI action would.
@@ -554,6 +574,7 @@ function buildProcessEnv(p, overrides = {}) {
         UNDERLYING: p.underlying,
         LIVE_ORDERS_OVERRIDE: String(!!p.live),
         CARRY_OVERNIGHT_OVERRIDE: String(!!p.carryOvernight),
+        PRODUCT_OVERRIDE: p.product === "MIS" || p.product === "NRML" ? p.product : (p.carryOvernight ? "NRML" : "MIS"),   // always written explicitly
         STRATEGY_OVERRIDE: p.strategy || "DPI_TREND_MEANREV",
         TIMEFRAME_OVERRIDE: p.timeframe || "15m",
         EXCHANGE_OVERRIDE: p.exchange || "MCX",
@@ -850,7 +871,7 @@ app.get("/api/toolbox/logs/:name", async (req, res) => {
 // word "LIVE" — checked here server-side, not just in the browser, so a
 // crafted request can't skip the confirmation the CLI never lets you skip.
 app.post("/api/toolbox/mode", async (req, res) => {
-    const { name, live, carryOvernight, confirmLive } = req.body || {};
+    const { name, live, carryOvernight, confirmLive, product, nrmlEod } = req.body || {};
     if (!name || typeof live !== "boolean") {
         return res.status(400).json({ error: "Name and live (boolean) are required" });
     }
@@ -868,10 +889,13 @@ app.post("/api/toolbox/mode", async (req, res) => {
             cwd: ROOT,
             updateEnv: true,
             stop_exit_codes: [0],
-            env: buildProcessEnv(p, {
-                LIVE_ORDERS_OVERRIDE: String(!!live),
-                CARRY_OVERNIGHT_OVERRIDE: String(!!carryOvernight),
-            }),
+            env: buildProcessEnv(p, (() => {
+                // Switching mode must not silently change the product: with no explicit product the current one is kept, and
+                // "carry" can only ever mean NRML (an MIS position cannot be carried).
+                const r = resolveProductMode({ product: product ?? (carryOvernight ? "NRML" : p.product), nrmlEod, carryOvernight: !!carryOvernight }, { timeframe: p.timeframe });
+                if (r.error) throw new Error(r.error);
+                return { LIVE_ORDERS_OVERRIDE: String(!!live), CARRY_OVERNIGHT_OVERRIDE: String(!!r.carryOvernight), PRODUCT_OVERRIDE: r.product };
+            })()),
         });
         res.json({ ok: true });
     } catch (err) {
@@ -1098,7 +1122,12 @@ app.post("/api/toolbox/edit", async (req, res) => {
         }
 
         if (chopFilterEnabled !== undefined) updated.chopFilterEnabled = !!chopFilterEnabled;
-        if (carryOvernight !== undefined) updated.carryOvernight = !!carryOvernight;
+        if (carryOvernight !== undefined || product !== undefined || nrmlEod !== undefined) {
+            // An edit that only changes the EOD choice keeps the current product; one that only sends the legacy carry flag keeps legacy meaning.
+            const r = resolveProductMode({ product: product !== undefined ? product : (updated.product === "NRML" ? "NRML" : undefined), nrmlEod, carryOvernight }, { timeframe: updated.timeframe });
+            if (r.error) return res.status(400).json({ error: r.error });
+            if (r.product) { updated.carryOvernight = r.carryOvernight; updated.product = r.product; }
+        }
         for (const [key, val, int] of [["chopPeriod", chopPeriod, true], ["chopMax", chopMax, false], ["sessionTargetRupees", sessionTargetRupees, false]]) {
             if (val === undefined) continue;
             if (val === null || val === "" || val === "0" || val === "clear") { updated[key] = null; continue; }
@@ -1518,7 +1547,7 @@ app.get("/api/toolbox/instruments/:underlying/preview", async (req, res) => {
 app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
-        live, confirmLive, carryOvernight,
+        live, confirmLive, carryOvernight, product, nrmlEod,
         strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
@@ -1580,12 +1609,16 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             return res.status(409).json({ error: `${underlying} is already running ${(STRATEGY_INFO[stratKey] || {}).label || stratKey} as ${name} — stop/remove it first, or pick a different strategy or candle type` });
         }
 
+        // Product / EOD handling. No product sent (old client) => legacy behaviour: carryOvernight true = NRML+carry, false = MIS.
+        const pm = (() => { const r = resolveProductMode({ product, nrmlEod, carryOvernight }, { timeframe: tf }); return r.error ? r : (r.product ? r : { product: "MIS", carryOvernight: false }); })();
+        if (pm.error) return res.status(400).json({ error: pm.error });
         const env = {
             UNDERLYING: underlying,
             EXCHANGE_OVERRIDE: exchange,
             LOTS_OVERRIDE: String(lotsVal),
             LIVE_ORDERS_OVERRIDE: String(!!live),
-            CARRY_OVERNIGHT_OVERRIDE: String(!!carryOvernight),
+            CARRY_OVERNIGHT_OVERRIDE: String(!!pm.carryOvernight),
+            PRODUCT_OVERRIDE: pm.product,
             STRATEGY_OVERRIDE: stratKey,
             TIMEFRAME_OVERRIDE: tf,
             PROCESS_NAME: name,
@@ -1717,7 +1750,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         env.DAILY_HA_GATE_ENABLED_OVERRIDE = dailyHaGateEnabled === false ? "false" : "true";
 
         await pm2Start({ ...PM2_BASE_OPTS, script: "engine.js", name, cwd: ROOT, env });
-        res.json({ ok: true, name, strategy: stratKey, timeframe: tf, live: !!live, carryOvernight: !!carryOvernight, lotMult });
+        res.json({ ok: true, name, strategy: stratKey, timeframe: tf, live: !!live, carryOvernight: !!pm.carryOvernight, product: pm.product, lotMult });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1756,7 +1789,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
         disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, dailyBiasEntryTime, dailyBiasCandle, entryTime,
         volumeFilterEnabled, volumeSmaPeriod,
-        carryOvernight, maxDailyLoss, sessionTargetRupees, dailyHaGateEnabled,
+        carryOvernight, product, nrmlEod, maxDailyLoss, sessionTargetRupees, dailyHaGateEnabled,
         htfGateEnabled, htfChopPeriod, htfChopMax, htfBandBlockEnabled,
     } = req.body || {};
 
