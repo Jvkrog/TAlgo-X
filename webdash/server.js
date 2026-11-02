@@ -561,6 +561,15 @@ function resolveProductMode({ product, nrmlEod, carryOvernight } = {}, { timefra
     return out || {};
 }
 
+// Product/carry for a live<->paper switch. NOTHING sent = keep the instrument exactly as it is (a mode switch must never silently
+// turn a carried NRML position into an MIS one — the old checkbox did that by sending carry=false). Otherwise the same rules as add/edit.
+function resolveModeProduct(p, { product, nrmlEod, carryOvernight } = {}) {
+    const cur = { product: p.product === "NRML" || p.product === "MIS" ? p.product : (p.carryOvernight ? "NRML" : "MIS"), carryOvernight: !!p.carryOvernight };
+    if (product === undefined && nrmlEod === undefined && carryOvernight === undefined) return cur;
+    const r = resolveProductMode({ product: product !== undefined ? product : (nrmlEod !== undefined ? cur.product : (carryOvernight ? "NRML" : cur.product)), nrmlEod, carryOvernight }, { timeframe: p.timeframe });
+    return r.error ? r : (r.product ? r : cur);
+}
+
 // Same env-shape toolbox.js's toggleMode/restartSelected build before every
 // pm2Restart — kept in exact parity so a mode switch from the web produces
 // the identical process env an equivalent CLI action would.
@@ -890,9 +899,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
             updateEnv: true,
             stop_exit_codes: [0],
             env: buildProcessEnv(p, (() => {
-                // Switching mode must not silently change the product: with no explicit product the current one is kept, and
-                // "carry" can only ever mean NRML (an MIS position cannot be carried).
-                const r = resolveProductMode({ product: product ?? (carryOvernight ? "NRML" : p.product), nrmlEod, carryOvernight: !!carryOvernight }, { timeframe: p.timeframe });
+                const r = resolveModeProduct(p, { product, nrmlEod, carryOvernight });
                 if (r.error) throw new Error(r.error);
                 return { LIVE_ORDERS_OVERRIDE: String(!!live), CARRY_OVERNIGHT_OVERRIDE: String(!!r.carryOvernight), PRODUCT_OVERRIDE: r.product };
             })()),

@@ -80,5 +80,23 @@ async function productsFor(ctx) {
         assert.deepStrictEqual(run("DSB_DUAL", { bandStep: "2", bandStep2: "3" }), [2, 3]); assert.deepStrictEqual(run("DSB_DUAL", { bandStep: null, bandStep2: null }), ["", ""], "blank instrument value keeps the default");
         assert.deepStrictEqual(run("DYNAMIC_BAND", { bandStep: "1.5", bandStep2: "9" }), [1.5, ""], "DSB 2 is only for DSB_DUAL"); assert.deepStrictEqual(run("DSB_DUAL", { bandStep: "abc", bandStep2: "0" }), ["", ""], "invalid / zero values are ignored");
     });
+    await t("Switch Mode: nothing selected = product and carry are KEPT exactly (a paper<->live switch must not turn carried NRML into MIS)", async () => {
+        const ma = srv.indexOf("function resolveModeProduct"), mb = srv.indexOf("\n}\n", ma) + 2;
+        const modeFn = vm.runInNewContext("(function(){ " + fn + "\n" + srv.slice(ma, mb) + "\n return resolveModeProduct; })()");
+        const cur = (product, carry, tf = "15m") => ({ product, carryOvernight: carry, timeframe: tf });
+        for (const [prod, carry] of [["MIS", false], ["NRML", false], ["NRML", true]]) assert.deepStrictEqual(j(modeFn(cur(prod, carry), {})), { product: prod, carryOvernight: carry }, prod + carry);
+        assert.deepStrictEqual(j(modeFn({ carryOvernight: true }, {})), { product: "NRML", carryOvernight: true }, "legacy listing without product");
+        assert.deepStrictEqual(j(modeFn(cur("MIS", false), { product: "NRML", nrmlEod: "CLOSE" })), { product: "NRML", carryOvernight: false });
+        assert.deepStrictEqual(j(modeFn(cur("MIS", false), { product: "NRML", nrmlEod: "CARRY" })), { product: "NRML", carryOvernight: true });
+        assert.deepStrictEqual(j(modeFn(cur("NRML", true), { product: "MIS" })), { product: "MIS", carryOvernight: false });
+        assert.deepStrictEqual(j(modeFn(cur("NRML", true), { nrmlEod: "CLOSE" })), { product: "NRML", carryOvernight: false }, "EOD choice alone keeps NRML");
+        assert.deepStrictEqual(j(modeFn(cur("MIS", false), { carryOvernight: true })), { product: "NRML", carryOvernight: true }, "legacy carry flag");
+        assert.deepStrictEqual(j(modeFn(cur("MIS", false, "1d"), { product: "MIS" })), { product: "NRML", carryOvernight: true }, "1d always carries"); assert(modeFn(cur("MIS", false), { product: "CNC" }).error);
+    });
+    await t("Switch Mode dialog: product select (Keep current / MIS / NRML) + NRML EOD select replace the old carry checkbox and are sent with the request", async () => {
+        const ui = fs.readFileSync(path.join(__dirname, "webdash/public/app.js"), "utf8");
+        for (const k of ['id="tbProduct"', 'id="tbNrmlEod"', "Keep current", "close at EOD (like MIS)"]) assert(ui.includes(k), k); assert(!ui.includes("tbCarryCheck"), "old checkbox must be gone");
+        assert(/product: productSel\.value === "KEEP" \? undefined/.test(ui)); assert(/nrmlEod: productSel\.value === "NRML"/.test(ui)); assert(!/carryOvernight: carryCheck/.test(ui));
+    });
     console.log(`\n${passed} product-type scenarios passed`); process.exit(0);
 })().catch(e => { console.log = realLog; console.error("FAIL", e); process.exit(1); });
