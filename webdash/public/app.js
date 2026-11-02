@@ -2287,10 +2287,10 @@ function openModeModal(names) {
         <button data-mode="paper">Paper</button>
         <button data-mode="live">Live</button>
       </div>
-      <label class="tb-carry-row">
-        <input type="checkbox" id="tbCarryCheck">
-        <span>Carry position overnight (NRML, not MIS)</span>
-      </label>
+      <div class="tb-form-label">Order product</div>
+      <select id="tbProduct"><option value="KEEP" selected>Keep current</option><option value="MIS">MIS — closed at EOD</option><option value="NRML">NRML</option></select>
+      <select id="tbNrmlEod" style="display:none"><option value="CARRY">NRML: carry overnight (not closed at EOD)</option><option value="CLOSE">NRML: close at EOD (like MIS)</option></select>
+      <div class="tb-form-hint">${names.map(n => { const i = toolboxInstruments.find(x => x.name === n); return i ? escHtml(i.underlying || n) + ": " + (i.product === "NRML" ? (i.carryOvernight ? "NRML, carry overnight" : "NRML, close at EOD") : (i.carryOvernight ? "NRML, carry overnight" : "MIS")) : ""; }).filter(Boolean).join(" · ")} (current). Keep current leaves the product exactly as it is.</div>
       <div class="tb-confirm-live" id="tbConfirmLive">
         <div class="tb-confirm-live-warn">⚠ switching to LIVE places real orders. type LIVE to confirm:</div>
         <input type="text" id="tbConfirmLiveInput" placeholder="Type LIVE">
@@ -2304,7 +2304,8 @@ function openModeModal(names) {
   const confirmLiveBox = tbModeBody.querySelector("#tbConfirmLive");
   const confirmLiveInput = tbModeBody.querySelector("#tbConfirmLiveInput");
   const submitBtn = tbModeBody.querySelector("#tbModeSubmit");
-  const carryCheck = tbModeBody.querySelector("#tbCarryCheck");
+  const productSel = tbModeBody.querySelector("#tbProduct"), nrmlEodSel = tbModeBody.querySelector("#tbNrmlEod");
+  productSel.addEventListener("change", () => { nrmlEodSel.style.display = productSel.value === "NRML" ? "" : "none"; });
 
   function updateSubmitState() {
     if (modeTargetLive === null) { submitBtn.disabled = true; return; }
@@ -2333,7 +2334,8 @@ function openModeModal(names) {
           body: JSON.stringify({
             name,
             live: modeTargetLive,
-            carryOvernight: carryCheck.checked,
+            product: productSel.value === "KEEP" ? undefined : productSel.value,
+            nrmlEod: productSel.value === "NRML" ? nrmlEodSel.value : undefined,
             confirmLive: modeTargetLive ? confirmLiveInput.value : undefined,
           }),
         });
