@@ -52,6 +52,11 @@ function createOrders(context, tg, kcOverride) {
     // per-strategy wiring. Reuses this same kc client, no separate one.
     const dailyHaGate = createDailyHaGate({ context, kc });
 
+    // The broker keeps a separate position row per (symbol, product). This engine's product is fixed for the life of the process, so
+    // entries, exits, SL/target exits and reconciliation all use the SAME one — an MIS engine and an NRML engine can trade the same
+    // symbol in one account without ever touching each other's row.
+    const productFor = () => (context.carryOvernight || context.product === "NRML" ? "NRML" : "MIS");
+
     // ─── C. DUPLICATE ORDER PROTECTION ───────────────────────────────────────
     // true while an order HTTP call is in progress for this instrument.
     // Prevents signal → network retry → signal again → double order.
@@ -154,7 +159,7 @@ function createOrders(context, tg, kcOverride) {
             // context.product (MIS | NRML) is set once at boot from PRODUCT_OVERRIDE. NRML + carry-overnight OFF means "NRML orders, still
             // closed by the engine at EOD". Carry-overnight ALWAYS implies NRML (an MIS position would be squared off by the broker),
             // and with no explicit product the legacy rule applies unchanged: carry => NRML, otherwise MIS.
-            const product = context.carryOvernight || context.product === "NRML" ? "NRML" : "MIS";
+            const product = productFor();
 
             const order = await kc.placeOrder("regular", {
                 tradingsymbol:    context.symbol,
@@ -231,8 +236,12 @@ function createOrders(context, tg, kcOverride) {
         try {
             const { net } = await kc.getPositions();
 
+            // Only THIS engine's product row counts: another engine on the same symbol with the other product (MIS vs NRML) is a
+            // different broker position and must not be added to this engine's quantity (that produced false "mismatch" alerts).
+            const myProduct = productFor();
             const brokerMap = {};
             for (const p of (net || [])) {
+                if (p.product && p.product !== myProduct) continue;
                 brokerMap[p.tradingsymbol] = (brokerMap[p.tradingsymbol] || 0) + p.quantity;
             }
 

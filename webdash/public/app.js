@@ -3090,6 +3090,10 @@ async function renderBacktestParamsStep() {
   if (btState.prefill) {
     const pf = btState.prefill, setV = (id, v) => { const el = tbBacktestBody.querySelector(id); if (el && v !== null && v !== undefined && v !== "") el.value = v; };
     setV("#btLotMult", pf.lotMult);
+    // The instrument's own DSB steps (what Edit shows and the live engine uses). Without this the backtest silently ran the
+    // engine defaults (blank field = default) instead of e.g. NATGAS DSB 1 = 2 / DSB 2 = 3. A blank instrument value keeps the default.
+    { const setParam = (key, v) => { const el = tbBacktestBody.querySelector(`input[data-param="${key}"]`); if (el && v !== null && v !== undefined && v !== "" && Number(v) > 0) el.value = Number(v); };
+      setParam("BAND_STEP_DEFAULT", pf.bandStep); if (btState.strategy === "DSB_DUAL") setParam("BAND_STEP2_DEFAULT", pf.bandStep2); }
     setV("#btMaxLosingSwitches", pf.maxLosingSwitches);
     setV("#btMaxLoss", pf.maxDailyLoss);
     setV("#btSessionTarget", pf.sessionTargetRupees);
