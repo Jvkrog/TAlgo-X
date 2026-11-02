@@ -98,5 +98,26 @@ async function productsFor(ctx) {
         for (const k of ['id="tbProduct"', 'id="tbNrmlEod"', "Keep current", "close at EOD (like MIS)"]) assert(ui.includes(k), k); assert(!ui.includes("tbCarryCheck"), "old checkbox must be gone");
         assert(/product: productSel\.value === "KEEP" \? undefined/.test(ui)); assert(/nrmlEod: productSel\.value === "NRML"/.test(ui)); assert(!/carryOvernight: carryCheck/.test(ui));
     });
+    await t("edit / mode / add routes actually RUN with a product choice (a ReferenceError such as 'product is not defined' is a failure)", async () => {
+        const ra = srv.indexOf("function resolveProductMode"), rb = srv.indexOf("\n}\n", ra) + 2, ma = srv.indexOf("function resolveModeProduct"), mb = srv.indexOf("\n}\n", ma) + 2;
+        const bpA = srv.indexOf("function buildProcessEnv"), bpB = srv.indexOf("\n}\n", bpA) + 2;
+        for (const [route, body] of [["/api/toolbox/edit", { name: "N", product: "MIS" }], ["/api/toolbox/edit", { name: "N", product: "NRML", nrmlEod: "CLOSE" }], ["/api/toolbox/edit", { name: "N", nrmlEod: "CARRY" }], ["/api/toolbox/mode", { name: "N", live: false, product: "NRML", nrmlEod: "CLOSE" }], ["/api/toolbox/mode", { name: "N", live: false }]]) {
+            const ha = srv.indexOf(`app.post("${route}"`), hb = srv.indexOf("\n});", ha) + 4; const handler = srv.slice(ha, hb);
+            const routes = {}, stubs = {}; let result = null, lastErr = null;
+            for (let attempt = 0; attempt < 80; attempt++) {
+                const env = []; result = null;
+                const ctx = { app: { post: (r, h) => { routes[r] = h; } }, console, Object, Array, Number, String, Date, JSON, Math, Set, Map, Promise, Error, process: { env: {} }, ...stubs,
+                    getEngineProcesses: async () => [{ name: "N", underlying: "NATGAS", strategy: "DSB_DUAL", timeframe: "15m", live: false, carryOvernight: true, product: "NRML", exchange: "MCX", lots: "1" }],
+                    pm2RestartWithConfig: async o => { env.push(o.env); }, pm2Restart: async o => { env.push(o.env); } };
+                vm.createContext(ctx); vm.runInContext(srv.slice(ra, rb) + "\n" + srv.slice(ma, mb) + "\n" + srv.slice(bpA, bpB) + "\n" + handler, ctx);
+                result = await new Promise(res => { routes[route]({ body: JSON.parse(JSON.stringify(body)), params: {} }, { json: b => res({ status: 200, body: b }), status: c => ({ json: b => res({ status: c, body: b }) }) }); });
+                const m = result.status === 500 && result.body && /^(\w+) is not defined$/.exec(String(result.body.error || ""));
+                if (!m) { lastErr = result; break; }
+                assert(!["product", "nrmlEod", "carryOvernight", "resolveProductMode", "resolveModeProduct"].includes(m[1]), `${route}: ${m[1]} is not defined`);
+                stubs[m[1]] = new Proxy(function () {}, { get: () => () => {}, apply: () => ({}) });   // unrelated dependency: stub it and retry
+            }
+            assert(lastErr && !(lastErr.status === 500 && /product|nrmlEod|is not defined/.test(JSON.stringify(lastErr.body))), route + " " + JSON.stringify(body) + " -> " + JSON.stringify(lastErr));
+        }
+    });
     console.log(`\n${passed} product-type scenarios passed`); process.exit(0);
 })().catch(e => { console.log = realLog; console.error("FAIL", e); process.exit(1); });
