@@ -73,5 +73,12 @@ async function productsFor(ctx) {
         assert(/product: tbAddBody\.querySelector\("#addProduct"\)\.value/.test(ui)); assert(/body\.product = tbEditBody/.test(ui)); assert(/e\.target.*addProduct|t\.id !== "addProduct"/.test(ui));
         assert(!/id="addCarry"/.test(ui), "old carry checkbox must be gone from the add form");
     });
+    await t("backtest form prefill: the instrument's DSB 1 / DSB 2 steps (e.g. NATGAS 2 and 3) fill the step fields instead of leaving the engine defaults", async () => {
+        const ui = fs.readFileSync(path.join(__dirname, "webdash/public/app.js"), "utf8");
+        const a = ui.indexOf("{ const setParam = (key, v)"), b = ui.indexOf("\n", ui.indexOf('setParam("BAND_STEP_DEFAULT"', a)); assert(a > 0 && b > a, "prefill block not found"); const block = ui.slice(a, b);
+        const run = (strategy, pf) => { const els = { BAND_STEP_DEFAULT: { value: "" }, BAND_STEP2_DEFAULT: { value: "" } }; vm.runInNewContext(block, { tbBacktestBody: { querySelector: sel => { const m = /data-param="(\w+)"/.exec(sel); return m ? els[m[1]] : null; } }, btState: { strategy }, pf, Number }); return [els.BAND_STEP_DEFAULT.value, els.BAND_STEP2_DEFAULT.value]; };
+        assert.deepStrictEqual(run("DSB_DUAL", { bandStep: "2", bandStep2: "3" }), [2, 3]); assert.deepStrictEqual(run("DSB_DUAL", { bandStep: null, bandStep2: null }), ["", ""], "blank instrument value keeps the default");
+        assert.deepStrictEqual(run("DYNAMIC_BAND", { bandStep: "1.5", bandStep2: "9" }), [1.5, ""], "DSB 2 is only for DSB_DUAL"); assert.deepStrictEqual(run("DSB_DUAL", { bandStep: "abc", bandStep2: "0" }), ["", ""], "invalid / zero values are ignored");
+    });
     console.log(`\n${passed} product-type scenarios passed`); process.exit(0);
 })().catch(e => { console.log = realLog; console.error("FAIL", e); process.exit(1); });
