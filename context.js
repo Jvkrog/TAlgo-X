@@ -149,6 +149,8 @@ function buildContext(def, resolvedContract) {
         // orders.js (MIS vs NRML product), lifecycle.js (EOD skip), and
         // strategies.js (initSignals' shouldResume gate) for what this drives.
         carryOvernight: false,
+        slTrail: false,            // DAILY_HA_BIAS only (opt-in): trail the stop on the best price since entry — see strategies.js
+        atrSlTimeframe: "15m",     // DAILY_HA_BIAS only: "1h" sizes the ATR stop from completed 1-hour bars instead of the instrument's own candles
         product: null,   // "MIS" | "NRML" — set by engine.js from PRODUCT_OVERRIDE; null = legacy (carry => NRML, else MIS)
         // Overridden per-process by engine.js from TARGET_POINTS_OVERRIDE
         // (toolbox prompt, asked right after strategy selection — see

@@ -425,6 +425,9 @@ async function main() {
         if (v === "CURRENT" || v === "PREVIOUS") context.dailyBiasCandle = v;
         else console.warn(`[${context.tgPrefix}] DAILY_BIAS_CANDLE_OVERRIDE "${process.env.DAILY_BIAS_CANDLE_OVERRIDE}" must be PREVIOUS or CURRENT — using PREVIOUS`);
     }
+    // DAILY_HA_BIAS opt-ins (both default to the original behaviour): trailing stop and 1h ATR for the stop distance.
+    if (process.env.SL_TRAIL_OVERRIDE === "1") context.slTrail = true;
+    if (process.env.ATR_SL_TF_OVERRIDE === "1h") context.atrSlTimeframe = "1h";
     // DAILY_HA_BIAS entry time ("HH:MM" IST) — see context.dailyBiasEntryHour.
     // Invalid/blank = unset, strategies.js falls back to 10:00.
     if (process.env.DAILY_BIAS_ENTRY_TIME_OVERRIDE !== undefined && process.env.DAILY_BIAS_ENTRY_TIME_OVERRIDE !== "") {

@@ -6466,13 +6466,75 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
     // high/low. Same ATR_SL_MULT x ATR(ST_ATR_LEN) distance every other
     // strategy uses (per-instrument context.atrSlMult overrides the global
     // default, configurable from toolbox + web dashboard), measured from
-    // the entry price and fixed once armed — no trailing, same as before.
+    // the entry price and fixed once armed — unless the opt-in context.slTrail trails it (see below).
     function computeSl(livePrice, atrVal, side) {
         const hardLevel = hardStopLevel(context, state, side, livePrice);
         if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
         if (atrVal === null) return null;
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
+    }
+
+    // ── Opt-in per instrument (context.slTrail / context.atrSlTimeframe, both default to the original behaviour) ──
+    //   atrSlTimeframe "1h": the ATR that sizes the stop is the ATR(ST_ATR_LEN) of COMPLETED 1-hour bars, built from this
+    //     instrument's own candles (so live and backtest see exactly the same bars). A partly-formed hour is never used.
+    //   slTrail: after entry the stop trails the BEST price since entry (chandelier): LONG  best = highest high, SL = best - mult x ATR;
+    //     SHORT best = lowest low, SL = best + mult x ATR. It only ever moves toward price, never back; evaluated on each completed candle.
+    //     A hard rupee stop (context.hardSlRupees) is a fixed level by definition, so it disables trailing.
+    const trailOn = () => context.slTrail === true && !(Number(context.hardSlRupees) > 0);
+    const atrTf = () => (context.atrSlTimeframe === "1h" ? "1h" : "15m");
+    // Completed 1h bars from smaller candles: consecutive groups of (60/step) candles counted from the day's first candle (so MCX hours
+    // start 09:00, NSE 09:15, like Kite's own hourly bars). Groups that are incomplete or not contiguous are dropped, never patched.
+    function hourlyBars(raw) {
+        const t = k => (k.date instanceof Date ? k.date.getTime() : new Date(k.date).getTime());
+        if (raw.length < 2) return { bars: [], native: false, step: null };
+        const deltas = []; for (let i = Math.max(1, raw.length - 12); i < raw.length; i++) { const d = t(raw[i]) - t(raw[i - 1]); if (d > 0) deltas.push(d); }
+        deltas.sort((a, b) => a - b); const stepMs = deltas.length ? deltas[deltas.length >> 1] : null, stepMin = stepMs ? Math.round(stepMs / 60000) : null;
+        if (stepMin === 60) return { bars: raw, native: true, step: 60 };
+        if (!stepMin || stepMin > 60 || 60 % stepMin !== 0) return { bars: [], native: false, step: stepMin };
+        const per = 60 / stepMin, byDay = new Map();
+        for (const k of raw) { const d = istDay(k.date instanceof Date ? k.date : new Date(k.date)); if (!byDay.has(d)) byDay.set(d, []); byDay.get(d).push(k); }
+        const bars = [];
+        for (const day of [...byDay.keys()].sort()) {
+            const ks = byDay.get(day);
+            for (let i = 0; i + per <= ks.length; i += per) {
+                const g = ks.slice(i, i + per); let ok = true;
+                for (let j = 1; j < g.length; j++) if (t(g[j]) - t(g[j - 1]) !== stepMs) { ok = false; break; }
+                if (ok) bars.push({ date: g[0].date, open: g[0].open, high: Math.max(...g.map(x => x.high)), low: Math.min(...g.map(x => x.low)), close: g[g.length - 1].close });
+            }
+        }
+        return { bars, native: false, step: stepMin };
+    }
+    function stopAtr(raw) {
+        if (atrTf() !== "1h") return atr(raw, engineConfig.ST_ATR_LEN);
+        const h = hourlyBars(raw);
+        if (h.step !== null && h.bars.length === 0 && !h.native && h.step > 60) console.log(c.yellow(`[${context.tgPrefix}] 1h ATR needs candles of 60 min or less (this instrument runs ${h.step}m) — using the instrument's own candles`));
+        return h.bars.length ? atr(h.bars, engineConfig.ST_ATR_LEN) : (h.step !== null && h.step > 60 ? atr(raw, engineConfig.ST_ATR_LEN) : null);
+    }
+    const mult = () => context.atrSlMult ?? engineConfig.ATR_SL_MULT;
+    // Chandelier level from the best price; ratchets (never loosens). Returns the new level or null when nothing changes.
+    function trailLevel(side, best, atrVal, current) {
+        if (!(atrVal > 0) || !Number.isFinite(best)) return null;
+        const raw = side === "LONG" ? best - mult() * atrVal : best + mult() * atrVal;
+        if (current === null || current === undefined) return raw;
+        return side === "LONG" ? (raw > current ? raw : null) : (raw < current ? raw : null);
+    }
+    function updateTrail(rawCandle) {
+        if (!state.position || !trailOn()) return;
+        const side = state.position, raw = candles.getRawCandles(), cur = slStore.getTrail();
+        // After a restart the in-memory stop is gone (slStore is not persisted): rebuild best price from today's candles since entry.
+        if (cur.trail === null || cur.trail === undefined) {
+            const today = istDay(clock.now()), mine = raw.filter(k => istDay(k.date instanceof Date ? k.date : new Date(k.date)) === today);
+            if (!Number.isFinite(state.trailBest)) state.trailBest = state.entryPrice;
+            for (const k of mine) state.trailBest = side === "LONG" ? Math.max(state.trailBest, k.high) : Math.min(state.trailBest, k.low);
+        }
+        if (!Number.isFinite(state.trailBest)) state.trailBest = state.entryPrice;
+        state.trailBest = side === "LONG" ? Math.max(state.trailBest, rawCandle.high) : Math.min(state.trailBest, rawCandle.low);
+        const atrVal = stopAtr(raw); if (atrVal === null) return;
+        const lvl = trailLevel(side, state.trailBest, atrVal, cur.trail);
+        if (lvl === null) return;
+        slStore.setTrail(lvl, side === "LONG" ? 1 : -1);
+        console.log(c.dim(`[${context.tgPrefix}] DHAB SL trailed to ${lvl.toFixed(2)} (best ${state.trailBest.toFixed(2)}, ${mult()}x ${atrTf()} ATR ${atrVal.toFixed(2)})`));
     }
 
     async function doEnter(side, livePrice, slLevel, atrVal, daily) {
@@ -6503,6 +6565,7 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
         state.position       = side;
         state.tradesToday    = (state.tradesToday || 0) + 1;
         state.entryPrice     = livePrice;
+        state.trailBest      = livePrice;   // trailing stop (opt-in) measures from the best price since entry
         state.positionSource = "DAILY_HA_BIAS";
         state.openTradeId    = await db.insertOpenTrade(context.tgPrefix, context.symbol, side, context.lots, livePrice);
 
@@ -6524,9 +6587,9 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
         const dateStr = daily.date instanceof Date ? istDay(daily.date) : String(daily.date);
         const candleTag = CANDLE_MODE === "CURRENT" ? "present-day candle" : "prev-day candle";
         const atrMult = context.atrSlMult ?? engineConfig.ATR_SL_MULT;
-        console.log(c.white(`[${context.tgPrefix}] ${side} DAILY HA BIAS ENTRY  @ ${livePrice.toFixed(2)}  SL ${slLevel.toFixed(2)} (${atrMult}x ATR ${atrVal.toFixed(2)}, ${candleTag} ${daily.color}, dated ${dateStr}, HA close ${daily.close.toFixed(2)})`));
+        console.log(c.white(`[${context.tgPrefix}] ${side} DAILY HA BIAS ENTRY  @ ${livePrice.toFixed(2)}  SL ${slLevel.toFixed(2)} (${atrMult}x ${atrTf()} ATR ${atrVal.toFixed(2)}${trailOn() ? ", trailing" : ""}, ${candleTag} ${daily.color}, dated ${dateStr}, HA close ${daily.close.toFixed(2)})`));
         emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slLevel, pure: null });
-        tg(`${side} DAILY HA BIAS ENTRY @ \u20b9${livePrice.toFixed(2)}\nSL \u20b9${slLevel.toFixed(2)} (${atrMult}x ATR ${atrVal.toFixed(2)})\nbias candle (${candleTag}): ${dateStr}, ${daily.color}, HA close \u20b9${daily.close.toFixed(2)}`);
+        tg(`${side} DAILY HA BIAS ENTRY @ \u20b9${livePrice.toFixed(2)}\nSL \u20b9${slLevel.toFixed(2)} (${atrMult}x ${atrTf()} ATR ${atrVal.toFixed(2)}${trailOn() ? ", trailing" : ""})\nbias candle (${candleTag}): ${dateStr}, ${daily.color}, HA close \u20b9${daily.close.toFixed(2)}`);
         return true;
     }
 
@@ -6541,6 +6604,8 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
         emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, pure: null });
 
         if (!engineConfig.ENGINE_ENABLED) return;
+
+        if (state.position) updateTrail(rawCandle);   // opt-in trailing stop; no-op unless context.slTrail
 
         const today = clock.now().toISOString().split("T")[0];
         // Already in today's trade, or already decided today (a stop-out
@@ -6578,7 +6643,7 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
         // it can never start out behind price. Not enough candle history
         // for ATR yet = fail safe, try again next candle (same posture as
         // the "no daily read yet" return above).
-        const atrVal  = atr(candles.getRawCandles(), engineConfig.ST_ATR_LEN);
+        const atrVal  = stopAtr(candles.getRawCandles());
         const slLevel = computeSl(livePrice, atrVal, side);
         if (slLevel === null) return;
 
