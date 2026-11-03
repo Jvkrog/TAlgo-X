@@ -519,6 +519,8 @@ async function getEngineProcesses() {
             candleType: normalizeCandleType(p.pm2_env.env?.CANDLE_TYPE_OVERRIDE) || null,
             rangeSize: p.pm2_env.env?.RANGE_SIZE_OVERRIDE ? Number(p.pm2_env.env.RANGE_SIZE_OVERRIDE) : null,
             dailyBiasEntryTime: p.pm2_env.env?.DAILY_BIAS_ENTRY_TIME_OVERRIDE || null,
+            slTrail: p.pm2_env.env?.SL_TRAIL_OVERRIDE === "1",
+            atrSlTimeframe: p.pm2_env.env?.ATR_SL_TF_OVERRIDE === "1h" ? "1h" : "15m",
             dailyBiasCandle: p.pm2_env.env?.DAILY_BIAS_CANDLE_OVERRIDE || null,
             entryTime: p.pm2_env.env?.ENTRY_TIME_OVERRIDE || null,
             volumeFilterEnabled: p.pm2_env.env?.VOLUME_FILTER_OVERRIDE === "true",
@@ -632,6 +634,8 @@ function buildProcessEnv(p, overrides = {}) {
     env.RANGE_SIZE_OVERRIDE = p.rangeSize ? String(p.rangeSize) : "";
     env.PROCESS_NAME = p.name;
     env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = p.dailyBiasEntryTime || "";
+    env.SL_TRAIL_OVERRIDE = (p.strategy === "DAILY_HA_BIAS" && p.slTrail) ? "1" : "";
+    env.ATR_SL_TF_OVERRIDE = (p.strategy === "DAILY_HA_BIAS" && p.atrSlTimeframe === "1h") ? "1h" : "";
     env.DAILY_BIAS_CANDLE_OVERRIDE = p.dailyBiasCandle || "";
     env.ENTRY_TIME_OVERRIDE = p.entryTime || "";
     env.VOLUME_FILTER_OVERRIDE = String(!!p.volumeFilterEnabled);
@@ -922,7 +926,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight, product, nrmlEod } = req.body || {};
+    const { name, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, bandStep2, dsbDualMode, slTrail, atrSlTimeframe, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight, product, nrmlEod } = req.body || {};
     if (!name) return res.status(400).json({ error: "Name is required" });
 
     try {
@@ -1062,6 +1066,12 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 if (!t) return res.status(400).json({ error: "DailyBiasEntryTime must be HH:MM (IST)" });
                 updated.dailyBiasEntryTime = t;
             }
+        }
+        if (slTrail !== undefined) updated.slTrail = !!slTrail;
+        if (atrSlTimeframe !== undefined) {
+            if (atrSlTimeframe === null || atrSlTimeframe === "" || atrSlTimeframe === "15m") updated.atrSlTimeframe = "15m";
+            else if (atrSlTimeframe === "1h") updated.atrSlTimeframe = "1h";
+            else return res.status(400).json({ error: "AtrSlTimeframe must be 15m or 1h" });
         }
         if (entryTime !== undefined) {
             if (entryTime === null || entryTime === "" || entryTime === "clear") updated.entryTime = null;
@@ -1555,7 +1565,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight, product, nrmlEod,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, bandStep2, dsbDualMode, slTrail, atrSlTimeframe, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "Underlying is required" });
@@ -1707,6 +1717,11 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             if (!t) return res.status(400).json({ error: "DailyBiasEntryTime must be HH:MM (IST)" });
             env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = t;
         }
+        if (stratKey === "DAILY_HA_BIAS") {
+            if (atrSlTimeframe !== undefined && atrSlTimeframe !== null && atrSlTimeframe !== "" && atrSlTimeframe !== "15m" && atrSlTimeframe !== "1h") return res.status(400).json({ error: "AtrSlTimeframe must be 15m or 1h" });
+            env.SL_TRAIL_OVERRIDE = slTrail ? "1" : "";
+            env.ATR_SL_TF_OVERRIDE = atrSlTimeframe === "1h" ? "1h" : "";
+        }
         if (stratKey !== "DAILY_HA_BIAS" && entryTime !== undefined && entryTime !== null && entryTime !== "") {
             const t = normEntryTime(entryTime);
             if (!t) return res.status(400).json({ error: "EntryTime must be HH:MM (IST)" });
@@ -1794,7 +1809,7 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         // else mutates context directly, exactly like backtestFlow.js does.
         chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches, maxLosingTrades, maxProfitTrades, targetPoints, targetMode, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, bandStep2, dsbDualMode,
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
-        disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, dailyBiasEntryTime, dailyBiasCandle, entryTime,
+        disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, dailyBiasEntryTime, slTrail, atrSlTimeframe, dailyBiasCandle, entryTime,
         volumeFilterEnabled, volumeSmaPeriod,
         carryOvernight, product, nrmlEod, maxDailyLoss, sessionTargetRupees, dailyHaGateEnabled,
         htfGateEnabled, htfChopPeriod, htfChopMax, htfBandBlockEnabled,
@@ -1917,6 +1932,11 @@ app.post("/api/toolbox/backtest", async (req, res) => {
             const t = parseHHMM(dailyBiasEntryTime);
             if (!t) return res.status(400).json({ error: "DailyBiasEntryTime must be HH:MM (IST)" });
             context.dailyBiasEntryHour = t.hour; context.dailyBiasEntryMinute = t.minute;
+        }
+        if (strategy === "DAILY_HA_BIAS") {
+            if (atrSlTimeframe !== undefined && atrSlTimeframe !== null && atrSlTimeframe !== "" && atrSlTimeframe !== "15m" && atrSlTimeframe !== "1h") return res.status(400).json({ error: "AtrSlTimeframe must be 15m or 1h" });
+            if (slTrail) context.slTrail = true;
+            if (atrSlTimeframe === "1h") context.atrSlTimeframe = "1h";
         }
         if (entryTime !== undefined && entryTime !== null && entryTime !== "") {
             const t = parseHHMM(entryTime);

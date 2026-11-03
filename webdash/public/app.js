@@ -2094,6 +2094,12 @@ function openEditModal(inst) {
         <option value="PREVIOUS" ${inst.dailyBiasCandle === "PREVIOUS" ? "selected" : ""}>Previous day (explicit)</option>
         <option value="CURRENT" ${inst.dailyBiasCandle === "CURRENT" ? "selected" : ""}>Present day (forming)</option>
       </select>
+      <label class="tb-form-row-inline" style="margin-top:8px"><input type="checkbox" id="editSlTrail" ${inst.slTrail ? "checked" : ""}><span>Trail the stop (chandelier) \u2014 best price since entry \u2213 ATR stop distance, only ever tightens</span></label>
+      <div class="tb-form-label" style="margin-top:8px">ATR timeframe for the stop distance \u2014 1h uses completed 1-hour bars</div>
+      <select id="editAtrTf">
+        <option value="15m" ${inst.atrSlTimeframe !== "1h" ? "selected" : ""}>Instrument candles (default)</option>
+        <option value="1h" ${inst.atrSlTimeframe === "1h" ? "selected" : ""}>1-hour ATR</option>
+      </select>
     </div>` : ""}
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="editVolumeFilter" ${inst.volumeFilterEnabled ? "checked" : ""}><span>Only enter when volume is above its SMA</span></label>
@@ -2206,6 +2212,8 @@ function openEditModal(inst) {
     if (editFlipConfirmEl) body.flipConfirmCandles = editFlipConfirmEl.value || null;
     const editDhabEntryEl = tbEditBody.querySelector("#editDhabEntry");
     if (editDhabEntryEl) body.dailyBiasEntryTime = editDhabEntryEl.value || null;
+    const editSlTrailEl = tbEditBody.querySelector("#editSlTrail");
+    if (editSlTrailEl) { body.slTrail = editSlTrailEl.checked; body.atrSlTimeframe = tbEditBody.querySelector("#editAtrTf").value; }
     const editEntryTimeEl = tbEditBody.querySelector("#editEntryTime");
     if (editEntryTimeEl) body.entryTime = editEntryTimeEl.value || null;
     const editDhabCandleEl = tbEditBody.querySelector("#editDhabCandle");
@@ -2593,6 +2601,12 @@ function renderAddConfigStep() {
         <option value="PREVIOUS">Previous day (explicit)</option>
         <option value="CURRENT">Present day (forming)</option>
       </select>
+      <label class="tb-form-row-inline" style="margin-top:8px"><input type="checkbox" id="addSlTrail" ><span>Trail the stop (chandelier) \u2014 best price since entry \u2213 ATR stop distance, only ever tightens</span></label>
+      <div class="tb-form-label" style="margin-top:8px">ATR timeframe for the stop distance \u2014 1h uses completed 1-hour bars</div>
+      <select id="addAtrTf">
+        <option value="15m" >Instrument candles (default)</option>
+        <option value="1h" >1-hour ATR</option>
+      </select>
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="addVolumeFilter"><span>Only enter when volume is above its SMA</span></label>
@@ -2760,6 +2774,8 @@ function renderAddConfigStep() {
         riskObserver: (pickedStrategy === "DSB_DUAL" && tbAddBody.querySelector("#addRiskObserver").checked) || undefined,
         flipConfirmCandles: pickedStrategy === "PURE_HA" ? (tbAddBody.querySelector("#addFlipConfirm").value || undefined) : undefined,
         dailyBiasEntryTime: pickedStrategy === "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addDhabEntry").value || undefined) : undefined,
+        slTrail: pickedStrategy === "DAILY_HA_BIAS" ? tbAddBody.querySelector("#addSlTrail").checked : undefined,
+        atrSlTimeframe: pickedStrategy === "DAILY_HA_BIAS" ? tbAddBody.querySelector("#addAtrTf").value : undefined,
         entryTime: pickedStrategy !== "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addEntryTime").value || undefined) : undefined,
         dailyBiasCandle: pickedStrategy === "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addDhabCandle").value || undefined) : undefined,
         volumeFilterEnabled: tbAddBody.querySelector("#addVolumeFilter").checked,
@@ -2998,6 +3014,12 @@ async function renderBacktestParamsStep() {
         <option value="PREVIOUS">Previous day (explicit)</option>
         <option value="CURRENT">Present day (forming)</option>
       </select>
+      <label class="tb-form-row-inline" style="margin-top:8px"><input type="checkbox" id="btSlTrail" ><span>Trail the stop (chandelier) \u2014 best price since entry \u2213 ATR stop distance, only ever tightens</span></label>
+      <div class="tb-form-label" style="margin-top:8px">ATR timeframe for the stop distance \u2014 1h uses completed 1-hour bars</div>
+      <select id="btAtrTf">
+        <option value="15m" >Instrument candles (default)</option>
+        <option value="1h" >1-hour ATR</option>
+      </select>
     </div>
     <div class="tb-form-row">
       <label class="tb-form-row-inline"><input type="checkbox" id="btVolEnabled"><span>Only enter when volume is above its SMA (default N)</span></label>
@@ -3111,6 +3133,7 @@ async function renderBacktestParamsStep() {
     setV("#btAtrMult", pf.atrSlMult); setV("#btHardSl", pf.hardSlRupees); setC("#btSlDisabled", pf.slDisabled);
     { const el = tbBacktestBody.querySelector("#btEntryTime"); if (el) el.value = pf.entryTime || ""; }
     setV("#btDhabEntry", pf.dailyBiasEntryTime); setV("#btDhabCandle", pf.dailyBiasCandle);
+    setC("#btSlTrail", pf.slTrail); setV("#btAtrTf", pf.atrSlTimeframe);
     setC("#btVolEnabled", pf.volumeFilterEnabled); setV("#btVolPeriod", pf.volumeSmaPeriod);
     setC("#btDailyHaGate", pf.dailyHaGateEnabled !== false);
     setV("#btDsbExitMode", pf.dsbExitMode);
@@ -3160,6 +3183,8 @@ async function renderBacktestParamsStep() {
       slDisabled: tbBacktestBody.querySelector("#btSlDisabled").checked || undefined,
       hardSlRupees: btState.strategy === "ALMA_BAND" ? undefined : (tbBacktestBody.querySelector("#btHardSl").value || undefined),
       dailyBiasEntryTime: btState.strategy === "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btDhabEntry").value || undefined) : undefined,
+      slTrail: btState.strategy === "DAILY_HA_BIAS" ? tbBacktestBody.querySelector("#btSlTrail").checked : undefined,
+      atrSlTimeframe: btState.strategy === "DAILY_HA_BIAS" ? tbBacktestBody.querySelector("#btAtrTf").value : undefined,
       entryTime: btState.strategy !== "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btEntryTime").value || undefined) : undefined,
       dailyBiasCandle: btState.strategy === "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btDhabCandle").value || undefined) : undefined,
       volumeFilterEnabled: tbBacktestBody.querySelector("#btVolEnabled").checked,
@@ -3218,12 +3243,12 @@ async function renderBacktestParamsStep() {
         const name = btState.sourceName;
         if (!confirm(`Apply these backtest settings to ${name}? This saves them and restarts the process (an open position is not touched by the save itself, but check it first).`)) return;
         const keys = ["chopFilterEnabled", "chopPeriod", "chopMax", "longCandleFilterEnabled", "longCandleAtrPeriod", "longCandleAtrMult", "longCandleCooldownCandles",
-          "disableDoubleOrders", "atrSlMult", "hardSlRupees", "slDisabled", "dailyBiasEntryTime", "entryTime", "dailyBiasCandle", "volumeFilterEnabled", "volumeSmaPeriod", "carryOvernight",
+          "disableDoubleOrders", "atrSlMult", "hardSlRupees", "slDisabled", "dailyBiasEntryTime", "slTrail", "atrSlTimeframe", "entryTime", "dailyBiasCandle", "volumeFilterEnabled", "volumeSmaPeriod", "carryOvernight",
           "maxDailyLoss", "maxLosingSwitches", "maxLosingTrades", "maxProfitTrades", "targetPoints", "targetMode", "scalpTarget", "scalpStopDay", "scalpNext", "dsbExitMode", "bandStep2", "dsbDualMode", "sessionTargetRupees",
           "dailyHaGateEnabled"];
         const payload = { name };
         keys.forEach(k => { if (k in body || body[k] === undefined) payload[k] = body[k] === undefined ? null : body[k]; });
-        if (btState.strategy === "DAILY_HA_BIAS") delete payload.entryTime; else { delete payload.dailyBiasEntryTime; delete payload.dailyBiasCandle; }
+        if (btState.strategy === "DAILY_HA_BIAS") delete payload.entryTime; else { delete payload.dailyBiasEntryTime; delete payload.dailyBiasCandle; delete payload.slTrail; delete payload.atrSlTimeframe; }
         if (btState.strategy === "ALMA_BAND") { delete payload.atrSlMult; delete payload.hardSlRupees; }
         const out = resultBox.querySelector("#btApplyOut");
         applyBtn.disabled = true; applyBtn.textContent = "Applying...";
@@ -3289,6 +3314,7 @@ function renderBtDeployView(bt) {
     ["Lot multiplier", bt.lotMultOverride || "instrument default"],
     [isDhab ? "Entry time" : "Entry time (no entries before)", (isDhab ? bt.dailyBiasEntryTime : bt.entryTime) || "—"],
     ...(isDhab ? [["Daily bias candle", bt.dailyBiasCandle || "default"]] : []),
+    ...(isDhab ? [["Trailing stop", bt.slTrail ? "On (chandelier)" : "Off"], ["ATR timeframe", bt.atrSlTimeframe === "1h" ? "1-hour" : "instrument candles"]] : []),
     ["Stop-loss", bt.slDisabled ? "Disabled" : bt.hardSlRupees ? `Hard ₹${bt.hardSlRupees}` : bt.atrSlMult ? `ATR × ${bt.atrSlMult}` : "ATR (default multiplier)"],
     ["Chop filter", onOff(bt.chopFilterEnabled, `period ${bt.chopPeriod || "default"}, max ${bt.chopMax || "default"}`)],
     ["Long-candle block", onOff(bt.longCandleFilterEnabled, `ATR ${bt.longCandleAtrPeriod || "def"} × ${bt.longCandleAtrMult || "def"}, cooldown ${bt.longCandleCooldownCandles || "def"}`)],
@@ -3362,6 +3388,7 @@ function renderBtDeployView(bt) {
       disableDoubleOrders: !!bt.disableDoubleOrders,
       atrSlMult: bt.atrSlMult, hardSlRupees: bt.hardSlRupees, slDisabled: bt.slDisabled,
       dailyBiasEntryTime: bt.dailyBiasEntryTime, entryTime: bt.entryTime, dailyBiasCandle: bt.dailyBiasCandle,
+      slTrail: !!bt.slTrail, atrSlTimeframe: bt.atrSlTimeframe,
       volumeFilterEnabled: !!bt.volumeFilterEnabled, volumeSmaPeriod: bt.volumeSmaPeriod,
       longCandleFilterEnabled: !!bt.longCandleFilterEnabled, longCandleAtrPeriod: bt.longCandleAtrPeriod,
       longCandleAtrMult: bt.longCandleAtrMult, longCandleCooldownCandles: bt.longCandleCooldownCandles,
