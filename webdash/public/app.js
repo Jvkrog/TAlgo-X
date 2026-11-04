@@ -1702,6 +1702,7 @@ function renderRiskList() {
       `<span class="mode-pill ${inst.dailyHaGateEnabled !== false ? "live" : ""}">dailyha ${inst.dailyHaGateEnabled !== false ? "on" : "off"}</span>`,
     ];
     if (inst.strategy === "PURE_HA") badges.push(`<span class="mode-pill">flip ${inst.flipConfirmCandles ?? 1}</span>`);
+    if (inst.hedgeGroup) badges.push(`<span class="mode-pill">hedge pair ${escHtml(inst.hedgeGroup)} \u00b7 leg ${escHtml(inst.hedgeRole || "?")}</span>`);
     if (inst.strategy === "DAILY_HA_BIAS") badges.push(`<span class="mode-pill">entry ${inst.dailyBiasEntryTime || "10:00"} \u00b7 ${inst.dailyBiasCandle === "CURRENT" ? "today's candle" : "prev candle"}</span>`);
     else if (inst.entryTime) badges.push(`<span class="mode-pill">entry \u2265 ${inst.entryTime}</span>`);
     if (inst.riskObserver) badges.push(`<span class="mode-pill">risk observer</span>`);
@@ -4101,7 +4102,71 @@ function renderHedgePairAddCorePicker() {
 function renderHedgePairAddHedgePicker() {
   renderHedgePairSearchStep("hedge underlying (mini contract, e.g. NATGASMINI, ZINCMINI)", u => {
     hpAddState.hedge = u;
+    // Both legs are mini contracts -> linked pair (DSB_DUAL leg + DAILY_HA_BIAS leg, stops off while they point opposite ways).
+    if (hpAddState.mode !== "backtest" && HP_MINI_RE.test(hpAddState.core) && HP_MINI_RE.test(u)) { renderLinkedPairForm(); return; }
     (hpAddState.mode === "backtest" ? renderHedgePairBacktestForm : renderHedgePairAddForm)();
+  });
+}
+
+// ── Linked hedge pair: two ordinary engines on mini contracts, one DSB_DUAL and one DAILY_HA_BIAS. Opposite directions = hedged =
+// no stops; same direction (or the other leg flat) = stops active. Each leg is deployed through the normal add-instrument route.
+const HP_MINI_RE = /MINI|^(GOLDM|SILVERM|SILVERMIC|GOLDPETAL|GOLDGUINEA)$/i;
+function renderLinkedPairForm() {
+  const A = hpAddState.core, B = hpAddState.hedge, same = A === B;
+  const legHtml = (id, title, und, strat, prod) => `
+    <div class="tb-form-row"><div class="tb-form-label"><b>${title}</b> \u2014 ${und}</div>
+      <select id="${id}Strat"><option value="DSB_DUAL" ${strat === "DSB_DUAL" ? "selected" : ""}>Dual DSB</option><option value="DAILY_HA_BIAS" ${strat === "DAILY_HA_BIAS" ? "selected" : ""}>Daily HA Bias</option></select>
+      <select id="${id}Prod"><option value="MIS" ${prod === "MIS" ? "selected" : ""}>MIS (closed at EOD)</option><option value="NRML" ${prod === "NRML" ? "selected" : ""}>NRML (carried overnight)</option><option value="NRML_EOD">NRML, close at EOD</option></select>
+      <input type="number" id="${id}Lots" min="1" step="1" value="1" placeholder="lots">
+      <input type="number" id="${id}LotMult" min="1" step="any" placeholder="lot multiplier (only if required)">
+    </div>`;
+  tbHedgePairsBody.innerHTML = `
+    <button class="tb-back-link" id="hpBack">\u2039 back</button>
+    <div class="tb-form-hint" style="margin:8px 0">Both legs are mini contracts \u2192 <b>linked hedge pair</b>. Each leg runs its own strategy. While the two legs are in <b>opposite</b> directions they hedge each other and <b>no stop-loss</b> is held; when both point the <b>same</b> way (or the other leg is flat) the stop-loss is active, recomputed fresh.${same ? " Same contract on both legs: one must be MIS and the other NRML." : ""}</div>
+    <div class="tb-form-row"><div class="tb-form-label">Pair name (letters, digits, _ -)</div><input type="text" id="lpName" value="${(A + (same ? "" : B) + "Link").replace(/[^A-Za-z0-9_-]/g, "")}"></div>
+    ${legHtml("lpA", "Leg A", A, "DSB_DUAL", "MIS")}
+    ${legHtml("lpB", "Leg B", B, "DAILY_HA_BIAS", same ? "NRML" : "MIS")}
+    <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="lpLive"><span>Go LIVE (real orders on both legs) \u2014 unchecked = paper</span></label></div>
+    <div id="lpErrBox"></div>
+    <button class="tb-submit-btn" id="lpSubmit">Start linked pair</button>`;
+  const q = sel => tbHedgePairsBody.querySelector(sel);
+  const err = m => { q("#lpErrBox").innerHTML = `<div class="tb-err-box">${escHtml(m)}</div>`; };
+  // keep the two legs on different strategies (and, on the same contract, different products) as the user edits
+  const other = v => (v === "DSB_DUAL" ? "DAILY_HA_BIAS" : "DSB_DUAL"), otherProd = v => (v === "MIS" ? "NRML" : "MIS");
+  q("#lpAStrat").addEventListener("change", () => { q("#lpBStrat").value = other(q("#lpAStrat").value); });
+  q("#lpBStrat").addEventListener("change", () => { q("#lpAStrat").value = other(q("#lpBStrat").value); });
+  if (same) {
+    q("#lpAProd").addEventListener("change", () => { const v = q("#lpAProd").value; q("#lpBProd").value = v === "MIS" ? "NRML" : "MIS"; });
+    q("#lpBProd").addEventListener("change", () => { const v = q("#lpBProd").value; q("#lpAProd").value = v === "MIS" ? "NRML" : "MIS"; });
+  }
+  q("#hpBack").addEventListener("click", renderHedgePairAddHedgePicker);
+  q("#lpSubmit").addEventListener("click", async () => {
+    const group = q("#lpName").value.trim(), live = q("#lpLive").checked;
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(group)) return err("Pair name may only contain letters, digits, _ -");
+    const legs = [["A", A, "lpA"], ["B", B, "lpB"]].map(([role, und, id]) => {
+      const prod = q(`#${id}Prod`).value;
+      return { role, body: { underlying: und, exchange: "MCX", strategy: q(`#${id}Strat`).value, lots: q(`#${id}Lots`).value || 1,
+        lotMultOverride: q(`#${id}LotMult`).value || undefined, product: prod === "NRML_EOD" ? "NRML" : prod, nrmlEod: prod === "NRML_EOD" ? "CLOSE" : (prod === "NRML" ? "CARRY" : undefined),
+        hedgeGroup: group, hedgeRole: role } };
+    });
+    if (legs[0].body.strategy === legs[1].body.strategy) return err("The two legs must run different strategies");
+    if (same && legs[0].body.product === legs[1].body.product) return err("Same contract on both legs: one must be MIS and the other NRML");
+    let confirmLive; if (live) { confirmLive = prompt('This starts REAL orders on BOTH legs. Type "LIVE" to confirm:'); if (confirmLive !== "LIVE") return err("Not confirmed \u2014 not started"); }
+    const btn = q("#lpSubmit"); btn.disabled = true; btn.textContent = "Starting...";
+    const started = [];
+    try {
+      for (const l of legs) {
+        const res = await fetch("/api/toolbox/instrument", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...l.body, live, confirmLive }) });
+        const data = await res.json();
+        if (!res.ok) throw new Error(`Leg ${l.role}: ${data.error || "failed to start"}`);
+        started.push(data.name);
+      }
+      hpAddState = null; loadHedgePairsList(); loadToolboxList();
+    } catch (e) {
+      // never leave a half-started pair running: remove whichever leg did start
+      if (started.length) { try { await fetch("/api/toolbox/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ names: started }) }); } catch {} }
+      err(e.message + (started.length ? " \u2014 the other leg was removed" : "")); btn.disabled = false; btn.textContent = "Start linked pair";
+    }
   });
 }
 

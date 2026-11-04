@@ -6537,6 +6537,19 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
         console.log(c.dim(`[${context.tgPrefix}] DHAB SL trailed to ${lvl.toFixed(2)} (best ${state.trailBest.toFixed(2)}, ${mult()}x ${atrTf()} ATR ${atrVal.toFixed(2)})`));
     }
 
+    // Linked hedge pair: stop was removed while hedged; legs aligned again -> fresh stop from the current price (computeSl rules).
+    function rearmStop() {
+        if (!state.position) return false;
+        const raw = candles.getRawCandles(), livePrice = candles.getLivePrice() ?? (raw.length ? raw[raw.length - 1].close : null);
+        if (livePrice === null) return false;
+        const lvl = computeSl(livePrice, stopAtr(raw), state.position);
+        if (lvl === null) return false;
+        slStore.setTrail(lvl, state.position === "LONG" ? 1 : -1);
+        if (trailOn()) state.trailBest = livePrice;   // chandelier restarts from here
+        console.log(c.dim(`[${context.tgPrefix}] hedge pair: legs aligned — stop re-armed @ ${lvl.toFixed(2)}`));
+        return true;
+    }
+
     async function doEnter(side, livePrice, slLevel, atrVal, daily) {
         // Long-candle / volatility-shock filter — CHANGED Sep 2026
         // (reported directly): every other strategy in this file already
@@ -6703,7 +6716,7 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
         }
     }
 
-    return { processCandle, initSignals };
+    return { processCandle, initSignals, rearmStop };
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -7067,6 +7080,22 @@ function createDsbDualStrategy({ context, engineConfig, state, db, candles, slSt
         }
     }
 
+    // Linked hedge pair: the stop was removed while the legs were hedged; the legs are now aligned again, so set a FRESH
+    // ATR stop from the current price (same arithmetic as a new entry). No-op when flat or nothing valid can be computed.
+    function rearmStop() {
+        if (!state.position) return false;
+        const raw = candles.getRawCandles();
+        const atrVal = raw.length >= engineConfig.ST_ATR_LEN + 1 ? atr(raw, engineConfig.ST_ATR_LEN) : null;
+        const livePrice = candles.getLivePrice() ?? (raw.length ? raw[raw.length - 1].close : null);
+        if (atrVal === null || livePrice === null) return false;
+        const lvl = computeTrail(livePrice, atrVal, state.position);
+        const valid = lvl !== null && ((state.position === "LONG" && lvl < livePrice) || (state.position === "SHORT" && lvl > livePrice));
+        if (!valid) return false;
+        slStore.setTrail(lvl, state.position === "LONG" ? 1 : -1);
+        console.log(c.dim(`[${context.tgPrefix}] hedge pair: legs aligned — stop re-armed @ ${lvl.toFixed(2)}`));
+        return true;
+    }
+
     async function processCandle(rawCandle) {
         if (lifecycle.isShutdown()) return;
         const rawCandles = candles.getRawCandles();
@@ -7116,7 +7145,7 @@ function createDsbDualStrategy({ context, engineConfig, state, db, candles, slSt
         }
     }
 
-    return { processCandle, initSignals };
+    return { processCandle, initSignals, rearmStop };
 }
 
 const STRATEGIES = {

@@ -567,7 +567,19 @@ async function main() {
     const htf      = createHtfGate({ context, engineConfig, tg });
     const deltaBuffer = createCandleDeltaBuffer();
     const marketDataHealth = createMarketDataHealth({ tg });
-    const slStore  = createSLStore({ isDisabled: () => !!context.slDisabled });
+    // LINKED HEDGE PAIR (opt-in: HEDGE_LINK_GROUP + HEDGE_LINK_ROLE). Two ordinary engines on the same instrument — one running
+    // DSB_DUAL, the other DAILY_HA_BIAS — see each other's side through hedgeLink.js. Opposite sides = hedged = no stops;
+    // same side (or peer flat) = stops active. Off entirely when the env vars are unset: slStore behaves exactly as before.
+    let hedgeLink = null, hedgedNow = false;
+    if (process.env.HEDGE_LINK_GROUP) {
+        try {
+            const { createHedgeLink } = require("./hedgeLink"); const { DB_DIR: LINK_DIR } = require("./dbDir");
+            hedgeLink = createHedgeLink({ group: process.env.HEDGE_LINK_GROUP, role: process.env.HEDGE_LINK_ROLE, dir: LINK_DIR });
+            context.hedgeGroup = hedgeLink.group; context.hedgeRole = hedgeLink.role;
+            console.log(c.cyan(`[${context.tgPrefix}] linked hedge pair "${hedgeLink.group}" leg ${hedgeLink.role} — stops off while the two legs are in opposite directions`));
+        } catch (e) { console.error(c.red(`[${context.tgPrefix}] hedge link invalid (${e.message}) — refusing to boot`)); process.exit(1); }
+    }
+    const slStore  = createSLStore({ isDisabled: () => !!context.slDisabled, isSuppressed: () => hedgedNow });
     const targetStore = createTargetStore();
     const db       = createDb(context);
     const orders   = createOrders(context, tg);
@@ -637,6 +649,27 @@ async function main() {
           }
           setCurrentCandle(candle); return rawProcess.call(this, candle, ...rest);
       }; }
+    // Hedge-link watcher: publish my side, read the peer's, and flip the stop on/off on every change (1s poll, files only).
+    if (hedgeLink) {
+        const { isHedged } = require("./hedgeLink");
+        setInterval(() => {
+            try {
+                hedgeLink.publish(state.position);
+                const hedged = isHedged(state.position, hedgeLink.peerSide());
+                if (hedged === hedgedNow) return;
+                hedgedNow = hedged;
+                if (hedged) {
+                    slStore.clearTrail();   // legs hedge each other: drop the stop; it is recomputed fresh when they align again
+                    console.log(c.cyan(`[${context.tgPrefix}] HEDGED (${state.position} vs peer ${hedgeLink.peerSide()}) — stop removed`));
+                    tg(`HEDGED: ${context.tgPrefix} ${state.position} vs peer ${hedgeLink.peerSide()} — stop removed`);
+                } else {
+                    console.log(c.cyan(`[${context.tgPrefix}] legs no longer opposite — stop active again`));
+                    if (state.position && typeof signalsInstance.rearmStop === "function") signalsInstance.rearmStop();
+                    tg(`UNHEDGED: ${context.tgPrefix} ${state.position || "flat"} — stop active again`);
+                }
+            } catch (e) { console.log(c.yellow(`[${context.tgPrefix}] hedge link: ${e.message}`)); }
+        }, 1000);
+    }
     const rangeKc = candleMode.view === "RANGE" ? new KiteConnect({ api_key: engineConfig.API_KEY }) : null;
     if (rangeKc) rangeKc.setAccessToken(ACCESS_TOKEN);
     const rangeFeed = rangeKc ? createRangeFeed({ context, engineConfig, kc: rangeKc, candles, tg }) : null;
