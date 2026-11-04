@@ -1820,12 +1820,14 @@ async function loadToolboxList() {
 
 function renderToolboxList() {
   renderExtraPanels();
-  if (toolboxInstruments.length === 0) {
+  // Linked hedge-pair legs are ordinary engine processes, but they are shown (and managed) in the Hedge Pairs panel, not here.
+  const plain = toolboxInstruments.filter(i => !i.hedgeGroup);
+  if (plain.length === 0) {
     toolboxList.innerHTML = `<div class="empty-state">No engines detected</div>`;
     return;
   }
   toolboxList.innerHTML = "";
-  toolboxInstruments.forEach(inst => {
+  plain.forEach(inst => {
     const row = document.createElement("div");
     row.className = "tb-row";
     row.innerHTML = `
@@ -1851,8 +1853,37 @@ const dhList = document.getElementById("dhList");
 function renderExtraPanels() {
   [["hedgepair", hpList], ["dualhedge", dhList]].forEach(([kind, box]) => {
     const items = toolboxExtra.filter(x => x.kind === kind);
-    if (!items.length) { box.innerHTML = `<div class="empty-state">None deployed</div>`; return; }
+    const linked = kind === "hedgepair" ? toolboxInstruments.filter(i => i.hedgeGroup) : [];
+    if (!items.length && !linked.length) { box.innerHTML = `<div class="empty-state">None deployed</div>`; return; }
     box.innerHTML = "";
+    // Linked hedge pairs (two engines sharing a stop rule): one group header + a row per leg, each with its own Edit / Logs.
+    const groups = [...new Set(linked.map(i => i.hedgeGroup))];
+    groups.forEach(g => {
+      const legs = linked.filter(i => i.hedgeGroup === g).sort((a, b) => String(a.hedgeRole).localeCompare(String(b.hedgeRole)));
+      const head = document.createElement("div");
+      head.className = "tb-form-hint";
+      head.style.cssText = "padding:8px 16px 0";
+      head.textContent = `LINKED HEDGE PAIR \u00b7 ${g} \u2014 opposite directions = hedged (no stop); same direction = stop active`;
+      box.appendChild(head);
+      legs.forEach(inst => {
+        const row = document.createElement("div");
+        row.className = "tb-row";
+        row.innerHTML = `
+          <input type="checkbox" class="tb-check" data-name="${escHtml(inst.name)}">
+          <div class="tb-row-id">
+            <span class="tb-underlying">${escHtml(inst.underlying)} \u00b7 leg ${escHtml(inst.hedgeRole || "?")}</span>
+            <span class="tb-strategy">${escHtml(inst.strategy)} \u00b7 ${escHtml(inst.product || "")}${candleTag(inst)}</span>
+          </div>
+          <div class="tb-row-pills">
+            <span class="status-pill ${inst.status === "online" ? "online" : "offline"}">${escHtml(inst.status)}</span>
+            <span class="mode-pill ${inst.live ? "live" : ""}">${inst.live ? "live" : "paper"}</span>
+          </div>
+          <button class="tb-row-edit" data-name="${escHtml(inst.name)}">Edit</button>
+          <button class="tb-row-logs" data-name="${escHtml(inst.name)}">Logs</button>
+        `;
+        box.appendChild(row);
+      });
+    });
     items.forEach(x => {
       const row = document.createElement("div");
       row.className = "tb-row";
@@ -1955,12 +1986,12 @@ document.querySelectorAll(".tbx-act").forEach(btn => btn.addEventListener("click
 }));
 
 // ── edit params modal ──────────────────────────────────────────────────
-toolboxList.addEventListener("click", e => {
+[toolboxList, hpList].forEach(box => box.addEventListener("click", e => {
   const btn = e.target.closest(".tb-row-edit");
   if (!btn) return;
   const inst = toolboxInstruments.find(i => i.name === btn.dataset.name);
   if (inst) openEditModal(inst);
-});
+}));
 
 const tbEditModal = document.getElementById("tbEditModal");
 const tbEditTitle = document.getElementById("tbEditTitle");
