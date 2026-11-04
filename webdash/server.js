@@ -49,6 +49,7 @@ const { runBacktest } = require("../backtestRun");
 const { runDualHedgeBacktest } = require("../backtestDualHedge");
 const { SL_MODES: DH_SL_MODES, ATR_TIMEFRAMES: DH_ATR_TIMEFRAMES } = require("../dualHedgeAtr");
 const { runHedgePairBacktest } = require("../backtestHedgePair");
+const { runLinkedPairBacktest } = require("../backtestLinkedPair");
 const { STRATEGY_PARAMS } = require("../backtestFlow");
 const { setEmitSuppressed } = require("../eventBridge");
 const { computeOverlay } = require("../chartOverlay");
@@ -1815,7 +1816,7 @@ app.get("/api/toolbox/backtest/params/:strategy", async (req, res) => {
     res.json([]);
 });
 
-app.post("/api/toolbox/backtest", async (req, res) => {
+async function backtestHandler(req, res) {
     const {
         underlying, exchange = "MCX", strategy, timeframe,
         days, from: fromStr, to: toStr, params = {}, lotMultOverride,
@@ -2035,6 +2036,9 @@ app.post("/api/toolbox/backtest", async (req, res) => {
 
         const btCandle = normalizeCandleType(btCandleIn);
         const btRange = Number(btRangeIn) > 0 ? Number(btRangeIn) : null;
+        // Linked hedge-pair backtest: reuse ALL of this route's validation and context building, but stop before the run —
+        // the pair route runs both legs together (see backtestLinkedPair.js).
+        if (req.__prepareOnly) return res.json({ prepared: { strategyKey: strategy, strategyLabel, context, timeframe: tf, from, to, params: parsedParams, candleType: btCandle, rangeSize: btRange } });
         const kc = ensureToolboxKite();
         // Suppress the in-process event bridge for the duration of the
         // replay (see eventBridge.js's setEmitSuppressed) so the thousands
@@ -2084,6 +2088,51 @@ app.post("/api/toolbox/backtest", async (req, res) => {
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+}
+
+app.post("/api/toolbox/backtest", backtestHandler);
+
+// Linked hedge pair backtest: body { legs: [legA, legB], pairName, from|days, to } where each leg is an ordinary /api/toolbox/backtest
+// body (underlying, strategy, lots, product, …). Both legs are replayed together with the hedge rule (backtestLinkedPair.js).
+app.post("/api/toolbox/backtest/linked", async (req, res) => {
+    const b = req.body || {};
+    if (!Array.isArray(b.legs) || b.legs.length !== 2) return res.status(400).json({ error: "Two legs are required" });
+    const [la, lb] = b.legs;
+    if (!la || !lb || la.strategy === lb.strategy) return res.status(400).json({ error: "The two legs must run different strategies (one DSB_DUAL, one DAILY_HA_BIAS)" });
+    for (const l of [la, lb]) if (l.strategy !== "DSB_DUAL" && l.strategy !== "DAILY_HA_BIAS") return res.status(400).json({ error: "Linked hedge pair legs must run DSB_DUAL or DAILY_HA_BIAS" });
+    const prepared = [];
+    for (const [i, leg] of [la, lb].entries()) {
+        const body = { ...leg, exchange: leg.exchange || "MCX", from: b.from, to: b.to, days: b.days, candleType: undefined, rangeSize: undefined };
+        let out = null;
+        await backtestHandler({ body, __prepareOnly: true }, { json: x => { out = { status: 200, body: x }; return out; }, status: c => ({ json: x => { out = { status: c, body: x }; return out; } }) });
+        if (!out || out.status !== 200) return res.status(out ? out.status : 500).json({ error: `Leg ${i ? "B" : "A"}: ${(out && out.body && out.body.error) || "could not be prepared"}` });
+        const role = i ? "B" : "A", ctx = out.body.prepared.context;
+        const pm = resolveProductMode({ product: leg.product, nrmlEod: leg.nrmlEod, carryOvernight: leg.carryOvernight }, { timeframe: out.body.prepared.timeframe });
+        if (pm.error) return res.status(400).json({ error: `Leg ${role}: ${pm.error}` });
+        const prod = pm.product ? pm : { product: "MIS", carryOvernight: false };
+        ctx.carryOvernight = !!prod.carryOvernight; ctx.product = prod.product;
+        ctx.tgPrefix = `${ctx.tgPrefix}_${role}`; ctx.name = `${ctx.name} (${role})`;   // tell the two legs apart in the log
+        prepared.push({ role, args: out.body.prepared, label: (STRATEGY_INFO[leg.strategy] || {}).label || leg.strategy, product: prod.product });
+    }
+    if (la.underlying === lb.underlying && prepared[0].product === prepared[1].product) return res.status(400).json({ error: "Same contract on both legs: one must be MIS and the other NRML" });
+    if (prepared[0].args.timeframe !== prepared[1].args.timeframe) return res.status(400).json({ error: "Both legs must use the same timeframe" });
+    const kc = ensureToolboxKite();
+    setEmitSuppressed(true);
+    try {
+        const { result, lines } = await (async () => { const r = await withCapturedConsole(() => runLinkedPairBacktest({
+            legs: prepared.map(p => ({ role: p.role, label: p.label, args: { ...p.args, kc } })), from: prepared[0].args.from, to: prepared[0].args.to,
+            pairName: String(b.pairName || `${la.underlying}${la.underlying === lb.underlying ? "" : "_" + lb.underlying}_Link`).replace(/[^A-Za-z0-9_-]/g, "") }));
+            return { result: r.result, lines: r.lines }; })();
+        const m = result.report.metrics;
+        res.json({ ok: true,
+            summary: { trades: m.trades, winRate: m.winRate, profitFactor: m.profitFactor, netPoints: m.netPoints, netPnL: m.netPnL, maxDrawdown: m.maxDrawdown, largestWin: m.largestWin, largestLoss: m.largestLoss, avgTrade: m.avgTrade },
+            legs: result.report.legs, hedge: result.report.hedge,
+            reportUrl: `/api/toolbox/backtest/reports/${path.basename(result.paths.htmlPath)}`, jsonUrl: `/api/toolbox/backtest/reports/${path.basename(result.paths.jsonPath)}`, logLines: lines });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    } finally {
+        setEmitSuppressed(false);
     }
 });
 

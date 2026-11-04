@@ -4103,7 +4103,7 @@ function renderHedgePairAddHedgePicker() {
   renderHedgePairSearchStep("hedge underlying (mini contract, e.g. NATGASMINI, ZINCMINI)", u => {
     hpAddState.hedge = u;
     // Both legs are mini contracts -> linked pair (DSB_DUAL leg + DAILY_HA_BIAS leg, stops off while they point opposite ways).
-    if (hpAddState.mode !== "backtest" && HP_MINI_RE.test(hpAddState.core) && HP_MINI_RE.test(u)) { renderLinkedPairForm(); return; }
+    if (HP_MINI_RE.test(hpAddState.core) && HP_MINI_RE.test(u)) { renderLinkedPairForm(); return; }
     (hpAddState.mode === "backtest" ? renderHedgePairBacktestForm : renderHedgePairAddForm)();
   });
 }
@@ -4112,7 +4112,7 @@ function renderHedgePairAddHedgePicker() {
 // no stops; same direction (or the other leg flat) = stops active. Each leg is deployed through the normal add-instrument route.
 const HP_MINI_RE = /MINI|^(GOLDM|SILVERM|SILVERMIC|GOLDPETAL|GOLDGUINEA)$/i;
 function renderLinkedPairForm() {
-  const A = hpAddState.core, B = hpAddState.hedge, same = A === B;
+  const A = hpAddState.core, B = hpAddState.hedge, same = A === B, isBt = hpAddState.mode === "backtest", today = new Date().toISOString().slice(0, 10);
   const legHtml = (id, title, und, strat, prod) => `
     <div class="tb-form-row"><div class="tb-form-label"><b>${title}</b> \u2014 ${und}</div>
       <select id="${id}Strat"><option value="DSB_DUAL" ${strat === "DSB_DUAL" ? "selected" : ""}>Dual DSB</option><option value="DAILY_HA_BIAS" ${strat === "DAILY_HA_BIAS" ? "selected" : ""}>Daily HA Bias</option></select>
@@ -4126,9 +4126,14 @@ function renderLinkedPairForm() {
     <div class="tb-form-row"><div class="tb-form-label">Pair name (letters, digits, _ -)</div><input type="text" id="lpName" value="${(A + (same ? "" : B) + "Link").replace(/[^A-Za-z0-9_-]/g, "")}"></div>
     ${legHtml("lpA", "Leg A", A, "DSB_DUAL", "MIS")}
     ${legHtml("lpB", "Leg B", B, "DAILY_HA_BIAS", same ? "NRML" : "MIS")}
-    <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="lpLive"><span>Go LIVE (real orders on both legs) \u2014 unchecked = paper</span></label></div>
+    ${isBt ? `
+    <div class="tb-form-row"><div class="tb-form-label">Timeframe (both legs)</div><select id="lpTf"><option>5m</option><option selected>15m</option><option>30m</option><option>1h</option></select></div>
+    <div class="tb-form-row"><div class="tb-form-label">From</div><input type="date" id="lpFrom"></div>
+    <div class="tb-form-row"><div class="tb-form-label">To</div><input type="date" id="lpTo" value="${today}"></div>` : `
+    <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="lpLive"><span>Go LIVE (real orders on both legs) \u2014 unchecked = paper</span></label></div>`}
     <div id="lpErrBox"></div>
-    <button class="tb-submit-btn" id="lpSubmit">Start linked pair</button>`;
+    <button class="tb-submit-btn" id="lpSubmit">${isBt ? "Run linked backtest" : "Start linked pair"}</button>
+    <div id="lpResult"></div>`;
   const q = sel => tbHedgePairsBody.querySelector(sel);
   const err = m => { q("#lpErrBox").innerHTML = `<div class="tb-err-box">${escHtml(m)}</div>`; };
   // keep the two legs on different strategies (and, on the same contract, different products) as the user edits
@@ -4140,8 +4145,35 @@ function renderLinkedPairForm() {
     q("#lpBProd").addEventListener("change", () => { const v = q("#lpBProd").value; q("#lpAProd").value = v === "MIS" ? "NRML" : "MIS"; });
   }
   q("#hpBack").addEventListener("click", renderHedgePairAddHedgePicker);
+  async function runLinkedBacktest(legs, group) {
+    q("#lpResult").innerHTML = ""; q("#lpErrBox").innerHTML = "";
+    if (!q("#lpFrom").value || !q("#lpTo").value) return err("Pick a from and to date");
+    const btn = q("#lpSubmit"); btn.disabled = true; btn.textContent = "Running...";
+    try {
+      const tf = q("#lpTf").value;
+      const res = await fetch("/api/toolbox/backtest/linked", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        pairName: group, from: q("#lpFrom").value, to: q("#lpTo").value,
+        legs: legs.map(l => { const { hedgeGroup, hedgeRole, ...rest } = l.body; return { ...rest, timeframe: tf }; }) }) });
+      const data = await res.json();
+      if (!res.ok) err(data.error || "backtest failed");
+      else {
+        const f = (x, d = 2) => (x === null || x === undefined || !Number.isFinite(Number(x))) ? "\u2014" : Number(x).toFixed(d);
+        const row = (l, m) => `<tr><td>${escHtml(l)}</td><td>${m.trades}</td><td>${f(m.winRate * 100, 1)}%</td><td>${f(m.netPnL)}</td><td>${f(m.maxDrawdown)}</td></tr>`;
+        const h = data.hedge || {};
+        q("#lpResult").innerHTML = `
+          <table class="tb-table" style="width:100%;margin-top:10px"><tr><th></th><th>Trades</th><th>Win</th><th>Net \u20b9</th><th>Max DD</th></tr>
+          ${row("Combined", data.summary)}${(data.legs || []).map(l => row(`Leg ${l.role} \u00b7 ${l.label}`, l.metrics)).join("")}</table>
+          <div class="tb-form-hint" style="margin:8px 0">Hedged (opposite directions, no stop) ${f(h.hedgedPct, 1)}% of candles \u00b7 ${h.hedgeEvents || 0} hedge / ${h.unhedgeEvents || 0} unhedge transitions \u00b7 ${h.hedgedDays || 0} day(s)</div>
+          <div style="margin:8px 0"><a href="${data.reportUrl}" target="_blank">Open report</a> \u00b7 <a href="${data.jsonUrl}" target="_blank">JSON</a> \u00b7 <a href="#" id="lpLogToggle">Show log</a></div>
+          <pre id="lpLogBody" style="display:none;max-height:300px;overflow:auto">${escHtml((data.logLines || []).join("\n"))}</pre>`;
+        const tg = q("#lpLogToggle"), lb = q("#lpLogBody");
+        tg.addEventListener("click", e => { e.preventDefault(); const o = lb.style.display === "none"; lb.style.display = o ? "" : "none"; tg.textContent = o ? "Hide log" : "Show log"; });
+      }
+    } catch (e) { err(e.message); }
+    btn.disabled = false; btn.textContent = "Run linked backtest";
+  }
   q("#lpSubmit").addEventListener("click", async () => {
-    const group = q("#lpName").value.trim(), live = q("#lpLive").checked;
+    const group = q("#lpName").value.trim(), live = !isBt && q("#lpLive").checked;
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(group)) return err("Pair name may only contain letters, digits, _ -");
     const legs = [["A", A, "lpA"], ["B", B, "lpB"]].map(([role, und, id]) => {
       const prod = q(`#${id}Prod`).value;
@@ -4151,6 +4183,7 @@ function renderLinkedPairForm() {
     });
     if (legs[0].body.strategy === legs[1].body.strategy) return err("The two legs must run different strategies");
     if (same && legs[0].body.product === legs[1].body.product) return err("Same contract on both legs: one must be MIS and the other NRML");
+    if (isBt) return runLinkedBacktest(legs, group);
     let confirmLive; if (live) { confirmLive = prompt('This starts REAL orders on BOTH legs. Type "LIVE" to confirm:'); if (confirmLive !== "LIVE") return err("Not confirmed \u2014 not started"); }
     const btn = q("#lpSubmit"); btn.disabled = true; btn.textContent = "Starting...";
     const started = [];
