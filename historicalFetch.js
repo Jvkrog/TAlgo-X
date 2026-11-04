@@ -83,6 +83,7 @@ async function fetchHistoricalCandles({ kc, token, timeframe, from, to }) {
                 low:   parseFloat(b.low),
                 close: parseFloat(b.close),
                 date:  new Date(b.date),
+                volume: b.volume !== undefined ? parseFloat(b.volume) || 0 : 0,   // same field live candles carry (candlePoll.js); VWAP_SD_BANDS needs it in a backtest
             });
         }
 
