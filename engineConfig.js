@@ -399,6 +399,12 @@ module.exports = {
     BAND_STEP_DEFAULT: 1,
     BAND_STEP2_DEFAULT: 2,   // DSB_DUAL: DSB 2 (slower band) step; per-instrument bandStep2 overrides
 
+    // VWAP_SD_BANDS (strategies.js): session VWAP +/- VWAP_SD_MULT standard deviations; a breakout needs VWAP_CONFIRM_CANDLES consecutive
+    // closes outside the band (and the same number back inside to end the ride); no entries before VWAP_MIN_CANDLES candles of the session.
+    VWAP_SD_MULT: 1,
+    VWAP_CONFIRM_CANDLES: 2,
+    VWAP_MIN_CANDLES: 6,
+
     // RISK OBSERVER (riskObserver/, observation only — never places orders). Defaults are deliberately conservative and
     // observable; override per instrument with RISK_OBS_PARAMS_OVERRIDE (JSON, same keys without the RISK_OBS_ prefix).
     RISK_OBS_TIMEFRAME: "15m",

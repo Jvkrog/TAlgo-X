@@ -7155,11 +7155,188 @@ function createDsbDualStrategy({ context, engineConfig, state, db, candles, slSt
     return { processCandle, initSignals, rearmStop };
 }
 
+// ═════════════════════════════════════════════════
+// VWAP_SD_BANDS — session VWAP with +/- N standard-deviation bands, "two conditions, two plays".
+//
+//   Bands: session (IST calendar day) VWAP of the typical price, volume-weighted, +/- VWAP_SD_MULT (default 1) volume-weighted
+//   standard deviations (see vwapBands.js). Reset every session. Raw candles (not Heikin-Ashi). No entries until VWAP_MIN_CANDLES
+//   candles of the session exist (default 6) so the bands mean something.
+//
+//   PLAY 1 — INSIDE the bands: FADE THE EDGES ("buy the bottom, sell the top")
+//     LONG  when a candle's low reaches the lower band but it closes back ABOVE it (the edge held).
+//     SHORT when a candle's high reaches the upper band but it closes back BELOW it.
+//     Exit at VWAP (close crosses it), or the fixed ATR stop set at entry, or when a confirmed breakout runs AGAINST the trade.
+//
+//   PLAY 2 — OUTSIDE the bands: RIDE IT, DON'T FIGHT IT
+//     LONG  when the last VWAP_CONFIRM_CANDLES (default 2) closes are all above the upper band; SHORT below the lower band.
+//     A breakout is never faded: while closes are outside the band there is no counter-trade. Exit when the last
+//     VWAP_CONFIRM_CANDLES closes are all back inside the band, or on the ATR stop, which trails (only ever tightens).
+//
+//   A confirmed breakout against an open FADE trade exits it and (flat again, entry gates permitting) rides the breakout.
+//   Entry gates: trading window, double-orders, long-candle, daily-HA / entry-time (context.dailyHaGateEnabled — turn it off if you
+//   want fades against the previous daily HA candle). The chop and volume gates are deliberately NOT used here: a range play WANTS
+//   a choppy tape, and the bands already carry volume.
+// ═════════════════════════════════════════════════
+function createVwapSdStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() }, htf, dailyHa }) {
+    const { vwapBandSeries, classify, backInside } = require("./vwapBands");
+    const FADE = "VWAP_FADE", RIDE = "VWAP_RIDE";
+    const mult    = () => Number(context.vwapSdMult ?? engineConfig.VWAP_SD_MULT ?? 1);
+    const confirm = () => Math.max(1, Math.floor(Number(context.vwapConfirmCandles ?? engineConfig.VWAP_CONFIRM_CANDLES ?? 2)));
+    const minCandles = () => Math.max(2, Math.floor(Number(engineConfig.VWAP_MIN_CANDLES ?? 6)));
+    const istDay = d => new Date(new Date(d).getTime() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
+
+    function canEnter() {
+        const { hours, minutes } = istParts(clock.now());
+        return hours > engineConfig.TRADE_START_HOUR || (hours === engineConfig.TRADE_START_HOUR && minutes >= engineConfig.TRADE_START_MINUTE);
+    }
+    function persist(position, entryPrice, positionSource) {
+        db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
+    }
+    function computeStop(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
+        if (atrVal === null) return null;
+        const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
+        return side === "LONG" ? livePrice - offset : livePrice + offset;
+    }
+
+    async function doExit(side, livePrice, reason) {
+        const closed = await orders.exit(side);
+        if (engineConfig.LIVE_ORDERS && closed === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} exit failed (${reason}) — will retry next candle`));
+            return false;
+        }
+        tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
+        const exitPnl = await positionsClose(livePrice, reason);
+        slStore.clearTrail();
+        targetStore.clearTarget();
+        persist(null, 0);
+        console.log((exitPnl > 0 ? c.green : exitPnl < 0 ? c.red : c.white)(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        return true;
+    }
+
+    async function doEnter(side, livePrice, atrVal, isReversal, play, info) {
+        const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
+        const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
+        const dailyHaBlocked = await dailyHa.isBlocked(side);
+        reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, longCandle: longCandleBlocked, dailyHa: dailyHaBlocked }, dailyHa);
+        if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
+        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+        else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
+        const blocked = doubleBlocked || longCandleBlocked || dailyHaBlocked;
+        const ordered = blocked ? null : await orders.enter(side);
+        if (blocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
+            if (!blocked) console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
+            return false;
+        }
+        const stop = computeStop(livePrice, atrVal, side);
+        state.position = side;
+        state.tradesToday = (state.tradesToday || 0) + 1;
+        state.entryPrice = livePrice;
+        state.positionSource = play;
+        state.openTradeId = await db.insertOpenTrade(context.tgPrefix, context.symbol, side, context.lots, livePrice);
+        const valid = stop !== null && ((side === "LONG" && stop < livePrice) || (side === "SHORT" && stop > livePrice));
+        if (valid) slStore.setTrail(stop, side === "LONG" ? 1 : -1);
+        persist(side, livePrice, play);
+        const arrow = side === "LONG" ? "▲" : "▼", what = play === FADE ? "FADE EDGE" : "RIDE BREAKOUT";
+        console.log(c[side === "LONG" ? "green" : "red"](`[${context.tgPrefix}] ${arrow} ${side} ENTRY (${what}) @ ${livePrice.toFixed(2)}`));
+        console.log(c[side === "LONG" ? "green" : "red"](`    VWAP:${info.vwap.toFixed(2)} Up:${info.upper.toFixed(2)} Lo:${info.lower.toFixed(2)}  SL:${valid ? stop.toFixed(2) : "-"}`));
+        emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: valid ? stop : null, arrow });
+        tg(`${arrow} ${side} ENTRY (${what}) @ ₹${livePrice.toFixed(2)}\nVWAP ${info.vwap.toFixed(2)}  bands ${info.lower.toFixed(2)} / ${info.upper.toFixed(2)}\nStop: ₹${valid ? stop.toFixed(2) : "-"}`);
+        return true;
+    }
+
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown()) return;
+        const raw = candles.getRawCandles();
+        const warmupNeeded = engineConfig.ST_ATR_LEN + 5;
+        if (raw.length < warmupNeeded) { console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${raw.length}/${warmupNeeded}`)); return; }
+
+        const today = istDay(rawCandle.date);
+        const session = raw.filter(k => istDay(k.date) === today);
+        const bands = vwapBandSeries(session, mult());
+        const last = bands[bands.length - 1] || { vwap: null };
+        const livePrice = candles.getLivePrice() ?? rawCandle.close;
+        const atrVal = raw.length >= engineConfig.ST_ATR_LEN + 1 ? atr(raw, engineConfig.ST_ATR_LEN) : null;
+
+        const uPnL = positionsUnrealised(livePrice);
+        const ts = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
+        const fmt = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+        const session$ = (state.pnl || 0) + uPnL;
+        console.log(c.white(`[${context.tgPrefix}] ${ts} VWAPSD ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session$).padStart(8)}  ${last.vwap === null ? "no bands yet" : `VWAP ${last.vwap.toFixed(2)} [${last.lower.toFixed(2)} .. ${last.upper.toFixed(2)}]`}`));
+        emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session: session$, position: state.position, entryPrice: state.entryPrice || null });
+
+        if (!engineConfig.ENGINE_ENABLED) return;
+        if (last.vwap === null || session.length < minCandles()) return;   // bands not meaningful yet (a carried position keeps its stop)
+
+        const signal = classify(session, bands, confirm());
+        const positionAtCallStart = state.position;
+
+        // ── exits ──
+        if (state.position) {
+            const side = state.position, src = state.positionSource === RIDE ? RIDE : FADE;
+            let reason = null;
+            if (src === FADE) {
+                const against = side === "LONG" ? "BREAKOUT_SHORT" : "BREAKOUT_LONG";
+                if (side === "LONG" ? rawCandle.close >= last.vwap : rawCandle.close <= last.vwap) reason = "VWAP TARGET";
+                else if (signal === against) reason = "BREAKOUT AGAINST";
+            } else if (backInside(side, session, bands, confirm())) {
+                reason = "BACK INSIDE BAND";
+            }
+            if (reason) await doExit(side, livePrice, reason);
+        }
+
+        // ── entries (flat only) ──
+        if (!state.position && canEnter() && signal) {
+            const side = signal.endsWith("LONG") ? "LONG" : "SHORT", play = signal.startsWith("BREAKOUT") ? RIDE : FADE;
+            await doEnter(side, livePrice, atrVal, positionAtCallStart !== null && positionAtCallStart !== side, play, last);
+        }
+
+        // ── riding a breakout: the ATR stop trails, only ever tightening (a fade keeps the fixed stop it entered with) ──
+        if (state.position && state.positionSource === RIDE && atrVal !== null) {
+            const stop = computeStop(livePrice, atrVal, state.position), cur = slStore.getTrail ? slStore.getTrail().trail : null;
+            const valid = stop !== null && ((state.position === "LONG" && stop < livePrice) || (state.position === "SHORT" && stop > livePrice));
+            const tighter = cur == null || (state.position === "LONG" ? stop > cur : stop < cur);
+            if (valid && tighter) slStore.setTrail(stop, state.position === "LONG" ? 1 : -1);
+        }
+    }
+
+    async function initSignals() {
+        try {
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+            const today = clock.now().toISOString().split("T")[0];
+            if (engineConfig.RESUME_INTRADAY_ONLY && saved?.position) {
+                const shouldResume = (saved.entry_date ?? null) === today || context.carryOvernight;
+                if (shouldResume) {
+                    state.position = saved.position;
+                    state.entryPrice = saved.entry_price;
+                    state.positionSource = saved.position_source || FADE;
+                    const openTrade = await db.getOpenTrade(context.tgPrefix);
+                    state.openTradeId = openTrade ? openTrade.id : null;
+                } else {
+                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                }
+            }
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+            state.tradesToday = await db.getTradeCountToday(context.tgPrefix);
+            console.log();
+            console.log(c.green(`[${context.tgPrefix}] ${state.position ? `${state.position}@${state.entryPrice} (${state.positionSource})` : "flat"}`));
+            console.log();
+            await orders.reconcile(state);
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
 const STRATEGIES = {
     DPI_TREND_MEANREV: createDpiTrendMeanrevStrategy,
     ALMA_BAND:          createAlmaBandStrategy,
     ALMA_DSB:           createAlmaDsbStrategy,
     DSB_DUAL:           createDsbDualStrategy,
+    VWAP_SD_BANDS:      createVwapSdStrategy,
     ALMA_FAST:          createAlmaFastStrategy,
     DUAL_ST_CHOP:       createDualStChopStrategy,
     DPI_SMA5_EXIT:      createDpiSma5ExitStrategy,
@@ -7188,6 +7365,7 @@ const STRATEGIES = {
 const STRATEGY_INFO = {
     DPI_TREND_MEANREV: { label: "DPI Trend (pure)", description: "ST1-confirmed DPI trend only — mean-reversion is the separate DPI_MEANREV strategy", short: "DPI" },
     ALMA_DSB:             { label: "ALMA Band + Dynamic Step Band", description: "enter only when the Dynamic Step Band colour and the ALMA band breakout agree — band green and HA close above the ALMA high line -> LONG; band red and HA close below the ALMA low line -> SHORT; inside the band, no entries; exits on a band colour flip, or on HA close crossing back through the ALMA mid line, plus an ATR stop that only tightens", short: "ADSB" },
+    VWAP_SD_BANDS:        { label: "VWAP + SD Bands (Fade / Ride)", description: "session VWAP +/- N volume-weighted standard deviations. Inside the bands: fade the edges (buy a rejected lower band, sell a rejected upper band, exit at VWAP). Outside: ride a confirmed breakout and never fight it (exit when closes return inside the band). Raw candles, ATR stop", short: "VWAPSD" },
     DSB_DUAL:             { label: "Dual Dynamic Step Band (Agree)", description: "two Dynamic Step Bands (DSB 1 small step, DSB 2 large step) must agree — both green -> LONG, both red -> SHORT, disagree -> no trade; DSB 1 flip handling in a trade is configurable (hold until DSB 2 agrees and reverse / exit on DSB 1 flip / exit on disagreement); ATR stop that only tightens", short: "DDSB" },
     ALMA_BAND:          { label: "ALMA Band",                  description: "ta.alma(high/low) breakout bands, HA-close signal, HA-candle bands", short: "ALMAB" },
     ALMA_FAST:          { label: "ALMA Fast (Color Flip)",     description: "single fast ALMA on HA close, entry on slope-direction flip",       short: "ALMAF" },
@@ -7262,6 +7440,7 @@ const STRATEGY_TIMEFRAME = {
     DYNAMIC_MID_COLOR:    "1h",
     ALMA_DSB:             "1h",
     DSB_DUAL:             "1h",
+    VWAP_SD_BANDS:        "15m",
     DYNAMIC_MID_COLOR_HL: "1h",
     // Pine source has no fixed chart timeframe (reuses whatever the chart
     // is on) — 15m matches the platform default, adjustable as usual.
@@ -7289,4 +7468,4 @@ const STRATEGY_TIMEFRAME = {
 
 const DEFAULT_STRATEGY = "DPI_TREND_MEANREV";
 
-module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaDsbStrategy, createDsbDualStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy, createVolumeDeltaCvdStrategy, createPureHaStrategy, createDailyHaBiasStrategy };
+module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaDsbStrategy, createDsbDualStrategy, createVwapSdStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy, createVolumeDeltaCvdStrategy, createPureHaStrategy, createDailyHaBiasStrategy };
