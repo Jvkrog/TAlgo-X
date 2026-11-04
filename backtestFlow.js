@@ -106,6 +106,12 @@ const STRATEGY_PARAMS = {
         { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
         { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
     ],
+    VWAP_SD_BANDS: [
+        { key: "VWAP_SD_MULT",         label: "Band width (standard deviations)" },
+        { key: "VWAP_CONFIRM_CANDLES", label: "Closes outside the band to call a breakout (and inside to end it)" },
+        { key: "VWAP_MIN_CANDLES",     label: "Session candles before the bands are used" },
+        { key: "ATR_SL_MULT",          label: "ATR stop-loss multiplier" },
+    ],
     DSB_DUAL: [
         { key: "BAND_STEP_DEFAULT", label: "DSB 1 step \u2014 faster band (price distance)" },
         { key: "BAND_STEP2_DEFAULT", label: "DSB 2 step \u2014 slower band (price distance)" },
