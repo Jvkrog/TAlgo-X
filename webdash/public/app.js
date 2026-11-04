@@ -4040,12 +4040,34 @@ async function openHedgePairsModal() {
 
 async function loadHedgePairsList() {
   try {
-    const { pairs } = await (await fetch("/api/toolbox/hedgepairs")).json();
+    const [{ pairs }, allInst] = await Promise.all([
+      fetch("/api/toolbox/hedgepairs").then(r => r.json()),
+      fetch("/api/instruments").then(r => r.json()).catch(() => []),
+    ]);
+    const linkedLegs = (Array.isArray(allInst) ? allInst : []).filter(i => i.hedgeGroup);
 
-    let html = `<div style="display:flex;gap:8px;margin-bottom:10px"><button class="tb-cli-action" id="hpAddBtn">+ Add hedge pair</button><button class="tb-cli-action" id="hpBacktestBtn">Backtest</button></div>`;
+    let html = `<div style="display:flex;gap:8px;margin-bottom:10px"><button class="tb-cli-action" id="hpAddBtn">+ Add hedge pair</button><button class="tb-cli-action" id="hpBacktestBtn">Backtest</button><button class="tb-cli-action" id="hpLinkAddBtn">+ Linked pair</button><button class="tb-cli-action" id="hpLinkBtBtn">Backtest linked</button></div>`;
 
+    if (linkedLegs.length) {
+      html += `<div class="tb-form-hint" style="margin:6px 0">Linked hedge pairs \u2014 two engines (Dual DSB + Daily HA Bias) that drop their stops while they point in opposite directions.</div>`;
+      for (const g of [...new Set(linkedLegs.map(i => i.hedgeGroup))]) {
+        const legs = linkedLegs.filter(i => i.hedgeGroup === g).sort((x, y) => String(x.hedgeRole).localeCompare(String(y.hedgeRole)));
+        html += `<div class="tb-watch-row"><div class="tb-watch-main"><div class="tb-watch-inst">${escHtml(g)}</div><div class="tb-watch-meta">linked hedge pair \u00b7 ${legs.length} leg(s)</div></div><button class="tb-watch-remove" data-lp-remove="${escHtml(legs.map(l => l.name).join(","))}" title="remove both legs">\u2715</button></div>`;
+        legs.forEach(l => {
+          html += `
+          <div class="tb-watch-row" style="margin-left:14px">
+            <div class="tb-watch-main">
+              <div class="tb-watch-inst">leg ${escHtml(l.hedgeRole || "?")} \u00b7 ${escHtml(l.underlying)} \u00b7 ${escHtml(l.strategy)}</div>
+              <div class="tb-watch-meta">${escHtml(l.product || "")} \u00b7 ${l.live ? "LIVE" : "PAPER"} \u00b7 ${escHtml(l.status)}</div>
+            </div>
+            <button class="tb-cli-action" data-lp-logs="${escHtml(l.name)}" style="padding:4px 8px;font-size:11px">Logs</button>
+            <button class="tb-cli-action" data-lp-toggle="${escHtml(l.name)}" data-lp-status="${escHtml(l.status)}" style="padding:4px 8px;font-size:11px">${l.status === "online" ? "stop" : "start"}</button>
+          </div>`;
+        });
+      }
+    }
     if (pairs.length === 0) {
-      html += `<div class="tb-form-hint">None running yet</div>`;
+      html += `<div class="tb-form-hint">${linkedLegs.length ? "No classic (core + hedge) pairs running" : "None running yet"}</div>`;
     } else {
       pairs.forEach(p => {
         const modeTag = p.live ? `<span style="color:var(--red,#f0616d)">LIVE</span>` : `<span style="color:var(--dim)">PAPER</span>`;
@@ -4065,6 +4087,27 @@ async function loadHedgePairsList() {
     tbHedgePairsBody.innerHTML = html;
     tbHedgePairsBody.querySelector("#hpAddBtn").addEventListener("click", () => { hpAddState = { mode: "deploy" }; renderHedgePairAddCorePicker(); });
     tbHedgePairsBody.querySelector("#hpBacktestBtn").addEventListener("click", () => { hpAddState = { mode: "backtest" }; renderHedgePairAddCorePicker(); });
+    // Linked pair: pick leg A's mini contract, then leg B's (same contract = one MIS + one NRML), then the linked form.
+    const startLinked = mode => {
+      hpAddState = { mode, linked: true };
+      renderHedgePairSearchStep("Linked pair \u2014 leg A mini contract (e.g. NATGASMINI)", ua => {
+        hpAddState.core = ua;
+        renderHedgePairSearchStep(`Linked pair \u2014 leg B mini contract (pick ${escHtml(ua)} again for a same-contract pair)`, ub => { hpAddState.hedge = ub; renderLinkedPairForm(); });
+      });
+    };
+    tbHedgePairsBody.querySelector("#hpLinkAddBtn").addEventListener("click", () => startLinked("deploy"));
+    tbHedgePairsBody.querySelector("#hpLinkBtBtn").addEventListener("click", () => startLinked("backtest"));
+    tbHedgePairsBody.querySelectorAll("[data-lp-toggle]").forEach(btn => btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      try { await fetch("/api/control", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: btn.dataset.lpToggle, action: btn.dataset.lpStatus === "online" ? "stop" : "start" }) }); } catch {}
+      setTimeout(loadHedgePairsList, 1200);
+    }));
+    tbHedgePairsBody.querySelectorAll("[data-lp-remove]").forEach(btn => btn.addEventListener("click", async () => {
+      if (!confirm("Remove both legs of this linked pair? This stops and deletes their PM2 processes.")) return;
+      try { await fetch("/api/toolbox/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ names: btn.dataset.lpRemove.split(",") }) }); } catch {}
+      loadHedgePairsList(); loadToolboxList();
+    }));
+    tbHedgePairsBody.querySelectorAll("[data-lp-logs]").forEach(btn => btn.addEventListener("click", () => openLogsModal(btn.dataset.lpLogs)));
 
     tbHedgePairsBody.querySelectorAll("[data-hp-toggle]").forEach(btn => {
       btn.addEventListener("click", async () => {
@@ -4114,7 +4157,8 @@ function renderHedgePairSearchStep(label, onPick) {
     <div id="hpSearchPickList" class="tb-pick-list"></div>
   `;
   tbHedgePairsBody.querySelector("#hpBack").addEventListener("click", () => {
-    if (hpAddState.core) { hpAddState = { mode: hpAddState.mode }; renderHedgePairAddCorePicker(); }
+    if (hpAddState.linked) { hpAddState = null; loadHedgePairsList(); }
+    else if (hpAddState.core) { hpAddState = { mode: hpAddState.mode }; renderHedgePairAddCorePicker(); }
     else { hpAddState = null; loadHedgePairsList(); }
   });
   const input = tbHedgePairsBody.querySelector("#hpSearchInput");
@@ -4173,6 +4217,12 @@ function renderLinkedPairForm() {
       <select id="${id}Prod"><option value="MIS" ${prod === "MIS" ? "selected" : ""}>MIS (closed at EOD)</option><option value="NRML" ${prod === "NRML" ? "selected" : ""}>NRML (carried overnight)</option><option value="NRML_EOD">NRML, close at EOD</option></select>
       <input type="number" id="${id}Lots" min="1" step="1" value="1" placeholder="lots">
       <input type="number" id="${id}LotMult" min="1" step="any" placeholder="lot multiplier (only if required)">
+      <div id="${id}DsbRow" style="display:${strat === "DSB_DUAL" ? "" : "none"}">
+        <div class="tb-form-label" style="margin-top:8px">Dual DSB values (blank = engine default)</div>
+        <input type="number" id="${id}Dsb1" min="0" step="any" placeholder="DSB 1 step">
+        <input type="number" id="${id}Dsb2" min="0" step="any" placeholder="DSB 2 step">
+        <select id="${id}DsbMode"><option value="">DSB 1 flip: hold (default)</option><option value="HOLD">HOLD \u2014 hold until both disagree / stop</option><option value="EXIT">EXIT \u2014 exit when DSB 1 flips</option><option value="DISAGREE">DISAGREE \u2014 exit when the pair no longer agrees</option></select>
+      </div>
     </div>`;
   tbHedgePairsBody.innerHTML = `
     <button class="tb-back-link" id="hpBack">\u2039 back</button>
@@ -4192,13 +4242,14 @@ function renderLinkedPairForm() {
   const err = m => { q("#lpErrBox").innerHTML = `<div class="tb-err-box">${escHtml(m)}</div>`; };
   // keep the two legs on different strategies (and, on the same contract, different products) as the user edits
   const other = v => (v === "DSB_DUAL" ? "DAILY_HA_BIAS" : "DSB_DUAL"), otherProd = v => (v === "MIS" ? "NRML" : "MIS");
-  q("#lpAStrat").addEventListener("change", () => { q("#lpBStrat").value = other(q("#lpAStrat").value); });
-  q("#lpBStrat").addEventListener("change", () => { q("#lpAStrat").value = other(q("#lpBStrat").value); });
+  const syncDsb = () => ["lpA", "lpB"].forEach(id => { q(`#${id}DsbRow`).style.display = q(`#${id}Strat`).value === "DSB_DUAL" ? "" : "none"; });
+  q("#lpAStrat").addEventListener("change", () => { q("#lpBStrat").value = other(q("#lpAStrat").value); syncDsb(); });
+  q("#lpBStrat").addEventListener("change", () => { q("#lpAStrat").value = other(q("#lpBStrat").value); syncDsb(); });
   if (same) {
     q("#lpAProd").addEventListener("change", () => { const v = q("#lpAProd").value; q("#lpBProd").value = v === "MIS" ? "NRML" : "MIS"; });
     q("#lpBProd").addEventListener("change", () => { const v = q("#lpBProd").value; q("#lpAProd").value = v === "MIS" ? "NRML" : "MIS"; });
   }
-  q("#hpBack").addEventListener("click", renderHedgePairAddHedgePicker);
+  q("#hpBack").addEventListener("click", () => { if (hpAddState && hpAddState.linked) { hpAddState = null; loadHedgePairsList(); } else renderHedgePairAddHedgePicker(); });
   async function runLinkedBacktest(legs, group) {
     q("#lpResult").innerHTML = ""; q("#lpErrBox").innerHTML = "";
     if (!q("#lpFrom").value || !q("#lpTo").value) return err("Pick a from and to date");
@@ -4207,7 +4258,10 @@ function renderLinkedPairForm() {
       const tf = q("#lpTf").value;
       const res = await fetch("/api/toolbox/backtest/linked", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
         pairName: group, from: q("#lpFrom").value, to: q("#lpTo").value,
-        legs: legs.map(l => { const { hedgeGroup, hedgeRole, ...rest } = l.body; return { ...rest, timeframe: tf }; }) }) });
+        legs: legs.map(l => {
+          const { hedgeGroup, hedgeRole, bandStep, ...rest } = l.body;   // backtests take DSB 1 as an engine parameter, DSB 2 / mode as body fields (same as the instrument backtest form)
+          return { ...rest, timeframe: tf, ...(bandStep ? { params: { BAND_STEP_DEFAULT: bandStep } } : {}) };
+        }) }) });
       const data = await res.json();
       if (!res.ok) err(data.error || "backtest failed");
       else {
@@ -4232,7 +4286,9 @@ function renderLinkedPairForm() {
     const legs = [["A", A, "lpA"], ["B", B, "lpB"]].map(([role, und, id]) => {
       const prod = q(`#${id}Prod`).value;
       return { role, body: { underlying: und, exchange: "MCX", strategy: q(`#${id}Strat`).value, lots: q(`#${id}Lots`).value || 1,
-        lotMultOverride: q(`#${id}LotMult`).value || undefined, product: prod === "NRML_EOD" ? "NRML" : prod, nrmlEod: prod === "NRML_EOD" ? "CLOSE" : (prod === "NRML" ? "CARRY" : undefined),
+        lotMultOverride: q(`#${id}LotMult`).value || undefined,
+        ...(q(`#${id}Strat`).value === "DSB_DUAL" ? { bandStep: q(`#${id}Dsb1`).value || undefined, bandStep2: q(`#${id}Dsb2`).value || undefined, dsbDualMode: q(`#${id}DsbMode`).value || undefined } : {}),
+        product: prod === "NRML_EOD" ? "NRML" : prod, nrmlEod: prod === "NRML_EOD" ? "CLOSE" : (prod === "NRML" ? "CARRY" : undefined),
         hedgeGroup: group, hedgeRole: role } };
     });
     if (legs[0].body.strategy === legs[1].body.strategy) return err("The two legs must run different strategies");
