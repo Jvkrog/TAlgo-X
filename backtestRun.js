@@ -48,7 +48,7 @@ async function runBacktest(args) {
     finally { setHaPassthrough(false); }
 }
 
-async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe, from, to, params = {}, kc, progress, rangeSize }, mode) {
+async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe, from, to, params = {}, kc, progress, rangeSize, pairSync = null }, mode) {
     // Same fallback signals.js's createSignals() uses live: a key not in
     // the hardcoded STRATEGIES registry might be a user-built strategy
     // saved via the toolbox/webdash wizard (customStrategyDb) — only an
@@ -109,7 +109,8 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     // Daily engines hold positions across days (live forces carry-overnight for 1d, see engine.js).
     if (timeframe === "1d") context.carryOvernight = true;
     const state   = createState();
-    const slStore = createSLStore({ isDisabled: () => !!context.slDisabled });
+    // pairSync (backtestLinkedPair.js): this run is one leg of a linked hedge pair — stops are suppressed while the legs are opposite.
+    const slStore = createSLStore({ isDisabled: () => !!context.slDisabled, isSuppressed: () => !!(pairSync && pairSync.hedged()) });
     // Every strategy's exit paths now unconditionally call
     // targetStore.clearTarget()/.setTarget() (added this session's universal
     // tick-monitored profit target) — factory() crashes without one.
@@ -230,6 +231,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     });
 
     await strategy.initSignals(); // ledger.loadPosition() always resolves null — always starts flat
+    if (pairSync) pairSync.attach({ state, slStore, strategy });
 
     // Mirrors lifecycle.js's live EOD force-close (context.eodHour/eodMinute,
     // default 23:15) — same reason it exists live: MIS positions must not
@@ -331,6 +333,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
             circuitBreakerBlackout = false;
         }
 
+        let pairSynced = false;
         if (!postEodBlackout && !circuitBreakerBlackout) {
             const targetHit = await slCheck.checkTarget(currentCandle);   // target on the carried position, before this candle's own signal
             // Fixed/adaptive target hit — same rule as live (candlePoll.js): done for the day only if the day's net is >= 0.
@@ -345,6 +348,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
                 }
             }
             await strategy.processCandle(currentCandle);
+            if (pairSync) { pairSynced = true; await pairSync.afterSignal(currentCandle); }   // legs agree on hedged/aligned BEFORE this candle's stop check
             await slCheck.checkSL(currentCandle);
 
             // Daily loss floor — realized P&L only, same as live.
@@ -377,6 +381,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
             }
         }
 
+        if (pairSync && !pairSynced) await pairSync.afterSignal(currentCandle);   // blackout candle: still one sync per candle so the legs stay in lockstep
         const { hours, minutes } = istParts(candleDate);
         const pastEod = hours > context.eodHour || (hours === context.eodHour && minutes >= context.eodMinute);
 
