@@ -31,4 +31,31 @@ t("old-style hedge pair rows still render; a pair with a linked group renders bo
     assert.ok(r.hedge.includes('data-name="pp"') && r.hedge.includes('data-name="legA"'));
 });
 t("Edit handler is bound to the hedge pairs list too", () => assert.ok(/\[toolboxList, hpList\]\.forEach\(box => box\.addEventListener\("click", e => \{\s*const btn = e\.target\.closest\("\.tb-row-edit"\)/.test(ui)));
+
+
+// ── home page: instrument cards vs Hedge Pairs panel ──
+{
+    const a2 = ui.indexOf("let linkedLegCount"), b2 = ui.indexOf("// ── hedge pair cards — main dashboard visibility"); assert(a2 > 0 && b2 > a2, "home render block not found");
+    function home(instruments, hedgePairs = []) {
+        const box = () => ({ html: "", kids: [], set innerHTML(v) { this.html = v; this.kids = []; }, get innerHTML() { return this.html; }, appendChild(c) { this.kids.push(c); } });
+        const grid = box(), linkedPairsGrid = box(), hedgePairsPanel = { style: { display: "none" } }, engineCountEl = { textContent: "" };
+        const ctx = { instruments, hedgePairs, grid, linkedPairsGrid, hedgePairsPanel, engineCountEl, renderedInstrumentNames: null, loaded: [],
+            buildCard: i => ({ card: i.name }), loadEngineState: i => ctx.loaded.push(i.name), cardId: i => "card-" + i.name, document: { createElement: () => ({ style: {} }), getElementById: () => null }, Array, Set, String };
+        vm.createContext(ctx); vm.runInContext(ui.slice(a2, b2) + "\nrenderInstruments();", ctx);
+        return { grid, linkedPairsGrid, hedgePairsPanel, engineCountEl, loaded: ctx.loaded };
+    }
+    const I = (name, x = {}) => ({ name, underlying: "U", strategy: "S", status: "online", live: true, ...x });
+    t("home: linked legs render in the Hedge Pairs panel (grouped, with header), not under Instruments", () => {
+        const r = home([I("plain"), I("legA", { hedgeGroup: "P", hedgeRole: "A" }), I("legB", { hedgeGroup: "P", hedgeRole: "B" })]);
+        assert.deepStrictEqual(r.grid.kids.map(k => k.card), ["plain"]);
+        assert.deepStrictEqual(r.linkedPairsGrid.kids.filter(k => k.card).map(k => k.card), ["legA", "legB"]); assert.ok(r.linkedPairsGrid.kids[0].textContent.includes("LINKED HEDGE PAIR"));
+        assert.strictEqual(r.hedgePairsPanel.style.display, ""); assert.strictEqual(r.engineCountEl.textContent, "1"); assert.deepStrictEqual(r.loaded.sort(), ["legA", "legB", "plain"]);
+    });
+    t("home: only legs deployed -> Instruments shows an empty note, panel visible; nothing linked -> panel hidden", () => {
+        const r = home([I("legA", { hedgeGroup: "P", hedgeRole: "A" })]); assert.ok(r.grid.html.includes("No standalone engines")); assert.strictEqual(r.hedgePairsPanel.style.display, "");
+        const q = home([I("plain")]); assert.strictEqual(q.hedgePairsPanel.style.display, "none"); assert.strictEqual(q.linkedPairsGrid.kids.length, 0);
+    });
+    t("home: loadHedgePairs keeps the panel visible while linked legs exist", () => assert.ok(/stays visible while linked-pair legs exist/.test(ui) && !/hedgePairsPanel\.style\.display = "none";\s*\n\s*return;/.test(ui)));
+}
+console.log("home page checks done");
 console.log(`\nall ${n} passed`);
