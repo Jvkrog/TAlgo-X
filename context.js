@@ -219,6 +219,7 @@ function buildContext(def, resolvedContract) {
         // "PREVIOUS" (null default) = side from the previous COMPLETED daily HA candle;
         // "CURRENT" = side from today's still-forming daily HA candle as of the entry time.
         dailyBiasCandle: null,
+        biasPeriod: null,          // DAILY_HA_BIAS only: "WEEKLY" = side from the weekly HA candle (PREVIOUS / CURRENT as dailyBiasCandle); null/"DAILY" = daily candle
         // Universal "no new entries before HH:MM IST" (every strategy except DAILY_HA_BIAS). null = off.
         entryTimeHour: null,
         entryTimeMinute: null,

@@ -1726,6 +1726,7 @@ function renderRiskList() {
     ];
     if (inst.strategy === "PURE_HA") badges.push(`<span class="mode-pill">flip ${inst.flipConfirmCandles ?? 1}</span>`);
     if (inst.hedgeGroup) badges.push(`<span class="mode-pill">hedge pair ${escHtml(inst.hedgeGroup)} \u00b7 leg ${escHtml(inst.hedgeRole || "?")}</span>`);
+    if (inst.strategy === "DAILY_HA_BIAS" && inst.biasPeriod === "WEEKLY") badges.push(`<span class="mode-pill">weekly bias</span>`);
     if (inst.strategy === "DAILY_HA_BIAS") badges.push(`<span class="mode-pill">entry ${inst.dailyBiasEntryTime || "10:00"} \u00b7 ${inst.dailyBiasCandle === "CURRENT" ? "today's candle" : "prev candle"}</span>`);
     else if (inst.entryTime) badges.push(`<span class="mode-pill">entry \u2265 ${inst.entryTime}</span>`);
     if (inst.riskObserver) badges.push(`<span class="mode-pill">risk observer</span>`);
@@ -4049,7 +4050,7 @@ async function loadHedgePairsList() {
     let html = `<div style="display:flex;gap:8px;margin-bottom:10px"><button class="tb-cli-action" id="hpAddBtn">+ Add hedge pair</button><button class="tb-cli-action" id="hpBacktestBtn">Backtest</button><button class="tb-cli-action" id="hpLinkAddBtn">+ Linked pair</button><button class="tb-cli-action" id="hpLinkBtBtn">Backtest linked</button></div>`;
 
     if (linkedLegs.length) {
-      html += `<div class="tb-form-hint" style="margin:6px 0">Linked hedge pairs \u2014 two engines (Dual DSB + Daily HA Bias) that drop their stops while they point in opposite directions.</div>`;
+      html += `<div class="tb-form-hint" style="margin:6px 0">Linked hedge pairs \u2014 two engines (Dual DSB + Daily or Weekly HA Bias) that drop their stops while they point in opposite directions.</div>`;
       for (const g of [...new Set(linkedLegs.map(i => i.hedgeGroup))]) {
         const legs = linkedLegs.filter(i => i.hedgeGroup === g).sort((x, y) => String(x.hedgeRole).localeCompare(String(y.hedgeRole)));
         html += `<div class="tb-watch-row"><div class="tb-watch-main"><div class="tb-watch-inst">${escHtml(g)}</div><div class="tb-watch-meta">linked hedge pair \u00b7 ${legs.length} leg(s)</div></div><button class="tb-watch-remove" data-lp-remove="${escHtml(legs.map(l => l.name).join(","))}" title="remove both legs">\u2715</button></div>`;
@@ -4057,7 +4058,7 @@ async function loadHedgePairsList() {
           html += `
           <div class="tb-watch-row" style="margin-left:14px">
             <div class="tb-watch-main">
-              <div class="tb-watch-inst">leg ${escHtml(l.hedgeRole || "?")} \u00b7 ${escHtml(l.underlying)} \u00b7 ${escHtml(l.strategy)}</div>
+              <div class="tb-watch-inst">leg ${escHtml(l.hedgeRole || "?")} \u00b7 ${escHtml(l.underlying)} \u00b7 ${escHtml(l.strategy === "DAILY_HA_BIAS" && l.biasPeriod === "WEEKLY" ? "WEEKLY_HA_BIAS" : l.strategy)}</div>
               <div class="tb-watch-meta">${escHtml(l.product || "")} \u00b7 ${l.live ? "LIVE" : "PAPER"} \u00b7 ${escHtml(l.status)}</div>
             </div>
             <button class="tb-cli-action" data-lp-logs="${escHtml(l.name)}" style="padding:4px 8px;font-size:11px">Logs</button>
@@ -4213,10 +4214,14 @@ function renderLinkedPairForm() {
   const A = hpAddState.core, B = hpAddState.hedge, same = A === B, isBt = hpAddState.mode === "backtest", today = new Date().toISOString().slice(0, 10);
   const legHtml = (id, title, und, strat, prod) => `
     <div class="tb-form-row"><div class="tb-form-label"><b>${title}</b> \u2014 ${und}</div>
-      <select id="${id}Strat"><option value="DSB_DUAL" ${strat === "DSB_DUAL" ? "selected" : ""}>Dual DSB</option><option value="DAILY_HA_BIAS" ${strat === "DAILY_HA_BIAS" ? "selected" : ""}>Daily HA Bias</option></select>
+      <select id="${id}Strat"><option value="DSB_DUAL" ${strat === "DSB_DUAL" ? "selected" : ""}>Dual DSB</option><option value="DAILY_HA_BIAS" ${strat === "DAILY_HA_BIAS" ? "selected" : ""}>Daily HA Bias</option><option value="WEEKLY_HA_BIAS" ${strat === "WEEKLY_HA_BIAS" ? "selected" : ""}>Weekly HA Bias</option></select>
       <select id="${id}Prod"><option value="MIS" ${prod === "MIS" ? "selected" : ""}>MIS (closed at EOD)</option><option value="NRML" ${prod === "NRML" ? "selected" : ""}>NRML (carried overnight)</option><option value="NRML_EOD">NRML, close at EOD</option></select>
       <input type="number" id="${id}Lots" min="1" step="1" value="1" placeholder="lots">
       <input type="number" id="${id}LotMult" min="1" step="any" placeholder="lot multiplier (only if required)">
+      <div id="${id}HaRow" style="display:${strat === "DSB_DUAL" ? "none" : ""}">
+        <div class="tb-form-label" style="margin-top:8px">HA bias candle (daily or weekly, per the strategy above)</div>
+        <select id="${id}HaCandle"><option value="PREVIOUS">PREVIOUS \u2014 last completed candle (default)</option><option value="CURRENT">CURRENT \u2014 today's / this week's forming candle</option></select>
+      </div>
       <div id="${id}DsbRow" style="display:${strat === "DSB_DUAL" ? "" : "none"}">
         <div class="tb-form-label" style="margin-top:8px">Dual DSB values (blank = engine default)</div>
         <input type="number" id="${id}Dsb1" min="0" step="any" placeholder="DSB 1 step">
@@ -4242,9 +4247,11 @@ function renderLinkedPairForm() {
   const err = m => { q("#lpErrBox").innerHTML = `<div class="tb-err-box">${escHtml(m)}</div>`; };
   // keep the two legs on different strategies (and, on the same contract, different products) as the user edits
   const other = v => (v === "DSB_DUAL" ? "DAILY_HA_BIAS" : "DSB_DUAL"), otherProd = v => (v === "MIS" ? "NRML" : "MIS");
-  const syncDsb = () => ["lpA", "lpB"].forEach(id => { q(`#${id}DsbRow`).style.display = q(`#${id}Strat`).value === "DSB_DUAL" ? "" : "none"; });
-  q("#lpAStrat").addEventListener("change", () => { q("#lpBStrat").value = other(q("#lpAStrat").value); syncDsb(); });
-  q("#lpBStrat").addEventListener("change", () => { q("#lpAStrat").value = other(q("#lpBStrat").value); syncDsb(); });
+  const syncDsb = () => ["lpA", "lpB"].forEach(id => { const dsb = q(`#${id}Strat`).value === "DSB_DUAL"; q(`#${id}DsbRow`).style.display = dsb ? "" : "none"; q(`#${id}HaRow`).style.display = dsb ? "none" : ""; });
+  // one leg is always Dual DSB, the other a HA bias (daily or weekly): picking DSB on one leg makes the other a HA bias, keeping its daily/weekly choice
+  const setOther = (me, you) => { const v = q(`#${me}Strat`).value; if (v === "DSB_DUAL") { if (q(`#${you}Strat`).value === "DSB_DUAL") q(`#${you}Strat`).value = "DAILY_HA_BIAS"; } else q(`#${you}Strat`).value = "DSB_DUAL"; syncDsb(); };
+  q("#lpAStrat").addEventListener("change", () => setOther("lpA", "lpB"));
+  q("#lpBStrat").addEventListener("change", () => setOther("lpB", "lpA"));
   if (same) {
     q("#lpAProd").addEventListener("change", () => { const v = q("#lpAProd").value; q("#lpBProd").value = v === "MIS" ? "NRML" : "MIS"; });
     q("#lpBProd").addEventListener("change", () => { const v = q("#lpBProd").value; q("#lpAProd").value = v === "MIS" ? "NRML" : "MIS"; });
@@ -4285,7 +4292,9 @@ function renderLinkedPairForm() {
     if (!/^[A-Za-z0-9_-]{1,40}$/.test(group)) return err("Pair name may only contain letters, digits, _ -");
     const legs = [["A", A, "lpA"], ["B", B, "lpB"]].map(([role, und, id]) => {
       const prod = q(`#${id}Prod`).value;
-      return { role, body: { underlying: und, exchange: "MCX", strategy: q(`#${id}Strat`).value, lots: q(`#${id}Lots`).value || 1,
+      const sv = q(`#${id}Strat`).value, isHa = sv !== "DSB_DUAL";   // WEEKLY_HA_BIAS is DAILY_HA_BIAS with biasPeriod WEEKLY
+      return { role, body: { underlying: und, exchange: "MCX", strategy: isHa ? "DAILY_HA_BIAS" : "DSB_DUAL", lots: q(`#${id}Lots`).value || 1,
+        ...(isHa ? { dailyBiasCandle: q(`#${id}HaCandle`).value, ...(sv === "WEEKLY_HA_BIAS" ? { biasPeriod: "WEEKLY" } : {}) } : {}),
         lotMultOverride: q(`#${id}LotMult`).value || undefined,
         ...(q(`#${id}Strat`).value === "DSB_DUAL" ? { bandStep: q(`#${id}Dsb1`).value || undefined, bandStep2: q(`#${id}Dsb2`).value || undefined, dsbDualMode: q(`#${id}DsbMode`).value || undefined } : {}),
         product: prod === "NRML_EOD" ? "NRML" : prod, nrmlEod: prod === "NRML_EOD" ? "CLOSE" : (prod === "NRML" ? "CARRY" : undefined),

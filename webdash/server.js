@@ -525,6 +525,7 @@ async function getEngineProcesses() {
             slTrail: p.pm2_env.env?.SL_TRAIL_OVERRIDE === "1",
             atrSlTimeframe: p.pm2_env.env?.ATR_SL_TF_OVERRIDE === "1h" ? "1h" : "15m",
             dailyBiasCandle: p.pm2_env.env?.DAILY_BIAS_CANDLE_OVERRIDE || null,
+            biasPeriod: p.pm2_env.env?.BIAS_PERIOD_OVERRIDE === "WEEKLY" ? "WEEKLY" : "DAILY",
             entryTime: p.pm2_env.env?.ENTRY_TIME_OVERRIDE || null,
             volumeFilterEnabled: p.pm2_env.env?.VOLUME_FILTER_OVERRIDE === "true",
             volumeSmaPeriod: p.pm2_env.env?.VOLUME_SMA_PERIOD_OVERRIDE ? Number(p.pm2_env.env.VOLUME_SMA_PERIOD_OVERRIDE) : null,
@@ -642,6 +643,7 @@ function buildProcessEnv(p, overrides = {}) {
     env.SL_TRAIL_OVERRIDE = (p.strategy === "DAILY_HA_BIAS" && p.slTrail) ? "1" : "";
     env.ATR_SL_TF_OVERRIDE = (p.strategy === "DAILY_HA_BIAS" && p.atrSlTimeframe === "1h") ? "1h" : "";
     env.DAILY_BIAS_CANDLE_OVERRIDE = p.dailyBiasCandle || "";
+    env.BIAS_PERIOD_OVERRIDE = (p.strategy === "DAILY_HA_BIAS" && p.biasPeriod === "WEEKLY") ? "WEEKLY" : "";
     env.ENTRY_TIME_OVERRIDE = p.entryTime || "";
     env.VOLUME_FILTER_OVERRIDE = String(!!p.volumeFilterEnabled);
     env.VOLUME_SMA_PERIOD_OVERRIDE = p.volumeSmaPeriod ? String(p.volumeSmaPeriod) : "";
@@ -1570,7 +1572,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight, product, nrmlEod, hedgeGroup, hedgeRole,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, bandStep2, dsbDualMode, slTrail, atrSlTimeframe, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
+        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, bandStep2, dsbDualMode, slTrail, atrSlTimeframe, biasPeriod, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "Underlying is required" });
@@ -1753,6 +1755,12 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             if (v !== "PREVIOUS" && v !== "CURRENT") return res.status(400).json({ error: "DailyBiasCandle must be PREVIOUS or CURRENT" });
             env.DAILY_BIAS_CANDLE_OVERRIDE = v;
         }
+        if (biasPeriod !== undefined && biasPeriod !== null && biasPeriod !== "") {
+            const v = String(biasPeriod).toUpperCase();
+            if (v !== "DAILY" && v !== "WEEKLY") return res.status(400).json({ error: "biasPeriod must be DAILY or WEEKLY" });
+            if (v === "WEEKLY" && stratKey !== "DAILY_HA_BIAS") return res.status(400).json({ error: "biasPeriod WEEKLY only applies to DAILY_HA_BIAS" });
+            env.BIAS_PERIOD_OVERRIDE = v === "WEEKLY" ? "WEEKLY" : "";
+        }
         if (stratKey === "PURE_HA" && flipConfirmCandles !== undefined && flipConfirmCandles !== null && flipConfirmCandles !== "") {
             const parsedConfirm = Number(flipConfirmCandles);
             if (Number.isInteger(parsedConfirm) && parsedConfirm >= 1) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(parsedConfirm);
@@ -1830,7 +1838,7 @@ async function backtestHandler(req, res) {
         // else mutates context directly, exactly like backtestFlow.js does.
         chopFilterEnabled, chopPeriod, chopMax, maxLosingSwitches, maxLosingTrades, maxProfitTrades, targetPoints, targetMode, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, bandStep2, dsbDualMode,
         longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles,
-        disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, dailyBiasEntryTime, slTrail, atrSlTimeframe, dailyBiasCandle, entryTime,
+        disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, dailyBiasEntryTime, slTrail, atrSlTimeframe, dailyBiasCandle, biasPeriod, entryTime,
         volumeFilterEnabled, volumeSmaPeriod,
         carryOvernight, product, nrmlEod, maxDailyLoss, sessionTargetRupees, dailyHaGateEnabled,
         htfGateEnabled, htfChopPeriod, htfChopMax, htfBandBlockEnabled,
@@ -1968,6 +1976,12 @@ async function backtestHandler(req, res) {
             const v = String(dailyBiasCandle).toUpperCase();
             if (v !== "PREVIOUS" && v !== "CURRENT") return res.status(400).json({ error: "DailyBiasCandle must be PREVIOUS or CURRENT" });
             context.dailyBiasCandle = v;
+        }
+        if (biasPeriod !== undefined && biasPeriod !== null && biasPeriod !== "") {
+            const v = String(biasPeriod).toUpperCase();
+            if (v !== "DAILY" && v !== "WEEKLY") return res.status(400).json({ error: "biasPeriod must be DAILY or WEEKLY" });
+            if (v === "WEEKLY" && strategy !== "DAILY_HA_BIAS") return res.status(400).json({ error: "biasPeriod WEEKLY only applies to DAILY_HA_BIAS" });
+            if (v === "WEEKLY") { context.biasPeriod = "WEEKLY"; context.dailyHaGateEnabled = false; }
         }
         if (volumeFilterEnabled !== undefined) context.volumeFilterEnabled = !!volumeFilterEnabled;
         if (volumeSmaPeriod !== undefined && volumeSmaPeriod !== null && volumeSmaPeriod !== "") {
@@ -2113,7 +2127,7 @@ app.post("/api/toolbox/backtest/linked", async (req, res) => {
         const prod = pm.product ? pm : { product: "MIS", carryOvernight: false };
         ctx.carryOvernight = !!prod.carryOvernight; ctx.product = prod.product;
         ctx.tgPrefix = `${ctx.tgPrefix}_${role}`; ctx.name = `${ctx.name} (${role})`;   // tell the two legs apart in the log
-        prepared.push({ role, args: out.body.prepared, label: (STRATEGY_INFO[leg.strategy] || {}).label || leg.strategy, product: prod.product });
+        prepared.push({ role, args: out.body.prepared, label: leg.biasPeriod === "WEEKLY" ? "Weekly HA Bias" : ((STRATEGY_INFO[leg.strategy] || {}).label || leg.strategy), product: prod.product });
     }
     if (la.underlying === lb.underlying && prepared[0].product === prepared[1].product) return res.status(400).json({ error: "Same contract on both legs: one must be MIS and the other NRML" });
     if (prepared[0].args.timeframe !== prepared[1].args.timeframe) return res.status(400).json({ error: "Both legs must use the same timeframe" });
