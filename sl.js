@@ -15,14 +15,16 @@
 
 // opts.isDisabled(): when it returns true the store never holds a stop (the "disable stop-loss" option), so every
 // strategy and both SL monitors (live checkSL, backtest) see no stop at all.
+// opts.isSuppressed(): same, but temporary — a linked hedge pair's legs are hedged against each other (opposite sides), so no stop
+// is held while it returns true; strategies keep calling setTrail and it is simply ignored until the legs align again.
 function createSLStore(opts = {}) {
     let trail = null;
     let dir   = 0;
 
     return {
-        setTrail(trailVal, dirVal) { if (opts.isDisabled && opts.isDisabled()) return; trail = trailVal; dir = dirVal; },
+        setTrail(trailVal, dirVal) { if (opts.isDisabled && opts.isDisabled()) return; if (opts.isSuppressed && opts.isSuppressed()) return; trail = trailVal; dir = dirVal; },
         clearTrail()               { trail = null; dir = 0; },
-        getTrail()                 { return { trail, dir }; },
+        getTrail()                 { return (opts.isSuppressed && opts.isSuppressed()) ? { trail: null, dir: 0 } : { trail, dir }; },
     };
 }
 

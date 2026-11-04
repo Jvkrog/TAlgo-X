@@ -519,6 +519,8 @@ async function getEngineProcesses() {
             candleType: normalizeCandleType(p.pm2_env.env?.CANDLE_TYPE_OVERRIDE) || null,
             rangeSize: p.pm2_env.env?.RANGE_SIZE_OVERRIDE ? Number(p.pm2_env.env.RANGE_SIZE_OVERRIDE) : null,
             dailyBiasEntryTime: p.pm2_env.env?.DAILY_BIAS_ENTRY_TIME_OVERRIDE || null,
+            hedgeGroup: p.pm2_env.env?.HEDGE_LINK_GROUP || null,
+            hedgeRole:  p.pm2_env.env?.HEDGE_LINK_ROLE || null,
             slTrail: p.pm2_env.env?.SL_TRAIL_OVERRIDE === "1",
             atrSlTimeframe: p.pm2_env.env?.ATR_SL_TF_OVERRIDE === "1h" ? "1h" : "15m",
             dailyBiasCandle: p.pm2_env.env?.DAILY_BIAS_CANDLE_OVERRIDE || null,
@@ -634,6 +636,8 @@ function buildProcessEnv(p, overrides = {}) {
     env.RANGE_SIZE_OVERRIDE = p.rangeSize ? String(p.rangeSize) : "";
     env.PROCESS_NAME = p.name;
     env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = p.dailyBiasEntryTime || "";
+    env.HEDGE_LINK_GROUP = p.hedgeGroup || "";   // linked hedge pair: always written explicitly (pm2 env merges; an omitted key would silently unlink on edit/mode restart)
+    env.HEDGE_LINK_ROLE  = p.hedgeGroup ? (p.hedgeRole || "") : "";
     env.SL_TRAIL_OVERRIDE = (p.strategy === "DAILY_HA_BIAS" && p.slTrail) ? "1" : "";
     env.ATR_SL_TF_OVERRIDE = (p.strategy === "DAILY_HA_BIAS" && p.atrSlTimeframe === "1h") ? "1h" : "";
     env.DAILY_BIAS_CANDLE_OVERRIDE = p.dailyBiasCandle || "";
@@ -1564,7 +1568,7 @@ app.get("/api/toolbox/instruments/:underlying/preview", async (req, res) => {
 app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
-        live, confirmLive, carryOvernight, product, nrmlEod,
+        live, confirmLive, carryOvernight, product, nrmlEod, hedgeGroup, hedgeRole,
         strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, bandStep2, dsbDualMode, slTrail, atrSlTimeframe, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
@@ -1640,6 +1644,22 @@ app.post("/api/toolbox/instrument", async (req, res) => {
             TIMEFRAME_OVERRIDE: tf,
             PROCESS_NAME: name,
         };
+        if (hedgeGroup !== undefined && hedgeGroup !== null && hedgeGroup !== "") {
+            // Linked hedge pair leg. Only the two strategies that know how to re-arm their stop can be linked; on the same
+            // instrument the two legs must use different products (one MIS, one NRML — Kite nets per symbol+product).
+            if (!/^[A-Za-z0-9_-]{1,40}$/.test(String(hedgeGroup))) return res.status(400).json({ error: "hedgeGroup may only contain letters, digits, _ -" });
+            if (hedgeRole !== "A" && hedgeRole !== "B") return res.status(400).json({ error: "hedgeRole must be A or B" });
+            if (stratKey !== "DSB_DUAL" && stratKey !== "DAILY_HA_BIAS") return res.status(400).json({ error: "Linked hedge pair legs must run DSB_DUAL or DAILY_HA_BIAS" });
+            const mates = existing.filter(p => p.hedgeGroup === hedgeGroup);
+            if (mates.some(p => p.hedgeRole === hedgeRole)) return res.status(409).json({ error: `Hedge pair "${hedgeGroup}" already has a leg ${hedgeRole}` });
+            if (mates.length >= 2) return res.status(409).json({ error: `Hedge pair "${hedgeGroup}" already has two legs` });
+            const mate = mates[0];
+            if (mate) {
+                if (mate.strategy === stratKey) return res.status(400).json({ error: "The two legs must run different strategies (one DSB_DUAL, one DAILY_HA_BIAS)" });
+                if (mate.underlying === underlying && mate.exchange === exchange && mate.product === pm.product) return res.status(400).json({ error: `Same contract on both legs: one must be MIS and the other NRML (the other leg is already ${mate.product})` });
+            }
+            env.HEDGE_LINK_GROUP = String(hedgeGroup); env.HEDGE_LINK_ROLE = hedgeRole;
+        }
         if (chosenCandle) env.CANDLE_TYPE_OVERRIDE = chosenCandle;
         if (chosenCandle === "RANGE" && rangeSize !== undefined && rangeSize !== null && rangeSize !== "") {
             const parsedRange = Number(rangeSize);
