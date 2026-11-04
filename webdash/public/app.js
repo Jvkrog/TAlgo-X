@@ -25,6 +25,7 @@ function scalpNextValue(root, prefix) {
 const grid       = document.getElementById("instrumentGrid");
 const hedgePairsPanel = document.getElementById("hedgePairsPanel");
 const hedgePairsGrid  = document.getElementById("hedgePairsGrid");
+const linkedPairsGrid = document.getElementById("linkedPairsGrid");   // linked hedge-pair legs (ordinary engines grouped by hedgeGroup)
 const dualHedgePanel  = document.getElementById("dualHedgePanel");
 const dualHedgeGrid   = document.getElementById("dualHedgeGrid");
 const logStream  = document.getElementById("logStream");
@@ -166,27 +167,48 @@ function buildCard(inst) {
   return el;
 }
 
+// The Hedge Pairs panel is visible when either kind of pair exists: classic pair processes or linked-pair legs.
+let linkedLegCount = 0;
+function syncHedgePairsPanel() { hedgePairsPanel.style.display = (hedgePairs.length || linkedLegCount) ? "" : "none"; }
+
 function renderInstruments() {
+  // Linked hedge-pair legs are ordinary engines (same cards, same live updates) but live in the Hedge Pairs panel, not here.
+  const plain = instruments.filter(i => !i.hedgeGroup), linked = instruments.filter(i => i.hedgeGroup);
+  linkedLegCount = linked.length;
+  syncHedgePairsPanel();
   if (instruments.length === 0) {
     grid.innerHTML = `<div class="empty-state">No engines detected — waiting on PM2...</div>`;
+    linkedPairsGrid.innerHTML = "";
     engineCountEl.textContent = "0";
     renderedInstrumentNames = null;
     return;
   }
 
-  engineCountEl.textContent = String(instruments.length);
+  engineCountEl.textContent = String(plain.length);
 
-  const currentNames = instruments.map(i => i.name).sort().join(",");
+  const currentNames = instruments.map(i => `${i.name}${i.hedgeGroup ? "@" + i.hedgeGroup : ""}`).sort().join(",");
   const sameSet = renderedInstrumentNames === currentNames;
 
   if (!sameSet) {
     // Real change in what's running (added/removed engine, or first load)
     // — full rebuild is correct here, there's nothing live to preserve for
     // a card that didn't exist a moment ago.
-    grid.innerHTML = "";
-    for (const inst of instruments) {
+    grid.innerHTML = plain.length ? "" : `<div class="empty-state">No standalone engines</div>`;
+    for (const inst of plain) {
       grid.appendChild(buildCard(inst));
       loadEngineState(inst);
+    }
+    linkedPairsGrid.innerHTML = "";
+    for (const g of [...new Set(linked.map(i => i.hedgeGroup))]) {
+      const head = document.createElement("div");
+      head.className = "tb-form-hint";
+      head.style.cssText = "grid-column:1/-1;padding:8px 4px 0";
+      head.textContent = `LINKED HEDGE PAIR \u00b7 ${g} \u2014 opposite directions = hedged (no stop), same direction = stop active`;
+      linkedPairsGrid.appendChild(head);
+      for (const inst of linked.filter(i => i.hedgeGroup === g).sort((x, y) => String(x.hedgeRole).localeCompare(String(y.hedgeRole)))) {
+        linkedPairsGrid.appendChild(buildCard(inst));
+        loadEngineState(inst);
+      }
     }
     renderedInstrumentNames = currentNames;
     return;
@@ -323,10 +345,11 @@ async function loadHedgePairs() {
     const data = await (await fetch("/api/toolbox/hedgepairs")).json();
     hedgePairs = data.pairs || [];
     if (hedgePairs.length === 0) {
-      hedgePairsPanel.style.display = "none";
+      hedgePairsGrid.innerHTML = "";
+      syncHedgePairsPanel();   // stays visible while linked-pair legs exist
       return;
     }
-    hedgePairsPanel.style.display = "";
+    syncHedgePairsPanel();
     hedgePairsGrid.innerHTML = "";
     hedgePairLegIndex = new Map();
     hedgePairs.forEach(p => {
