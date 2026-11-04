@@ -174,7 +174,10 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     // looked up against the replay's own clock (same "day key" lookup
     // backtestHedgePair.js already does) — no live Kite connection needed
     // beyond the same historical fetch this file already makes.
-    const dailyRaw = await fetchDailyCandles({ kc, token: context.token, from: fetchFrom, to });
+    const weeklyHa = require("./weeklyHa");
+    // Weekly HA Bias chains Heikin-Ashi over weekly bars, so it wants ~17 weeks of daily history before the first replay day.
+    const dailyFrom = context.biasPeriod === "WEEKLY" ? new Date(Math.min(fetchFrom.getTime(), from.getTime() - 120 * 24 * 60 * 60 * 1000)) : fetchFrom;
+    const dailyRaw = await fetchDailyCandles({ kc, token: context.token, from: dailyFrom, to });
     // Drop the still-forming last bar — same no-lookahead convention every
     // other candle consumer here follows. Harmless if `to` is in the past
     // and every fetched day is already closed.
@@ -202,9 +205,11 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
         // backtest instead of fetching today's live candle (see createDailyHaBiasStrategy).
         getLatest: async () => {
             const dayKey = new Date(clock.now().getTime() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
+            if (context.biasPeriod === "WEEKLY") return weeklyHa.latestCompletedWeekly(dailyRaw, dayKey);   // Weekly HA Bias: last completed Mon-Sun HA candle as of the replay day
             const bar = priorDailyBar(dayKey);
             return bar ? { color: bar.color, date: bar.date, open: bar.open, close: bar.close, high: bar.high, low: bar.low } : null;
         },
+        getWeekSoFar: async () => weeklyHa.weekSoFar(dailyRaw, new Date(clock.now().getTime() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0]),
         lastBlockReason: null,   // "entry-time" | "daily-ha", same as the live gate (blockReport + held replay entry read it)
         lastBlockDetail: null,
         isBlocked: async function (side) {

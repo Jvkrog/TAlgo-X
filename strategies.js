@@ -6452,6 +6452,11 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
     // HA candle's open/close exactly like a real HA candle).
     const CANDLE_MODE = context.dailyBiasCandle === "CURRENT" ? "CURRENT" : "PREVIOUS";
     const istDay = d => new Date(new Date(d).getTime() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
+    // Bias period (opt-in, context.biasPeriod): "WEEKLY" takes the side from the weekly HA candle (weeklyHa.js: Mon-Sun, built from daily bars)
+    // instead of the daily one. Everything else is unchanged — still one decision a day at the entry time; PREVIOUS = last completed week,
+    // CURRENT = this week's forming candle (this week's earlier days + today's candles + live price) chained off the previous weekly HA candle.
+    const WEEKLY = context.biasPeriod === "WEEKLY";
+    const PERIOD_WORD = WEEKLY ? "week" : "day";
 
     // Backtest (backtestRun.js) passes dailyHa.getLatest(): the previous COMPLETED daily HA
     // candle AS OF THE REPLAY CLOCK. Without it the live reader below would fetch today's
@@ -6459,8 +6464,9 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
     // (look-ahead). Live deployments' dailyHa (the orders.js gate) has no getLatest, so they
     // keep reading Kite directly.
     const dailyReader = (dailyHa && typeof dailyHa.getLatest === "function")
-        ? { getLatest: () => dailyHa.getLatest(), prewarm() {} }
-        : createHaCandleReader({ token: context.token, timeframe: "1d", engineConfig, label: context.tgPrefix });
+        ? { getLatest: () => dailyHa.getLatest(), getWeekSoFar: () => (typeof dailyHa.getWeekSoFar === "function" ? dailyHa.getWeekSoFar() : null), prewarm() {} }
+        : WEEKLY ? require("./weeklyHa").createWeeklyHaReader({ token: context.token, engineConfig, label: context.tgPrefix, now: () => clock.now() })
+                 : createHaCandleReader({ token: context.token, timeframe: "1d", engineConfig, label: context.tgPrefix });
 
     // CHANGED Oct 2026 — SL is no longer the previous daily HA candle's
     // high/low. Same ATR_SL_MULT x ATR(ST_ATR_LEN) distance every other
@@ -6598,7 +6604,7 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
         // message, not just the resulting color.
         // IST calendar date (Kite stamps daily bars at IST midnight, so a UTC date would read one day early).
         const dateStr = daily.date instanceof Date ? istDay(daily.date) : String(daily.date);
-        const candleTag = CANDLE_MODE === "CURRENT" ? "present-day candle" : "prev-day candle";
+        const candleTag = CANDLE_MODE === "CURRENT" ? `present-${PERIOD_WORD} candle` : `prev-${PERIOD_WORD} candle`;
         const atrMult = context.atrSlMult ?? engineConfig.ATR_SL_MULT;
         console.log(c.white(`[${context.tgPrefix}] ${side} DAILY HA BIAS ENTRY  @ ${livePrice.toFixed(2)}  SL ${slLevel.toFixed(2)} (${atrMult}x ${atrTf()} ATR ${atrVal.toFixed(2)}${trailOn() ? ", trailing" : ""}, ${candleTag} ${daily.color}, dated ${dateStr}, HA close ${daily.close.toFixed(2)})`));
         emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slLevel, pure: null });
@@ -6637,8 +6643,9 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
             const todayKey = istDay(clock.now());
             const todays = candles.getRawCandles().filter(k => istDay(k.date) === todayKey);
             if (!todays.length) return;   // no candle of today yet — try next candle
-            const o = todays[0].open, cl = livePrice;
-            const h = Math.max(livePrice, ...todays.map(k => k.high)), l = Math.min(livePrice, ...todays.map(k => k.low));
+            const wsf = WEEKLY && typeof dailyReader.getWeekSoFar === "function" ? await dailyReader.getWeekSoFar() : null;   // earlier days of this week (weekly mode)
+            const o = wsf ? wsf.open : todays[0].open, cl = livePrice;
+            const h = Math.max(livePrice, ...todays.map(k => k.high), ...(wsf ? [wsf.high] : [])), l = Math.min(livePrice, ...todays.map(k => k.low), ...(wsf ? [wsf.low] : []));
             const haOpen = (daily.open + daily.close) / 2, haClose = (o + h + l + cl) / 4;
             daily = {
                 color: haClose > haOpen ? "green" : haClose < haOpen ? "red" : null,

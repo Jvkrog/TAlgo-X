@@ -199,6 +199,7 @@ async function getEngineProcesses() {
             rangeSize: p.pm2_env.env?.RANGE_SIZE_OVERRIDE ? Number(p.pm2_env.env.RANGE_SIZE_OVERRIDE) : null,
             dailyBiasEntryTime: p.pm2_env.env?.DAILY_BIAS_ENTRY_TIME_OVERRIDE || null,
             dailyBiasCandle: p.pm2_env.env?.DAILY_BIAS_CANDLE_OVERRIDE || null,
+            biasPeriod: p.pm2_env.env?.BIAS_PERIOD_OVERRIDE === "WEEKLY" ? "WEEKLY" : "DAILY",
             entryTime: p.pm2_env.env?.ENTRY_TIME_OVERRIDE || null,
             atrSlMult: p.pm2_env.env?.ATR_SL_MULT_OVERRIDE ? Number(p.pm2_env.env.ATR_SL_MULT_OVERRIDE) : null,
             slDisabled: p.pm2_env.env?.SL_DISABLED_OVERRIDE === "1",
@@ -685,6 +686,7 @@ function buildProcessEnv(p, overrides = {}) {
     env.PROCESS_NAME = p.name;
     env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = p.dailyBiasEntryTime || "";
     env.DAILY_BIAS_CANDLE_OVERRIDE = p.dailyBiasCandle || "";
+    env.BIAS_PERIOD_OVERRIDE = (p.strategy === "DAILY_HA_BIAS" && p.biasPeriod === "WEEKLY") ? "WEEKLY" : "";
     env.ENTRY_TIME_OVERRIDE = p.entryTime || "";
     // Universal, always written explicitly (both true AND false), same
     // "unset is ambiguous" reasoning as CHOP_FILTER_OVERRIDE.

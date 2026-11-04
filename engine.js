@@ -425,6 +425,9 @@ async function main() {
         if (v === "CURRENT" || v === "PREVIOUS") context.dailyBiasCandle = v;
         else console.warn(`[${context.tgPrefix}] DAILY_BIAS_CANDLE_OVERRIDE "${process.env.DAILY_BIAS_CANDLE_OVERRIDE}" must be PREVIOUS or CURRENT — using PREVIOUS`);
     }
+    // DAILY_HA_BIAS bias period: WEEKLY decides the side from the weekly HA candle (weeklyHa.js) instead of the daily one. The universal
+    // daily-HA entry gate would contradict a weekly side, so it is switched off for that engine.
+    if (process.env.BIAS_PERIOD_OVERRIDE === "WEEKLY") { context.biasPeriod = "WEEKLY"; context.dailyHaGateEnabled = false; }
     // DAILY_HA_BIAS opt-ins (both default to the original behaviour): trailing stop and 1h ATR for the stop distance.
     if (process.env.SL_TRAIL_OVERRIDE === "1") context.slTrail = true;
     if (process.env.ATR_SL_TF_OVERRIDE === "1h") context.atrSlTimeframe = "1h";
