@@ -54,7 +54,7 @@ async function renderCsbHome(note) {
     try { list = (await (await fetch("/api/strategy-builder/custom-strategies")).json()).strategies || []; } catch (e) { note = note || `could not load saved strategies: ${e.message}`; }
     const esc = x => String(x).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     const rows = list.map((s, i) => {
-        const ready = (s.entryLong && s.entryLong.length) || (s.entryShort && s.entryShort.length);
+        const hasEntry = n => !!n && (!n.op || (n.conditions || []).length > 0), ready = hasEntry(s.entryLong) || hasEntry(s.entryShort);
         return `<div class="tb-strategy-item" style="display:flex;align-items:center;gap:10px;cursor:default">
             <div style="flex:1;min-width:0"><div class="tb-strategy-item-label">${esc(s.name)}</div>
             <div class="tb-strategy-item-desc">${esc(s.candleType)} \u00b7 ${esc(s.timeframe)} \u00b7 ${s.indicators.map(x => esc(x.type)).join("+")}${ready ? "" : " \u00b7 <span style=\"color:var(--yellow)\">no entry conditions \u2014 not deployable</span>"}</div></div>
@@ -493,15 +493,57 @@ function renderCsbStep6() {
     });
 }
 
+// ─── Human-readable summary of a strategy definition (step 7 preview) ─────────────────────────────
+const csbEsc = x => String(x).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const CSB_OP_WORDS = { ">": "is above", "<": "is below", ">=": "is at least", "<=": "is at most", "==": "equals", crosses_above: "crosses above", crosses_below: "crosses below", state_flips_to: "flips to" };
+function csbIndLabel(inds, id) {
+    const b = (inds || []).find(x => x.id === id); if (!b) return id;
+    const ps = Object.entries(b.params || {}).map(([k, v]) => `${k} ${v}`).join(", ");
+    return `${b.type}${ps ? " (" + ps + ")" : ""}`;
+}
+function csbOperand(inds, ref) {
+    if (typeof ref === "number") return String(ref);
+    if (/^price\.(close|high|low)$/.test(ref)) return ref.split(".")[1] + " price";
+    const [id, field] = String(ref).split("."); return `${csbIndLabel(inds, id)} ${field || ""}`.trim();
+}
+function csbLeafText(inds, l) {
+    const right = l.operator === "state_flips_to" ? String(l.right) : csbOperand(inds, l.right);
+    return `${csbOperand(inds, l.left)} ${CSB_OP_WORDS[l.operator] || l.operator} ${right}`;
+}
+function csbTreeHtml(inds, node, emptyText) {
+    if (!node || (node.op && !(node.conditions || []).length)) return `<div class="tb-form-hint">${emptyText}</div>`;
+    const leaves = node.op ? node.conditions : [node], word = node.op === "OR" ? "ANY" : "ALL";
+    const lis = leaves.map(c => `<li>${c.op ? csbTreeHtml(inds, c, "") : csbEsc(csbLeafText(inds, c))}</li>`).join("");
+    return `<div class="tb-form-hint" style="margin:2px 0">${leaves.length > 1 ? `${word} of these must be true:` : "when:"}</div><ul style="margin:2px 0 6px 18px;padding:0;font-size:12px;line-height:1.55">${lis}</ul>`;
+}
+function csbSummaryHtml(st) {
+    const sec = (title, body) => `<div style="margin:10px 0 2px;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:var(--green)">${title}</div>${body}`;
+    const inds = st.indicators || [], ex = st.exitConfig || {};
+    const indHtml = `<ul style="margin:2px 0 6px 18px;padding:0;font-size:12px;line-height:1.55">${inds.map(b => `<li><b>${csbEsc(b.id)}</b> \u2014 ${csbEsc(csbIndLabel(inds, b.id))}</li>`).join("")}</ul>`;
+    const exits = [];
+    exits.push(`<li>Reversal exit: <b>${ex.reversalExit ? "on" : "off"}</b> (${ex.reversalExit ? "closes when the opposite entry fires" : "only the exits below close a trade"})</li>`);
+    if (ex.target) exits.push(`<li>Target: <b>${csbEsc(ex.target.value)}</b> points</li>`);
+    if (ex.stopLoss) exits.push(`<li>Stop loss: <b>${ex.stopLoss.type === "atr" ? `${csbEsc(ex.stopLoss.mult)} \u00d7 ATR (${csbEsc(String(ex.stopLoss.atrRef).split(".")[0])})` : `${csbEsc(ex.stopLoss.value)} points`}</b></li>`);
+    if (!ex.target && !ex.stopLoss) exits.push(`<li>No fixed target or stop loss</li>`);
+    return `<div class="tb-summary" style="border:1px solid var(--border);border-radius:8px;padding:6px 14px 10px;background:rgba(var(--overlay-rgb),0.03)">
+        ${sec("Candles", `<div style="font-size:12px">${st.candleType === "ha" ? "Heikin-Ashi" : "Raw"} \u00b7 ${csbEsc(st.timeframe)}</div>`)}
+        ${sec("Indicators", indHtml)}
+        ${sec("Enter long", csbTreeHtml(inds, st.entryLong, "no long entry \u2014 never goes long"))}
+        ${sec("Enter short", csbTreeHtml(inds, st.entryShort, "no short entry \u2014 never goes short"))}
+        ${sec("Exits", `<ul style="margin:2px 0 6px 18px;padding:0;font-size:12px;line-height:1.55">${exits.join("")}</ul>${ex.conditionExit ? `<div class="tb-form-hint" style="margin:2px 0">Also exit when:</div>${csbTreeHtml(inds, ex.conditionExit, "")}` : ""}`)}
+    </div>`;
+}
+
 // ─── Step 7 — Preview + Deploy ──────────────────────────────────────────
 function renderCsbStep7() {
     tbCustomBody.innerHTML = `
         ${csbStepHeader(7, "preview + save")}
-        <pre class="tb-preview-box">${JSON.stringify({
+        ${csbSummaryHtml(csbState)}
+        <details style="margin:8px 0"><summary class="tb-form-hint" style="cursor:pointer">raw definition (JSON)</summary><pre class="tb-preview-box">${csbEsc(JSON.stringify({
             candleType: csbState.candleType, timeframe: csbState.timeframe,
             indicators: csbState.indicators, entryLong: csbState.entryLong,
             entryShort: csbState.entryShort, exitConfig: csbState.exitConfig,
-        }, null, 2)}</pre>
+        }, null, 2))}</pre></details>
         <div class="tb-form-row">
             <div class="tb-form-label">strategy name</div>
             <input type="text" id="csbName" placeholder="e.g. dpi_adx_chop_breakout">
