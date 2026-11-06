@@ -82,4 +82,10 @@ function rowToSpec(row) {
     };
 }
 
-module.exports = { saveStrategy, listStrategies, getStrategyByName };
+function deleteStrategy(name) {
+    return new Promise((resolve, reject) => {
+        db.run(`DELETE FROM custom_strategies WHERE name = ?`, [name], function (err) { err ? reject(err) : resolve(this.changes); });
+    });
+}
+
+module.exports = { saveStrategy, listStrategies, getStrategyByName, deleteStrategy };
