@@ -24,7 +24,7 @@ const T = [], t = (n, f) => T.push([n, f]), SHOT = process.env.SHOTS;
   t("reset returns to defaults and clears storage", async () => { await open(); await page.click("#themeReset"); assert.strictEqual((await css("--green")).toLowerCase(), "#33ff88"); assert.strictEqual(await page.evaluate(() => localStorage.getItem("talgox.theme.v1")), null); await page.click("#themeClose"); });
   t("presets recolour the accent", async () => { await open(); await page.click('.theme-swatch:has-text("Amber")'); assert.strictEqual((await css("--green")).toLowerCase(), "#ffb000"); await page.click("#themeReset"); });
   t("style.css has no bare palette colours left outside :root and var() fallbacks", () => {
-    const s = fs.readFileSync(PUB + "/style.css", "utf8"), body = s.slice(s.indexOf("}\n") + 2).split("\n").filter(l => !/^\s*\.ro-/.test(l)).join("\n");   // Risk Observer rules are deliberately left untouched
+    const s = fs.readFileSync(PUB + "/style.css", "utf8"), body = s.slice(s.indexOf("}\n") + 2);
     const bad = (body.match(/(?<![,\w#-])(?<!, )#(?:33ff88|ff5266|ffcc4d|050806|eafff2|6dffb0|4de3ff|ffb347)\b|rgba?\(\s*(?:51\s*,\s*255\s*,\s*136|70\s*,\s*255\s*,\s*150|255\s*,\s*82\s*,\s*102|77\s*,\s*227\s*,\s*255)/gi) || []);
     assert.deepStrictEqual(bad, []);
   });
