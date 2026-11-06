@@ -1521,6 +1521,20 @@ app.get("/api/strategy-builder/custom-strategies", async (req, res) => {
     }
 });
 
+// Delete a custom strategy. Refused (409) while any engine is deployed on it — deleting the definition under a running engine would break its next restart.
+app.delete("/api/strategy-builder/custom-strategies/:name", async (req, res) => {
+    const name = String(req.params.name || "");
+    try {
+        const inUse = (await pm2List()).filter(p => p.pm2_env.env?.UNDERLYING && p.pm2_env.env?.STRATEGY_OVERRIDE === name).map(p => p.name);
+        if (inUse.length) return res.status(409).json({ error: `In use by ${inUse.join(", ")} \u2014 remove ${inUse.length > 1 ? "those engines" : "that engine"} first`, inUse });
+        const removed = await customStrategyDb.deleteStrategy(name);
+        if (!removed) return res.status(404).json({ error: "No custom strategy by that name" });
+        res.json({ ok: true, name });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.post("/api/strategy-builder/custom-strategies", async (req, res) => {
     const { name, candleType, timeframe, indicators, entryLong, entryShort, exitConfig } = req.body || {};
     if (!name || !candleType || !timeframe || !Array.isArray(indicators) || indicators.length === 0) {

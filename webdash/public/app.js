@@ -2432,6 +2432,13 @@ tbAddModal.addEventListener("click", e => { if (e.target === tbAddModal) tbAddMo
 
 let addState = {};
 
+// "Custom strategies" / "Built-in strategies" section headers for the strategy pick lists (only when at least one custom strategy exists).
+function strategyGroupHeader(container, s, grp) {
+  if (!grp.any || grp.last === !!s.custom) return;
+  grp.last = !!s.custom;
+  const h = document.createElement("div"); h.className = "tb-form-hint"; h.style.cssText = "margin:10px 0 4px;text-transform:uppercase;letter-spacing:1px";
+  h.textContent = s.custom ? "Custom strategies" : "Built-in strategies"; container.appendChild(h);
+}
 function openAddInstrumentModal() {
   addState = { exchange: "MCX" };
   renderAddSearchStep();
@@ -2719,10 +2726,12 @@ function renderAddConfigStep() {
   const greyExitRow = tbAddBody.querySelector("#addGreyExitRow");
   const flipConfirmRow = tbAddBody.querySelector("#addFlipConfirmRow");
   const dhabEntryRow = tbAddBody.querySelector("#addDhabEntryRow");
-  strategies.forEach(s => {
+  const _grp = { last: null, any: strategies.some(x => x.custom) };
+  [...strategies.filter(x => x.custom), ...strategies.filter(x => !x.custom)].forEach(s => {
+    strategyGroupHeader(stratList, s, _grp);
     const div = document.createElement("div");
     div.className = "tb-strategy-item" + (s.key === defaultStrat ? " picked" : "");
-    div.innerHTML = `<div class="tb-strategy-item-label">${s.label}${s.key === defaultStrat ? " (default)" : ""}${s.nativeCandle ? ` <span class="tb-native-tag">[native: ${CANDLE_LABELS[s.nativeCandle]}]</span>` : ""}</div><div class="tb-strategy-item-desc">${s.description}</div>`;
+    div.innerHTML = `<div class="tb-strategy-item-label">${s.label}${s.custom ? ' <span class="tb-native-tag">custom</span>' : ""}${s.key === defaultStrat ? " (default)" : ""}${s.nativeCandle ? ` <span class="tb-native-tag">[native: ${CANDLE_LABELS[s.nativeCandle]}]</span>` : ""}</div><div class="tb-strategy-item-desc">${s.description}</div>`;
     div.addEventListener("click", () => {
       pickedStrategy = s.key;
       stratList.querySelectorAll(".tb-strategy-item").forEach(el => el.classList.remove("picked"));
@@ -2931,10 +2940,12 @@ function renderBacktestStrategyStep() {
   btRangeInp.style.display = btCandleSel.value === "RANGE" ? "" : "none";
   btCandleSel.addEventListener("change", () => { btRangeInp.style.display = btCandleSel.value === "RANGE" ? "" : "none"; });
   const list = tbBacktestBody.querySelector("#btStrategyList");
-  btState.strategies.forEach(s => {
+  const _grp = { last: null, any: btState.strategies.some(x => x.custom) };
+  [...btState.strategies.filter(x => x.custom), ...btState.strategies.filter(x => !x.custom)].forEach(s => {
+    strategyGroupHeader(list, s, _grp);
     const div = document.createElement("div");
     div.className = "tb-strategy-item";
-    div.innerHTML = `<div class="tb-strategy-item-label">${s.label}${s.nativeCandle ? ` <span class="tb-native-tag">[native: ${CANDLE_TEXT[s.nativeCandle]}]</span>` : ""}</div><div class="tb-strategy-item-desc">${s.description}</div>`;
+    div.innerHTML = `<div class="tb-strategy-item-label">${s.label}${s.custom ? ' <span class="tb-native-tag">custom</span>' : ""}${s.nativeCandle ? ` <span class="tb-native-tag">[native: ${CANDLE_TEXT[s.nativeCandle]}]</span>` : ""}</div><div class="tb-strategy-item-desc">${s.description}</div>`;
     div.addEventListener("click", () => {
       btState.candleType = s.nativeCandle ? (btCandleSel.value || null) : null;
       btState.rangeSize = btState.candleType === "RANGE" ? (btRangeInp.value || null) : null;

@@ -42,10 +42,39 @@ async function openCustomStrategyModal() {
             const data = await (await fetch("/api/strategy-builder/indicators")).json();
             csbIndicatorCatalog = data.indicators;
         }
-        renderCsbStep1();
+        await renderCsbHome();
     } catch (err) {
         tbCustomBody.innerHTML = `<div class="tb-err-box">failed to load indicators: ${err.message}</div>`;
     }
+}
+
+// Home screen: the saved custom strategies (with delete) and the entry point to the wizard.
+async function renderCsbHome(note) {
+    let list = [];
+    try { list = (await (await fetch("/api/strategy-builder/custom-strategies")).json()).strategies || []; } catch (e) { note = note || `could not load saved strategies: ${e.message}`; }
+    const esc = x => String(x).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const rows = list.map((s, i) => {
+        const ready = (s.entryLong && s.entryLong.length) || (s.entryShort && s.entryShort.length);
+        return `<div class="tb-strategy-item" style="display:flex;align-items:center;gap:10px;cursor:default">
+            <div style="flex:1;min-width:0"><div class="tb-strategy-item-label">${esc(s.name)}</div>
+            <div class="tb-strategy-item-desc">${esc(s.candleType)} \u00b7 ${esc(s.timeframe)} \u00b7 ${s.indicators.map(x => esc(x.type)).join("+")}${ready ? "" : " \u00b7 <span style=\"color:var(--yellow)\">no entry conditions \u2014 not deployable</span>"}</div></div>
+            <button class="btn btn-ghost" data-del="${i}" style="flex:none;color:var(--red)">Delete</button></div>`;
+    }).join("");
+    tbCustomBody.innerHTML = `
+        <div class="tb-form-hint">saved custom strategies (${list.length}) \u2014 they show under "Custom strategies" at the top of the add-instrument and backtest strategy lists</div>
+        ${rows || `<div class="tb-form-hint" style="padding:14px 0">none yet</div>`}
+        <div class="tb-form-hint" id="csbHomeNote" style="color:var(--yellow)">${note ? esc(note) : ""}</div>
+        <button class="btn" id="csbNew" style="margin-top:10px">+ New strategy</button>`;
+    tbCustomBody.querySelector("#csbNew").addEventListener("click", renderCsbStep1);
+    tbCustomBody.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", async () => {
+        const s = list[+b.getAttribute("data-del")];
+        if (!confirm(`Delete custom strategy "${s.name}"? This cannot be undone.`)) return;
+        b.disabled = true;
+        try {
+            const res = await fetch("/api/strategy-builder/custom-strategies/" + encodeURIComponent(s.name), { method: "DELETE" }), data = await res.json();
+            await renderCsbHome(data.error ? data.error : `deleted "${s.name}"`);
+        } catch (err) { await renderCsbHome(`delete failed: ${err.message}`); }
+    }));
 }
 
 function csbStepHeader(n, label) {
@@ -500,7 +529,7 @@ function renderCsbStep7() {
             const data = await res.json();
             if (data.error) { hint.textContent = data.error; return; }
             hint.textContent = `saved "${data.name}" \u2014 deploy it via "add instrument", it now shows alongside the prebuilt list.`;
-            setTimeout(() => tbCustomModal.classList.remove("open"), 1500);
+            setTimeout(() => { if (tbCustomModal.classList.contains("open")) renderCsbHome(`saved "${data.name}"`); }, 1500);
         } catch (err) {
             hint.textContent = `save failed: ${err.message}`;
         }
