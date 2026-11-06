@@ -793,6 +793,9 @@ function ts() {
 // literal "[32m" / "[0m" in the text. Render them as real colours (ESC optional), escaping everything else.
 const ANSI_COLORS = { 30: "#6b7280", 31: "#f87171", 32: "#4ade80", 33: "#facc15", 34: "#60a5fa", 35: "#c084fc", 36: "#22d3ee", 37: "#e5e7eb",
   90: "#9ca3af", 91: "#fca5a5", 92: "#86efac", 93: "#fde047", 94: "#93c5fd", 95: "#d8b4fe", 96: "#67e8f9", 97: "#ffffff" };
+// darker variants for light mode (the dark-mode greys/whites would vanish on a light background)
+const ANSI_COLORS_LIGHT = { 30: "#4b5563", 31: "#b91c1c", 32: "#15803d", 33: "#a16207", 34: "#1d4ed8", 35: "#7e22ce", 36: "#0e7490", 37: "#374151",
+  90: "#6b7280", 91: "#dc2626", 92: "#16a34a", 93: "#b45309", 94: "#2563eb", 95: "#9333ea", 96: "#0891b2", 97: "#111827" };
 function ansiHtml(text) {
   const esc = String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   let open = false, color = null, bold = false, dim = false, out = "", last = 0;
@@ -812,7 +815,7 @@ function ansiHtml(text) {
       else if (code === 2) dim = true;
       else if (code === 22) { bold = false; dim = false; }
       else if (code === 39) color = null;
-      else if (ANSI_COLORS[code]) color = ANSI_COLORS[code];
+      else if (ANSI_COLORS[code]) color = (window.TalgoTheme && window.TalgoTheme.isLight() ? ANSI_COLORS_LIGHT : ANSI_COLORS)[code];
     }
     start();
   }
@@ -5090,7 +5093,7 @@ async function renderDualHedgeBacktestDeploy(bt) {
   }
   const opts = ready.map(u => `<option value="${escHtml(u.name)}">${escHtml(u.name)}</option>`).join("");
   box.innerHTML = `
-    <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,.1);padding-top:10px">
+    <div style="margin-top:12px;border-top:1px solid rgba(var(--overlay-rgb),.1);padding-top:10px">
       <div class="tb-form-hint"><b>Deploy these settings</b> \u2014 ${escHtml(bt.underlying)}, ${escHtml(bt.strategy)}, ${escHtml(bt.lots)} lot(s) per leg</div>
       ${haSignal ? `<div class="tb-err-box" style="margin:6px 0">Note: the live Dual Hedge engine has no Heikin-Ashi signal. Deploying runs range bars + Dynamic Step Band, which is not what this backtest tested.</div>` : ""}
       <div class="tb-form-row"><div class="tb-form-label">LONG account</div><select id="dbdLong">${opts}</select></div>
@@ -5140,7 +5143,7 @@ initAuth();
 function aiEsc(v) { return String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 function aiReviewHtml(r) {
   const list = arr => arr.length ? `<ul style="margin:4px 0 0 18px;padding:0">${arr.map(x => `<li>${aiEsc(x)}</li>`).join("")}</ul>` : "";
-  return `<div class="tb-form-hint" style="margin-top:8px;border-top:1px solid rgba(255,255,255,.1);padding-top:8px">
+  return `<div class="tb-form-hint" style="margin-top:8px;border-top:1px solid rgba(var(--overlay-rgb),.1);padding-top:8px">
     <div><button type="button" class="btn btn-ghost ai-close" style="float:right;padding:2px 10px">Close ✕</button><b>AI commentary</b> — grade <b>${aiEsc(r.grade)}</b> (decision quality, not profit)</div>
     <div style="margin-top:4px"><b>Entry:</b> ${aiEsc(r.entry_assessment)}</div>
     ${r.trade_behaviour ? `<div><b>Behaviour:</b> ${aiEsc(r.trade_behaviour)}</div>` : ""}
@@ -5157,7 +5160,7 @@ function aiTable(title, rows, cols) {
 }
 function aiNarrationHtml(n) {
   const li = a => `<ul style="margin:4px 0 0 18px;padding:0">${a.map(x => `<li>${aiEsc(x)}</li>`).join("")}</ul>`;
-  return `<div class="ai-narr" style="margin-top:8px;border-top:1px solid rgba(255,255,255,.1);padding-top:8px"><div><button type="button" class="btn btn-ghost ai-close-narr" style="float:right;padding:2px 10px">Close ✕</button><b>AI summary</b> — ${aiEsc(n.headline)}</div>
+  return `<div class="ai-narr" style="margin-top:8px;border-top:1px solid rgba(var(--overlay-rgb),.1);padding-top:8px"><div><button type="button" class="btn btn-ghost ai-close-narr" style="float:right;padding:2px 10px">Close ✕</button><b>AI summary</b> — ${aiEsc(n.headline)}</div>
     <div style="margin-top:4px"><b>Patterns</b><ul style="margin:4px 0 0 18px;padding:0">${n.patterns.map(p => `<li>${aiEsc(p.finding)} <span class="tb-form-hint">(${aiEsc(p.evidence)})</span></li>`).join("")}</ul></div>
     <div style="margin-top:4px"><b>Limiter days:</b> ${aiEsc(n.limiter_assessment)}</div>
     <div style="margin-top:4px"><b>Worth testing</b>${li(n.suggestions)}</div>
