@@ -86,6 +86,7 @@ function createDb(context) {
         }
     } catch (err) { console.error(`DB legacy copy failed: ${err.message}`); }
     const db      = new sqlite3.Database(DB_PATH);
+    db.configure("busyTimeout", 5000);   // WebDash/readers hold shared locks on this file; wait instead of failing the write
 
     function initDB() {
         db.serialize(() => {
@@ -196,7 +197,7 @@ function createDb(context) {
     function insertOpenTrade(engine, instrument, side, qty, entryPrice) {
         const now   = new Date();
         const today = now.toISOString().split("T")[0];
-        return new Promise((resolve, reject) => {
+        const once  = () => new Promise((resolve, reject) => {
             db.run(
                 `INSERT INTO trades (engine, instrument, side, qty, entry_price, entry_time, status, trade_date)
                  VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?)`,
@@ -204,6 +205,17 @@ function createDb(context) {
                 function (err) { err ? reject(err) : resolve(this.lastID); }
             );
         });
+        // Callers run this AFTER the live entry order is placed and state.position is set, and set the stop-loss and
+        // save the position right after it — a rejection here would skip both and leave a live position with no stop.
+        // So: retry, and if the journal still can't be written resolve null (loud log) instead of throwing.
+        return (async () => {
+            let lastErr;
+            for (let i = 0; i < 3; i++) {
+                try { return await once(); } catch (err) { lastErr = err; await new Promise(r => setTimeout(r, 200 * (i + 1))); }
+            }
+            console.error(`[${engine}] DB insertOpenTrade FAILED after retries (${lastErr && lastErr.message}) — position is live but this trade is NOT journaled`);
+            return null;
+        })();
     }
 
     // extra (optional): { peakPnl, troughPnl, ctx } — observed best/worst unrealised P&L and a
