@@ -36,7 +36,9 @@ function calendarDayPolicy(dayOfMonth) {
             if (future.length === 0) return null;
 
             const nearest = future[0];
-            if (asOf.getDate() >= dayOfMonth && future.length > 1) {
+            // day of month in IST (the exchange's calendar), not the server's local zone
+            const istDom = new Date(asOf.getTime() + 5.5 * 3600000).getUTCDate();
+            if (istDom >= dayOfMonth && future.length > 1) {
                 return future[1];
             }
             return nearest;

@@ -8,6 +8,7 @@
 "use strict";
 
 const { KiteConnect } = require("kiteconnect");
+const { dropFormingBar, intervalToMs } = require("../utils/formingBar");
 
 function createPreload({ context, engineConfig, candles, tg }) {
     const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
@@ -38,7 +39,7 @@ function createPreload({ context, engineConfig, candles, tg }) {
             // today (entry-time gate / held-entry retry still apply) instead of seeing it only as history.
             const istDay = d => new Date(new Date(d).getTime() + 5.5 * 3600000).toISOString().slice(0, 10);
             const todayIst = istDay(Date.now());
-            const completed = daily ? bars.filter(x => istDay(x.date) < todayIst).slice(0, -1) : bars.slice(0, -1);
+            const completed = daily ? bars.filter(x => istDay(x.date) < todayIst).slice(0, -1) : dropFormingBar(bars, intervalToMs(engineConfig.HIST_INTERVAL));
 
             const parsed = completed.slice(-engineConfig.MAX_CANDLES).map(b => ({
                 open:  parseFloat(b.open),
