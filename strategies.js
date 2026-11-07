@@ -5904,7 +5904,12 @@ function createVolumeDeltaCvdStrategy({ context, engineConfig, state, db, candle
             const bullishForShort = state.position === "SHORT" && (sig.emaTrend === "bullish" || (sig.deltaZ !== null && sig.deltaZ >= engineConfig.DELTA_Z_THRESHOLD) || sig.divergence.bullish);
             if (bearishForLong || bullishForShort) {
                 const closedSide = state.position;
-                await orders.exit(closedSide);
+                const exited = await orders.exit(closedSide);
+                if (engineConfig.LIVE_ORDERS && exited === null) {
+                    console.error(`[${context.tgPrefix}] VOLUME_DELTA_CVD exit order FAILED — position kept, will retry next candle`);
+                    tg(`\u26a0 [${context.tgPrefix}] VOLUME_DELTA_CVD EXIT order failed — position still open, retrying next candle`);
+                    return;
+                }
                 tg(`${closedSide} EXIT (VOLUME_DELTA_CVD) @ \u20b9${livePrice.toFixed(2)}\nreason: ${sig.emaTrend !== "neutral" ? "trend flip" : sig.divergence.bullish || sig.divergence.bearish ? "CVD divergence" : "delta Z-score reversal"}`);
                 await positionsClose(livePrice, "VOLUME_DELTA_CVD");
                 slStore.clearTrail();
