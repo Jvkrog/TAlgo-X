@@ -862,7 +862,15 @@ async function main() {
     });
     ticker.on("close",       ()  => { console.log(c.dim("WS  closed")); marketDataHealth.onClose(); });
     ticker.on("reconnect",   n   => { console.log(c.dim(`WS  reconnect #${n}`)); deltaBuffer.resync(); });
-    ticker.on("noreconnect", ()  => { console.error(c.red("WS  max reconnects")); process.exit(1); });
+    ticker.on("noreconnect", async () => {
+        console.error(c.red("WS  max reconnects"));
+        // Exit so PM2 restarts us (the stop trail/target are restored from the DB) — but never silently with a position open.
+        try {
+            const held = state.position ? `${state.position}@${state.entryPrice} — NOT being managed until the engine is back` : "flat";
+            await Promise.race([Promise.resolve(tg(`\u26a0 [${context.tgPrefix}] market-data socket gave up reconnecting — engine restarting (${held})`)), new Promise(r => setTimeout(r, 1500))]);
+        } catch { /* best effort */ }
+        process.exit(1);
+    });
 }
 
 main().catch(err => {
