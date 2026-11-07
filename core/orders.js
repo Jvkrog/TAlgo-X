@@ -245,6 +245,19 @@ function createOrders(context, tg, kcOverride) {
                 brokerMap[p.tradingsymbol] = (brokerMap[p.tradingsymbol] || 0) + p.quantity;
             }
 
+            // A contract roll changes context.symbol: a position still open on the PREVIOUS contract of this instrument
+            // (same product) is invisible to the check below and would sit unmanaged — flag it loudly.
+            const baseOf = sym => String(sym || "").replace(/\d{2}[A-Z]{3}FUT$/, "");
+            const myBase = baseOf(context.symbol);
+            if (/FUT$/.test(context.symbol)) {
+                for (const [sym, qty] of Object.entries(brokerMap)) {
+                    if (sym !== context.symbol && qty !== 0 && baseOf(sym) === myBase && /FUT$/.test(sym)) {
+                        console.log(c.red(`⚠ OPEN POSITION ON ANOTHER CONTRACT [${context.tgPrefix}]  ${sym}: ${qty > 0 ? "+" : ""}${qty} lots (engine trades ${context.symbol})`));
+                        tg(`⚠ [${context.tgPrefix}] Broker shows ${qty} lots open on ${sym} (not ${context.symbol}) — likely left from a contract roll, nothing is managing it. Manual check required.`);
+                    }
+                }
+            }
+
             const brokerQty   = brokerMap[context.symbol] || 0;
             const internalQty = state.position === "LONG"  ?  context.lots
                               : state.position === "SHORT" ? -context.lots
