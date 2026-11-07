@@ -2,7 +2,7 @@
 "use strict";
 const assert = require("assert");
 const fs = require("fs"), os = require("os"), path = require("path");
-const engineConfig = { ...require("./engineConfig") };
+const engineConfig = { ...require("./core/engineConfig") };
 const { newMachine, step } = require("./riskObserver/riskState");
 const { createPositionMetrics } = require("./riskObserver/riskMetrics");
 const { createDsbMonitor, relation } = require("./riskObserver/dsbMonitor");

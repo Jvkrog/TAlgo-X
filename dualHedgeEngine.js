@@ -100,7 +100,7 @@
 // as a scoped follow-up, same as hedgePairEngine.js's own original
 // toolbox/webdash gap.
 "use strict";
-require("./plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
+require("./utils/plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
 
 
 // DH_STRATEGY selects the strategy this single PM2 entry point runs:
@@ -118,22 +118,22 @@ const LOSS_ALERT_RUPEES = Number(process.env.DH_LOSS_ALERT_RUPEES) > 0 ? Number(
 if (DH_STRATEGY === "BIAS") { require("./dualBiasHedgeEngine"); return; }
 
 const { KiteConnect, KiteTicker } = require("kiteconnect");
-const engineConfig = require("./engineConfig");
-const c = require("./c");
-const { createCsvRepository } = require("./csvRepository");
-const { createInstrumentSource } = require("./instrumentSource");
-const { createContractPinStore } = require("./contractPins");
-const { resolveDualHedgeLeg } = require("./dualHedgeContext");
-const { listUsers } = require("./dualHedgeUsers");
-const { createTelegram } = require("./telegram");
-const { createState } = require("./state");
-const { createDb } = require("./db");
-const { createOrders } = require("./orders");
-const positions = require("./positions");
-const { emitEvent } = require("./eventBridge");
-const { istParts, todayIST } = require("./istTime");
-const { createRangeBandReader } = require("./rangeBandReader");
-const { SL_MODES, ATR_TIMEFRAMES, DEFAULT_ATR_TIMEFRAME, createAtrReader } = require("./dualHedgeAtr");
+const engineConfig = require("./core/engineConfig");
+const c = require("./utils/c");
+const { createCsvRepository } = require("./data/csvRepository");
+const { createInstrumentSource } = require("./data/instrumentSource");
+const { createContractPinStore } = require("./data/contractPins");
+const { resolveDualHedgeLeg } = require("./hedge/dualHedgeContext");
+const { listUsers } = require("./hedge/dualHedgeUsers");
+const { createTelegram } = require("./utils/telegram");
+const { createState } = require("./core/state");
+const { createDb } = require("./data/db");
+const { createOrders } = require("./core/orders");
+const positions = require("./core/positions");
+const { emitEvent } = require("./core/eventBridge");
+const { istParts, todayIST } = require("./utils/istTime");
+const { createRangeBandReader } = require("./indicators/rangeBandReader");
+const { SL_MODES, ATR_TIMEFRAMES, DEFAULT_ATR_TIMEFRAME, createAtrReader } = require("./hedge/dualHedgeAtr");
 
 const MAX_LOSS_RUPEES    = Number(process.env.DH_MAX_LOSS_RUPEES_OVERRIDE) || 3000;
 const TAKE_PROFIT_RUPEES = Number(process.env.DH_TAKE_PROFIT_RUPEES_OVERRIDE) || 3000;

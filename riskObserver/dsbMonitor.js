@@ -3,8 +3,8 @@
 // candles with the same DSB 1 / DSB 2 steps as the 1H DSB_DUAL — the same indicator code, not an approximation.
 "use strict";
 
-const { createBandStepper } = require("../dynamicBandReader");
-const { toHAAlways } = require("../indicators");
+const { createBandStepper } = require("../indicators/dynamicBandReader");
+const { toHAAlways } = require("../indicators/indicators");
 
 const colorOf = st => (st && st.position === "LONG" ? "green" : st && st.position === "SHORT" ? "red" : "none");
 

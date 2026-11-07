@@ -12,7 +12,7 @@ const { createDsbMonitor, dualReplay, relation } = require("./dsbMonitor");
 const { createCandleFeed } = require("./priceMonitor");
 const { createPositionMetrics } = require("./riskMetrics");
 const { newMachine, step: stepMachine } = require("./riskState");
-const { atr } = require("../indicators");
+const { atr } = require("../indicators/indicators");
 
 const CFG_KEYS = {
     watchAdverseAtr: "RISK_OBS_WATCH_ADVERSE_ATR", watchDisagreeCandles: "RISK_OBS_WATCH_DISAGREE_CANDLES",
@@ -118,7 +118,7 @@ function createRiskObserver({ context, engineConfig, state, candles, store, tg =
     function trend1h() {
         const raw = candles.getRawCandles ? candles.getRawCandles() : [];
         if (!raw || raw.length < 3) return { c1: "none", c2: "none", dir: "NONE", agree: false, lastTs: null };
-        const { toHA } = require("../indicators");
+        const { toHA } = require("../indicators/indicators");
         const bars = toHA(raw).slice(-engineConfig.MAX_CANDLES).map((k, i, a) => ({ ...k, ts: new Date(k.date).getTime() || i }));
         const rows = dualReplay(bars, step1, step2), r = rows[rows.length - 1];
         const agree = r.c1 === r.c2 && r.c1 !== "none";

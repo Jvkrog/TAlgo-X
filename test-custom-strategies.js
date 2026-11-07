@@ -1,7 +1,7 @@
 // Custom strategies: DB delete + server in-use guard + UI (saved list with delete, "Custom strategies" group in the add / backtest lists).
 const assert = require("assert"), fs = require("fs"), os = require("os"), path = require("path"), http = require("http");
 process.env.TALGO_DB_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "csdb-"));
-const db = require("./customStrategyDb"), T = [], t = (n, f) => T.push([n, f]);
+const db = require("./strategies/customStrategyDb"), T = [], t = (n, f) => T.push([n, f]);
 const spec = n => ({ name: n, candleType: "raw", timeframe: "15m", indicators: [{ type: "rsi" }], entryLong: { op: "AND", conditions: [{ left: "price.close", operator: ">", right: 1 }] }, entryShort: null, exitConfig: {} });
 t("db.deleteStrategy removes by name and reports changes", async () => { await new Promise(r => setTimeout(r, 300)); await db.saveStrategy(spec("s1")); await db.saveStrategy(spec("s2")); assert.strictEqual(await db.deleteStrategy("s1"), 1); assert.strictEqual(await db.deleteStrategy("s1"), 0); assert.deepStrictEqual((await db.listStrategies()).map(x => x.name), ["s2"]); });
 const srv = fs.readFileSync(__dirname + "/webdash/server.js", "utf8");

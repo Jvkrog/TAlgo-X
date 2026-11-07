@@ -1,0 +1,165 @@
+// dynamicBandReader.js — lazily-refreshed Dynamic Band ("DYNAMIC_MID_COLOR")
+// color reader for an arbitrary (token, timeframe) pair, independent of any
+// running strategy's own candle buffer. Built for hedgePairEngine.js's
+// checkHedge(), which needs a second, less noisy directional read to
+// confirm the core instrument's own 1h HA candle color before triggering
+// or unwinding the hedge — same reasoning and same caching shape as
+// haCandleReader.js/htfGate.js (own KiteConnect client, own cache,
+// refreshed lazily only when actually stale, fails safe on any error).
+//
+// WHY THIS EXISTS: raw HA candle color flips on every candle it forms,
+// including a single small counter-colored candle inside a trend that
+// hasn't actually reversed — a real case seen live: daily HA said SHORT,
+// but one small green 1h HA candle briefly appeared, which alone would
+// have triggered a false hedge entry. The Dynamic Band only flips when
+// price actually breaks out of its step-width band (see
+// createDynamicMidColorStrategy in strategies.js — same state machine,
+// replayed here as a pure function, kept as an exact copy since
+// strategies.js has no exported API surface for it). Requiring the band
+// color to also agree before treating the HA read as a real signal is
+// what filters that kind of single-candle noise out.
+//
+// Color convention matches createDynamicMidColorStrategy's directionColor():
+// "green" while the replayed position is LONG (or before any breakout has
+// ever happened — "no white", defaults green), "red" while SHORT.
+"use strict";
+
+const { KiteConnect } = require("kiteconnect");
+const { fetchHistoricalCandles } = require("../data/historicalFetch");
+const { toHAAlways } = require("./indicators");
+
+// Exact copy of createDynamicMidColorStrategy's replayHistory() in
+// strategies.js — if that strategy's band mechanics ever change, this
+// copy needs the same change made here too, or the two will drift apart
+// and this reader's "confirmation" stops actually matching what
+// DYNAMIC_MID_COLOR would show on a live chart for the same instrument.
+// createBandStepper(step) — the same state machine as an incremental stepper,
+// so a backtest can read the band colour after EVERY bar in one pass instead of
+// replaying the whole history per bar (backtestDualHedge.js's bias-hedge
+// mode). replayBandColor() below is just this stepper run over a full bar
+// list — ONE implementation, so the live reader and the backtest can never
+// disagree about what a bar sequence means.
+function createBandStepper(bandStep) {
+    let mid = null, high = null, low = null, position = null;
+
+    function push(bar) {
+        const close = bar.close;
+        if (mid === null) {   // seed bar — no breakout is evaluated on it
+            mid = close; high = mid + bandStep; low = mid - bandStep;
+            return;
+        }
+        const breakHigh = close > high;
+        const breakLow = close < low;
+
+        if (position === "LONG") {
+            if (breakHigh) { mid += bandStep; }
+            else if (breakLow) { position = "SHORT"; mid -= bandStep; }
+        } else if (position === "SHORT") {
+            if (breakLow) { mid -= bandStep; }
+            else if (breakHigh) { position = "LONG"; mid += bandStep; }
+        } else {
+            if (breakHigh) { position = "LONG"; mid += bandStep; }
+            else if (breakLow) { position = "SHORT"; mid -= bandStep; }
+        }
+        high = mid + bandStep;
+        low = mid - bandStep;
+    }
+
+    // null until the seed bar has been pushed. No white: same convention as
+    // createDynamicMidColorStrategy's directionColor() — defaults green until
+    // the first real breakout, then tracks whichever side the replay last
+    // flipped to.
+    function state() {
+        if (mid === null) return null;
+        const color = position === "SHORT" ? "red" : "green";
+        return { color, bandMid: mid, bandHigh: high, bandLow: low, position };
+    }
+
+    return { push, state };
+}
+
+function replayBandColor(rawCandles, bandStep) {
+    if (!rawCandles || rawCandles.length === 0) return null;
+    const stepper = createBandStepper(bandStep);
+    for (const bar of rawCandles) stepper.push(bar);
+    return stepper.state();
+}
+
+// Refresh cadence / lookback — identical to haCandleReader.js's own
+// constants (same "roughly half the bar's own duration" reasoning, same
+// window comfortably larger than any warmup this module needs). "15m"
+// added for dualHedgeEngine.js (see that file's header) — refresh every
+// 5 min (~1/3 of the bar) and a 7-day lookback, which at MCX's ~14h/day
+// session gives roughly 350+ bars of replay warmup, comfortably more than
+// this module's band-geometry replay needs (same order of magnitude as
+// engineConfig.MAX_CANDLES-driven warmup elsewhere in this codebase).
+const REFRESH_MS = { "5m": 2 * 60 * 1000, "15m": 5 * 60 * 1000, "30m": 10 * 60 * 1000, "1h": 15 * 60 * 1000, "1d": 6 * 60 * 60 * 1000 };
+const LOOKBACK_DAYS = { "5m": 7, "15m": 7, "30m": 7, "1h": 15, "1d": 90 };
+
+function createDynamicBandReader({ token, timeframe, bandStep, engineConfig, label, refreshMs, ha = false }) {
+    if (!REFRESH_MS[timeframe]) {
+        throw new Error(`createDynamicBandReader: unsupported timeframe "${timeframe}" (known: ${Object.keys(REFRESH_MS).join(", ")})`);
+    }
+    // Same fallback every strategy factory uses: context.bandStep ??
+    // engineConfig.BAND_STEP_DEFAULT.
+    const step = bandStep ?? engineConfig.BAND_STEP_DEFAULT;
+
+    let kc = null;
+    let lastState = null;
+    let lastFetchedAt = 0;
+    let lastErrorLoggedAt = 0;
+
+    // Same fix as haCandleReader.js's getClient() (see its comment) — this
+    // reader lives in the same long-lived hedgePairEngine.js process, so it
+    // has the identical stale-token exposure. Re-read the token file on
+    // every refresh instead of caching it from the first read.
+    function getClient() {
+        if (!kc) kc = new KiteConnect({ api_key: engineConfig.API_KEY });
+        kc.setAccessToken(engineConfig.getAccessToken());
+        return kc;
+    }
+
+    async function refresh() {
+        const to = new Date();
+        const from = new Date(to.getTime() - LOOKBACK_DAYS[timeframe] * 24 * 60 * 60 * 1000);
+        const kcInst = getClient();
+        const raw = await fetchHistoricalCandles({ kc: kcInst, token, timeframe, from, to });
+        if (!raw || raw.length === 0) throw new Error("API returned 0 bars");
+        // Drop the still-forming current bar — same no-lookahead convention
+        // haCandleReader.js/htfGate.js/preload.js/longCandleGate.js all
+        // follow. DYNAMIC_MID_COLOR itself uses raw closes, not HA — the
+        // band breaks on real price, so this reader replays raw candles
+        // unmodified (no toHA() here, unlike haCandleReader.js).
+        let completed = raw.slice(0, -1);
+        // ha:true (hedgePairEngine.js, Oct 2026) feeds the band Heikin-Ashi candles instead of raw ones.
+        if (ha) completed = toHAAlways(completed);
+        lastState = replayBandColor(completed, step);
+        lastFetchedAt = Date.now();
+    }
+
+    // Returns { color, bandMid, bandHigh, bandLow, position } for the
+    // latest COMPLETED bar's replayed band state, or null if no data is
+    // available yet (fails safe — caller treats null the same as "no
+    // read," never as a signal).
+    async function getLatest() {
+        if (Date.now() - lastFetchedAt > (refreshMs ?? REFRESH_MS[timeframe])) {
+            try {
+                await refresh();
+            } catch (err) {
+                if (Date.now() - lastErrorLoggedAt > 5 * 60 * 1000) {
+                    console.error(`[${label}] Dynamic band reader (${timeframe}) fetch failed: ${err.message} — serving stale/empty cache`);
+                    lastErrorLoggedAt = Date.now();
+                }
+                // Fall through and serve whatever's already cached
+                // (possibly still empty on a cold start) — same fail-safe
+                // posture as haCandleReader.js, never throws out of
+                // getLatest().
+            }
+        }
+        return lastState;
+    }
+
+    return { getLatest, prewarm: () => getLatest().catch(() => {}) };
+}
+
+module.exports = { createDynamicBandReader, createBandStepper, replayBandColor };

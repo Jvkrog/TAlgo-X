@@ -87,20 +87,20 @@
 "use strict";
 
 const { KiteConnect } = require("kiteconnect");
-const engineConfig = require("./engineConfig");
-const c = require("./c");
-const { istParts } = require("./istTime");
-const { createCsvRepository } = require("./csvRepository");
-const { createInstrumentSource } = require("./instrumentSource");
-const { createContractPinStore } = require("./contractPins");
-const { resolveDualHedgeLeg } = require("./dualHedgeContext");
-const { listUsers } = require("./dualHedgeUsers");
-const { createTelegram } = require("./telegram");
-const { createState } = require("./state");
-const { createDb } = require("./db");
-const { createOrders } = require("./orders");
-const positions = require("./positions");
-const { emitEvent } = require("./eventBridge");
+const engineConfig = require("./core/engineConfig");
+const c = require("./utils/c");
+const { istParts } = require("./utils/istTime");
+const { createCsvRepository } = require("./data/csvRepository");
+const { createInstrumentSource } = require("./data/instrumentSource");
+const { createContractPinStore } = require("./data/contractPins");
+const { resolveDualHedgeLeg } = require("./hedge/dualHedgeContext");
+const { listUsers } = require("./hedge/dualHedgeUsers");
+const { createTelegram } = require("./utils/telegram");
+const { createState } = require("./core/state");
+const { createDb } = require("./data/db");
+const { createOrders } = require("./core/orders");
+const positions = require("./core/positions");
+const { emitEvent } = require("./core/eventBridge");
 
 const POLL_MS = Number(process.env.GC_POLL_MS) || 15 * 1000;
 const ENTRY_HOUR   = Number(process.env.GC_ENTRY_HOUR_OVERRIDE)   || 11;

@@ -3,8 +3,8 @@
 "use strict";
 const assert = require("assert"), fs = require("fs"), path = require("path"), vm = require("vm");
 let passed = 0; const t = async (n, f) => { await f(); passed++; console.log("ok  -", n); };
-const engineConfig = require("./engineConfig"); engineConfig.LIVE_ORDERS = true;
-const { createOrders } = require("./orders");
+const engineConfig = require("./core/engineConfig"); engineConfig.LIVE_ORDERS = true;
+const { createOrders } = require("./core/orders");
 const silent = () => {}; const realLog = console.log; 
 
 function fakeKc() { const placed = []; return { placed, getLTP: async k => ({ [Object.keys({})[0] || "MCX:T"]: { last_price: 100 }, "MCX:T": { last_price: 100 } }), placeOrder: async (v, p) => { placed.push(p); return { order_id: "ID" + placed.length }; }, getOrderHistory: async () => [{ status: "COMPLETE", average_price: 100 }] }; }
@@ -42,8 +42,8 @@ async function productsFor(ctx) {
         r = boot({ PRODUCT_OVERRIDE: "garbage" }, false); assert.strictEqual(r.product, "MIS");
     });
     await t("EOD behaviour depends ONLY on carryOvernight (lifecycle.js never reads product), so NRML+close is force-closed like MIS", async () => {
-        const life = fs.readFileSync(path.join(__dirname, "lifecycle.js"), "utf8"); assert(!/context\.product/.test(life)); assert(/state\.position && context\.carryOvernight/.test(life));
-        const strat = fs.readFileSync(path.join(__dirname, "strategies.js"), "utf8"); assert(!/context\.product/.test(strat), "strategy resume logic must not depend on product");
+        const life = fs.readFileSync(path.join(__dirname, "core", "lifecycle.js"), "utf8"); assert(!/context\.product/.test(life)); assert(/state\.position && context\.carryOvernight/.test(life));
+        const strat = fs.readFileSync(path.join(__dirname, "strategies", "strategies.js"), "utf8"); assert(!/context\.product/.test(strat), "strategy resume logic must not depend on product");
     });
 
     // ── server-side resolution ──

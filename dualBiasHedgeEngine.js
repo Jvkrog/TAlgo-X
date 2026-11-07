@@ -37,28 +37,28 @@
 // Fills can lag the backtest by up to one poll; a late start takes the core on
 // the first poll after the entry time.
 "use strict";
-require("./plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
+require("./utils/plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
 
 
 const { KiteConnect } = require("kiteconnect");
-const engineConfig = require("./engineConfig");
-const c = require("./c");
-const { createCsvRepository } = require("./csvRepository");
-const { createInstrumentSource } = require("./instrumentSource");
-const { createContractPinStore } = require("./contractPins");
-const { resolveDualHedgeLeg } = require("./dualHedgeContext");
-const { listUsers } = require("./dualHedgeUsers");
-const { defaultEodFor } = require("./context");
-const { createTelegram } = require("./telegram");
-const { createState } = require("./state");
-const { createDb } = require("./db");
-const { createOrders } = require("./orders");
-const positions = require("./positions");
-const { emitEvent } = require("./eventBridge");
-const { istParts, todayIST } = require("./istTime");
-const { createHaCandleReader } = require("./haCandleReader");
-const { createDynamicBandReader } = require("./dynamicBandReader");
-const { createBiasHedgeController } = require("./dualBiasHedgeController");
+const engineConfig = require("./core/engineConfig");
+const c = require("./utils/c");
+const { createCsvRepository } = require("./data/csvRepository");
+const { createInstrumentSource } = require("./data/instrumentSource");
+const { createContractPinStore } = require("./data/contractPins");
+const { resolveDualHedgeLeg } = require("./hedge/dualHedgeContext");
+const { listUsers } = require("./hedge/dualHedgeUsers");
+const { defaultEodFor } = require("./core/context");
+const { createTelegram } = require("./utils/telegram");
+const { createState } = require("./core/state");
+const { createDb } = require("./data/db");
+const { createOrders } = require("./core/orders");
+const positions = require("./core/positions");
+const { emitEvent } = require("./core/eventBridge");
+const { istParts, todayIST } = require("./utils/istTime");
+const { createHaCandleReader } = require("./indicators/haCandleReader");
+const { createDynamicBandReader } = require("./indicators/dynamicBandReader");
+const { createBiasHedgeController } = require("./hedge/dualBiasHedgeController");
 
 const BAND_TIMEFRAMES = ["5m", "15m", "30m", "1h"];
 const hhmm = (h, m) => `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;

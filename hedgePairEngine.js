@@ -81,25 +81,25 @@
 // strategy any more than engine.js's live model does; that's a separate
 // follow-up, same as the toolbox UI.
 "use strict";
-require("./plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
+require("./utils/plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
 
 
 const { KiteConnect } = require("kiteconnect");
-const engineConfig = require("./engineConfig");
-const c = require("./c");
-const { istParts } = require("./istTime");
-const { createCsvRepository } = require("./csvRepository");
-const { createInstrumentSource } = require("./instrumentSource");
-const { createContractPinStore } = require("./contractPins");
-const { resolveHedgePairLeg } = require("./hedgePairContext");
-const { createTelegram } = require("./telegram");
-const { createState } = require("./state");
-const { createDb } = require("./db");
-const { createOrders } = require("./orders");
-const positions = require("./positions");
-const { emitEvent } = require("./eventBridge"); // web dashboard live log/tick stream only, see eventBridge.js header
-const { createHaCandleReader } = require("./haCandleReader");
-const { createDynamicBandReader } = require("./dynamicBandReader");
+const engineConfig = require("./core/engineConfig");
+const c = require("./utils/c");
+const { istParts } = require("./utils/istTime");
+const { createCsvRepository } = require("./data/csvRepository");
+const { createInstrumentSource } = require("./data/instrumentSource");
+const { createContractPinStore } = require("./data/contractPins");
+const { resolveHedgePairLeg } = require("./hedge/hedgePairContext");
+const { createTelegram } = require("./utils/telegram");
+const { createState } = require("./core/state");
+const { createDb } = require("./data/db");
+const { createOrders } = require("./core/orders");
+const positions = require("./core/positions");
+const { emitEvent } = require("./core/eventBridge"); // web dashboard live log/tick stream only, see eventBridge.js header
+const { createHaCandleReader } = require("./indicators/haCandleReader");
+const { createDynamicBandReader } = require("./indicators/dynamicBandReader");
 
 const POLL_MS = Number(process.env.HEDGE_PAIR_POLL_MS) || 60 * 1000;
 // CORE_CARRY_OVERRIDE: "true" (default) = NRML, core carried overnight; "false" = MIS, core (and hedge) closed at EOD.
