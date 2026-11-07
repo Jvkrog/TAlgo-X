@@ -38,6 +38,7 @@ const { isBeforeEntryTime } = require("./entryTimeGate");
 
 const { fetchDailyCandles } = require("../data/historicalFetch");
 const { toHAAlways: toHA } = require("../indicators/indicators");
+const { dropFormingBar } = require("../utils/formingBar");
 
 const REFRESH_MS    = 12 * 60 * 60 * 1000;
 const LOOKBACK_DAYS = 90;
@@ -55,7 +56,7 @@ function createDailyHaGate({ context, kc }) {
         // Drop the still-forming current bar — same convention every other
         // candle consumer here follows (htfGate.js, haCandleReader.js,
         // preload.js).
-        haBars = toHA(raw.slice(0, -1));
+        haBars = toHA(dropFormingBar(raw, null));   // only if the last bar is really today's (pre-open it is yesterday's, complete)
         lastFetchedAt = Date.now();
     }
 

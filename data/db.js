@@ -188,10 +188,28 @@ function createDb(context) {
                 id INTEGER PRIMARY KEY AUTOINCREMENT, engine TEXT NOT NULL, ts TEXT NOT NULL, day TEXT NOT NULL,
                 kind TEXT NOT NULL, detail TEXT
             )`);
+            db.run(`CREATE TABLE IF NOT EXISTS risk_state (
+                engine TEXT NOT NULL, instrument_token INTEGER NOT NULL, position TEXT, entry_price REAL,
+                trail REAL, trail_dir INTEGER, target REAL, target_dir INTEGER, updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (engine, instrument_token)
+            )`);
             for (const col of ["peak_pnl REAL", "trough_pnl REAL", "ctx TEXT", "entry_ctx TEXT"]) {
                 db.run(`ALTER TABLE trades ADD COLUMN ${col}`, () => { /* already present */ });
             }
         });
+    }
+
+    // Live stop-loss trail + profit target (core/riskState.js). Best-effort: never rejects, never blocks trading.
+    function saveRiskState(engine, token, r) {
+        return new Promise(resolve => db.run(
+            `INSERT OR REPLACE INTO risk_state (engine, instrument_token, position, entry_price, trail, trail_dir, target, target_dir, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+            [engine, token, r.position, r.entryPrice, r.trail, r.trailDir, r.target, r.targetDir],
+            err => { if (err) console.error(`[${engine}] DB saveRiskState error: ${err.message}`); resolve(); }));
+    }
+    function loadRiskState(engine, token) {
+        return new Promise(resolve => db.get(`SELECT * FROM risk_state WHERE engine = ? AND instrument_token = ?`, [engine, token],
+            (err, row) => resolve(err ? null : (row || null))));
     }
 
     function insertOpenTrade(engine, instrument, side, qty, entryPrice) {
@@ -416,7 +434,7 @@ function createDb(context) {
 
     return {
         initDB, savePosition, loadPosition, saveRegime, loadRegime, clearAllPositions,
-        insertOpenTrade, closeTrade, updateTradeEntry, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince, countWinningTradesSince, countScalpTpSince, setEntryContext, logRiskEvent,
+        saveRiskState, loadRiskState, insertOpenTrade, closeTrade, updateTradeEntry, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince, countWinningTradesSince, countScalpTpSince, setEntryContext, logRiskEvent,
     };
 }
 

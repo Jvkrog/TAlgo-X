@@ -27,6 +27,7 @@ const { createCandleDeltaBuffer } = require("./indicators/candleDeltaBuffer");
 const { createMarketDataHealth } = require("./scanner/marketDataHealth");
 const { createSLStore }      = require("./core/sl");
 const { createTargetStore }  = require("./core/target");
+const { attachRiskPersistence, restoreRiskState } = require("./core/riskState");
 const { createDb }           = require("./data/db");
 const { createOrders }       = require("./core/orders");
 const { emitEvent, setCurrentCandle } = require("./core/eventBridge");  // web dashboard only (LTP stream for the chart)
@@ -588,6 +589,7 @@ async function main() {
     const orders   = createOrders(context, tg);
 
     db.initDB();
+    attachRiskPersistence({ slStore, targetStore, db, context, state });   // stop trail / target survive a restart
 
     // TAlgo-Ai: attach an entry-time snapshot to every new trade row. Observer only — failures are swallowed
     // and the wrapper returns exactly what insertOpenTrade returned.
@@ -728,6 +730,13 @@ async function main() {
         ticker.setMode(ticker.modeFull, [context.token]);
 
         await signalsInstance.initSignals();
+        try {
+            const r = await restoreRiskState({ slStore, targetStore, db, context, state });
+            if (r && (r.trail != null || r.target != null)) {
+                console.log(c.green(`[${context.tgPrefix}] restored saved risk state${r.trail != null ? `  SL trail ${r.trail}` : ""}${r.target != null ? `  target ${r.target}` : ""}`));
+                tg(`♻ [${context.tgPrefix}] Restart: restored ${r.trail != null ? `SL trail ${r.trail}` : ""}${r.target != null ? ` target ${r.target}` : ""}`.trim());
+            }
+        } catch (err) { console.error(c.red(`risk-state restore failed: ${err.message}`)); }
 
         await new Promise(resolve => {
             // 08:45 IST today — computed from the IST calendar day, not the process's local timezone (on a UTC box the old
