@@ -1,9 +1,9 @@
 // VWAP_SD_BANDS: band math, play classification, strategy behaviour (fade / ride / breakout-against / gates) and a full backtest replay.
 const assert = require("assert");
-const { vwapBandSeries, classify, backInside } = require("./strategies/vwapBands");
-const { createVwapSdStrategy, STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME } = require("./strategies/strategies");
-const { createSLStore } = require("./core/sl");
-const { createState } = require("./core/state");
+const { vwapBandSeries, classify, backInside } = require("../strategies/vwapBands");
+const { createVwapSdStrategy, STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME } = require("../strategies/strategies");
+const { createSLStore } = require("../core/sl");
+const { createState } = require("../core/state");
 const realLog = console.log; const T = []; const t = (n, f) => T.push([n, f]);
 const near = (a, b, e = 1e-9) => assert.ok(Math.abs(a - b) < e, `${a} vs ${b}`);
 const k = (h, l, c, v = 10) => ({ high: h, low: l, close: c, volume: v });
@@ -93,7 +93,7 @@ t("strategy: breakout AGAINST a fade exits it and rides the breakout the other w
 });
 t("strategy: registered (STRATEGIES / STRATEGY_INFO / timeframe) and native candle type is RAW", () => {
     assert.strictEqual(STRATEGIES.VWAP_SD_BANDS, createVwapSdStrategy); assert.ok(STRATEGY_INFO.VWAP_SD_BANDS.label); assert.strictEqual(STRATEGY_TIMEFRAME.VWAP_SD_BANDS, "15m");
-    assert.strictEqual(require("./indicators/candleType").nativeCandleType("VWAP_SD_BANDS"), "RAW");
-    assert.ok(require("./backtest/backtestFlow").STRATEGY_PARAMS.VWAP_SD_BANDS.every(p => p.key in require("./core/engineConfig")), "every backtest param has an engineConfig default");
+    assert.strictEqual(require("../indicators/candleType").nativeCandleType("VWAP_SD_BANDS"), "RAW");
+    assert.ok(require("../backtest/backtestFlow").STRATEGY_PARAMS.VWAP_SD_BANDS.every(p => p.key in require("../core/engineConfig")), "every backtest param has an engineConfig default");
 });
 (async () => { let fail = 0; for (const [n, f] of T) { try { await f(); realLog("  ok   " + n); } catch (e) { console.log = realLog; fail++; realLog("  FAIL " + n + "\n       " + String(e && (e.stack || e.message)).split("\n").slice(0, 4).join("\n       ")); } } realLog(fail ? `\n${fail} FAILED` : `\nall ${T.length} passed`); process.exit(fail ? 1 : 0); })();

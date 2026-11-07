@@ -1,8 +1,8 @@
 // Linked hedge pair: hedge decision, file link, stop suppression, strategy re-arm, server validation, engine wiring.
 const assert = require("assert"), fs = require("fs"), os = require("os"), path = require("path"), vm = require("vm");
-const { createHedgeLink, isHedged } = require("./hedge/hedgeLink");
-const { createSLStore } = require("./core/sl");
-const { createDsbDualStrategy, createDailyHaBiasStrategy } = require("./strategies/strategies");
+const { createHedgeLink, isHedged } = require("../hedge/hedgeLink");
+const { createSLStore } = require("../core/sl");
+const { createDsbDualStrategy, createDailyHaBiasStrategy } = require("../strategies/strategies");
 const realLog = console.log; console.log = () => {};
 const T = []; const t = (n, f) => T.push([n, f]);
 
@@ -66,7 +66,7 @@ t("transition: aligned->hedged clears stop; hedged->aligned re-arms; peer flat k
 });
 
 // ── server + engine wiring ──
-const srv = fs.readFileSync(__dirname + "/webdash/server.js", "utf8"), engSrc = fs.readFileSync(__dirname + "/engine.js", "utf8");
+const srv = fs.readFileSync(__dirname + "/../webdash/server.js", "utf8"), engSrc = fs.readFileSync(__dirname + "/../engine.js", "utf8");
 t("buildProcessEnv always writes HEDGE_LINK_* (an edit/mode restart must not unlink the pair)", () => {
     const a = srv.indexOf("function buildProcessEnv"), b = srv.indexOf("\n}\n", a) + 2; const fn = vm.runInNewContext("(" + srv.slice(a, b).replace("function buildProcessEnv", "function") + ")", { process: { env: {} }, ROOT: "/", PM2_BASE_OPTS: {}, console, Object, String, Number });
     let env; try { env = fn({ name: "n", underlying: "X", strategy: "DSB_DUAL", hedgeGroup: "P", hedgeRole: "B" }); } catch (e) { env = null; }

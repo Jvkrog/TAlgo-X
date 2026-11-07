@@ -1,10 +1,10 @@
 // Custom strategies: DB delete + server in-use guard + UI (saved list with delete, "Custom strategies" group in the add / backtest lists).
 const assert = require("assert"), fs = require("fs"), os = require("os"), path = require("path"), http = require("http");
 process.env.TALGO_DB_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "csdb-"));
-const db = require("./strategies/customStrategyDb"), T = [], t = (n, f) => T.push([n, f]);
+const db = require("../strategies/customStrategyDb"), T = [], t = (n, f) => T.push([n, f]);
 const spec = n => ({ name: n, candleType: "raw", timeframe: "15m", indicators: [{ type: "rsi" }], entryLong: { op: "AND", conditions: [{ left: "price.close", operator: ">", right: 1 }] }, entryShort: null, exitConfig: {} });
 t("db.deleteStrategy removes by name and reports changes", async () => { await new Promise(r => setTimeout(r, 300)); await db.saveStrategy(spec("s1")); await db.saveStrategy(spec("s2")); assert.strictEqual(await db.deleteStrategy("s1"), 1); assert.strictEqual(await db.deleteStrategy("s1"), 0); assert.deepStrictEqual((await db.listStrategies()).map(x => x.name), ["s2"]); });
-const srv = fs.readFileSync(__dirname + "/webdash/server.js", "utf8");
+const srv = fs.readFileSync(__dirname + "/../webdash/server.js", "utf8");
 t("server DELETE route: 409 while an engine uses it, 404 unknown, otherwise deletes", async () => {
     const a = srv.indexOf('app.delete("/api/strategy-builder/custom-strategies/:name"'), b = srv.indexOf("\n});\n", a) + 5; let handler;
     const vmCtx = { app: { delete: (_p, h) => { handler = h; } }, pm2List: async () => [{ name: "ENG-1", pm2_env: { env: { UNDERLYING: "GOLD", STRATEGY_OVERRIDE: "s2" } } }, { name: "other", pm2_env: { env: {} } }], customStrategyDb: db, String };
@@ -17,7 +17,7 @@ t("server DELETE route: 409 while an engine uses it, 404 unknown, otherwise dele
     let fail = 0, browserTests = true, chromium; try { ({ chromium } = require("playwright")); } catch { browserTests = false; }
     for (const [n, f] of T) { try { await f(); console.log("  ok   " + n); } catch (e) { fail++; console.log("  FAIL " + n + "\n       " + String(e.stack || e).split("\n").slice(0, 4).join("\n       ")); } }
     if (browserTests) {
-        const PUB = path.join(__dirname, "webdash/public"), mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
+        const PUB = path.join(__dirname, "..", "webdash/public"), mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
         const server = http.createServer((q, r) => { const f = path.join(PUB, q.url.split("?")[0] === "/" ? "index.html" : q.url.split("?")[0]); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) { r.writeHead(404); return r.end(); } r.writeHead(200, { "content-type": mime[path.extname(f)] || "x" }); r.end(fs.readFileSync(f)); });
         await new Promise(r => server.listen(0, r)); const br = await chromium.launch(), page = await br.newPage({ viewport: { width: 700, height: 900 } }), deleted = []; page.on("dialog", d => d.accept());
         let custom = [{ id: 1, name: "my_rsi_break", candleType: "ha", timeframe: "15m", indicators: [{ type: "rsi" }, { type: "adx" }], entryLong: { op: "AND", conditions: [{ left: "price.close", operator: ">", right: "adx_1.value" }] }, entryShort: null, exitConfig: {} }, { id: 2, name: "half_done", candleType: "raw", timeframe: "5m", indicators: [{ type: "rsi" }], entryLong: null, entryShort: null, exitConfig: null }];

@@ -2,13 +2,13 @@
 "use strict";
 const assert = require("assert");
 const fs = require("fs"), os = require("os"), path = require("path");
-const engineConfig = { ...require("./core/engineConfig") };
-const { newMachine, step } = require("./riskObserver/riskState");
-const { createPositionMetrics } = require("./riskObserver/riskMetrics");
-const { createDsbMonitor, relation } = require("./riskObserver/dsbMonitor");
-const { createCandleFeed } = require("./riskObserver/priceMonitor");
-const { createRiskObserver, resolveParams } = require("./riskObserver/observer");
-const { createMemoryStore, createSqliteStore } = require("./riskObserver/riskStore");
+const engineConfig = { ...require("../core/engineConfig") };
+const { newMachine, step } = require("../riskObserver/riskState");
+const { createPositionMetrics } = require("../riskObserver/riskMetrics");
+const { createDsbMonitor, relation } = require("../riskObserver/dsbMonitor");
+const { createCandleFeed } = require("../riskObserver/priceMonitor");
+const { createRiskObserver, resolveParams } = require("../riskObserver/observer");
+const { createMemoryStore, createSqliteStore } = require("../riskObserver/riskStore");
 
 const cfg = resolveParams(engineConfig, {});
 let passed = 0;

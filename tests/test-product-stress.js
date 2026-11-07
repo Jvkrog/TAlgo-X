@@ -3,8 +3,8 @@
 // Run: node test-product-stress.js
 "use strict";
 const assert = require("assert");
-const engineConfig = require("./core/engineConfig"); engineConfig.LIVE_ORDERS = true; engineConfig.DAILY_HA_GATE_ENABLED = false;
-const { createOrders } = require("./core/orders");
+const engineConfig = require("../core/engineConfig"); engineConfig.LIVE_ORDERS = true; engineConfig.DAILY_HA_GATE_ENABLED = false;
+const { createOrders } = require("../core/orders");
 const realLog = console.log, realErr = console.error;
 let passed = 0; const t = async (n, f) => { await f(); passed++; realLog("ok  -", n); };
 const quiet = async f => { console.log = () => {}; console.error = () => {}; try { return await f(); } finally { console.log = realLog; console.error = realErr; } };

@@ -1,9 +1,9 @@
 // Linked hedge pair backtest: barrier/sync unit tests + an end-to-end replay (fake Kite) with a per-candle invariant probe.
 const assert = require("assert");
-const { createPairSync, runLinkedPairBacktest } = require("./backtest/backtestLinkedPair");
-const { runBacktest } = require("./backtest/backtestRun");
-const { getDefinition, buildContext } = require("./core/context");
-const { isHedged } = require("./hedge/hedgeLink");
+const { createPairSync, runLinkedPairBacktest } = require("../backtest/backtestLinkedPair");
+const { runBacktest } = require("../backtest/backtestRun");
+const { getDefinition, buildContext } = require("../core/context");
+const { isHedged } = require("../hedge/hedgeLink");
 const realLog = console.log; const T = []; const t = (n, f) => T.push([n, f]);
 
 // ── barrier unit tests with fake legs ──
@@ -69,7 +69,7 @@ t("e2e: runLinkedPairBacktest returns a combined report that equals the legs' su
     assert.strictEqual(r.report.metrics.trades, r.report.legs[0].metrics.trades + r.report.legs[1].metrics.trades); assert.ok(r.report.hedge.hedgedCandles > 0);
     assert.ok(r.report.trades.every(x => x.leg === "A" || x.leg === "B")); require("fs").existsSync(r.paths.htmlPath) && assert.ok(true);
 });
-const fs = require("fs"), vm = require("vm"); const srv = fs.readFileSync(__dirname + "/webdash/server.js", "utf8");
+const fs = require("fs"), vm = require("vm"); const srv = fs.readFileSync(__dirname + "/../webdash/server.js", "utf8");
 async function runLinkedRoute(body) {
     const a = srv.indexOf('app.post("/api/toolbox/backtest/linked"'), b = srv.indexOf("\n});", a) + 4; let routes = {};
     const ctx = { app: { post: (r, h) => { routes[r] = h; } }, STRATEGY_INFO: {}, console, Array, Object, String, Number, backtestHandler: async () => {} }; vm.createContext(ctx); vm.runInContext(srv.slice(a, b), ctx);

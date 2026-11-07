@@ -10,7 +10,7 @@ class FakeTicker {
 }
 const orig = Module._load;
 Module._load = function (req, ...a) { return req === "kiteconnect" ? { KiteTicker: FakeTicker } : orig.call(this, req, ...a); };
-const { createDepthHub } = require("./webdash/depthHub");
+const { createDepthHub } = require("../webdash/depthHub");
 (async () => {
     const hub = createDepthHub({ getCreds: () => ({ apiKey: "k", accessToken: "tok1" }) });
     const sent = []; const ws = { readyState: 1, send: m => sent.push(JSON.parse(m)) };
