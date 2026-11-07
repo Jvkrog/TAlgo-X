@@ -730,10 +730,12 @@ async function main() {
         await signalsInstance.initSignals();
 
         await new Promise(resolve => {
-            const now    = new Date();
-            const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 8, 45, 0);
-            if (now >= target) { resolve(); return; }
-            setTimeout(resolve, target - now);
+            // 08:45 IST today — computed from the IST calendar day, not the process's local timezone (on a UTC box the old
+            // local-time version waited until 14:15 IST for any engine started before then).
+            const nowMs = Date.now(), ist = new Date(nowMs + 5.5 * 3600 * 1000);
+            const target = Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 8, 45, 0) - 5.5 * 3600 * 1000;
+            if (nowMs >= target) { resolve(); return; }
+            setTimeout(resolve, target - nowMs);
         });
 
         if (rangeFeed) {
@@ -754,8 +756,9 @@ async function main() {
         }
 
         const now2 = new Date();
-        const tradeTarget = new Date(now2.getFullYear(), now2.getMonth(), now2.getDate(),
-            engineConfig.TRADE_START_HOUR, engineConfig.TRADE_START_MINUTE, 0);
+        const ist2 = new Date(now2.getTime() + 5.5 * 3600 * 1000);   // IST calendar day (not the process timezone)
+        const tradeTarget = new Date(Date.UTC(ist2.getUTCFullYear(), ist2.getUTCMonth(), ist2.getUTCDate(),
+            engineConfig.TRADE_START_HOUR, engineConfig.TRADE_START_MINUTE, 0) - 5.5 * 3600 * 1000);
         const minsLeft = Math.round((tradeTarget - now2) / 60000);
         if (minsLeft > 0) {
             const hh = String(engineConfig.TRADE_START_HOUR).padStart(2, "0");

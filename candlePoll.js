@@ -49,6 +49,12 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
     // the market is shut can't be traded until the next open anyway).
     const istDayStr = ms => new Date(ms + 5.5 * 3600000).toISOString().slice(0, 10);
 
+    // Tick-driven exits (stop, scalp stop, target) are async and ticks keep arriving while the exit order is in flight / being booked.
+    // Without this, every extra tick re-entered the exit, hit orders.js's in-flight / just-exited guards (which return null) and was
+    // reported as "SL order FAILED — manual exit required" even though the first exit was going through. One exit at a time here;
+    // the lock is released when the attempt finishes, so a genuinely failed exit is still retried on the next tick.
+    let tickExitBusy = false;
+
     // ─── SL MONITOR — every WebSocket tick ───────────────────────────────────
     async function checkSL(price) {
         if (!price) return;
@@ -59,18 +65,22 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                 (state.position === "LONG"  && price < trail) ||
                 (state.position === "SHORT" && price > trail);
             if (breached) {
-                tg(`🛑 ${state.position} STOP @ ₹${price.toFixed(2)}`);
-                const ordered = await orders.slExit(state.position);
-                if (engineConfig.LIVE_ORDERS && ordered === null) {
-                    console.error(c.red(`SL order failed — position NOT cleared, manual exit required`));
-                    tg(`⚠ SL order FAILED\nPosition still open — manual exit required immediately`);
-                } else {
-                    // positionsClose is positions.js's close(context, state, price, reason),
-                    // pre-bound by engine.js to (context, state) so it's called here as (price, reason).
-                    await positionsClose(price, "SL_ST");
-                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
-                    slStore.clearTrail();
-                }
+                if (tickExitBusy) return;
+                tickExitBusy = true;
+                try {
+                    tg(`🛑 ${state.position} STOP @ ₹${price.toFixed(2)}`);
+                    const ordered = await orders.slExit(state.position);
+                    if (engineConfig.LIVE_ORDERS && ordered === null) {
+                        console.error(c.red(`SL order failed — position NOT cleared, manual exit required`));
+                        tg(`⚠ SL order FAILED\nPosition still open — manual exit required immediately`);
+                    } else {
+                        // positionsClose is positions.js's close(context, state, price, reason),
+                        // pre-bound by engine.js to (context, state) so it's called here as (price, reason).
+                        await positionsClose(price, "SL_ST");
+                        db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                        slStore.clearTrail();
+                    }
+                } finally { tickExitBusy = false; }
             }
         }
     }
@@ -101,15 +111,19 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                 const pts = rupeesToPoints(context, sr.slRupees);
                 const stopped = state.position === "LONG" ? price <= state.entryPrice - pts : price >= state.entryPrice + pts;
                 if (stopped) {
-                    tg(`🛑 ${state.position} SCALP STOP ₹${sr.slRupees} @ ₹${price.toFixed(2)}`);
-                    const ordered = await orders.slExit(state.position);
-                    if (engineConfig.LIVE_ORDERS && ordered === null) {
-                        console.error(c.red(`Scalp stop order failed — position NOT cleared, manual exit required`));
-                    } else {
-                        await positionsClose(price, "SCALP_SL");
-                        db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
-                        slStore.clearTrail(); targetStore.clearTarget();
-                    }
+                    if (tickExitBusy) return;
+                    tickExitBusy = true;
+                    try {
+                        tg(`🛑 ${state.position} SCALP STOP ₹${sr.slRupees} @ ₹${price.toFixed(2)}`);
+                        const ordered = await orders.slExit(state.position);
+                        if (engineConfig.LIVE_ORDERS && ordered === null) {
+                            console.error(c.red(`Scalp stop order failed — position NOT cleared, manual exit required`));
+                        } else {
+                            await positionsClose(price, "SCALP_SL");
+                            db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                            slStore.clearTrail(); targetStore.clearTarget();
+                        }
+                    } finally { tickExitBusy = false; }
                     return;
                 }
             }
@@ -208,7 +222,9 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
             const reached =
                 (dir === 1  && price >= target) ||
                 (dir === -1 && price <= target);
-            if (reached) {
+            if (reached && !tickExitBusy) {
+              tickExitBusy = true;
+              try {
                 tg(`🎯 ${state.position} TARGET @ ₹${price.toFixed(2)}`);
                 const ordered = await orders.targetExit(state.position);
                 if (engineConfig.LIVE_ORDERS && ordered === null) {
@@ -248,6 +264,7 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                         console.log(c.yellow(`*** TARGET HIT — day net ${state.pnl.toFixed(2)}, still recovering — continuing ***`));
                     }
                 }
+              } finally { tickExitBusy = false; }
             }
         }
     }

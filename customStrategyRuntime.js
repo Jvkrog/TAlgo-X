@@ -71,7 +71,12 @@ function createCustomStrategy(spec) {
 
                 if (reversalHit || conditionHit) {
                     const closedSide = state.position;
-                    await orders.exit(closedSide);
+                    const exited = await orders.exit(closedSide);
+                    if (engineConfig.LIVE_ORDERS && exited === null) {
+                        console.error(`[${context.tgPrefix}] custom:${spec.name} exit order FAILED — position kept, will retry next candle`);
+                        tg(`\u26a0 [${context.tgPrefix}] ${spec.name} EXIT order failed — position still open, retrying next candle`);
+                        return;
+                    }
                     tg(`${closedSide} EXIT (${spec.name}) @ \u20b9${livePrice.toFixed(2)}`);
                     await positionsClose(livePrice, spec.name);
                     slStore.clearTrail();
@@ -115,7 +120,11 @@ function createCustomStrategy(spec) {
                 else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] custom:${spec.name} entry blocked — daily HA / entry-time gate (reason in the line above)`);
                 if (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) return;
 
-                await orders.enter(side);
+                const ordered = await orders.enter(side);
+                if (engineConfig.LIVE_ORDERS && ordered === null) {
+                    console.warn(`[${context.tgPrefix}] custom:${spec.name} ${side} entry order not placed — staying flat, will re-evaluate next candle`);
+                    return;
+                }
                 state.position       = side;
                 state.entryPrice     = livePrice;
                 state.positionSource = spec.name;
