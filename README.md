@@ -94,18 +94,19 @@ The repository is intentionally split by responsibility. The exact tree evolves,
 
 | Path | Responsibility |
 |---|---|
-| `toolbox.js` | Interactive CLI toolbox and runtime/operator workflows |
-| `engine.js` | Main instrument execution process and runtime wiring |
-| `strategies.js` | Strategy implementations and signal/risk orchestration |
-| `context.js`, `engineConfig.js` | Instrument/runtime definitions and configuration |
-| `orders.js`, `positions.js` | Broker order handling and position lifecycle helpers |
-| `db.js`, `state.js`, `dbDir.js` | Persistence, runtime state, and database paths |
-| `candlePoll.js`, `candleBuilder.js`, `rangeFeed.js`, `rangeBars.js` | Candle/history handling and Range Bar construction |
-| `historicalFetch.js`, `backtestRun.js`, `backtestFlow.js` | Historical data and backtesting |
-| `eventBridge.js` | Best-effort runtime-to-WebDash event stream |
-| `marketProfiler.js`, `marketStateClient.js`, `marketStateStore.js`, `marketWatchlist.js` | Market profiling, state persistence, and watchlist |
-| `hedgePairEngine.js`, `dualHedgeEngine.js` and related context/backtest modules | Separate hedge workflows |
-| `aiReview.js`, `aiSummary.js` | Observer-only AI review and aggregate narration |
+| `engine.js`, `hedgePairEngine.js`, `dualHedgeEngine.js`, `dualBiasHedgeEngine.js`, `gapCaptureEngine.js`, `scannerService.js` | PM2 process entry points (kept at the repo root) |
+| `toolbox.js`, `logs.js` | Interactive CLI toolbox and coloured log viewer |
+| `core/` | Runtime: `engineConfig`, `context`, `state`, `orders`, `positions`, `sl`, `target`, `candleBuilder`, `candlePoll`, `lifecycle`, `price`, `preload`, `eventBridge` |
+| `strategies/` | `strategies.js`, `signals.js`, custom-strategy runtime/DB, condition evaluator, VWAP / weekly-HA / scalp helpers |
+| `gates/` | Entry gates: chop, volume, double-order, long-candle, HTF, daily HA, entry-time, losing-switch, block report |
+| `indicators/` | Indicator engine/catalog, range bars/feed, HA and band readers, candle types, chart overlay |
+| `backtest/` | Backtest runner, flow, ledger, report, metrics and the hedge / dual-hedge backtests (run CLIs as `node backtest/backtestHedgePairCli.js`) |
+| `hedge/` | Hedge-pair / dual-hedge contexts, link, ATR, users and the dual-bias controller |
+| `scanner/` | Market feed, profiler, state store/client, watchlist, pipeline, NIFTY universe |
+| `data/` | `db`, `dbDir`, CSV loaders, historical fetch, instrument/contract resolution, pins, roll policies |
+| `ai/` | Observer-only AI review and aggregate narration |
+| `utils/` | Colour, IST time, plain log, Telegram, boot animation, `.env` helper |
+| `riskObserver/` | Risk Observer (unchanged layout) |
 | `webdash/server.js` | HTTP/WebSocket server, API routes, authentication, chart/depth data and operator APIs |
 | `webdash/public/app.js` | Main WebDash frontend |
 | `webdash/public/chart.html`, `chart.js`, `chartpage.js` | Standalone chart page, rendering, and chart-page socket |

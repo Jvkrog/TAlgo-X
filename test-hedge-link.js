@@ -1,8 +1,8 @@
 // Linked hedge pair: hedge decision, file link, stop suppression, strategy re-arm, server validation, engine wiring.
 const assert = require("assert"), fs = require("fs"), os = require("os"), path = require("path"), vm = require("vm");
-const { createHedgeLink, isHedged } = require("./hedgeLink");
-const { createSLStore } = require("./sl");
-const { createDsbDualStrategy, createDailyHaBiasStrategy } = require("./strategies");
+const { createHedgeLink, isHedged } = require("./hedge/hedgeLink");
+const { createSLStore } = require("./core/sl");
+const { createDsbDualStrategy, createDailyHaBiasStrategy } = require("./strategies/strategies");
 const realLog = console.log; console.log = () => {};
 const T = []; const t = (n, f) => T.push([n, f]);
 

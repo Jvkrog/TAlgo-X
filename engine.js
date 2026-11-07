@@ -7,40 +7,40 @@
 // the broker's live instrument dump. No file edit needed to run a new
 // instrument — see toolbox.js's "Add instrument" flow.
 "use strict";
-require("./plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
+require("./utils/plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
 
 
-const { getDefinition, buildContext, defaultEodFor } = require("./context");
-const { createCsvRepository }         = require("./csvRepository");
-const { createInstrumentSource }      = require("./instrumentSource");
-const { createContractPinStore }      = require("./contractPins");
-const { resolveCurrent }              = require("./instrumentResolution");
-const engineConfig                    = require("./engineConfig");
-const c                               = require("./c");
+const { getDefinition, buildContext, defaultEodFor } = require("./core/context");
+const { createCsvRepository }         = require("./data/csvRepository");
+const { createInstrumentSource }      = require("./data/instrumentSource");
+const { createContractPinStore }      = require("./data/contractPins");
+const { resolveCurrent }              = require("./data/instrumentResolution");
+const engineConfig                    = require("./core/engineConfig");
+const c                               = require("./utils/c");
 const { KiteConnect, KiteTicker }     = require("kiteconnect");
 
-const { createTelegram }     = require("./telegram");
-const { createState }        = require("./state");
-const { createCandleBuffer } = require("./candleBuilder");
-const { createHtfGate }      = require("./htfGate");
-const { createCandleDeltaBuffer } = require("./candleDeltaBuffer");
-const { createMarketDataHealth } = require("./marketDataHealth");
-const { createSLStore }      = require("./sl");
-const { createTargetStore }  = require("./target");
-const { createDb }           = require("./db");
-const { createOrders }       = require("./orders");
-const { emitEvent, setCurrentCandle } = require("./eventBridge");  // web dashboard only (LTP stream for the chart)
-const positions               = require("./positions");
-const { createPreload }      = require("./preload");
-const { createCandlePoll }   = require("./candlePoll");
-const { createLifecycle }    = require("./lifecycle");
-const { createSignals }      = require("./signals");
-const { STRATEGY_TIMEFRAME, STRATEGY_INFO } = require("./strategies");
-const { TIMEFRAME_TO_INTERVAL } = require("./historicalFetch");
-const { istParts } = require("./istTime");
-const { resolveCandleMode, normalizeCandleType, CANDLE_LABEL, overrideWarning } = require("./candleType");
-const { setHaPassthrough } = require("./indicators");
-const { createRangeFeed } = require("./rangeFeed");
+const { createTelegram }     = require("./utils/telegram");
+const { createState }        = require("./core/state");
+const { createCandleBuffer } = require("./core/candleBuilder");
+const { createHtfGate }      = require("./gates/htfGate");
+const { createCandleDeltaBuffer } = require("./indicators/candleDeltaBuffer");
+const { createMarketDataHealth } = require("./scanner/marketDataHealth");
+const { createSLStore }      = require("./core/sl");
+const { createTargetStore }  = require("./core/target");
+const { createDb }           = require("./data/db");
+const { createOrders }       = require("./core/orders");
+const { emitEvent, setCurrentCandle } = require("./core/eventBridge");  // web dashboard only (LTP stream for the chart)
+const positions               = require("./core/positions");
+const { createPreload }      = require("./core/preload");
+const { createCandlePoll }   = require("./core/candlePoll");
+const { createLifecycle }    = require("./core/lifecycle");
+const { createSignals }      = require("./strategies/signals");
+const { STRATEGY_TIMEFRAME, STRATEGY_INFO } = require("./strategies/strategies");
+const { TIMEFRAME_TO_INTERVAL } = require("./data/historicalFetch");
+const { istParts } = require("./utils/istTime");
+const { resolveCandleMode, normalizeCandleType, CANDLE_LABEL, overrideWarning } = require("./indicators/candleType");
+const { setHaPassthrough } = require("./indicators/indicators");
+const { createRangeFeed } = require("./indicators/rangeFeed");
 
 async function main() {
     // ─── SELECT INSTRUMENT — set by PM2 (toolbox.js), defaults to NATGASMINI
@@ -576,7 +576,7 @@ async function main() {
     let hedgeLink = null, hedgedNow = false;
     if (process.env.HEDGE_LINK_GROUP) {
         try {
-            const { createHedgeLink } = require("./hedgeLink"); const { DB_DIR: LINK_DIR } = require("./dbDir");
+            const { createHedgeLink } = require("./hedge/hedgeLink"); const { DB_DIR: LINK_DIR } = require("./data/dbDir");
             hedgeLink = createHedgeLink({ group: process.env.HEDGE_LINK_GROUP, role: process.env.HEDGE_LINK_ROLE, dir: LINK_DIR });
             context.hedgeGroup = hedgeLink.group; context.hedgeRole = hedgeLink.role;
             console.log(c.cyan(`[${context.tgPrefix}] linked hedge pair "${hedgeLink.group}" leg ${hedgeLink.role} — stops off while the two legs are in opposite directions`));
@@ -594,7 +594,7 @@ async function main() {
     { const rawInsert = db.insertOpenTrade;
       db.insertOpenTrade = async function (engine, instrument, side, qty, entryPrice) {
           const id = await rawInsert.apply(this, arguments);
-          try { await db.setEntryContext(id, require("./entrySnapshot").snapshot({ context, engineConfig, state, candles, side, price: entryPrice })); } catch { /* observer only */ }
+          try { await db.setEntryContext(id, require("./core/entrySnapshot").snapshot({ context, engineConfig, state, candles, side, price: entryPrice })); } catch { /* observer only */ }
           return id;
       }; }
 
@@ -654,7 +654,7 @@ async function main() {
       }; }
     // Hedge-link watcher: publish my side, read the peer's, and flip the stop on/off on every change (1s poll, files only).
     if (hedgeLink) {
-        const { isHedged } = require("./hedgeLink");
+        const { isHedged } = require("./hedge/hedgeLink");
         setInterval(() => {
             try {
                 hedgeLink.publish(state.position);
@@ -685,7 +685,7 @@ async function main() {
         try {
             const { createRiskObserver, resolveParams } = require("./riskObserver/observer");
             const { createSqliteStore, riskDbPath, riskDbBase } = require("./riskObserver/riskStore");
-            const { DB_DIR } = require("./dbDir");
+            const { DB_DIR } = require("./data/dbDir");
             let overrides = {}; try { overrides = process.env.RISK_OBS_PARAMS_OVERRIDE ? JSON.parse(process.env.RISK_OBS_PARAMS_OVERRIDE) : {}; } catch { console.log(c.yellow(`[${context.tgPrefix}] RISK_OBS_PARAMS_OVERRIDE is not valid JSON — defaults used`)); }
             const obsKc = new KiteConnect({ api_key: engineConfig.API_KEY }); obsKc.setAccessToken(ACCESS_TOKEN);
             const obsStore = await createSqliteStore(riskDbPath(DB_DIR, riskDbBase(context)));

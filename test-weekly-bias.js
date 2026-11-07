@@ -1,7 +1,7 @@
 // Weekly HA Bias (DAILY_HA_BIAS with biasPeriod WEEKLY): weekly candle maths, strategy side/CURRENT mode, backtest replay, plumbing.
 const assert = require("assert"), fs = require("fs"), vm = require("vm");
-const W = require("./weeklyHa"), { createDailyHaBiasStrategy } = require("./strategies"), { createSLStore } = require("./sl");
-const { toHAAlways } = require("./indicators");
+const W = require("./strategies/weeklyHa"), { createDailyHaBiasStrategy } = require("./strategies/strategies"), { createSLStore } = require("./core/sl");
+const { toHAAlways } = require("./indicators/indicators");
 const realLog = console.log, T = [], t = (n, f) => T.push([n, f]);
 const IST = 5.5 * 3600e3, istMid = s => new Date(new Date(s + "T00:00:00Z").getTime() - IST);   // Kite daily bars stamp IST midnight
 const d = (day, o, h, l, c) => ({ date: istMid(day), open: o, high: h, low: l, close: c });
@@ -64,7 +64,7 @@ t("strategy: DAILY (default) never asks for the week-so-far and is unchanged", a
 });
 
 // ── backtest replay (fake Kite) ──
-const { runBacktest } = require("./backtestRun"), { getDefinition, buildContext } = require("./context");
+const { runBacktest } = require("./backtest/backtestRun"), { getDefinition, buildContext } = require("./core/context");
 function bars(interval, fromStr, toStr) {
     const out = []; const d0 = new Date(fromStr + "T00:00:00Z"), d1 = new Date(toStr + "T00:00:00Z");
     for (let dd = d0; dd <= d1; dd = new Date(+dd + 86400e3)) {

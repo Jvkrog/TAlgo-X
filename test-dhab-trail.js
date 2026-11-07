@@ -1,8 +1,8 @@
 // DAILY_HA_BIAS opt-in trailing stop (chandelier on best price) + 1h ATR. Real strategy code, stubbed deps.
 const assert = require("assert");
-const { createDailyHaBiasStrategy } = require("./strategies");
-const { createSLStore: createSl } = require("./sl");
-const { atr } = require("./indicators");
+const { createDailyHaBiasStrategy } = require("./strategies/strategies");
+const { createSLStore: createSl } = require("./core/sl");
+const { atr } = require("./indicators/indicators");
 const vm = require("vm"), fs = require("fs");
 const srv = fs.readFileSync(__dirname + "/webdash/server.js", "utf8");
 async function runEdit(strategy, body) {

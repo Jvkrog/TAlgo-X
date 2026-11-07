@@ -17,21 +17,21 @@
 "use strict";
 
 const { KiteConnect } = require("kiteconnect");
-const c = require("./c");
+const c = require("./utils/c");
 
-const { getDefinition, buildContext } = require("./context");
-const { createCsvRepository }    = require("./csvRepository");
-const { createInstrumentSource } = require("./instrumentSource");
-const { createContractPinStore } = require("./contractPins");
-const { resolveCurrent }         = require("./instrumentResolution");
-const engineConfig               = require("./engineConfig");
-const { createTelegram }         = require("./telegram");
+const { getDefinition, buildContext } = require("./core/context");
+const { createCsvRepository }    = require("./data/csvRepository");
+const { createInstrumentSource } = require("./data/instrumentSource");
+const { createContractPinStore } = require("./data/contractPins");
+const { resolveCurrent }         = require("./data/instrumentResolution");
+const engineConfig               = require("./core/engineConfig");
+const { createTelegram }         = require("./utils/telegram");
 
-const { createMarketWatchlist }   = require("./marketWatchlist");
-const { createMarketFeed }        = require("./marketFeed");
-const { createMarketProfiler }     = require("./marketProfiler");
-const { createMarketStateStore }   = require("./marketStateStore");
-const { createScannerPipeline }    = require("./scannerPipeline");
+const { createMarketWatchlist }   = require("./scanner/marketWatchlist");
+const { createMarketFeed }        = require("./scanner/marketFeed");
+const { createMarketProfiler }     = require("./scanner/marketProfiler");
+const { createMarketStateStore }   = require("./scanner/marketStateStore");
+const { createScannerPipeline }    = require("./scanner/scannerPipeline");
 
 const SCANNER_TIMEFRAME_MINUTES = 15; // the Scanner's own fixed cadence — see marketFeed.js's header
 

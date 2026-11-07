@@ -1,15 +1,15 @@
 // test-dsb-dual.js — scenario tests for DSB_DUAL (two Dynamic Step Bands must agree). Run: node test-dsb-dual.js
 "use strict";
 const assert = require("assert");
-const { createBacktestLedger } = require("./backtestLedger");
-const { createState } = require("./state");
-const { createSLStore } = require("./sl");
-const { createTargetStore } = require("./target");
-const positions = require("./positions");
-const { toHA } = require("./indicators");
-const { createBandStepper } = require("./dynamicBandReader");
-const engineConfig = { ...require("./engineConfig") };
-const { createDsbDualStrategy } = require("./strategies");
+const { createBacktestLedger } = require("./backtest/backtestLedger");
+const { createState } = require("./core/state");
+const { createSLStore } = require("./core/sl");
+const { createTargetStore } = require("./core/target");
+const positions = require("./core/positions");
+const { toHA } = require("./indicators/indicators");
+const { createBandStepper } = require("./indicators/dynamicBandReader");
+const engineConfig = { ...require("./core/engineConfig") };
+const { createDsbDualStrategy } = require("./strategies/strategies");
 engineConfig.ENGINE_ENABLED = true; engineConfig.LIVE_ORDERS = false; engineConfig.CHOP_GATE_ALWAYS_FORCE = false;
 engineConfig.BAND_STEP_DEFAULT = 1; engineConfig.ST_ATR_LEN = 3;
 

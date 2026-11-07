@@ -15,7 +15,7 @@ const all = (db, sql, p = []) => new Promise((res, rej) => db.all(sql, p, (e, r)
 function riskDbPath(dbDir, baseName) { return path.join(dbDir, `${baseName}_riskobs.db`); }
 // Same base naming as db.js (instrument_strategy_candle) so the observer file sits beside the trading DB it observes.
 function riskDbBase(context) {
-    const { candleSuffix } = require("../candleType");
+    const { candleSuffix } = require("../indicators/candleType");
     return `${context.name.toLowerCase().replace(/\s+/g, "")}_${context.strategy.toLowerCase().replace(/\s+/g, "")}_${candleSuffix(context.candleType)}`;
 }
 

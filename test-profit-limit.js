@@ -2,13 +2,13 @@
 // other DSB-family strategies use). Run: node test-profit-limit.js
 "use strict";
 const assert = require("assert");
-const { createBacktestLedger } = require("./backtestLedger");
-const { createState } = require("./state");
-const { createSLStore } = require("./sl");
-const { createTargetStore } = require("./target");
-const positions = require("./positions");
-const engineConfig = { ...require("./engineConfig") };
-const { createDynamicBandStrategy } = require("./strategies");
+const { createBacktestLedger } = require("./backtest/backtestLedger");
+const { createState } = require("./core/state");
+const { createSLStore } = require("./core/sl");
+const { createTargetStore } = require("./core/target");
+const positions = require("./core/positions");
+const engineConfig = { ...require("./core/engineConfig") };
+const { createDynamicBandStrategy } = require("./strategies/strategies");
 
 engineConfig.ENGINE_ENABLED = true; engineConfig.LIVE_ORDERS = false;
 engineConfig.CHOP_GATE_ALWAYS_FORCE = false; engineConfig.BAND_STEP_DEFAULT = 1;

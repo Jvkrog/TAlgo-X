@@ -1,9 +1,9 @@
 // Linked hedge pair backtest: barrier/sync unit tests + an end-to-end replay (fake Kite) with a per-candle invariant probe.
 const assert = require("assert");
-const { createPairSync, runLinkedPairBacktest } = require("./backtestLinkedPair");
-const { runBacktest } = require("./backtestRun");
-const { getDefinition, buildContext } = require("./context");
-const { isHedged } = require("./hedgeLink");
+const { createPairSync, runLinkedPairBacktest } = require("./backtest/backtestLinkedPair");
+const { runBacktest } = require("./backtest/backtestRun");
+const { getDefinition, buildContext } = require("./core/context");
+const { isHedged } = require("./hedge/hedgeLink");
 const realLog = console.log; const T = []; const t = (n, f) => T.push([n, f]);
 
 // ── barrier unit tests with fake legs ──

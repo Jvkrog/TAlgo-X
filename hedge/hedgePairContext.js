@@ -1,0 +1,99 @@
+// hedgePairContext.js — resolves one leg (core or hedge) of the hedge-pair
+// strategy to a full context object: contract resolution (CSV repo +
+// Contract Resolver, same path Add Instrument and engine.js both use) +
+// buildContext() + the lots/lotMult overrides and refuse-to-boot guard
+// hedgePairEngine.js needs live.
+//
+// Pulled out of hedgePairEngine.js so backtestHedgePair.js can resolve the
+// exact same way instead of drifting into its own copy — a backtest that
+// resolved a DIFFERENT contract/lotMult than live would run, or resolved
+// the SAME lotMult bug live had before it was fixed, would be worse than
+// no backtest at all (false confidence). Only contract/context resolution
+// lives here — db/orders/telegram/state creation stays in
+// hedgePairEngine.js, since a backtest replaces those with
+// backtestLedger.js/backtestBroker.js/a no-op tg/createState() instead.
+"use strict";
+
+const c = require("../utils/c");
+const { getDefinition, buildContext } = require("../core/context");
+
+// legLabel: "CORE" | "HEDGE" — only used for tgPrefix/name suffixing and
+// error messages, not for any logic branch.
+function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore, lots, lotMultOverride, carryOvernight = true, symbolOverride = null }) {
+    const { resolveCurrent } = require("../data/instrumentResolution"); // lazy — avoids a require cycle risk if this file is ever required from instrumentResolution's own dependency chain
+    const def = getDefinition(underlying, exchange);
+    let contract, source;
+    if (symbolOverride) {
+        // Explicit contract pick (e.g. the Nov expiry instead of the roll policy's Oct) —
+        // must be a listed future of THIS underlying.
+        const row = csvRepo.findBySymbol(symbolOverride);
+        if (!row || row.underlying !== def.underlying) {
+            throw new Error(`resolveHedgePairLeg: contract "${symbolOverride}" is not a listed ${def.underlying} future`);
+        }
+        contract = row; source = "picked";
+    } else {
+        ({ contract, source } = resolveCurrent(def.underlying, def, csvRepo, pinStore));
+    }
+    const context = buildContext(def, contract);
+
+    context.tgPrefix = `${context.tgPrefix}_${legLabel}`;
+    context.name     = `${context.name} (${legLabel})`;
+    context.dbNoStrategy = true;   // db.js: file named after the leg, not buildContext()'s default strategy
+    // Telegram display label ONLY — see telegram.js's tgPrefixFor() header
+    // comment for why this doesn't touch context.strategy itself. Written
+    // to actually match what each leg's own trigger is (not "DPI Trend",
+    // which this engine has never run): CORE decides off the daily HA
+    // candle alone (no Dynamic Band involved in that decision at all);
+    // HEDGE fires off the hourly HA candle CONFIRMED by the Dynamic Band
+    // (see dynamicBandReader.js / hedgePairEngine.js's checkHedge()).
+    context.tgLabel = legLabel === "CORE"
+        ? "Hedge Pair Core (Configured Side)"
+        : "Hedge Pair Hedge (1h HA Dynamic Band)";
+    context.lots      = lots;
+    if (lotMultOverride) context.lotMult = lotMultOverride;
+    // dailyHaGate.js (orders.js's universal gate, wired Sep 2026) blocks
+    // any entry whose side disagrees with the previous daily HA candle.
+    // The HEDGE leg's entire purpose is to open COUNTER to that same
+    // daily-implied direction the moment the hourly read disagrees with
+    // the core — leaving this gate on for the hedge leg would silently
+    // block it from ever doing its job. The CORE leg deliberately keeps
+    // it on (default, untouched here) — its own entry logic already IS
+    // the daily HA decision, so the gate can never actually disagree
+    // with it there; only the hedge leg needs the exemption.
+    context.dailyHaGateEnabled = false; // core side is configured, hedge is band-driven — neither follows the daily HA
+    // See hedgePairEngine.js's header: both legs are force-closed by that
+    // file's own EOD block every day, unconditionally — NRML here is
+    // about margin treatment (matching the "1 full lot NRML" spec), not
+    // about whether the bot bothers to exit.
+    context.carryOvernight = carryOvernight !== false; // true = NRML + carried; false = MIS + closed at EOD
+    // CHANGED Sep 2026 (was 23:15, see below) — 23:15 left a dead 15-minute
+    // gap after the last real 1h candle close: this engine's whole clock is
+    // driven by 1h HA/Dynamic Band bars, which close on the hour, so there
+    // was never a fresh signal available between 23:00 and the old 23:15
+    // EOD threshold anyway — checkEod() was just sitting there polling
+    // against a stale hour for 15 minutes, which is what looked like "the
+    // process didn't quit at EOD." Now strictly 23:00 IST, matching
+    // context.js's own defaultEodFor("1h", "MCX") reasoning (no candle
+    // resolution left after the hour closes on a 1h timeframe) — this
+    // engine was the one place NOT following that rule, since it never
+    // gets a real timeframe from context.js in the first place (see
+    // tgLabel's comment above: context.strategy/timeframe here are
+    // borrowed defaults, not this engine's actual cadence).
+    context.eodHour   = 23;
+    context.eodMinute = 0;
+
+    // Same refuse-to-boot guard as engine.js/hedgePairEngine.js — no
+    // fallback to the broker's own lot_size field (a contract COUNT, not
+    // a price multiplier — see context.js's header comment for the
+    // incident this already caused once live).
+    if (!context.lotMult) {
+        console.error(c.red(`[${context.tgPrefix}] lotMult is not set for ${underlying} — refusing to proceed.`));
+        console.error(c.red(`  Fix: add a lotMult override for "${underlying}" in context.js's overrides,`));
+        console.error(c.red(`  or pass a lotMult override explicitly (${legLabel === "CORE" ? "CORE_LOTMULT_OVERRIDE" : "HEDGE_LOTMULT_OVERRIDE"} live, or the equivalent backtest prompt).`));
+        throw new Error(`resolveHedgePairLeg: lotMult not set for ${underlying}`);
+    }
+
+    return { context, source };
+}
+
+module.exports = { resolveHedgePairLeg };

@@ -26,38 +26,38 @@ const { WebSocketServer, WebSocket } = require("ws");
 const pm2 = require("pm2");
 const sqlite3 = require("sqlite3").verbose();
 const { KiteConnect } = require("kiteconnect");
-const engineConfig = require("../engineConfig");
-const { upsertEnvVar, readEnvVarFresh, ENV_PATH: ENV_FILE_PATH } = require("../envFile");
-const { todayIST } = require("../istTime");
-const { nativeCandleType, normalizeCandleType, candleSuffix } = require("../candleType");
-const { DB_DIR } = require("../dbDir");
+const engineConfig = require("../core/engineConfig");
+const { upsertEnvVar, readEnvVarFresh, ENV_PATH: ENV_FILE_PATH } = require("../utils/envFile");
+const { todayIST } = require("../utils/istTime");
+const { nativeCandleType, normalizeCandleType, candleSuffix } = require("../indicators/candleType");
+const { DB_DIR } = require("../data/dbDir");
 
 // ─── TOOLBOX PORT — same modules toolbox.js's Add Instrument / Backtest /
 // Setup Credentials screens use, required directly rather than reaching
 // into toolbox.js itself (that file owns readline/stdin, not reusable
 // here) — see the three new /api/toolbox/* sections below.
-const { createCsvRepository } = require("../csvRepository");
-const { createInstrumentSource } = require("../instrumentSource");
-const { createContractPinStore } = require("../contractPins");
-const { resolveCurrent } = require("../instrumentResolution");
-const { getDefinition, buildContext, defaultEodFor } = require("../context");
-const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = require("../strategies");
-const { INDICATOR_CATALOG } = require("../indicatorCatalog");
-const customStrategyDb = require("../customStrategyDb");
-const { TIMEFRAME_TO_INTERVAL, TIMEFRAME_MINUTES, fetchDailyCandles, fetchHistoricalCandles } = require("../historicalFetch");
-const { runBacktest } = require("../backtestRun");
-const { runDualHedgeBacktest } = require("../backtestDualHedge");
-const { SL_MODES: DH_SL_MODES, ATR_TIMEFRAMES: DH_ATR_TIMEFRAMES } = require("../dualHedgeAtr");
-const { runHedgePairBacktest } = require("../backtestHedgePair");
-const { runLinkedPairBacktest } = require("../backtestLinkedPair");
-const { STRATEGY_PARAMS } = require("../backtestFlow");
-const { setEmitSuppressed } = require("../eventBridge");
-const { computeOverlay } = require("../chartOverlay");
-const { getShortName } = require("../shortNames");
-const dualHedgeUsers = require("../dualHedgeUsers");
-const { adx, atr: atrFn } = require("../indicators");
-const { createMarketStateClient } = require("../marketStateClient");
-const { createMarketWatchlist } = require("../marketWatchlist");
+const { createCsvRepository } = require("../data/csvRepository");
+const { createInstrumentSource } = require("../data/instrumentSource");
+const { createContractPinStore } = require("../data/contractPins");
+const { resolveCurrent } = require("../data/instrumentResolution");
+const { getDefinition, buildContext, defaultEodFor } = require("../core/context");
+const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = require("../strategies/strategies");
+const { INDICATOR_CATALOG } = require("../indicators/indicatorCatalog");
+const customStrategyDb = require("../strategies/customStrategyDb");
+const { TIMEFRAME_TO_INTERVAL, TIMEFRAME_MINUTES, fetchDailyCandles, fetchHistoricalCandles } = require("../data/historicalFetch");
+const { runBacktest } = require("../backtest/backtestRun");
+const { runDualHedgeBacktest } = require("../backtest/backtestDualHedge");
+const { SL_MODES: DH_SL_MODES, ATR_TIMEFRAMES: DH_ATR_TIMEFRAMES } = require("../hedge/dualHedgeAtr");
+const { runHedgePairBacktest } = require("../backtest/backtestHedgePair");
+const { runLinkedPairBacktest } = require("../backtest/backtestLinkedPair");
+const { STRATEGY_PARAMS } = require("../backtest/backtestFlow");
+const { setEmitSuppressed } = require("../core/eventBridge");
+const { computeOverlay } = require("../indicators/chartOverlay");
+const { getShortName } = require("../data/shortNames");
+const dualHedgeUsers = require("../hedge/dualHedgeUsers");
+const { adx, atr: atrFn } = require("../indicators/indicators");
+const { createMarketStateClient } = require("../scanner/marketStateClient");
+const { createMarketWatchlist } = require("../scanner/marketWatchlist");
 
 // ─── Same tuning figures + singleton scanner process name toolbox.js's
 // Trending Instruments/Market Status screens use — kept in parity, not
@@ -749,7 +749,7 @@ app.use((req, res, next) => {
 app.use(express.json());
 // Same range-bar builder the engines use, served to the browser chart so history/live can't diverge.
 app.get("/rangeBars.js", (req, res) => {
-    res.type("application/javascript").send(`(function(){var module={exports:{}};${fs.readFileSync(path.join(ROOT, "rangeBars.js"), "utf8")}\nwindow.makeRangeBars=module.exports.makeRangeBars;})();`);
+    res.type("application/javascript").send(`(function(){var module={exports:{}};${fs.readFileSync(path.join(ROOT, "indicators", "rangeBars.js"), "utf8")}\nwindow.makeRangeBars=module.exports.makeRangeBars;})();`);
 });
 app.use(express.static(path.join(__dirname, "public")));
 
@@ -2231,7 +2231,7 @@ app.post("/api/toolbox/credentials", (req, res) => {
 });
 
 // ─── TALGO-AI — post-trade review (observer only; engines never call this) ──
-const aiReview = require("../aiReview");
+const aiReview = require("../ai/aiReview");
 function geminiKeyFromEnvFile() {
     // Picks up a key saved from Settings without a restart.
     const k = readEnvFile().values.GEMINI_API_KEY;
@@ -2252,7 +2252,7 @@ app.post("/api/ai/review", async (req, res) => {
     catch (err) { res.status(err.status || 502).json({ error: err.message }); }
 });
 
-const aiSummary = require("../aiSummary");
+const aiSummary = require("../ai/aiSummary");
 app.get("/api/ai/summary", async (req, res) => {
     try { res.json({ keySet: geminiKeyFromEnvFile(), summary: await aiSummary.buildSummary(Number(req.query.days) || 7) }); }
     catch (err) { res.status(500).json({ error: err.message }); }

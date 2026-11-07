@@ -10,11 +10,11 @@
 "use strict";
 
 const assert = require("assert");
-const { estimateTickIncrement, createTickDeltaAccumulator } = require("./tickVolumeDelta");
-const { createCandleDeltaBuffer } = require("./candleDeltaBuffer");
-const { deltaZScore } = require("./indicators");
-const { detectDivergence } = require("./cvdDivergence");
-const { detectAbsorption } = require("./absorption");
+const { estimateTickIncrement, createTickDeltaAccumulator } = require("./indicators/tickVolumeDelta");
+const { createCandleDeltaBuffer } = require("./indicators/candleDeltaBuffer");
+const { deltaZScore } = require("./indicators/indicators");
+const { detectDivergence } = require("./strategies/cvdDivergence");
+const { detectAbsorption } = require("./strategies/absorption");
 
 let passed = 0, failed = 0;
 function test(name, fn) {
@@ -258,7 +258,7 @@ test("score sums to spec weights: full bullish confluence = 100", () => {
 });
 
 test("default signalThreshold (70) is below max possible score (100)", () => {
-    const engineConfig = require("./engineConfig");
+    const engineConfig = require("./core/engineConfig");
     assert.ok(engineConfig.VOLUME_DELTA_SIGNAL_THRESHOLD < 100);
     assert.ok(engineConfig.VOLUME_DELTA_SIGNAL_THRESHOLD > 0);
 });

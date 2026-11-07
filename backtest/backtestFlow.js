@@ -1,0 +1,665 @@
+// backtestFlow.js — the toolbox's [B] Backtest Strategy wizard.
+//
+// Deliberately takes toolbox.js's own ask()/pauseForReview()/ensureCsvLoaded()/
+// pinStore/resolveCurrent/getDefinition/buildContext as injected dependencies
+// rather than requiring toolbox.js back — avoids a circular require, and
+// keeps this file a plain function toolbox.js can call, not a module that
+// reaches back into toolbox.js's internals.
+//
+// Step 4 (candle close type) from the original spec is NOT a real picker
+// here — neither DPI_TREND_MEANREV nor ALMA_BAND expose raw/HA as a
+// configurable choice, both hardcode their own convention internally
+// (DPI converts everything to HA; ALMA computes bands on raw candles but
+// compares against HA close). Building a toggle that doesn't change
+// anything would be misleading, so this step is shown as an informational
+// line instead of a prompt.
+"use strict";
+
+const { KiteConnect } = require("kiteconnect");
+const { STRATEGIES, STRATEGY_INFO, DEFAULT_STRATEGY } = require("../strategies/strategies");
+const customStrategyDb           = require("../strategies/customStrategyDb");
+const { TIMEFRAME_TO_INTERVAL } = require("../data/historicalFetch");
+const { runBacktest } = require("./backtestRun");
+const { nativeCandleType, CANDLE_LABEL, overrideWarning } = require("../indicators/candleType");
+
+const TIMEFRAMES = Object.keys(TIMEFRAME_TO_INTERVAL); // ["5m","15m","30m","1h"]
+
+// Per-strategy tunable params exposed to Step 6. Not a folder-based
+// metadata.js (that was explicitly declined) — just enough to drive a
+// prompt loop without hardcoding a form per strategy in this file's body.
+const STRATEGY_PARAMS = {
+    DPI_TREND_MEANREV: [
+        { key: "DPI_EFF_THRESH",   label: "DPI efficiency threshold (TREND/MEANREV split)" },
+        { key: "MEANREV_RSI_BUY",  label: "MEANREV RSI buy level" },
+        { key: "MEANREV_RSI_SELL", label: "MEANREV RSI sell level" },
+        { key: "ST_ATR_LEN",       label: "SuperTrend ATR length" },
+        { key: "ST_FACTOR",        label: "SuperTrend factor" },
+        { key: "ATR_SL_MULT",      label: "ATR stop-loss multiplier" },
+    ],
+    ALMA_BAND: [
+        { key: "ALMA_LEN",    label: "ALMA length" },
+        { key: "ALMA_OFFSET", label: "ALMA offset" },
+        { key: "ALMA_SIGMA",  label: "ALMA sigma" },
+        // ATR_SL_MULT deliberately NOT listed here since Sep 2026 — this
+        // strategy's stop is the opposite band line now, not an ATR
+        // offset (see createAlmaBandStrategy's computeBandSL) — same
+        // "no ATR trail at all" reasoning DYNAMIC_BAND/PURE_HA already
+        // have below.
+    ],
+    ALMA_FAST: [
+        { key: "ALMA_FAST_LEN",             label: "ALMA length" },
+        { key: "ALMA_FAST_OFFSET",          label: "ALMA offset" },
+        { key: "ALMA_FAST_SIGMA",           label: "ALMA sigma" },
+        { key: "ALMA_FAST_DEADBAND_ATR_MULT", label: "Deadband (x ATR) \u2014 slope must clear this to count as a real direction" },
+        { key: "ALMA_FAST_CHOP_MAX",        label: "Choppiness Index max (0-100) \u2014 above this blocks new entries" },
+        { key: "ATR_SL_MULT",               label: "ATR stop-loss multiplier" },
+    ],
+    DPI_SMA5_EXIT: [
+        { key: "DPI_BULL_THRESH",    label: "DPI bull threshold" },
+        { key: "DPI_BEAR_THRESH",    label: "DPI bear threshold" },
+        { key: "DPI_EFF_THRESH",     label: "DPI efficiency threshold" },
+        { key: "DPI_SMA5_EXIT_LEN",  label: "SMA exit length" },
+        { key: "ATR_SL_MULT",        label: "ATR stop-loss multiplier (this port's own addition \u2014 source script has no SL)" },
+    ],
+    ALMA_DUAL_BAND_SMA5: [
+        { key: "ALMA_DUAL_SHORT_LEN", label: "ALMA short length" },
+        { key: "ALMA_DUAL_LONG_LEN",  label: "ALMA long length" },
+        { key: "ALMA_DUAL_OFFSET",   label: "ALMA offset (both lines)" },
+        { key: "ALMA_DUAL_SIGMA",    label: "ALMA sigma (both lines)" },
+        { key: "ALMA_DUAL_DIFF_PCT", label: "Short line's green/red threshold (% from long line)" },
+        { key: "ALMA_LEN",           label: "Fallback band ALMA length (shared with ALMA_BAND)" },
+        { key: "DPI_SMA5_EXIT_LEN",  label: "SMA exit length" },
+        { key: "ATR_SL_MULT",        label: "ATR stop-loss multiplier (this port's own addition)" },
+    ],
+    MA_SLOPE: [
+        { key: "MA_SLOPE_LEN",            label: "EMA length (on ohlc4)" },
+        { key: "MA_SLOPE_ATR_LEN",        label: "ATR length used in the angle formula" },
+        { key: "MA_SLOPE_FILTER_TOP",     label: "Angle threshold for decisive bull (degrees)" },
+        { key: "MA_SLOPE_FILTER_BOTTOM",  label: "Angle threshold for decisive bear (degrees)" },
+        { key: "ATR_SL_MULT",             label: "ATR stop-loss multiplier (this port's own addition \u2014 source script has no SL)" },
+    ],
+    // Same params as DPI_TREND_MEANREV — this is that same combo logic,
+    // just registered under its own key now (see strategies.js).
+    DPI_MEANREV: [
+        { key: "DPI_EFF_THRESH",   label: "DPI efficiency threshold (TREND/MEANREV split)" },
+        { key: "MEANREV_RSI_BUY",  label: "MEANREV RSI buy level" },
+        { key: "MEANREV_RSI_SELL", label: "MEANREV RSI sell level" },
+        { key: "ST_ATR_LEN",       label: "SuperTrend ATR length" },
+        { key: "ST_FACTOR",        label: "SuperTrend factor" },
+        { key: "ATR_SL_MULT",      label: "ATR stop-loss multiplier" },
+    ],
+    DYNAMIC_BAND: [
+        { key: "BAND_STEP_DEFAULT", label: "Band step \u2014 fixed price distance between HIGH/MID/LOW (per-instrument override takes precedence live)" },
+        // ST_ATR_LEN/ATR_SL_MULT deliberately NOT listed here — this
+        // strategy has no ATR stop-loss (the reversal boundary is the
+        // stop), so tuning them would be a no-op. Its sibling below does
+        // use them.
+    ],
+    DYNAMIC_MID_COLOR: [
+        { key: "BAND_STEP_DEFAULT", label: "Band step \u2014 fixed price distance between HIGH/MID/LOW (internal only, never plotted \u2014 per-instrument override takes precedence live)" },
+        { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
+    ],
+    ALMA_DSB: [
+        { key: "BAND_STEP_DEFAULT", label: "Dynamic Step Band step — fixed price distance between HIGH/MID/LOW (per-instrument override takes precedence live)" },
+        { key: "ALMA_LEN",          label: "ALMA band length (HA high/low)" },
+        { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
+    ],
+    VWAP_SD_BANDS: [
+        { key: "VWAP_SD_MULT",         label: "Band width (standard deviations)" },
+        { key: "VWAP_CONFIRM_CANDLES", label: "Closes outside the band to call a breakout (and inside to end it)" },
+        { key: "VWAP_MIN_CANDLES",     label: "Session candles before the bands are used" },
+        { key: "ATR_SL_MULT",          label: "ATR stop-loss multiplier" },
+    ],
+    DSB_DUAL: [
+        { key: "BAND_STEP_DEFAULT", label: "DSB 1 step \u2014 faster band (price distance)" },
+        { key: "BAND_STEP2_DEFAULT", label: "DSB 2 step \u2014 slower band (price distance)" },
+        { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
+    ],
+    DYNAMIC_MID_COLOR_HL: [
+        { key: "BAND_STEP_DEFAULT", label: "Band step \u2014 fixed price distance between HIGH/MID/LOW (internal only, never plotted \u2014 per-instrument override takes precedence live)" },
+        { key: "ST_ATR_LEN",        label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",       label: "ATR stop-loss multiplier" },
+    ],
+    DYNAMIC_MID_COLOR_SHORT_HOLD: [
+        { key: "BAND_STEP_DEFAULT", label: "Band step \u2014 fixed price distance between HIGH/MID/LOW (internal only, never plotted \u2014 per-instrument override takes precedence live)" },
+        // No ST_ATR_LEN/ATR_SL_MULT — this strategy has no ATR stop-loss
+        // at all (see its own header comment in strategies.js). Its only
+        // exit is the profitable-flip rule, which reads nothing tunable.
+    ],
+    ALMA_TRI_BAND: [
+        { key: "ALMA_TRI_FAST_LEN",           label: "Fast ALMA length (HA close)" },
+        { key: "ALMA_TRI_BAND_LEN",           label: "Band ALMA length (raw high/low)" },
+        { key: "ALMA_TRI_ATR_LEN",            label: "ATR length (state thresholds only, not the SL trail)" },
+        { key: "ALMA_TRI_COMPRESS_MULT",      label: "Compression multiplier (band-width sideways/grey filter)" },
+        { key: "ALMA_TRI_SLOPE_MULT",         label: "Slope multiplier (decisive-direction threshold)" },
+        { key: "ALMA_TRI_BIG_CANDLE_MULT",    label: "Big-candle multiplier (forces grey)" },
+        { key: "ST_ATR_LEN",                  label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",                 label: "ATR stop-loss multiplier" },
+    ],
+    ALMA_PRO_FAST: [
+        { key: "ALMA_PRO_FAST_LEN",      label: "Fast ALMA length (HA close)" },
+        { key: "ALMA_PRO_BAND_LEN",      label: "Band ALMA length (raw high/low) \u2014 no-op when the band gate is disabled per-instrument" },
+        { key: "ALMA_PRO_OFFSET",        label: "ALMA offset (both fast and band)" },
+        { key: "ALMA_PRO_SIGMA",         label: "ALMA sigma (both fast and band)" },
+        { key: "ALMA_PRO_ATR_LEN",       label: "ATR length for this strategy's own thresholds (compress/slope/buffer) \u2014 separate from ST_ATR_LEN below, which sizes the SL trail" },
+        { key: "ALMA_PRO_COMPRESS_MULT", label: "Compression multiplier (band-width sideways filter) \u2014 no-op when the band gate is disabled" },
+        { key: "ALMA_PRO_SLOPE_MULT",    label: "Slope multiplier (decisive-direction threshold)" },
+        { key: "ALMA_PRO_BUFFER_MULT",   label: "Breakout buffer multiplier (band gate only) \u2014 no-op when the band gate is disabled" },
+        { key: "ALMA_PRO_FAST_CHOP_MAX", label: "Choppiness Index max (0-100) \u2014 above this blocks new entries (not in the original Pine script)" },
+        { key: "ST_ATR_LEN",             label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",            label: "ATR stop-loss multiplier (this port's own addition \u2014 source script has no SL)" },
+    ],
+    ALMA_PRO_SLOW: [
+        { key: "ALMA_PRO_SLOW_LEN",             label: "Slow ALMA length (HA close)" },
+        { key: "ALMA_PRO_OFFSET",               label: "ALMA offset" },
+        { key: "ALMA_PRO_SIGMA",                label: "ALMA sigma" },
+        { key: "ALMA_PRO_SLOW_DEADBAND_ATR_MULT", label: "Deadband (x ATR) \u2014 slope must clear this to count as a real BULL/BEAR direction" },
+        { key: "ALMA_PRO_SLOW_CHOP_MAX",        label: "Choppiness Index max (0-100) \u2014 above this blocks new entries (not in the original Pine script)" },
+        { key: "ST_ATR_LEN",                    label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",                   label: "ATR stop-loss multiplier (this port's own addition \u2014 source script has no SL, and no signal at all)" },
+    ],
+    // CHANGED Sep 2026 (reported directly) — was entirely untunable in
+    // backtest before this; strategies.js's createDualStChopStrategy reads
+    // these DST_* engineConfig keys directly, so listing them here is all
+    // that's needed (same merge-onto-engineConfig mechanism as every other
+    // entry above — see runBacktest in backtestRun.js).
+    DUAL_ST_CHOP: [
+        { key: "DST_ST1_ATR_LEN", label: "ST1 (fast) ATR length" },
+        { key: "DST_ST1_FACTOR",  label: "ST1 (fast) factor" },
+        { key: "DST_ST2_ATR_LEN", label: "ST2 (slow) ATR length" },
+        { key: "DST_ST2_FACTOR",  label: "ST2 (slow) factor" },
+        { key: "DST_CHOP_LEN",    label: "Choppiness Index period" },
+        { key: "DST_CHOP_MAX",    label: "Choppiness Index max (0-100) \u2014 above this blocks new entries even if ST1/ST2 agree" },
+    ],
+};
+
+function fmtMoney(n) { return (n < 0 ? "-₹" : "₹") + Math.abs(n).toFixed(2); }
+
+async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, resolveCurrent, getDefinition, buildContext, defaultEodFor, c, engineConfig }) {
+    // ── Step 1: Strategy ──────────────────────────────────────────────────
+    const strategyKeys = Object.keys(STRATEGIES);
+    const customSpecs = await customStrategyDb.listStrategies();
+    // Only custom strategies with saved entry conditions are backtestable —
+    // same "finished in the builder" requirement runBacktest.js enforces.
+    const customUsable = customSpecs.filter(s => s.entryLong || s.entryShort);
+    console.log();
+    console.log(c.bold("  Step 1/7 — Candle type, then strategy"));
+    console.log(c.dim("  Candle type the strategy runs on:"));
+    console.log("   1. Raw (time candles)");
+    console.log("   2. Heikin-Ashi");
+    console.log("   3. Range bars");
+    const candleInput = (await ask("  select number (blank = the strategy's own native type): ")).trim();
+    let candleType = candleInput ? ["RAW", "HA", "RANGE"][Number(candleInput) - 1] : null;
+    if (candleInput && !candleType) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    let rangeSize = null;
+    if (candleType === "RANGE") {
+        const rsInput = (await ask("  range bar size in price units (blank = ATR default): ")).trim();
+        const n = Number(rsInput);
+        if (rsInput && Number.isFinite(n) && n > 0) rangeSize = n;
+    }
+    strategyKeys.forEach((key, i) => {
+        const info = STRATEGY_INFO[key] || { label: key, description: "" };
+        console.log(`  ${String(i + 1).padStart(2)}. ${info.label} ${c.dim(`[native: ${CANDLE_LABEL[nativeCandleType(key)]}]`)}`);
+        if (info.description) console.log(c.dim(`      ${info.description}`));
+    });
+    if (customUsable.length) {
+        console.log(c.dim("  ── your custom strategies ──"));
+        customUsable.forEach((s, i) => {
+            console.log(`  ${String(strategyKeys.length + i + 1).padStart(2)}. ${s.name} (custom)`);
+        });
+    }
+    const stratInput = await ask("  select number: ");
+    const pickIdx = Number(stratInput) - 1;
+    const strategyKey = pickIdx < strategyKeys.length ? strategyKeys[pickIdx] : undefined;
+    const customPick = pickIdx >= strategyKeys.length ? customUsable[pickIdx - strategyKeys.length] : undefined;
+    if (!strategyKey && !customPick) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+    const isCustom = !!customPick;
+    const effectiveStrategyKey = isCustom ? customPick.name : strategyKey;
+    if (isCustom) candleType = null;   // custom strategies carry their own candle type
+    if (candleType) { const w = overrideWarning(effectiveStrategyKey, candleType); if (w) console.log(c.yellow(`  ⚠ ${w}`)); }
+    const strategyLabel = isCustom ? `${customPick.name} (custom)` : (STRATEGY_INFO[strategyKey] || { label: strategyKey }).label;
+
+    // ── Step 2: Instrument — same discovery Add Instrument uses ───────────
+    console.log();
+    console.log(c.bold("  Step 2/7 — Instrument"));
+    const repo  = await ensureCsvLoaded();
+    const all   = repo.listUnderlyings();
+    const query = await ask("  search underlying (blank = show all): ");
+    const matches = query ? all.filter(u => u.toLowerCase().includes(query.toLowerCase())) : all;
+    if (matches.length === 0) { console.log(c.yellow("  no matches")); await pauseForReview(); return; }
+    if (matches.length > 30 && query === "") {
+        console.log(c.yellow(`  ${all.length} underlyings total — type part of a name to narrow it down`));
+        await pauseForReview();
+        return;
+    }
+    matches.forEach((u, i) => console.log(`  ${String(i + 1).padStart(2)}. ${u}`));
+    const instPick = await ask("  select number: ");
+    const underlying = matches[Number(instPick) - 1];
+    if (!underlying) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+
+    const def = getDefinition(underlying);
+    let resolvedContract;
+    try {
+        resolvedContract = resolveCurrent(underlying, def, repo, pinStore).contract;
+    } catch (err) {
+        console.log(c.red(`  ${err.message}`));
+        await pauseForReview();
+        return;
+    }
+    const context = buildContext(def, resolvedContract);
+    if (!context.lotMult) {
+        console.log();
+        console.log(c.yellow(`  ⚠ lot multiplier required for ${underlying}. The broker's lot_size field is a contract`));
+        console.log(c.yellow(`    COUNT, not the real price multiplier, and can't be trusted as a default — this exact`));
+        console.log(c.yellow(`    pattern (lot_size=1) already caused a real PnL bug once, on NatGas Mini (real multiplier`));
+        console.log(c.yellow(`    was 250 MMBtu). Look up the actual contract spec before entering this.`));
+        let lotMultOverride = null;
+        do {
+            const lotMultInput = await ask(`  lot multiplier — price move x this = PnL per lot (required, no default): `);
+            if (!lotMultInput) { console.log(c.yellow("  required — enter the real contract multiplier, there's no safe default to fall back to")); continue; }
+            const parsed = Number(lotMultInput);
+            if (!Number.isFinite(parsed) || parsed <= 0) { console.log(c.yellow(`  "${lotMultInput}" isn't a valid positive number — try again`)); continue; }
+            lotMultOverride = parsed;
+        } while (lotMultOverride === null);
+        context.lotMult = lotMultOverride;
+    }
+    console.log(c.dim(`  resolved: ${context.symbol} (token ${context.token})`));
+
+    // ── Step 3: Timeframe ─────────────────────────────────────────────────
+    console.log();
+    console.log(c.bold("  Step 3/7 — Timeframe"));
+    TIMEFRAMES.forEach((tf, i) => console.log(`  ${i + 1}. ${tf}`));
+    const tfInput = await ask("  select number (default 15m): ");
+    const timeframe = tfInput ? TIMEFRAMES[Number(tfInput) - 1] : "15m";
+    if (!timeframe) { console.log(c.yellow("  invalid selection")); await pauseForReview(); return; }
+
+    // context.eodHour/eodMinute were derived from the STRATEGY's own
+    // default timeframe (via getDefinition/buildContext above) — if the
+    // person just picked a different timeframe for this backtest, EOD
+    // needs to match THAT one instead, exactly like engine.js does for a
+    // live TIMEFRAME_OVERRIDE. Only recompute if eodHour/eodMinute weren't
+    // hand-overridden for this instrument in overrides.js (detected by
+    // comparing against what the pre-pick default would have been) — an
+    // explicit override still wins either way.
+    const preTfPickDefault = defaultEodFor(context.timeframe, context.exchange);
+    const eodWasDefault = context.eodHour === preTfPickDefault.eodHour && context.eodMinute === preTfPickDefault.eodMinute;
+    context.timeframe = timeframe;
+    if (eodWasDefault) {
+        const newDefault  = defaultEodFor(timeframe, context.exchange);
+        context.eodHour   = newDefault.eodHour;
+        context.eodMinute = newDefault.eodMinute;
+    }
+
+    // ── Step 4: Candle close type — informational, see file header ───────
+    console.log();
+    console.log(c.bold("  Step 4/7 — Candle close type"));
+    console.log(c.dim(`  ${strategyLabel} has its own fixed candle-type behavior (not user-selectable):`));
+    if (isCustom) {
+        console.log(c.dim(`    indicators computed on ${customPick.candleType === "ha" ? "Heikin-Ashi" : "raw"} candles, per this strategy's own builder setting`));
+    } else {
+    const candleTypeNotes = {
+        ALMA_BAND: "    bands and entry/exit signal both computed on Heikin-Ashi candles",
+        ALMA_FAST: "    single ALMA computed entirely on Heikin-Ashi close, entry on its slope flipping",
+        DPI_SMA5_EXIT: "    DPI and SMA5 exit both computed on RAW candles, not Heikin-Ashi \u2014 matches the source Pine script, which never converts to HA",
+        ALMA_DUAL_BAND_SMA5: "    dual-ALMA trend lines + SMA5 exit on RAW candles; the ALMA_BAND fallback path specifically uses HA candles (same as the standalone ALMA_BAND strategy) \u2014 this one genuinely mixes both",
+        MA_SLOPE: "    ema(ohlc4,56) and its angle both computed on RAW candles, not Heikin-Ashi \u2014 matches the source Pine script, which never converts to HA",
+        ALMA_PRO_FAST: "    fast ALMA computed on HA close; the band (ALMA of high/low) is computed on RAW candles, not HA \u2014 matches the source Pine script exactly (only ha_close is HA there)",
+        ALMA_PRO_SLOW: "    slow ALMA computed entirely on Heikin-Ashi close, LEVEL-based entry off its own current slope direction \u2014 no band, no HA/raw mixing",
+    };
+    console.log(c.dim(candleTypeNotes[strategyKey] || "    all indicators (ST1/RSI/SMA9/DPI) run on Heikin-Ashi candles"));
+    }
+
+    // ── Step 5: Historical range ──────────────────────────────────────────
+    console.log();
+    console.log(c.bold("  Step 5/7 — Historical range"));
+    const rangeMode = (await ask("  [D] Days back (default)  [F] From/To dates: ")).trim().toUpperCase();
+    let from, to;
+    to = new Date();
+    if (rangeMode === "F") {
+        const fromStr = await ask("  from (YYYY-MM-DD): ");
+        const toStr   = await ask("  to   (YYYY-MM-DD, blank = today): ");
+        const isDay = v => /^\d{4}-\d{2}-\d{2}$/.test(v.trim());
+        from = new Date(isDay(fromStr) ? `${fromStr.trim()}T00:00:00+05:30` : fromStr);
+        if (toStr) to = new Date(isDay(toStr) ? `${toStr.trim()}T23:59:59+05:30` : toStr);
+        if (isNaN(from.getTime()) || isNaN(to.getTime())) { console.log(c.yellow("  invalid date")); await pauseForReview(); return; }
+    } else {
+        const daysInput = await ask("  days back (default 30): ");
+        const days = daysInput ? Number(daysInput) : 30;
+        if (!Number.isFinite(days) || days <= 0) { console.log(c.yellow("  invalid days value")); await pauseForReview(); return; }
+        from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
+    }
+
+    // ── Step 6: Strategy parameters ───────────────────────────────────────
+    console.log();
+    console.log(c.bold("  Step 6/7 — Strategy parameters (blank = default)"));
+    const paramDefs = isCustom ? [] : (STRATEGY_PARAMS[strategyKey] || []);
+    if (isCustom) console.log(c.dim(`  ${strategyLabel} has no separate tunable engine parameters — its logic lives entirely in the indicators/conditions saved in the builder.`));
+    const params = {};
+    for (const p of paramDefs) {
+        const defaultVal = engineConfig[p.key];
+        const input = await ask(`  ${p.label} (default ${defaultVal}): `);
+        if (input) {
+            const parsed = Number(input);
+            if (!Number.isFinite(parsed)) { console.log(c.yellow(`  invalid value for ${p.key}, using default`)); continue; }
+            params[p.key] = parsed;
+        }
+    }
+
+    // Choppiness Index gate (chopGate.js's isChopBlocked) — universal,
+    // asked for every strategy regardless of STRATEGY_PARAMS above, since
+    // as of the "make every strategy check chop at entry" change every
+    // one of the 21 entry sites in strategies.js checks it live by
+    // default. Lets a backtest compare with/without and tune period/max
+    // the same way ATR_SL_MULT etc. above do — these three merge onto
+    // engineConfig the same way (see runBacktest in backtestRun.js),
+    // they're just not tied to one strategy's STRATEGY_PARAMS entry since
+    // this gate isn't strategy-specific.
+    // DYNAMIC_MID_COLOR_SHORT_HOLD deliberately wires in NONE of the
+    // gates below (chop/long-candle/double-order/ATR-SL/volume) — see
+    // its own header comment in strategies.js: doEnter() there never
+    // checks any of them, so asking here would be answered-but-unread,
+    // same reasoning DAILY_HA_BIAS's own skip further down already
+    // established for this file.
+    const isShortHold = strategyKey === "DYNAMIC_MID_COLOR_SHORT_HOLD";
+    if (isShortHold) {
+        console.log(c.dim(`  DYNAMIC_MID_COLOR_SHORT_HOLD ignores the chop/long-candle/double-order/ATR-SL/volume filters entirely (no gates, no stop-loss — see its header comment in strategies.js) — those prompts are skipped`));
+    } else {
+    const chopUseDefault = engineConfig.CHOP_GATE_ALWAYS_FORCE !== false;
+    const chopUseInput = (await ask(`  Use Choppiness Index filter on every entry? [Y/n] (default ${chopUseDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+    if (chopUseInput) params.CHOP_GATE_ALWAYS_FORCE = chopUseInput !== "N";
+    const chopUseForRun = chopUseInput ? params.CHOP_GATE_ALWAYS_FORCE : chopUseDefault;
+    if (chopUseForRun) {
+        const periodInput = await ask(`  Choppiness Index period (default ${engineConfig.CHOP_LEN}): `);
+        if (periodInput) {
+            const parsedPeriod = Number(periodInput);
+            if (Number.isFinite(parsedPeriod) && parsedPeriod > 0) params.CHOP_LEN = parsedPeriod;
+            else console.log(c.yellow(`  invalid value for Choppiness Index period, using default`));
+        }
+        const maxInput = await ask(`  Choppiness Index max threshold, blocks entries above this (default ${engineConfig.CHOP_GATE_MAX_DEFAULT}): `);
+        if (maxInput) {
+            const parsedMax = Number(maxInput);
+            if (Number.isFinite(parsedMax) && parsedMax > 0) params.CHOP_GATE_MAX_DEFAULT = parsedMax;
+            else console.log(c.yellow(`  invalid value for Choppiness Index max threshold, using default`));
+        }
+    } else {
+        console.log(c.dim(`  Choppiness Index filter off for this run — period/max threshold prompts skipped`));
+    }
+
+    // Long-Candle / Volatility-Shock Entry Filter — universal, same
+    // merge-onto-engineConfig mechanism as CHOP_GATE_ALWAYS_FORCE above.
+    // ON by default (params.LONG_CANDLE_FILTER_OVERRIDE isn't an
+    // engineConfig field name that longCandleGate.js reads directly — it
+    // reads context.longCandleFilterEnabled, set from this env var the
+    // same way engine.js does live; runBacktest constructs context the
+    // same way, so this merges in identically for both).
+    const lcUseDefault = context.longCandleFilterEnabled !== false;
+    const lcUseInput = (await ask(`  Block new entries after an abnormally large candle? [Y/n] (default ${lcUseDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+    if (lcUseInput) context.longCandleFilterEnabled = lcUseInput !== "N";
+    if (context.longCandleFilterEnabled) {
+        const lcPeriodInput = await ask(`  Long-candle ATR period (default ${engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}): `);
+        if (lcPeriodInput) {
+            const parsed = Number(lcPeriodInput);
+            if (Number.isFinite(parsed) && parsed > 0) context.longCandleAtrPeriod = parsed;
+            else console.log(c.yellow(`  invalid value for long-candle ATR period, using default`));
+        }
+        const lcMultInput = await ask(`  Long-candle ATR multiplier (default ${engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}): `);
+        if (lcMultInput) {
+            const parsed = Number(lcMultInput);
+            if (Number.isFinite(parsed) && parsed > 0) context.longCandleAtrMult = parsed;
+            else console.log(c.yellow(`  invalid value for long-candle ATR multiplier, using default`));
+        }
+        const lcCooldownInput = await ask(`  Long-candle cooldown, candles blocked after (default ${engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}): `);
+        if (lcCooldownInput) {
+            const parsed = Number(lcCooldownInput);
+            if (Number.isInteger(parsed) && parsed >= 0) context.longCandleCooldownCandles = parsed;
+            else console.log(c.yellow(`  invalid value for long-candle cooldown, using default`));
+        }
+    } else {
+        console.log(c.dim(`  Long-candle filter off for this run — period/multiplier/cooldown prompts skipped`));
+    }
+
+    // Double-order gate — universal, same context mutation as chop/
+    // long-candle above (backtestFlow.js's context object is passed by
+    // reference straight into runBacktest, so mutating it here is
+    // sufficient — no separate params/engineConfig channel needed).
+    const doubleDefault = context.disableDoubleOrders === true;
+    const doubleInput = (await ask(`  Disable double orders, blocks reversal re-entries only? [y/N] (default ${doubleDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+    if (doubleInput) context.disableDoubleOrders = doubleInput === "Y";
+
+    // Per-instrument ATR stop-loss multiplier — unread by strategies with
+    // no ATR trail at all (PURE_HA/DYNAMIC_BAND/DYNAMIC_MID_COLOR(_HL)/
+    // ALMA_BAND as of Sep 2026 — see that strategy's own STRATEGY_PARAMS
+    // comment above). Skipped outright for ALMA_BAND rather than asked-
+    // but-unread, since it was a genuinely confusing double-prompt there
+    // (STRATEGY_PARAMS used to list its own ATR_SL_MULT entry too).
+    if (strategyKey !== "ALMA_BAND") {
+        const atrMultInput = await ask(`  ATR stop-loss multiplier (blank = default ${engineConfig.ATR_SL_MULT}): `);
+        if (atrMultInput) {
+            const parsed = Number(atrMultInput);
+            if (Number.isFinite(parsed) && parsed > 0) context.atrSlMult = parsed;
+            else console.log(c.yellow(`  invalid value for ATR stop-loss multiplier, using default`));
+        }
+    }
+
+    // Hard stop-loss in rupees — either this or the ATR stop; when set it replaces the ATR stop.
+    if (strategyKey !== "ALMA_BAND") {
+        const noSlIn = (await ask(`  Disable the stop-loss entirely (exits only on the strategy signal / target / EOD)? [y/N]: `)).trim().toUpperCase();
+        if (noSlIn === "Y") context.slDisabled = true;
+        const hardIn = (await ask(`  Hard stop-loss in rupees per position (blank = use the ATR stop): `)).trim();
+        if (hardIn) {
+            const hv = Number(hardIn);
+            if (Number.isFinite(hv) && hv > 0) context.hardSlRupees = hv;
+            else console.log(c.yellow(`  invalid value for hard stop-loss, using the ATR stop`));
+        }
+    }
+
+    // Volume SMA entry gate — universal, off by default.
+    const volDefault = context.volumeFilterEnabled === true;
+    const volInput = (await ask(`  Only enter when volume is above its SMA? [y/N] (default ${volDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+    if (volInput) context.volumeFilterEnabled = volInput === "Y";
+    if (context.volumeFilterEnabled) {
+        const volPeriodInput = await ask(`  Volume SMA period (default ${engineConfig.VOLUME_SMA_LEN_DEFAULT}): `);
+        if (volPeriodInput) {
+            const parsed = Number(volPeriodInput);
+            if (Number.isFinite(parsed) && parsed > 0) context.volumeSmaPeriod = parsed;
+            else console.log(c.yellow(`  invalid value for volume SMA period, using default`));
+        }
+    }
+    } // !isShortHold
+
+    // PURE_HA-only anti-whipsaw flip confirmation.
+    if (strategyKey === "PURE_HA") {
+        const flipInput = await ask(`  Reversal candles required to flip, anti-whipsaw (blank = 1, immediate): `);
+        if (flipInput) {
+            const parsed = Number(flipInput);
+            if (Number.isInteger(parsed) && parsed >= 1) context.flipConfirmCandles = parsed;
+            else console.log(c.yellow(`  invalid value for flip confirmation, using default (1, immediate)`));
+        }
+    }
+
+    // Universal entry time — no new entries before HH:MM IST (every strategy except DAILY_HA_BIAS).
+    if (strategyKey !== "DAILY_HA_BIAS") {
+        const etInput = (await ask(`  Entry time IST HH:MM — no new entries before it (blank = off): `)).trim();
+        if (etInput) {
+            const m = etInput.match(/^(\d{1,2}):(\d{2})$/);
+            if (m && Number(m[1]) <= 23 && Number(m[2]) <= 59) { context.entryTimeHour = Number(m[1]); context.entryTimeMinute = Number(m[2]); }
+            else console.log(c.yellow(`  "${etInput}" isn't HH:MM — no entry-time restriction`));
+        }
+    }
+
+    // DAILY_HA_BIAS trade entry time (IST) — the once-a-day decision fires on the first
+    // candle of the chosen timeframe at/after it. Default 10:00.
+    if (strategyKey === "DAILY_HA_BIAS") {
+        const entryInput = (await ask(`  Trade entry time IST HH:MM — first ${timeframe} candle at/after it takes the previous daily HA candle's side (blank = 10:00): `)).trim();
+        if (entryInput) {
+            const m = entryInput.match(/^(\d{1,2}):(\d{2})$/);
+            if (m && Number(m[1]) <= 23 && Number(m[2]) <= 59) {
+                context.dailyBiasEntryHour = Number(m[1]);
+                context.dailyBiasEntryMinute = Number(m[2]);
+            } else {
+                console.log(c.yellow(`  "${entryInput}" isn't HH:MM — using the default 10:00`));
+            }
+        }
+        const candleInput = (await ask(`  Daily candle used — PREVIOUS = yesterday's completed daily HA candle, CURRENT = today's forming daily HA candle at entry time (blank = PREVIOUS): `)).trim().toUpperCase();
+        if (candleInput === "CURRENT" || candleInput === "PREVIOUS") context.dailyBiasCandle = candleInput;
+        else if (candleInput) console.log(c.yellow(`  "${candleInput}" isn't PREVIOUS or CURRENT — using PREVIOUS`));
+    }
+
+    // Carry-overnight — now meaningful for a multi-day backtest range
+    // since backtestRun.js's EOD handler respects it exactly like
+    // lifecycle.js does live (see that file's EOD block): on, a position
+    // open at EOD carries into the next day instead of force-closing.
+    // DYNAMIC_MID_COLOR_SHORT_HOLD force-sets this true itself in
+    // initSignals() (that call happens AFTER this wizard, inside
+    // runBacktest) regardless of what's answered here — skip the prompt
+    // and set it directly so Step 7's summary line reads accurately.
+    if (isShortHold) {
+        context.carryOvernight = true;
+    } else {
+        const carryDefault = context.carryOvernight === true;
+        const carryInput = (await ask(`  Carry positions overnight past EOD (NRML-style)? [y/N] (default ${carryDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+        if (carryInput) context.carryOvernight = carryInput === "Y";
+    }
+
+    // Profit target in points (any strategy), fixed or adaptive — same arming rule as live: a fixed value wins; adaptive
+    // sizes once at entry from CHOP + DPI efficiency. A hit ends the day if the day's net is >= 0 (cooldown), else the
+    // run keeps trading. The scalp target below takes precedence over both when set (live does the same).
+    const targetInput = (await ask(`  Profit target in points, exits when a candle reaches it (blank = none): `)).trim();
+    if (targetInput) {
+        const parsed = Number(targetInput);
+        if (Number.isFinite(parsed) && parsed > 0) context.targetPoints = parsed;
+        else console.log(c.yellow(`  invalid value for target points, none applied`));
+    }
+    if (!context.targetPoints) {
+        const adaptiveInput = (await ask(`  Adaptive target sizing (CHOPPY ${engineConfig.ADAPTIVE_TARGET_CHOPPY} / NORMAL ${engineConfig.ADAPTIVE_TARGET_NORMAL} / STRONG ${engineConfig.ADAPTIVE_TARGET_STRONG} points)? [y/N]: `)).trim().toUpperCase();
+        if (adaptiveInput === "Y") context.targetMode = "adaptive";
+    }
+
+    // Scalp target (Dynamic Step Band family) — rupees per trade, checked against each candle's high/low
+    // (backtestSL.js checkTarget, same fields the live engine and the dashboard backtest use). After a hit the
+    // run either stays flat for the rest of the day (the "cooldown", context.scalpStopForDay) or carries on
+    // with the same / a new target / a fixed stop (context.scalpNextMode/Value).
+    if (["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "ALMA_DSB", "DSB_DUAL"].includes(strategyKey)) {
+        const scalpInput = (await ask(`  Scalp target in rupees per trade, exits when a candle reaches it (blank = off): `)).trim();
+        if (scalpInput) {
+            const parsed = Number(scalpInput);
+            if (Number.isFinite(parsed) && parsed > 0) {
+                context.scalpTargetRupees = parsed;
+                const coolInput = (await ask(`  After a target hit, cool down: take no more trades that day? [y/N]: `)).trim().toUpperCase();
+                if (coolInput === "Y") {
+                    context.scalpStopForDay = true;
+                } else {
+                    const nextInput = (await ask(`  After the first hit of the day: [S] same target (default)  [T] new target  [L] fixed stop-loss: `)).trim().toUpperCase();
+                    if (nextInput === "T" || nextInput === "L") {
+                        const label = nextInput === "T" ? "New target in rupees (blank = no target)" : "Fixed stop-loss in rupees";
+                        const valInput = (await ask(`  ${label}: `)).trim();
+                        const v = Number(valInput);
+                        if (nextInput === "T" && (!valInput || v === 0)) { context.scalpNextMode = "TARGET"; context.scalpNextValue = 0; }
+                        else if (Number.isFinite(v) && v > 0) { context.scalpNextMode = nextInput === "T" ? "TARGET" : "SL"; context.scalpNextValue = v; }
+                        else console.log(c.yellow(`  invalid value, keeping the same target after the first hit`));
+                    }
+                }
+            } else console.log(c.yellow(`  invalid value for scalp target, none applied`));
+        }
+    }
+
+    // Max daily loss circuit breaker — universal, every strategy.
+    const maxLossInput = await ask(`  Max daily loss in rupees, quits for the day if breached (blank = no floor): `);
+    if (maxLossInput) {
+        const parsed = Number(maxLossInput);
+        if (Number.isFinite(parsed) && parsed > 0) context.maxDailyLoss = parsed;
+        else console.log(c.yellow(`  invalid value for max daily loss, no floor applied`));
+    }
+
+    // Session target ceiling — realized + current open position's
+    // unrealised, whole-day running total. Mutually exclusive with
+    // targetPoints/targetMode in practice (toolbox.js's live wizard only
+    // ever offers one or the other), but nothing enforces that here —
+    // same as live.
+    const sessionTargetInput = await ask(`  Session target in rupees, quits for the day once reached (blank = no ceiling): `);
+    if (sessionTargetInput) {
+        const parsed = Number(sessionTargetInput);
+        if (Number.isFinite(parsed) && parsed > 0) context.sessionTargetRupees = parsed;
+        else console.log(c.yellow(`  invalid value for session target, no ceiling applied`));
+    }
+
+    // dailyHaGate.js's universal directional gate (orders.js, wired into
+    // backtestRun.js's replay too — see backtestRun.js's own dailyHa
+    // construction) — on by default, opt-out. Blocks any entry whose side
+    // disagrees with the previous COMPLETED daily HA candle. Unlike
+    // htfGate.js (still live-only — its stub in backtestRun.js always
+    // returns false, so a toggle for it here would be a no-op), this one
+    // genuinely does something in a backtest.
+    // DYNAMIC_MID_COLOR_SHORT_HOLD force-sets this OFF itself in
+    // initSignals() (see strategies.js header comment — a green daily
+    // candle would otherwise block the entire strategy, which is only
+    // ever short) — skip the prompt and set it directly, same reasoning
+    // as carryOvernight above.
+    context.htfGateEnabled = false;   // higher-timeframe gate removed
+    if (isShortHold) {
+        context.dailyHaGateEnabled = false;
+    } else {
+        const dailyHaDefault = context.dailyHaGateEnabled !== false;
+        const dailyHaInput = (await ask(`  Only allow entries matching the previous daily HA candle's color (green=long only, red=short only)? [Y/n] (default ${dailyHaDefault ? "Y" : "N"}): `)).trim().toUpperCase();
+        if (dailyHaInput) context.dailyHaGateEnabled = dailyHaInput !== "N";
+    }
+
+    // ── Step 7: Confirmation ───────────────────────────────────────────────
+    console.log();
+    console.log(c.bold("  Step 7/7 — Confirm"));
+    console.log(`  Strategy:   ${strategyLabel}`);
+    console.log(`  Instrument: ${underlying} (${context.symbol})`);
+    console.log(`  Timeframe:  ${timeframe}`);
+    if (strategyKey === "DAILY_HA_BIAS") console.log(`  Entry time: ${String(context.dailyBiasEntryHour ?? 10).padStart(2, "0")}:${String(context.dailyBiasEntryMinute ?? 0).padStart(2, "0")} IST`);
+    if (strategyKey === "DAILY_HA_BIAS") console.log(`  Daily candle: ${context.dailyBiasCandle === "CURRENT" ? "CURRENT (today's forming daily HA candle)" : "PREVIOUS (yesterday's completed daily HA candle)"}`);
+    console.log(`  Range:      ${from.toISOString().split("T")[0]} -> ${to.toISOString().split("T")[0]}`);
+    console.log(`  Params:     ${Object.keys(params).length ? JSON.stringify(params) : "(all defaults)"}`);
+    console.log(`  Risk:       chop:${isShortHold ? "n/a" : (params.CHOP_GATE_ALWAYS_FORCE === false ? "off" : "on")} lc:${isShortHold ? "n/a" : (context.longCandleFilterEnabled === false ? "off" : "on")} double:${isShortHold ? "n/a" : (context.disableDoubleOrders ? "off" : "on")} vol:${isShortHold ? "n/a" : (context.volumeFilterEnabled ? "on" : "off")} atr:${strategyKey === "ALMA_BAND" ? "n/a (band SL)" : isShortHold ? "n/a (no SL)" : context.atrSlMult ?? "default"} carry:${context.carryOvernight ? "on" : "off"}${isShortHold ? " (forced)" : ""} maxloss:${context.maxDailyLoss ?? "none"} target:${context.targetPoints ? context.targetPoints + "pts" : context.targetMode === "adaptive" ? "adaptive" : "none"} sessionTarget:${context.sessionTargetRupees ?? "none"}${context.scalpTargetRupees ? ` scalp:₹${context.scalpTargetRupees}${context.scalpStopForDay ? " (cooldown: done for the day)" : context.scalpNextMode ? ` (then ${context.scalpNextMode === "TARGET" ? (context.scalpNextValue > 0 ? "target ₹" + context.scalpNextValue : "no target") : "stop ₹" + context.scalpNextValue})` : ""}` : ""} dailyha:${context.dailyHaGateEnabled === false ? "off" : "on"}${isShortHold ? " (forced)" : ""}${strategyKey === "PURE_HA" ? ` flip:${context.flipConfirmCandles ?? 1}` : ""}`);
+    const confirm = (await ask("  Proceed? (Y/N): ")).trim().toUpperCase();
+    if (confirm !== "Y") { console.log(c.dim("  cancelled")); await pauseForReview(); return; }
+
+    // ── Run ────────────────────────────────────────────────────────────────
+    const ACCESS_TOKEN = engineConfig.getAccessToken();
+    const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
+    kc.setAccessToken(ACCESS_TOKEN);
+
+    console.log();
+    console.log(c.dim("  fetching historical data + running replay..."));
+    let result;
+    try {
+        result = await runBacktest({
+            strategyKey: effectiveStrategyKey, strategyLabel, context, timeframe, from, to, params, kc, candleType, rangeSize,
+            progress: (done, total) => process.stdout.write(`\r  ${done}/${total} candles...`),
+        });
+    } catch (err) {
+        console.log();
+        console.log(c.red(`  backtest failed: ${err.message}`));
+        await pauseForReview();
+        return;
+    }
+    console.log();
+
+    // ── Summary ────────────────────────────────────────────────────────────
+    const m = result.report.metrics;
+    console.log();
+    console.log(c.bold("  ── Summary ──"));
+    console.log(`  Trades:         ${m.trades}`);
+    console.log(`  Win Rate:       ${(m.winRate * 100).toFixed(1)}%`);
+    console.log(`  Profit Factor:  ${m.profitFactor === null ? "-" : m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2)}`);
+    console.log(`  Net Points:     ${m.netPoints.toFixed(2)}`);
+    console.log(`  Net PnL:        ${fmtMoney(m.netPnL)}`);
+    console.log(`  Max Drawdown:   ${fmtMoney(m.maxDrawdown)}`);
+    console.log(`  Largest Win:    ${fmtMoney(m.largestWin)}`);
+    console.log(`  Largest Loss:   ${fmtMoney(m.largestLoss)}`);
+    console.log(`  Avg Trade:      ${fmtMoney(m.avgTrade)}`);
+    console.log();
+    console.log(c.green(`  saved: ${result.paths.jsonPath}`));
+    console.log(c.green(`         ${result.paths.htmlPath}`));
+
+    await pauseForReview();
+}
+
+module.exports = { backtestFlow, STRATEGY_PARAMS };

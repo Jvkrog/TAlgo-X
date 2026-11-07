@@ -1,9 +1,9 @@
 const L = process.env.L;
-const { replayBiasHedge, createLegKit } = require(L + "/backtestDualHedge");
-const { createBiasHedgeController } = require(L + "/dualBiasHedgeController");
-const { toHA } = require(L + "/indicators");
-const { createBandStepper } = require(L + "/dynamicBandReader");
-const { setEmitSuppressed } = require(L + "/eventBridge");
+const { replayBiasHedge, createLegKit } = require(L + "/backtest/backtestDualHedge");
+const { createBiasHedgeController } = require(L + "/hedge/dualBiasHedgeController");
+const { toHA } = require(L + "/indicators/indicators");
+const { createBandStepper } = require(L + "/indicators/dynamicBandReader");
+const { setEmitSuppressed } = require(L + "/core/eventBridge");
 setEmitSuppressed(true);
 const IST = 5.5 * 3600e3;
 function rng(seed){ let s=seed>>>0; return ()=> (s=(s*1664525+1013904223)>>>0)/4294967296; }
@@ -31,7 +31,7 @@ async function one(seed,tf,unwind){
   const dailyBars=daily(candles), bandBars=agg(candles,TFM[tf]); const eod=(tf==="30m"||tf==="1h")?{h:23,m:0}:{h:23,m:15};
   const ref=await replayBiasHedge({longCtx:ctx("LONG"),shortCtx:ctx("SHORT"),candles,tradeFromMs:tradeFrom,dailyBars,bandBars,bandStep:1.5,bandTimeframe:tf,unwindMode:unwind,eodHour:eod.h,eodMinute:eod.m,verbose:false});
   // controller side
-  const { barEndMs } = require(L + "/backtestDualHedge");
+  const { barEndMs } = require(L + "/backtest/backtestDualHedge");
   const stats={entries:{LONG:0,SHORT:0},coreDays:{LONG:0,SHORT:0},hedgeEntries:0,hedgeUnwinds:0,noBiasDays:0,exits:{eod:0,bandUnwind:0,backtestEnd:0}};
   const kit=createLegKit({longCtx:ctx("LONG"),shortCtx:ctx("SHORT"),startDate:candles[0].date,slip:0,log:()=>{},stats});
   const dailyHA=toHA(dailyBars).map(b=>({dk:dayKey(b.date),color:b.close>b.open?"green":b.close<b.open?"red":null}));
