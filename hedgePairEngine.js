@@ -450,7 +450,10 @@ async function main() {
         }
     }
 
+    let ticking = false;   // a slow API/exit must not let a second poll start while the first is mid-order
     async function tick() {
+        if (ticking) return;
+        ticking = true;
         try {
             await checkEod();
             await checkCoreEntry();
@@ -459,6 +462,8 @@ async function main() {
             await emitLivePnl();
         } catch (err) {
             console.error(c.red(`HEDGE PAIR loop error: ${err.message}`));
+        } finally {
+            ticking = false;
         }
     }
 
