@@ -1,7 +1,7 @@
 // WebDash theme panel (Chromium): dark/light, RGB inputs, persistence, reset, no stray hardcoded palette colours left in style.css.
 const assert = require("assert"), http = require("http"), fs = require("fs"), path = require("path");
 const { chromium } = require("playwright");
-const PUB = path.join(__dirname, "webdash/public"), MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
+const PUB = path.join(__dirname, "..", "webdash/public"), MIME = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
 const srv = http.createServer((q, r) => { const f = path.join(PUB, q.url.split("?")[0] === "/" ? "index.html" : q.url.split("?")[0]); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) { r.writeHead(200, { "content-type": "application/json" }); return r.end("{}"); } r.writeHead(200, { "content-type": MIME[path.extname(f)] || "application/octet-stream" }); r.end(fs.readFileSync(f)); });
 const T = [], t = (n, f) => T.push([n, f]), SHOT = process.env.SHOTS;
 (async () => {

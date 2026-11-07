@@ -1,11 +1,11 @@
 // test-scalp.js — scalp target (context.scalpTargetRupees) in the backtest's intrabar check. Run: node test-scalp.js
 "use strict";
 const assert = require("assert");
-const { createBacktestLedger } = require("./backtest/backtestLedger");
-const { createState } = require("./core/state");
-const { createSLStore } = require("./core/sl");
-const positions = require("./core/positions");
-const { createBacktestSL } = require("./backtest/backtestSL");
+const { createBacktestLedger } = require("../backtest/backtestLedger");
+const { createState } = require("../core/state");
+const { createSLStore } = require("../core/sl");
+const positions = require("../core/positions");
+const { createBacktestSL } = require("../backtest/backtestSL");
 
 function rig(over = {}) {
     const context = { tgPrefix: "T", symbol: "T", token: 1, lots: 1, lotMult: 1000, name: "T", scalpTargetRupees: 2000, ...over };

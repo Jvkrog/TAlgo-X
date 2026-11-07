@@ -1,7 +1,7 @@
 // candlePoll tick exits: ticks arriving while a stop exit is in flight must not spawn extra exits or false "SL order FAILED" alerts,
 // and a genuinely failed exit must still be retried on a later tick.
-const assert = require("assert"), engineConfig = require("./core/engineConfig"); engineConfig.LIVE_ORDERS = true; engineConfig.ENGINE_ENABLED = true;
-const { createOrders } = require("./core/orders"), { createCandlePoll } = require("./core/candlePoll"), { createSLStore } = require("./core/sl"), { createState } = require("./core/state");
+const assert = require("assert"), engineConfig = require("../core/engineConfig"); engineConfig.LIVE_ORDERS = true; engineConfig.ENGINE_ENABLED = true;
+const { createOrders } = require("../core/orders"), { createCandlePoll } = require("../core/candlePoll"), { createSLStore } = require("../core/sl"), { createState } = require("../core/state");
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function scenario(failFirst) {
     let placed = 0, attempts = 0, closes = 0; const tgs = [];

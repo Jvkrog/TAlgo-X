@@ -1,13 +1,13 @@
 // test-replay-retry.js — a boot-replay entry refused by a gate is retried on the following candles (DYNAMIC_MID_COLOR).
 "use strict";
 const assert = require("assert");
-const { createBacktestLedger } = require("./backtest/backtestLedger");
-const { createState } = require("./core/state");
-const { createSLStore } = require("./core/sl");
-const { createTargetStore } = require("./core/target");
-const positions = require("./core/positions");
-const engineConfig = { ...require("./core/engineConfig") };
-const { createDynamicMidColorStrategy } = require("./strategies/strategies");
+const { createBacktestLedger } = require("../backtest/backtestLedger");
+const { createState } = require("../core/state");
+const { createSLStore } = require("../core/sl");
+const { createTargetStore } = require("../core/target");
+const positions = require("../core/positions");
+const engineConfig = { ...require("../core/engineConfig") };
+const { createDynamicMidColorStrategy } = require("../strategies/strategies");
 
 engineConfig.ENGINE_ENABLED = true; engineConfig.LIVE_ORDERS = false;
 engineConfig.CHOP_GATE_ALWAYS_FORCE = false; engineConfig.BAND_STEP_DEFAULT = 1;

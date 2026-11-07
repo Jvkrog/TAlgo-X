@@ -1,7 +1,7 @@
 // Weekly HA Bias (DAILY_HA_BIAS with biasPeriod WEEKLY): weekly candle maths, strategy side/CURRENT mode, backtest replay, plumbing.
 const assert = require("assert"), fs = require("fs"), vm = require("vm");
-const W = require("./strategies/weeklyHa"), { createDailyHaBiasStrategy } = require("./strategies/strategies"), { createSLStore } = require("./core/sl");
-const { toHAAlways } = require("./indicators/indicators");
+const W = require("../strategies/weeklyHa"), { createDailyHaBiasStrategy } = require("../strategies/strategies"), { createSLStore } = require("../core/sl");
+const { toHAAlways } = require("../indicators/indicators");
 const realLog = console.log, T = [], t = (n, f) => T.push([n, f]);
 const IST = 5.5 * 3600e3, istMid = s => new Date(new Date(s + "T00:00:00Z").getTime() - IST);   // Kite daily bars stamp IST midnight
 const d = (day, o, h, l, c) => ({ date: istMid(day), open: o, high: h, low: l, close: c });
@@ -64,7 +64,7 @@ t("strategy: DAILY (default) never asks for the week-so-far and is unchanged", a
 });
 
 // ── backtest replay (fake Kite) ──
-const { runBacktest } = require("./backtest/backtestRun"), { getDefinition, buildContext } = require("./core/context");
+const { runBacktest } = require("../backtest/backtestRun"), { getDefinition, buildContext } = require("../core/context");
 function bars(interval, fromStr, toStr) {
     const out = []; const d0 = new Date(fromStr + "T00:00:00Z"), d1 = new Date(toStr + "T00:00:00Z");
     for (let dd = d0; dd <= d1; dd = new Date(+dd + 86400e3)) {
@@ -91,7 +91,7 @@ t("backtest: every WEEKLY entry follows the last completed weekly HA candle as o
 });
 
 // ── plumbing ──
-const srv = fs.readFileSync(__dirname + "/webdash/server.js", "utf8"), app = fs.readFileSync(__dirname + "/webdash/public/app.js", "utf8"), eng = fs.readFileSync(__dirname + "/engine.js", "utf8"), tbx = fs.readFileSync(__dirname + "/toolbox.js", "utf8");
+const srv = fs.readFileSync(__dirname + "/../webdash/server.js", "utf8"), app = fs.readFileSync(__dirname + "/../webdash/public/app.js", "utf8"), eng = fs.readFileSync(__dirname + "/../engine.js", "utf8"), tbx = fs.readFileSync(__dirname + "/../toolbox.js", "utf8");
 t("env plumbing: always written explicitly, only for DAILY_HA_BIAS, WEEKLY only", () => {
     const bpA = srv.indexOf("function buildProcessEnv"), bpB = srv.indexOf("\n}\n", bpA) + 2; const ctx = { process: { env: {} }, console, String, Number, Object, Math, JSON, Date, Array, Boolean }; vm.createContext(ctx); vm.runInContext(srv.slice(bpA, bpB), ctx);
     const mk = p => { try { return ctx.buildProcessEnv({ name: "N", underlying: "GOLD", exchange: "MCX", strategy: "DAILY_HA_BIAS", timeframe: "15m", lots: "1", product: "MIS", ...p }); } catch (e) { return { __err: e.message }; } };

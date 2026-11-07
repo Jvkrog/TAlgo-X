@@ -106,6 +106,7 @@ The repository is intentionally split by responsibility. The exact tree evolves,
 | `data/` | `db`, `dbDir`, CSV loaders, historical fetch, instrument/contract resolution, pins, roll policies |
 | `ai/` | Observer-only AI review and aggregate narration |
 | `utils/` | Colour, IST time, plain log, Telegram, boot animation, `.env` helper |
+| `tests/` | Test scripts, run from the repo root as `node tests/test-xyz.js` (`L=$PWD node tests/test-parity.js`) |
 | `riskObserver/` | Risk Observer (unchanged layout) |
 | `webdash/server.js` | HTTP/WebSocket server, API routes, authentication, chart/depth data and operator APIs |
 | `webdash/public/app.js` | Main WebDash frontend |

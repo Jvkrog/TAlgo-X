@@ -2,7 +2,7 @@
 // modal (list + linked add/backtest flow incl. DSB 1/2 fields) and the exact request bodies it sends.
 const http = require("http"), fs = require("fs"), path = require("path"), assert = require("assert");
 let chromium; try { ({ chromium } = require("playwright")); } catch { console.log("playwright not available — skipped"); process.exit(0); }
-const PUB = path.join(__dirname, "webdash/public"); const mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
+const PUB = path.join(__dirname, "..", "webdash/public"); const mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
 const inst = (name, x) => ({ name, underlying: "NATGASMINI", status: "online", live: false, lots: "1", product: "MIS", exchange: "MCX", timeframe: "15m", ...x });
 const INSTR = [inst("NATGASMINI-DSB", { strategy: "DSB_DUAL", hedgeGroup: "NGLink", hedgeRole: "A" }), inst("NATGASMINI-DHAB", { strategy: "DAILY_HA_BIAS", product: "NRML", hedgeGroup: "NGLink", hedgeRole: "B" }), inst("GOLDM-x", { underlying: "GOLDM", strategy: "DSB_DUAL" })];
 const posted = [];

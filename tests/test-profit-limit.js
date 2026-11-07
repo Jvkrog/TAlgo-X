@@ -1,14 +1,14 @@
 // test-losing-switch.js — scenario tests for the max-profitable-trades limit (losingSwitchGate.js) wired into DYNAMIC_BAND (same gate code the
-// other DSB-family strategies use). Run: node test-profit-limit.js
+// other DSB-family strategies use). Run: node tests/test-profit-limit.js
 "use strict";
 const assert = require("assert");
-const { createBacktestLedger } = require("./backtest/backtestLedger");
-const { createState } = require("./core/state");
-const { createSLStore } = require("./core/sl");
-const { createTargetStore } = require("./core/target");
-const positions = require("./core/positions");
-const engineConfig = { ...require("./core/engineConfig") };
-const { createDynamicBandStrategy } = require("./strategies/strategies");
+const { createBacktestLedger } = require("../backtest/backtestLedger");
+const { createState } = require("../core/state");
+const { createSLStore } = require("../core/sl");
+const { createTargetStore } = require("../core/target");
+const positions = require("../core/positions");
+const engineConfig = { ...require("../core/engineConfig") };
+const { createDynamicBandStrategy } = require("../strategies/strategies");
 
 engineConfig.ENGINE_ENABLED = true; engineConfig.LIVE_ORDERS = false;
 engineConfig.CHOP_GATE_ALWAYS_FORCE = false; engineConfig.BAND_STEP_DEFAULT = 1;

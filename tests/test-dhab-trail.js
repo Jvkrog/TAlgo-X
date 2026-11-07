@@ -1,10 +1,10 @@
 // DAILY_HA_BIAS opt-in trailing stop (chandelier on best price) + 1h ATR. Real strategy code, stubbed deps.
 const assert = require("assert");
-const { createDailyHaBiasStrategy } = require("./strategies/strategies");
-const { createSLStore: createSl } = require("./core/sl");
-const { atr } = require("./indicators/indicators");
+const { createDailyHaBiasStrategy } = require("../strategies/strategies");
+const { createSLStore: createSl } = require("../core/sl");
+const { atr } = require("../indicators/indicators");
 const vm = require("vm"), fs = require("fs");
-const srv = fs.readFileSync(__dirname + "/webdash/server.js", "utf8");
+const srv = fs.readFileSync(__dirname + "/../webdash/server.js", "utf8");
 async function runEdit(strategy, body) {
     const bpA = srv.indexOf("function buildProcessEnv"), bpB = srv.indexOf("\n}\n", bpA) + 2;
     const ra = srv.indexOf("function resolveProductMode"), rb = srv.indexOf("\n}\n", ra) + 2, ma = srv.indexOf("function resolveModeProduct"), mb = srv.indexOf("\n}\n", ma) + 2;
@@ -135,7 +135,7 @@ function make(ctx, raw, nowFn) {
         const bad = await runEdit("DAILY_HA_BIAS", { name: "N", atrSlTimeframe: "4h" }); assert.strictEqual(bad.r.status, 400);
     });
     t("engine env -> context (SL_TRAIL_OVERRIDE / ATR_SL_TF_OVERRIDE), defaults off", async () => {
-        const eng = fs.readFileSync(__dirname + "/engine.js", "utf8"); const a = eng.indexOf("process.env.SL_TRAIL_OVERRIDE"), b = eng.indexOf("\n", eng.indexOf("ATR_SL_TF_OVERRIDE", a));
+        const eng = fs.readFileSync(__dirname + "/../engine.js", "utf8"); const a = eng.indexOf("process.env.SL_TRAIL_OVERRIDE"), b = eng.indexOf("\n", eng.indexOf("ATR_SL_TF_OVERRIDE", a));
         const blk = eng.slice(a - 4, b); const run = env => { const context = {}; vm.runInNewContext(blk, { process: { env }, context }); return context; };
         assert.deepStrictEqual({ ...run({}) }, {}); const x = run({ SL_TRAIL_OVERRIDE: "1", ATR_SL_TF_OVERRIDE: "1h" }); assert.strictEqual(x.slTrail, true); assert.strictEqual(x.atrSlTimeframe, "1h");
         assert.deepStrictEqual({ ...run({ SL_TRAIL_OVERRIDE: "", ATR_SL_TF_OVERRIDE: "" }) }, {});

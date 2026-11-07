@@ -1,6 +1,6 @@
 // Linked hedge-pair legs must appear in the Hedge Pairs panel (with Edit/Logs per leg), not in the normal engine list.
 const assert = require("assert"), fs = require("fs"), vm = require("vm");
-const ui = fs.readFileSync(__dirname + "/webdash/public/app.js", "utf8");
+const ui = fs.readFileSync(__dirname + "/../webdash/public/app.js", "utf8");
 const a = ui.indexOf("function renderToolboxList"), b = ui.indexOf("toolboxRefreshBtn.addEventListener");
 assert(a > 0 && b > a, "render block not found");
 function render(instruments, extra = []) {

@@ -1,7 +1,7 @@
 // Custom strategy runtime: a failed (null) broker order must not mutate engine state.
 "use strict";
 const assert = require("assert");
-const { createCustomStrategy } = require("./strategies/customStrategyRuntime");
+const { createCustomStrategy } = require("../strategies/customStrategyRuntime");
 const cond = { op: "AND", conditions: [{ left: "price.close", operator: ">", right: 1 }] };
 function mk(orders, state, exitCfg) {
     const spec = { name: "T", candleType: "raw", timeframe: "15m", indicators: [], entryLong: cond, entryShort: null, exitConfig: exitCfg || {} };

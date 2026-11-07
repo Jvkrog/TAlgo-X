@@ -3,8 +3,8 @@
 "use strict";
 const assert = require("assert"), fs = require("fs"), path = require("path"), vm = require("vm");
 let passed = 0; const t = async (n, f) => { await f(); passed++; console.log("ok  -", n); };
-const engineConfig = require("./core/engineConfig"); engineConfig.LIVE_ORDERS = true;
-const { createOrders } = require("./core/orders");
+const engineConfig = require("../core/engineConfig"); engineConfig.LIVE_ORDERS = true;
+const { createOrders } = require("../core/orders");
 const silent = () => {}; const realLog = console.log; 
 
 function fakeKc() { const placed = []; return { placed, getLTP: async k => ({ [Object.keys({})[0] || "MCX:T"]: { last_price: 100 }, "MCX:T": { last_price: 100 } }), placeOrder: async (v, p) => { placed.push(p); return { order_id: "ID" + placed.length }; }, getOrderHistory: async () => [{ status: "COMPLETE", average_price: 100 }] }; }
@@ -27,7 +27,7 @@ async function productsFor(ctx) {
     });
 
     // ── engine.js boot resolution, executed exactly as written ──
-    const eng = fs.readFileSync(path.join(__dirname, "engine.js"), "utf8");
+    const eng = fs.readFileSync(path.join(__dirname, "..", "engine.js"), "utf8");
     const a = eng.indexOf('if (process.env.PRODUCT_OVERRIDE === "MIS"'), b = eng.indexOf("\n", eng.indexOf("context.product = context.carryOvernight ?", a));
     assert(a > 0 && b > a, "engine product block not found"); const block = eng.slice(a, b);
     function boot(env, carry, tf = "15m") { const ctx = { carryOvernight: carry, product: null, tgPrefix: "T", timeframe: tf }; const logs = []; vm.runInNewContext(block, { process: { env }, context: ctx, console: { log: m => logs.push(m) }, c: { yellow: x => x } }); return { ...ctx, logs }; }
@@ -42,12 +42,12 @@ async function productsFor(ctx) {
         r = boot({ PRODUCT_OVERRIDE: "garbage" }, false); assert.strictEqual(r.product, "MIS");
     });
     await t("EOD behaviour depends ONLY on carryOvernight (lifecycle.js never reads product), so NRML+close is force-closed like MIS", async () => {
-        const life = fs.readFileSync(path.join(__dirname, "core", "lifecycle.js"), "utf8"); assert(!/context\.product/.test(life)); assert(/state\.position && context\.carryOvernight/.test(life));
-        const strat = fs.readFileSync(path.join(__dirname, "strategies", "strategies.js"), "utf8"); assert(!/context\.product/.test(strat), "strategy resume logic must not depend on product");
+        const life = fs.readFileSync(path.join(__dirname, "..", "core", "lifecycle.js"), "utf8"); assert(!/context\.product/.test(life)); assert(/state\.position && context\.carryOvernight/.test(life));
+        const strat = fs.readFileSync(path.join(__dirname, "..", "strategies", "strategies.js"), "utf8"); assert(!/context\.product/.test(strat), "strategy resume logic must not depend on product");
     });
 
     // ── server-side resolution ──
-    const srv = fs.readFileSync(path.join(__dirname, "webdash/server.js"), "utf8");
+    const srv = fs.readFileSync(path.join(__dirname, "..", "webdash/server.js"), "utf8");
     const fa = srv.indexOf("function resolveProductMode"), fb = srv.indexOf("\n}\n", fa) + 2; const fn = srv.slice(fa, fb);
     const resolve = vm.runInNewContext("(" + fn.replace("function resolveProductMode", "function") + ")");
     const j = o => JSON.parse(JSON.stringify(o));
@@ -68,13 +68,13 @@ async function productsFor(ctx) {
         assert(/if \(pm\.error\) return res\.status\(400\)/.test(srv), "invalid add request must be a 400");
     });
     await t("dashboard form: product select + NRML EOD select, EOD choice only shown for NRML, values sent on add and edit", async () => {
-        const ui = fs.readFileSync(path.join(__dirname, "webdash/public/app.js"), "utf8");
+        const ui = fs.readFileSync(path.join(__dirname, "..", "webdash/public/app.js"), "utf8");
         for (const k of ['id="addProduct"', 'id="addNrmlEod"', 'id="editProduct"', 'id="editNrmlEod"', "close at EOD (like MIS)", "carry overnight"]) assert(ui.includes(k), k);
         assert(/product: tbAddBody\.querySelector\("#addProduct"\)\.value/.test(ui)); assert(/body\.product = tbEditBody/.test(ui)); assert(/e\.target.*addProduct|t\.id !== "addProduct"/.test(ui));
         assert(!/id="addCarry"/.test(ui), "old carry checkbox must be gone from the add form");
     });
     await t("backtest form prefill: the instrument's DSB 1 / DSB 2 steps (e.g. NATGAS 2 and 3) fill the step fields instead of leaving the engine defaults", async () => {
-        const ui = fs.readFileSync(path.join(__dirname, "webdash/public/app.js"), "utf8");
+        const ui = fs.readFileSync(path.join(__dirname, "..", "webdash/public/app.js"), "utf8");
         const a = ui.indexOf("{ const setParam = (key, v)"), b = ui.indexOf("\n", ui.indexOf('setParam("BAND_STEP_DEFAULT"', a)); assert(a > 0 && b > a, "prefill block not found"); const block = ui.slice(a, b);
         const run = (strategy, pf) => { const els = { BAND_STEP_DEFAULT: { value: "" }, BAND_STEP2_DEFAULT: { value: "" } }; vm.runInNewContext(block, { tbBacktestBody: { querySelector: sel => { const m = /data-param="(\w+)"/.exec(sel); return m ? els[m[1]] : null; } }, btState: { strategy }, pf, Number }); return [els.BAND_STEP_DEFAULT.value, els.BAND_STEP2_DEFAULT.value]; };
         assert.deepStrictEqual(run("DSB_DUAL", { bandStep: "2", bandStep2: "3" }), [2, 3]); assert.deepStrictEqual(run("DSB_DUAL", { bandStep: null, bandStep2: null }), ["", ""], "blank instrument value keeps the default");
@@ -94,7 +94,7 @@ async function productsFor(ctx) {
         assert.deepStrictEqual(j(modeFn(cur("MIS", false, "1d"), { product: "MIS" })), { product: "NRML", carryOvernight: true }, "1d always carries"); assert(modeFn(cur("MIS", false), { product: "CNC" }).error);
     });
     await t("Switch Mode dialog: product select (Keep current / MIS / NRML) + NRML EOD select replace the old carry checkbox and are sent with the request", async () => {
-        const ui = fs.readFileSync(path.join(__dirname, "webdash/public/app.js"), "utf8");
+        const ui = fs.readFileSync(path.join(__dirname, "..", "webdash/public/app.js"), "utf8");
         for (const k of ['id="tbProduct"', 'id="tbNrmlEod"', "Keep current", "close at EOD (like MIS)"]) assert(ui.includes(k), k); assert(!ui.includes("tbCarryCheck"), "old checkbox must be gone");
         assert(/product: productSel\.value === "KEEP" \? undefined/.test(ui)); assert(/nrmlEod: productSel\.value === "NRML"/.test(ui)); assert(!/carryOvernight: carryCheck/.test(ui));
     });
