@@ -364,13 +364,18 @@ async function main() {
         setTimeout(() => process.exit(0), 2000);
     }
 
+    let ticking = false;   // a slow API/exit must not let a second poll start while the first is mid-order
     async function tick() {
+        if (ticking) return;
+        ticking = true;
         try {
             await checkEntry();
             await checkSafetyCut();
             await checkExit();
         } catch (err) {
             console.error(c.red(`GAP CAPTURE loop error: ${err.message}`));
+        } finally {
+            ticking = false;
         }
     }
 
