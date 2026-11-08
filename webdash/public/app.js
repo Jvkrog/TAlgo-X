@@ -827,6 +827,29 @@ function escHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// ── Strategy-specific settings (strategies/strategyParams.js): one generic form for every strategy that declares params ──
+function spFormHtml(spec, values, prefix) {
+  if (!spec) return "";
+  const vals = values || {};
+  const rows = spec.map(sp => {
+    const id = `${prefix}_${sp.key}`, cur = vals[sp.key] !== undefined ? vals[sp.key] : "";
+    const label = `<div class="tb-form-label">${escHtml(sp.label)} \u2014 ${escHtml(sp.help || "")} <span class="tb-native-tag">default ${escHtml(String(sp.default))}</span></div>`;
+    if (sp.type === "enum") return `<div class="tb-form-row">${label}<select id="${id}"><option value="">Default (${escHtml(String(sp.default))})</option>${sp.choices.map(c => `<option value="${escHtml(String(c))}"${String(cur) === String(c) ? " selected" : ""}>${escHtml(String(c))}</option>`).join("")}</select></div>`;
+    if (sp.type === "time") return `<div class="tb-form-row">${label}<input type="time" id="${id}" value="${escHtml(String(cur))}"></div>`;
+    return `<div class="tb-form-row">${label}<input type="number" id="${id}" value="${escHtml(String(cur))}" placeholder="${escHtml(String(sp.default))}" min="${sp.min}" max="${sp.max}" step="${sp.type === "int" ? 1 : "any"}"></div>`;
+  }).join("");
+  return `<div class="tb-form-label" style="margin-top:10px;font-weight:600">Strategy settings (blank = default)</div>${rows}`;
+}
+// Only explicitly-filled fields are returned (blank = use the default); the server validates ranges and writes the env explicitly.
+function spRead(root, spec, prefix) {
+  const out = {};
+  (spec || []).forEach(sp => {
+    const el = root.querySelector(`#${prefix}_${sp.key}`);
+    if (el && el.value !== "") out[sp.key] = el.value;
+  });
+  return out;
+}
+
 // Structured segments instead of one padded string — each field is its own
 // non-breaking span, so the row wraps (if it must, on a narrow phone)
 // between fields rather than splitting a number in half. Fixes the
@@ -2138,7 +2161,8 @@ function openEditModal(inst) {
       <div class="tb-form-label">reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
       <input type="number" id="editFlipConfirm" min="1" step="1" value="${inst.flipConfirmCandles ?? ""}">
     </div>` : ""}
-    ${inst.strategy !== "DAILY_HA_BIAS" ? `
+    ${inst.strategyParamSpec ? spFormHtml(inst.strategyParamSpec, inst.strategyParams, "editSp") : ""}
+    ${inst.strategy !== "DAILY_HA_BIAS" && !inst.strategyParamSpec ? `
     <div class="tb-form-row">
       <div class="tb-form-label">entry time IST \u2014 no new entries before it (blank = off, trade from the start)</div>
       <input type="time" id="editEntryTime" value="${inst.entryTime ?? ""}">
@@ -2269,6 +2293,7 @@ function openEditModal(inst) {
     body.riskObserver = !!(tbEditBody.querySelector("#editRiskObserver") && tbEditBody.querySelector("#editRiskObserver").checked);
     const editFlipConfirmEl = tbEditBody.querySelector("#editFlipConfirm");
     if (editFlipConfirmEl) body.flipConfirmCandles = editFlipConfirmEl.value || null;
+    if (inst.strategyParamSpec) body.strategyParams = spRead(tbEditBody, inst.strategyParamSpec, "editSp");   // {} clears back to defaults
     const editDhabEntryEl = tbEditBody.querySelector("#editDhabEntry");
     if (editDhabEntryEl) body.dailyBiasEntryTime = editDhabEntryEl.value || null;
     const editSlTrailEl = tbEditBody.querySelector("#editSlTrail");
@@ -2654,6 +2679,7 @@ function renderAddConfigStep() {
       <div class="tb-form-label">Reversal candles required to flip, anti-whipsaw (blank = 1, immediate)</div>
       <input type="number" id="addFlipConfirm" min="1" step="1">
     </div>
+    <div id="addStratParams" style="display:none"></div>
     <div class="tb-form-row" id="addEntryTimeRow">
       <div class="tb-form-label">Entry time IST \u2014 no new entries before it (default 09:15 \u2014 clear it to trade from the start)</div>
       <input type="time" id="addEntryTime" value="09:15">
@@ -2726,6 +2752,13 @@ function renderAddConfigStep() {
   const greyExitRow = tbAddBody.querySelector("#addGreyExitRow");
   const flipConfirmRow = tbAddBody.querySelector("#addFlipConfirmRow");
   const dhabEntryRow = tbAddBody.querySelector("#addDhabEntryRow");
+  const stratParamsBox = tbAddBody.querySelector("#addStratParams");
+  function renderAddStratParams(info) {
+    const spec = info && info.params;
+    stratParamsBox.style.display = spec ? "" : "none";
+    stratParamsBox.innerHTML = spec ? spFormHtml(spec, {}, "addSp") + `<div class="tb-form-label" style="margin-top:6px;color:var(--warn,#b8860b)">${info.forceCarry ? "Multi-day strategy: always NRML + carry-overnight. " : ""}Chop / volume / long-candle / HTF / daily-HA gates are not applied to this strategy.</div>` : "";
+    tbAddBody.querySelector("#addEntryTimeRow").style.display = (spec || (info && info.key === "DAILY_HA_BIAS")) ? "none" : "";
+  }
   const _grp = { last: null, any: strategies.some(x => x.custom) };
   [...strategies.filter(x => x.custom), ...strategies.filter(x => !x.custom)].forEach(s => {
     strategyGroupHeader(stratList, s, _grp);
@@ -2748,6 +2781,7 @@ function renderAddConfigStep() {
       flipConfirmRow.style.display = s.key === "PURE_HA" ? "" : "none";
       dhabEntryRow.style.display = s.key === "DAILY_HA_BIAS" ? "" : "none";
       tbAddBody.querySelector("#addEntryTimeRow").style.display = s.key === "DAILY_HA_BIAS" ? "none" : "";
+      renderAddStratParams(s);
     });
     stratList.appendChild(div);
   });
@@ -2772,6 +2806,7 @@ function renderAddConfigStep() {
   }
   const defStratInfo = strategies.find(s => s.key === defaultStrat);
   updateTimeframeOptions(defStratInfo ? defStratInfo.timeframe : "15m");
+  renderAddStratParams(defStratInfo);
   almaBandRow.style.display = defaultStrat === "ALMA_PRO_FAST" ? "" : "none";
   almaFastLenRow.style.display = defaultStrat === "ALMA_PRO_FAST" ? "" : "none";
   almaBandLenRow.style.display = defaultStrat === "ALMA_PRO_FAST" ? "" : "none";
@@ -2841,6 +2876,7 @@ function renderAddConfigStep() {
         slDisabled: tbAddBody.querySelector("#addSlDisabled").checked || undefined,
         riskObserver: (pickedStrategy === "DSB_DUAL" && tbAddBody.querySelector("#addRiskObserver").checked) || undefined,
         flipConfirmCandles: pickedStrategy === "PURE_HA" ? (tbAddBody.querySelector("#addFlipConfirm").value || undefined) : undefined,
+        strategyParams: (() => { const info = strategies.find(x => x.key === pickedStrategy); return info && info.params ? spRead(tbAddBody, info.params, "addSp") : undefined; })(),
         dailyBiasEntryTime: pickedStrategy === "DAILY_HA_BIAS" ? (tbAddBody.querySelector("#addDhabEntry").value || undefined) : undefined,
         slTrail: pickedStrategy === "DAILY_HA_BIAS" ? tbAddBody.querySelector("#addSlTrail").checked : undefined,
         atrSlTimeframe: pickedStrategy === "DAILY_HA_BIAS" ? tbAddBody.querySelector("#addAtrTf").value : undefined,
@@ -3075,6 +3111,12 @@ async function renderBacktestParamsStep() {
       <div class="tb-form-label">Entry time IST \u2014 no new entries before it (default 09:15 \u2014 clear it for off)</div>
       <input type="time" id="btEntryTime" value="09:15">
     </div>
+    <div id="btStratParams" style="display:none"></div>
+    <div class="tb-form-row" id="btCostsRow">
+      <div class="tb-form-label">MCX costs (brokerage, CTT, exchange/SEBI/GST/stamp + slippage) \u2014 results become NET of costs. Default: on for the newer strategies, off for the older ones (their historical gross numbers)</div>
+      <select id="btCosts"><option value="">Default for this strategy</option><option value="true">On</option><option value="false">Off (gross)</option></select>
+      <input type="number" id="btSlipTicks" min="0" max="20" step="any" placeholder="slippage ticks per side (default 1)" style="margin-top:6px">
+    </div>
     <div class="tb-form-row" id="btDhabEntryRow" style="display:none">
       <div class="tb-form-label">Trade entry time IST \u2014 the first candle at/after it takes the previous daily HA candle's side (blank = 10:00)</div>
       <input type="time" id="btDhabEntry">
@@ -3156,6 +3198,14 @@ async function renderBacktestParamsStep() {
   if (btState.strategy === "ALMA_BAND") {
     tbBacktestBody.querySelector("#btAtrRow").style.display = "none";
     tbBacktestBody.querySelector("#btHardSlRow").style.display = "none";
+  }
+  {
+    const sinfo = (btState.strategies || []).find(x => x.key === btState.strategy);
+    const box = tbBacktestBody.querySelector("#btStratParams");
+    if (sinfo && sinfo.params) {
+      box.style.display = ""; box.innerHTML = spFormHtml(sinfo.params, {}, "btSp");
+      tbBacktestBody.querySelector("#btEntryTimeRow").style.display = "none";
+    }
   }
   if (btState.strategy === "DAILY_HA_BIAS") {
     tbBacktestBody.querySelector("#btDhabEntryRow").style.display = "";
@@ -3252,6 +3302,9 @@ async function renderBacktestParamsStep() {
       atrSlMult: btState.strategy === "ALMA_BAND" ? undefined : (tbBacktestBody.querySelector("#btAtrMult").value || undefined),
       slDisabled: tbBacktestBody.querySelector("#btSlDisabled").checked || undefined,
       hardSlRupees: btState.strategy === "ALMA_BAND" ? undefined : (tbBacktestBody.querySelector("#btHardSl").value || undefined),
+      strategyParams: (() => { const si = (btState.strategies || []).find(x => x.key === btState.strategy); return si && si.params ? spRead(tbBacktestBody, si.params, "btSp") : undefined; })(),
+      btCosts: tbBacktestBody.querySelector("#btCosts").value || undefined,
+      btSlippageTicks: tbBacktestBody.querySelector("#btSlipTicks").value || undefined,
       dailyBiasEntryTime: btState.strategy === "DAILY_HA_BIAS" ? (tbBacktestBody.querySelector("#btDhabEntry").value || undefined) : undefined,
       slTrail: btState.strategy === "DAILY_HA_BIAS" ? tbBacktestBody.querySelector("#btSlTrail").checked : undefined,
       atrSlTimeframe: btState.strategy === "DAILY_HA_BIAS" ? tbBacktestBody.querySelector("#btAtrTf").value : undefined,
@@ -3315,7 +3368,7 @@ async function renderBacktestParamsStep() {
         const keys = ["chopFilterEnabled", "chopPeriod", "chopMax", "longCandleFilterEnabled", "longCandleAtrPeriod", "longCandleAtrMult", "longCandleCooldownCandles",
           "disableDoubleOrders", "atrSlMult", "hardSlRupees", "slDisabled", "dailyBiasEntryTime", "slTrail", "atrSlTimeframe", "entryTime", "dailyBiasCandle", "volumeFilterEnabled", "volumeSmaPeriod", "carryOvernight",
           "maxDailyLoss", "maxLosingSwitches", "maxLosingTrades", "maxProfitTrades", "targetPoints", "targetMode", "scalpTarget", "scalpStopDay", "scalpNext", "dsbExitMode", "bandStep2", "dsbDualMode", "sessionTargetRupees",
-          "dailyHaGateEnabled"];
+          "dailyHaGateEnabled", "strategyParams"];
         const payload = { name };
         keys.forEach(k => { if (k in body || body[k] === undefined) payload[k] = body[k] === undefined ? null : body[k]; });
         if (btState.strategy === "DAILY_HA_BIAS") delete payload.entryTime; else { delete payload.dailyBiasEntryTime; delete payload.dailyBiasCandle; delete payload.slTrail; delete payload.atrSlTimeframe; }

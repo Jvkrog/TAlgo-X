@@ -20,6 +20,8 @@ const { STRATEGIES, STRATEGY_INFO, DEFAULT_STRATEGY } = require("../strategies/s
 const customStrategyDb           = require("../strategies/customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL } = require("../data/historicalFetch");
 const { runBacktest } = require("./backtestRun");
+const { STRATEGY_PARAM_SPEC, validateParams } = require("../strategies/strategyParams");
+const { STRATEGY_INFO: STRAT_INFO } = require("../strategies/strategies");
 const { nativeCandleType, CANDLE_LABEL, overrideWarning } = require("../indicators/candleType");
 
 const TIMEFRAMES = Object.keys(TIMEFRAME_TO_INTERVAL); // ["5m","15m","30m","1h"]
@@ -348,6 +350,32 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         }
     }
 
+    // Strategies with their own settings (strategyParams.js) — validated by the same code the live engine uses.
+    if (!isCustom && STRATEGY_PARAM_SPEC[strategyKey]) {
+        const chosen = {};
+        for (const sp of STRATEGY_PARAM_SPEC[strategyKey]) {
+            for (;;) {
+                const inp = (await ask(`  ${sp.label} [default ${sp.default}]${sp.choices ? ` (${sp.choices.join("/")})` : ""} — ${sp.help}: `)).trim();
+                if (!inp) break;
+                const v = validateParams(strategyKey, { [sp.key]: inp });
+                if (v.ok) { chosen[sp.key] = v.params[sp.key]; break; }
+                console.log(c.yellow(`  ${v.errors[0]}`));
+            }
+        }
+        params.strategyParams = chosen;
+        console.log(c.dim(`  ${strategyKey}: chop / volume / long-candle / HTF / daily-HA gates are NOT applied to this strategy.`));
+    }
+    // MCX transaction costs (backtest/mcxCosts.js): default ON for the newer strategies, OFF (historical gross) for the older ones.
+    {
+        const dflt = !!(STRAT_INFO[strategyKey] && STRAT_INFO[strategyKey].costsDefault);
+        const inp = (await ask(`  Include MCX costs (brokerage, CTT, fees, slippage) so results are NET? [Y/N] (blank = ${dflt ? "Y" : "N"}): `)).trim().toUpperCase();
+        if (inp === "Y" || inp === "N") params.BT_COSTS = inp === "Y";
+        if (params.BT_COSTS === true || (params.BT_COSTS === undefined && dflt)) {
+            const sl = (await ask("  Slippage in ticks per side (blank = 1): ")).trim();
+            if (sl && Number.isFinite(Number(sl)) && Number(sl) >= 0) params.BT_SLIPPAGE_TICKS = Number(sl);
+        }
+    }
+
     // Choppiness Index gate (chopGate.js's isChopBlocked) — universal,
     // asked for every strategy regardless of STRATEGY_PARAMS above, since
     // as of the "make every strategy check chop at entry" change every
@@ -651,6 +679,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     console.log(`  Profit Factor:  ${m.profitFactor === null ? "-" : m.profitFactor === Infinity ? "∞" : m.profitFactor.toFixed(2)}`);
     console.log(`  Net Points:     ${m.netPoints.toFixed(2)}`);
     console.log(`  Net PnL:        ${fmtMoney(m.netPnL)}`);
+    if (m.totalCosts > 0) console.log(`  Gross / Costs:  ${fmtMoney(m.grossPnL)} / -${fmtMoney(m.totalCosts).replace("₹", "₹")}  (brokerage, CTT, fees, slippage)`);
     console.log(`  Max Drawdown:   ${fmtMoney(m.maxDrawdown)}`);
     console.log(`  Largest Win:    ${fmtMoney(m.largestWin)}`);
     console.log(`  Largest Loss:   ${fmtMoney(m.largestLoss)}`);

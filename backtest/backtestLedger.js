@@ -21,7 +21,10 @@
 // point of this file existing instead of just reusing db.js with a fake path.
 "use strict";
 
-function createBacktestLedger({ clock }) {
+const { roundTripCosts } = require("./mcxCosts");
+
+// costModel (optional): { lotMult, tickSize, rates } — when given, every closed trade carries gross_pnl, costs and a NET pnl.
+function createBacktestLedger({ clock, costModel = null }) {
     let nextId = 1;
     const trades = [];   // every trade this run has opened, open or closed
     let position = null; // mirrors db.js's single-row-per-(engine,token) positions table
@@ -53,6 +56,11 @@ function createBacktestLedger({ clock }) {
             trade.exit_price  = exitPrice;
             trade.exit_time   = clock.now().toISOString();
             trade.pnl         = pnl;
+            if (costModel) {
+                const cost = roundTripCosts({ side: trade.side, entryPrice: trade.entry_price, exitPrice, lots: trade.qty,
+                    lotMult: costModel.lotMult, tickSize: costModel.tickSize, rates: costModel.rates });
+                trade.gross_pnl = pnl; trade.costs = cost.total; trade.cost_breakdown = cost; trade.pnl = pnl - cost.total;
+            }
             trade.exit_reason = exitReason;
             trade.status      = "CLOSED";
         }

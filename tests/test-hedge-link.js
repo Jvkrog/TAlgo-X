@@ -68,7 +68,7 @@ t("transition: aligned->hedged clears stop; hedged->aligned re-arms; peer flat k
 // ── server + engine wiring ──
 const srv = fs.readFileSync(__dirname + "/../webdash/server.js", "utf8"), engSrc = fs.readFileSync(__dirname + "/../engine.js", "utf8");
 t("buildProcessEnv always writes HEDGE_LINK_* (an edit/mode restart must not unlink the pair)", () => {
-    const a = srv.indexOf("function buildProcessEnv"), b = srv.indexOf("\n}\n", a) + 2; const fn = vm.runInNewContext("(" + srv.slice(a, b).replace("function buildProcessEnv", "function") + ")", { process: { env: {} }, ROOT: "/", PM2_BASE_OPTS: {}, console, Object, String, Number });
+    const a = srv.indexOf("function buildProcessEnv"), b = srv.indexOf("\n}\n", a) + 2; const fn = vm.runInNewContext("(" + srv.slice(a, b).replace("function buildProcessEnv", "function") + ")", { process: { env: {} }, ROOT: "/", PM2_BASE_OPTS: {}, console, Object, String, Number, ...require("../strategies/strategyParams") });
     let env; try { env = fn({ name: "n", underlying: "X", strategy: "DSB_DUAL", hedgeGroup: "P", hedgeRole: "B" }); } catch (e) { env = null; }
     if (env) { const e = env.env || env; assert.strictEqual(e.HEDGE_LINK_GROUP, "P"); assert.strictEqual(e.HEDGE_LINK_ROLE, "B"); const f0 = fn({ name: "n", underlying: "X", strategy: "DSB_DUAL" }), f = f0.env || f0; assert.strictEqual(f.HEDGE_LINK_GROUP, ""); }
     else assert.ok(/env\.HEDGE_LINK_GROUP = p\.hedgeGroup \|\| ""/.test(srv) && /env\.HEDGE_LINK_ROLE\s+= p\.hedgeGroup/.test(srv));
@@ -82,7 +82,7 @@ async function runAdd(body, existing) {
     const ra = srv.indexOf("function resolveProductMode"), rb = srv.indexOf("\n}\n", ra) + 2;
     for (let i = 0; i < 120; i++) {
         const ctx = { app: { post: (r, h) => { routes[r] = h; } }, console, Object, Array, Number, String, Date, JSON, Math, Set, Map, Promise, Error, RegExp, process: { env: {} }, ...stubs,
-            STRATEGIES: { DSB_DUAL: 1, DAILY_HA_BIAS: 1 }, DEFAULT_STRATEGY: "DSB_DUAL", STRATEGY_TIMEFRAME: {}, STRATEGY_INFO: {}, getEngineProcesses: async () => existing,
+            ...require('../strategies/strategyParams'), STRATEGIES: { DSB_DUAL: 1, DAILY_HA_BIAS: 1 }, DEFAULT_STRATEGY: "DSB_DUAL", STRATEGY_TIMEFRAME: {}, STRATEGY_INFO: {}, getEngineProcesses: async () => existing,
             ensureCsvLoaded: async () => ({}), getDefinition: () => ({ lotMult: 100 }), resolveCurrent: () => ({ contract: { lotSize: 1 } }), toProcessName: (u, s) => `${u}_${s}`, normalizeCandleType: () => null, pinStore: {}, customStrategyDb: { getStrategyByName: async () => null } };
         ctx.pm2Start = async () => {}; vm.createContext(ctx); vm.runInContext(srv.slice(ra, rb) + "\n" + handler, ctx);
         const r = await new Promise(res => routes["/api/toolbox/instrument"]({ body: JSON.parse(JSON.stringify(body)), params: {} }, { json: x => res({ status: 200, body: x }), status: c => ({ json: x => res({ status: c, body: x }) }) }));

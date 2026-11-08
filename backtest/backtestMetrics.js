@@ -6,7 +6,7 @@
 function emptyMetrics() {
     return {
         trades: 0, winRate: 0, profitFactor: null, netPoints: 0, netPnL: 0,
-        maxDrawdown: 0, largestWin: 0, largestLoss: 0, avgTrade: 0, avgHoldTimeMs: 0,
+        maxDrawdown: 0, largestWin: 0, largestLoss: 0, avgTrade: 0, avgHoldTimeMs: 0, grossPnL: 0, totalCosts: 0,
     };
 }
 
@@ -14,13 +14,14 @@ function computeMetrics(trades) {
     const closed = trades.filter(t => t.status === "CLOSED");
     if (closed.length === 0) return emptyMetrics();
 
-    let grossProfit = 0, grossLoss = 0, wins = 0, netPnL = 0, netPoints = 0;
+    let grossProfit = 0, grossLoss = 0, wins = 0, netPnL = 0, netPoints = 0, grossPnL = 0, totalCosts = 0;
     let largestWin = 0, largestLoss = 0, totalHoldMs = 0;
     let equity = 0, peak = 0, maxDrawdown = 0;
 
     for (const t of closed) {
         const pnl = t.pnl || 0;
         netPnL += pnl;
+        grossPnL += (t.gross_pnl ?? pnl); totalCosts += (t.costs || 0);
 
         const dir = t.side === "LONG" ? 1 : -1;
         netPoints += (t.exit_price - t.entry_price) * dir;
@@ -55,6 +56,7 @@ function computeMetrics(trades) {
         largestLoss,
         avgTrade: netPnL / closed.length,
         avgHoldTimeMs: totalHoldMs / closed.length,
+        grossPnL, totalCosts,   // equal to netPnL / 0 when no cost model was used
     };
 }
 

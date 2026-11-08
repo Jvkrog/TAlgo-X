@@ -150,6 +150,7 @@ th{background:#161a22} td:first-child,th:first-child{text-align:left}
   <div class="card"><div class="label">Profit Factor</div><div class="value">${pf}</div></div>
   <div class="card"><div class="label">Net Points</div><div class="value ${m.netPoints >= 0 ? "pos" : "neg"}">${m.netPoints.toFixed(2)}</div></div>
   <div class="card"><div class="label">Net PnL</div><div class="value ${m.netPnL >= 0 ? "pos" : "neg"}">${fmtMoney(m.netPnL)}</div></div>
+${m.totalCosts > 0 ? `  <div class="card"><div class="label">Gross PnL</div><div class="value">${fmtMoney(m.grossPnL)}</div></div>\n  <div class="card"><div class="label">Costs (brokerage, CTT, fees, slippage)</div><div class="value neg">-${fmtMoney(m.totalCosts)}</div></div>` : ""}
   <div class="card"><div class="label">Max Drawdown</div><div class="value neg">${fmtMoney(m.maxDrawdown)}</div></div>
   <div class="card"><div class="label">Largest Win</div><div class="value pos">${fmtMoney(m.largestWin)}</div></div>
   <div class="card"><div class="label">Largest Loss</div><div class="value neg">${fmtMoney(m.largestLoss)}</div></div>
