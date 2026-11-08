@@ -6,7 +6,7 @@
 "use strict";
 const { isBeforeEntryTime } = require("../gates/entryTimeGate");
 
-const { STRATEGIES }              = require("../strategies/strategies");
+const { STRATEGIES, STRATEGY_INFO } = require("../strategies/strategies");
 const customStrategyDb            = require("../strategies/customStrategyDb");
 const { createCustomStrategy }    = require("../strategies/customStrategyRuntime");
 const { createBacktestLedger }    = require("./backtestLedger");
@@ -73,6 +73,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     // the one override that's non-negotiable here, everything else in
     // `params` is the strategy's own tunable knobs (ALMA_LEN, DPI_EFF_THRESH,
     // etc.), applied as a plain override on top of the real defaults.
+    if (params.strategyParams) context.strategyParams = params.strategyParams;   // strategy-specific settings (strategyParams.js)
     const engineConfig = Object.assign({}, engineConfigDefaults, params, {
         LIVE_ORDERS: false,
         ENGINE_ENABLED: true,
@@ -107,7 +108,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     if (candleWarning) console.log(c.yellow(`  ⚠ ${candleWarning}`));
 
     // Daily engines hold positions across days (live forces carry-overnight for 1d, see engine.js).
-    if (timeframe === "1d") context.carryOvernight = true;
+    if (timeframe === "1d" || (STRATEGY_INFO[strategyKey] || {}).forceCarry) context.carryOvernight = true;
     const state   = createState();
     // pairSync (backtestLinkedPair.js): this run is one leg of a linked hedge pair — stops are suppressed while the legs are opposite.
     const slStore = createSLStore({ isDisabled: () => !!context.slDisabled, isSuppressed: () => !!(pairSync && pairSync.hedged()) });
@@ -138,7 +139,14 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     let currentCandle = null;
     const clock = { now: () => currentCandle ? new Date(currentCandle.date) : new Date() };
 
-    const ledger = createBacktestLedger({ clock });
+    // MCX transaction costs (brokerage, CTT, exchange/SEBI/GST/stamp + slippage) -> NET pnl. Default ON for strategies flagged
+    // costsDefault in STRATEGY_INFO (the newer ones); params.BT_COSTS true/false overrides for any strategy. Existing
+    // strategies keep their historical gross numbers unless you ask for costs.
+    const costsOn = params.BT_COSTS !== undefined ? params.BT_COSTS === true || params.BT_COSTS === "true"
+                  : !!(STRATEGY_INFO[strategyKey] && STRATEGY_INFO[strategyKey].costsDefault);
+    const costModel = costsOn ? { lotMult: context.lotMult, tickSize: context.tickSize,
+        rates: params.BT_SLIPPAGE_TICKS !== undefined ? { slippageTicks: Number(params.BT_SLIPPAGE_TICKS) } : {} } : null;
+    const ledger = createBacktestLedger({ clock, costModel });
     const broker = createBacktestBroker();
     // Silent — telegram.js's real fallback (when unconfigured) console.logs
     // every message, which would spam stdout across a year-long replay.
@@ -176,7 +184,11 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     // beyond the same historical fetch this file already makes.
     const weeklyHa = require("../strategies/weeklyHa");
     // Weekly HA Bias chains Heikin-Ashi over weekly bars, so it wants ~17 weeks of daily history before the first replay day.
-    const dailyFrom = context.biasPeriod === "WEEKLY" ? new Date(Math.min(fetchFrom.getTime(), from.getTime() - 120 * 24 * 60 * 60 * 1000)) : fetchFrom;
+    // Strategies that decide on RAW daily bars (STRATEGY_INFO[key].dailyBars, e.g. TREND_DONCHIAN_VT) need up to ~200 channel days + ATR
+    // history before the first replay day.
+    const needsDailyBars = !!(STRATEGY_INFO[strategyKey] && STRATEGY_INFO[strategyKey].dailyBars);
+    const dailyFrom = needsDailyBars ? new Date(Math.min(fetchFrom.getTime(), from.getTime() - 420 * 24 * 60 * 60 * 1000))
+                    : context.biasPeriod === "WEEKLY" ? new Date(Math.min(fetchFrom.getTime(), from.getTime() - 120 * 24 * 60 * 60 * 1000)) : fetchFrom;
     const dailyRaw = await fetchDailyCandles({ kc, token: context.token, from: dailyFrom, to });
     // Drop the still-forming last bar — same no-lookahead convention every
     // other candle consumer here follows. Harmless if `to` is in the past
@@ -233,6 +245,11 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     const strategy = factory({
         context, engineConfig, state, db: ledger, candles: feed, slStore, targetStore,
         orders: broker, positionsClose, positionsUnrealised, lifecycle, tg, clock, htf, dailyHa,
+        // Completed raw daily bars AS OF THE REPLAY CLOCK (bars dated before the replay's IST day) — no look-ahead.
+        dailyBars: { getCompleted: async () => {
+            const dayKey = new Date(clock.now().getTime() + 5.5 * 3600000).toISOString().split("T")[0];
+            return dailyRaw.filter(b => new Date(new Date(b.date).getTime() + 5.5 * 3600000).toISOString().split("T")[0] < dayKey);
+        } },
     });
 
     await strategy.initSignals(); // ledger.loadPosition() always resolves null — always starts flat

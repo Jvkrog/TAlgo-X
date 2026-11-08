@@ -27,6 +27,7 @@ const { createContractPinStore } = require("./data/contractPins");
 const { resolveCurrent }         = require("./data/instrumentResolution");
 const { getDefinition, buildContext, defaultEodFor } = require("./core/context");
 const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = require("./strategies/strategies");
+const { STRATEGY_PARAM_SPEC, validateParams, paramsToEnv, paramsFromEnv } = require("./strategies/strategyParams");
 const { CANDLE_LABEL, nativeCandleType, normalizeCandleType, resolveCandleMode, overrideWarning } = require("./indicators/candleType");
 const { INDICATOR_CATALOG } = require("./indicators/indicatorCatalog");
 const { normalizePrice }    = require("./core/price");
@@ -81,6 +82,27 @@ function ask(prompt) {
 // or recording. Falls back to a normal (visible) prompt when stdout isn't a
 // real TTY, since the `_writeToOutput` override this relies on only makes
 // sense against an actual terminal.
+// Strategy-specific settings (strategyParams.js). Blank keeps the current/default value, "default" resets one. Returns the full
+// explicit-values object, or null for a strategy that has no parameter set.
+async function promptStrategyParams(strategy, current = {}) {
+    const specs = STRATEGY_PARAM_SPEC[strategy];
+    if (!specs) return null;
+    const out = { ...current };
+    console.log(c.dim(`  ${(STRATEGY_INFO[strategy] || {}).label || strategy} settings — blank keeps the value in [brackets], "default" resets it`));
+    for (const sp of specs) {
+        const cur = out[sp.key] !== undefined ? out[sp.key] : sp.default;
+        for (;;) {
+            const inp = (await ask(`  ${sp.label} [${cur}]${sp.choices ? ` (${sp.choices.join("/")})` : ""} — ${sp.help}: `)).trim();
+            if (!inp) break;
+            if (inp.toLowerCase() === "default") { delete out[sp.key]; break; }
+            const v = validateParams(strategy, { [sp.key]: inp });
+            if (v.ok) { out[sp.key] = v.params[sp.key]; break; }
+            console.log(c.yellow(`  ${v.errors[0]}`));
+        }
+    }
+    return out;
+}
+
 function askHidden(prompt) {
     if (!process.stdout.isTTY) return ask(prompt);
     return new Promise(resolve => {
@@ -197,6 +219,7 @@ async function getEngineProcesses() {
             flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
             candleType: normalizeCandleType(p.pm2_env.env?.CANDLE_TYPE_OVERRIDE) || null,
             rangeSize: p.pm2_env.env?.RANGE_SIZE_OVERRIDE ? Number(p.pm2_env.env.RANGE_SIZE_OVERRIDE) : null,
+            strategyParams: (() => { try { const raw = p.pm2_env.env?.STRATEGY_PARAMS_OVERRIDE; return raw ? JSON.parse(raw) : null; } catch { return null; } })(),
             dailyBiasEntryTime: p.pm2_env.env?.DAILY_BIAS_ENTRY_TIME_OVERRIDE || null,
             dailyBiasCandle: p.pm2_env.env?.DAILY_BIAS_CANDLE_OVERRIDE || null,
             biasPeriod: p.pm2_env.env?.BIAS_PERIOD_OVERRIDE === "WEEKLY" ? "WEEKLY" : "DAILY",
@@ -684,6 +707,8 @@ function buildProcessEnv(p, overrides = {}) {
     env.CANDLE_TYPE_OVERRIDE = p.candleType || "";
     env.RANGE_SIZE_OVERRIDE = p.rangeSize ? String(p.rangeSize) : "";
     env.PROCESS_NAME = p.name;
+    // Strategy-specific settings — ALWAYS written ("" when none): pm2 restart merges env, an omitted key would keep the old run's value.
+    env.STRATEGY_PARAMS_OVERRIDE = paramsToEnv(p.strategy, p.strategyParams);
     env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = p.dailyBiasEntryTime || "";
     env.DAILY_BIAS_CANDLE_OVERRIDE = p.dailyBiasCandle || "";
     env.BIAS_PERIOD_OVERRIDE = (p.strategy === "DAILY_HA_BIAS" && p.biasPeriod === "WEEKLY") ? "WEEKLY" : "";
@@ -1011,7 +1036,7 @@ async function editInstrument(procs) {
         // DAILY_HA_BIAS: which daily candle decides the side.
         // Universal entry time (every strategy except DAILY_HA_BIAS, which has its own above).
         let entryTime = p.entryTime;
-        if (p.strategy !== "DAILY_HA_BIAS") {
+        if (p.strategy !== "DAILY_HA_BIAS" && !STRATEGY_PARAM_SPEC[p.strategy]) {
             const cur = p.entryTime || "off";
             const inp = (await ask(`  Entry time IST HH:MM — no new entries before it (current: ${cur}, "clear" = off, blank = keep): `)).trim();
             if (inp) {
@@ -1183,7 +1208,9 @@ async function editInstrument(procs) {
             }
         }
 
-        const updatedP = { ...p, slDisabled, riskObserver, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles };
+        let strategyParams = p.strategyParams || null;
+        if (STRATEGY_PARAM_SPEC[p.strategy]) strategyParams = await promptStrategyParams(p.strategy, p.strategyParams || {});
+        const updatedP = { ...p, strategyParams, slDisabled, riskObserver, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, bandStep2, dsbDualMode, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, sessionTargetRupees, chopFilterEnabled, chopPeriod, chopMax, disableDoubleOrders, atrSlMult, hardSlRupees, flipConfirmCandles };
         try {
             await pm2Restart({
                 ...PM2_BASE_OPTS, script: "engine.js", name: p.name, cwd: __dirname, updateEnv: true,
@@ -1227,8 +1254,12 @@ async function riskManagement(procs) {
         // engine-level, independent of any strategy's own SL) still do
         // anything for this strategy, so those two stay below unchanged.
         const isDailyHaBias = p.strategy === "DAILY_HA_BIAS";
-        if (isDailyHaBias) {
-            console.log(c.dim(`  DAILY_HA_BIAS ignores chop/double-order/volume/long-candle/HTF gates entirely (no target, one decision at the entry time) — skipping those prompts; only the ATR stop-loss multiplier, the daily-HA gate and max daily loss below actually apply`));
+        // Strategies with their own parameter set (strategyParams.js) wire in none of the universal chop/volume/long-candle/HTF/double-order
+        // gates either — each one documents its own gate policy in STRATEGY_INFO. Treated like DAILY_HA_BIAS for the gate prompts below.
+        const hasOwnParams = !!(STRATEGY_INFO[p.strategy] || {}).params;
+        const gateless = isDailyHaBias || hasOwnParams;
+        if (gateless) {
+            console.log(c.dim(`  ${p.strategy} ignores chop/double-order/volume/long-candle/HTF gates entirely (no target, one decision at the entry time) — skipping those prompts; only the ATR stop-loss multiplier, the daily-HA gate and max daily loss below actually apply`));
         }
 
         // DAILY_HA_BIAS trade entry time (IST) — the once-a-day decision fires on the first
@@ -1259,7 +1290,7 @@ async function riskManagement(procs) {
         let chopFilterEnabled = p.chopFilterEnabled;
         let chopPeriod = p.chopPeriod;
         let chopMax = p.chopMax;
-        if (p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW" && !isDailyHaBias) {
+        if (p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW" && !gateless) {
             const chopFilterDefault = p.chopFilterEnabled !== false;
             const chopFilterInput = (await ask(`  Use Choppiness Index entry filter? [Y/n] (current: ${chopFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (chopFilterInput) chopFilterEnabled = chopFilterInput !== "N";
@@ -1292,7 +1323,7 @@ async function riskManagement(procs) {
 
         // Double-order gate — universal, opt-in, default OFF (allowed).
         let disableDoubleOrders = p.disableDoubleOrders;
-        if (!isDailyHaBias) {
+        if (!gateless) {
             const doubleOrderDefault = p.disableDoubleOrders === true;
             const doubleOrderInput = (await ask(`  Disable double orders (blocks reversal re-entries only)? [y/N] (current: ${doubleOrderDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (doubleOrderInput) disableDoubleOrders = doubleOrderInput === "Y";
@@ -1370,7 +1401,7 @@ async function riskManagement(procs) {
         // Volume SMA entry gate — universal, opt-in, default OFF.
         let volumeFilterEnabled = p.volumeFilterEnabled;
         let volumeSmaPeriod = p.volumeSmaPeriod;
-        if (!isDailyHaBias) {
+        if (!gateless) {
             const volumeFilterDefault = p.volumeFilterEnabled === true;
             const volumeFilterInput = (await ask(`  Only enter when volume is above its SMA? [y/N] (current: ${volumeFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (volumeFilterInput) volumeFilterEnabled = volumeFilterInput === "Y";
@@ -1408,7 +1439,7 @@ async function riskManagement(procs) {
         let longCandleCooldownCandles = p.longCandleCooldownCandles;
         let longCandleUseBodyFilter = p.longCandleUseBodyFilter;
         let longCandleBodyAtrMult = p.longCandleBodyAtrMult;
-        if (!isDailyHaBias) {
+        if (!gateless) {
             const lcFilterDefault = p.longCandleFilterEnabled !== false;
             const lcFilterInput = (await ask(`  Block new entries after an abnormally large candle? [Y/n] (current: ${lcFilterDefault ? "Y" : "N"}, blank = keep): `)).trim().toUpperCase();
             if (lcFilterInput) longCandleFilterEnabled = lcFilterInput !== "N";
@@ -1516,15 +1547,15 @@ async function riskManagement(procs) {
             // skip note printed above) — showing them would misrepresent
             // settings that were never asked about as if they'd been
             // confirmed "on"/"off" for this restart.
-            const chopTag = isDailyHaBias ? "" : p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW"
+            const chopTag = gateless ? "" : p.strategy !== "ALMA_PRO_FAST" && p.strategy !== "ALMA_PRO_SLOW"
                 ? (chopFilterEnabled ? c.dim(` chop:${chopPeriod ?? engineConfig.CHOP_LEN}/${chopMax ?? engineConfig.CHOP_GATE_MAX_DEFAULT}`) : c.yellow(" chop:off"))
                 : (p.strategy === "ALMA_PRO_FAST" || p.strategy === "ALMA_PRO_SLOW") && !almaChopFilterEnabled ? c.yellow(" chop:off") : "";
-            const doubleTag = isDailyHaBias ? "" : disableDoubleOrders ? c.yellow(" double:off") : c.dim(" double:on");
+            const doubleTag = gateless ? "" : disableDoubleOrders ? c.yellow(" double:off") : c.dim(" double:on");
             const atrTag = atrSlMult !== null ? c.dim(` atr:${atrSlMult}x`) : "";
             const flipTag = p.strategy === "PURE_HA" ? c.dim(` flip:${flipConfirmCandles ?? 1}`) : "";
-            const volTag = isDailyHaBias ? "" : volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
-            const lcTag = isDailyHaBias ? "" : longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
-            const htfTag = isDailyHaBias ? "" : htfGateEnabled ? c.dim(` htf:${p.timeframe || timeframe}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${htfBandBlockEnabled === false ? "(no-band)" : ""}`) : c.yellow(" htf:off");
+            const volTag = gateless ? "" : volumeFilterEnabled ? c.dim(` vol:sma${volumeSmaPeriod ?? engineConfig.VOLUME_SMA_LEN_DEFAULT}`) : "";
+            const lcTag = gateless ? "" : longCandleFilterEnabled ? c.dim(` lc:atr${longCandleAtrPeriod ?? engineConfig.LONG_CANDLE_ATR_PERIOD_DEFAULT}x${longCandleAtrMult ?? engineConfig.LONG_CANDLE_ATR_MULT_DEFAULT}/cd${longCandleCooldownCandles ?? engineConfig.LONG_CANDLE_COOLDOWN_CANDLES_DEFAULT}`) : c.yellow(" lc:off");
+            const htfTag = gateless ? "" : htfGateEnabled ? c.dim(` htf:${p.timeframe || timeframe}/${htfChopPeriod ?? engineConfig.HTF_CHOP_LEN_DEFAULT}/${htfChopMax ?? engineConfig.HTF_CHOP_MAX_DEFAULT}${htfBandBlockEnabled === false ? "(no-band)" : ""}`) : c.yellow(" htf:off");
             const dailyHaTag = dailyHaGateEnabled === false ? c.yellow(" dailyha:off") : c.dim(" dailyha:on");
             const entryTag = isDailyHaBias ? c.dim(` entry:${dailyBiasEntryTime || "10:00"} ${(dailyBiasCandle || "PREVIOUS") === "CURRENT" ? "today-candle" : "prev-candle"}`) : entryTime ? c.dim(` entry>=${entryTime}`) : "";
             const lossTag = maxDailyLoss !== null ? c.dim(` maxloss:-₹${maxDailyLoss}`) : "";
@@ -1929,7 +1960,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     }
 
     let entryTime = null;
-    if (strategy !== "DAILY_HA_BIAS") {
+    if (strategy !== "DAILY_HA_BIAS" && !STRATEGY_PARAM_SPEC[strategy]) {
         const inp = (await ask(`  Entry time IST HH:MM — no new entries before it (blank = 09:15, "clear" = off, trade from the start): `)).trim();
         if (!inp) entryTime = "09:15";
         else if (inp.toLowerCase() === "clear") entryTime = null;
@@ -1946,6 +1977,10 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
         if (inp === "CURRENT" || inp === "PREVIOUS") dailyBiasCandle = inp;
         else if (inp) console.log(c.yellow(`  "${inp}" isn't PREVIOUS or CURRENT — using PREVIOUS`));
     }
+
+    // Strategies with their own parameter set (strategyParams.js): asked here, written to env explicitly below.
+    const strategyParams = STRATEGY_PARAM_SPEC[strategy] ? await promptStrategyParams(strategy, {}) : null;
+    if (STRATEGY_PARAM_SPEC[strategy]) console.log(c.dim(`  ${strategy}: chop / volume / long-candle / HTF / daily-HA gates are NOT applied (see the strategy description); the gate prompts below only matter for other strategies.`));
 
     // Volume SMA entry gate — universal, opt-in, default OFF. Only enters
     // when the current candle's volume is strictly above a plain SMA
@@ -2204,6 +2239,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     env.SL_DISABLED_OVERRIDE = slDisabled ? "1" : "";
     env.RISK_OBSERVER_OVERRIDE = (strategy === "DSB_DUAL" && riskObserver) ? "1" : "";
     if (strategy === "PURE_HA" && flipConfirmCandles !== null) env.FLIP_CONFIRM_CANDLES_OVERRIDE = String(flipConfirmCandles);
+    env.STRATEGY_PARAMS_OVERRIDE = paramsToEnv(strategy, strategyParams);   // always written ("" = none / defaults)
     if (strategy === "DAILY_HA_BIAS" && dailyBiasEntryTime !== null) env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = dailyBiasEntryTime;
     if (strategy === "DAILY_HA_BIAS" && dailyBiasCandle !== null) env.DAILY_BIAS_CANDLE_OVERRIDE = dailyBiasCandle;
     if (strategy !== "DAILY_HA_BIAS" && entryTime !== null) env.ENTRY_TIME_OVERRIDE = entryTime;

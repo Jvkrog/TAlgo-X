@@ -31,6 +31,7 @@ const { isDoubleOrderBlocked } = require("../gates/doubleOrderGate");
 const { isVolumeBlocked } = require("../gates/volumeGate");
 const { evaluateLongCandle } = require("../gates/longCandleGate");
 const { createHaCandleReader } = require("../indicators/haCandleReader");
+const { createTrendDonchianVtStrategy } = require("./trendDonchianVt");
 
 // ════════════════════════════════════════════════════════════════════════
 // DPI_TREND_MEANREV (key name kept as-is for DB-filename/continuity reasons
@@ -7361,6 +7362,7 @@ const STRATEGIES = {
     VOLUME_DELTA_CVD:     createVolumeDeltaCvdStrategy,
     PURE_HA:              createPureHaStrategy,
     DAILY_HA_BIAS:        createDailyHaBiasStrategy,
+    TREND_DONCHIAN_VT:    createTrendDonchianVtStrategy,
 };
 
 // Toolbox-facing labels only — not a full param schema yet (that's a later
@@ -7392,6 +7394,7 @@ const STRATEGY_INFO = {
     VOLUME_DELTA_CVD:     { label: "Volume Delta / CVD", description: "estimated tick-rule buy/sell volume delta (price-direction based \u2014 Kite doesn't expose true exchange aggressor side) + CVD, layered under EMA20/50 trend, VWAP, relative volume, delta Z-score, absorption, and CVD/price divergence into a 0-100 score; two-candle setup\u2192confirm entry debounce, ATR stop-loss; delta-based signals need warmup time after boot (can't backfill genuine tick delta from historical candles)", short: "VDCVD" },
     PURE_HA:              { label: "Pure Heikin-Ashi Color", description: "no indicator at all \u2014 pure HA candle color decides everything: green candle -> LONG, red -> SHORT, always-in-market, a color flip exits and reverses same candle; separately tags each candle as a \"pure trend\" candle (no wick on the side opposite the body \u2014 no lower wick on green, no upper wick on red) for logging/dashboard purposes, without gating entry on it; Choppiness Index filter available same as every other strategy (currently always-on per the codebase-wide forced check, see this strategy's header comment)", short: "PHA" },
     DAILY_HA_BIAS:        { label: "Daily HA Bias (2-Trade)", description: "one decision a day \u2014 at/after a configurable entry time (default 10:00 IST, taken on the first 15m candle at/after it), take the previous COMPLETED daily HA candle's color as the day's bias (green -> LONG, red -> SHORT, doji -> no trade), fixed ATR-based SL from entry (ATR stop-loss multiplier x ATR, configurable), no target/reversal/re-entry; only exit besides SL is EOD (23:15 IST default) \u2014 at most one entry + one exit per day; gated by the long-candle/volatility-shock filter (default on)", short: "DHAB" },
+    TREND_DONCHIAN_VT:    { label: "Donchian Trend (Vol-Targeted)", description: "multi-day trend following \u2014 one decision a day on the last COMPLETED daily bar: close beyond the N-day high/low (default 20) enters, close beyond the opposite M-day extreme (default 10) exits, fixed stop = k x daily ATR; position size = equity x risk% / (stop distance x lot multiplier) when equity is set (else the deployment's fixed lots); deploy NRML + carry-overnight; wires in none of the chop/volume/long-candle/HTF/daily-HA gates; backtests include MCX costs (brokerage, CTT, fees, slippage) by default", short: "DONCH", costsDefault: true, params: true, dailyBars: true, forceCarry: true },
 };
 
 // Each strategy's live/paper candle interval — this is a property of the
@@ -7468,6 +7471,7 @@ const STRATEGY_TIMEFRAME = {
     // this timeframe at all; also what makes context.js's defaultEodFor()
     // resolve this instrument's EOD to 23:15 IST, matching the spec's
     // "close at 11:15" exactly with zero extra config.
+    TREND_DONCHIAN_VT:    "1h",   // decision clock only (one decision a day, same as DAILY_HA_BIAS) — signals come from daily bars
     DAILY_HA_BIAS:        "1h",   // trades on 15m candles — the decision fires on the first 15m candle at/after the configurable entry time
 };
 

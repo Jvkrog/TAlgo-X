@@ -93,7 +93,7 @@ t("backtest: every WEEKLY entry follows the last completed weekly HA candle as o
 // ── plumbing ──
 const srv = fs.readFileSync(__dirname + "/../webdash/server.js", "utf8"), app = fs.readFileSync(__dirname + "/../webdash/public/app.js", "utf8"), eng = fs.readFileSync(__dirname + "/../engine.js", "utf8"), tbx = fs.readFileSync(__dirname + "/../toolbox.js", "utf8");
 t("env plumbing: always written explicitly, only for DAILY_HA_BIAS, WEEKLY only", () => {
-    const bpA = srv.indexOf("function buildProcessEnv"), bpB = srv.indexOf("\n}\n", bpA) + 2; const ctx = { process: { env: {} }, console, String, Number, Object, Math, JSON, Date, Array, Boolean }; vm.createContext(ctx); vm.runInContext(srv.slice(bpA, bpB), ctx);
+    const bpA = srv.indexOf("function buildProcessEnv"), bpB = srv.indexOf("\n}\n", bpA) + 2; const ctx = { ...require('../strategies/strategyParams'), process: { env: {} }, console, String, Number, Object, Math, JSON, Date, Array, Boolean }; vm.createContext(ctx); vm.runInContext(srv.slice(bpA, bpB), ctx);
     const mk = p => { try { return ctx.buildProcessEnv({ name: "N", underlying: "GOLD", exchange: "MCX", strategy: "DAILY_HA_BIAS", timeframe: "15m", lots: "1", product: "MIS", ...p }); } catch (e) { return { __err: e.message }; } };
     const w = mk({ biasPeriod: "WEEKLY" }), dl = mk({ biasPeriod: "DAILY" }), non = mk({ strategy: "DSB_DUAL", biasPeriod: "WEEKLY" });
     if (w.__err) throw new Error(w.__err); assert.strictEqual(w.BIAS_PERIOD_OVERRIDE, "WEEKLY"); assert.strictEqual(dl.BIAS_PERIOD_OVERRIDE, ""); assert.strictEqual(non.BIAS_PERIOD_OVERRIDE, "");

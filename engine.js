@@ -181,6 +181,11 @@ async function main() {
     if (process.env.CARRY_OVERNIGHT_OVERRIDE !== undefined) {
         context.carryOvernight = process.env.CARRY_OVERNIGHT_OVERRIDE === "true";
     }
+    // Strategies flagged forceCarry (STRATEGY_INFO — the multi-day trend systems) hold positions across days by design.
+    if ((STRATEGY_INFO[context.strategy] || {}).forceCarry && !context.carryOvernight) {
+        context.carryOvernight = true;
+        console.log(c.dim(`[${context.tgPrefix}] ${context.strategy}: carry overnight forced ON (multi-day strategy — an EOD square-off would defeat it)`));
+    }
     // A daily-timeframe engine decides once a day on a completed daily bar, so its positions are meant to
     // live across days — an EOD force-close would turn every trade into a one-day trade.
     if (context.timeframe === "1d" && !context.carryOvernight) {
@@ -418,6 +423,16 @@ async function main() {
             console.log(c.dim(`[${context.tgPrefix}] entry time: no new entries before ${String(m[1]).padStart(2, "0")}:${m[2]} IST`));
         } else {
             console.warn(`[${context.tgPrefix}] ENTRY_TIME_OVERRIDE "${process.env.ENTRY_TIME_OVERRIDE}" is not HH:MM — no entry-time restriction`);
+        }
+    }
+    // Strategy-specific settings (strategies/strategyParams.js): ONE JSON env var, always written by the CLI/WebDash ("" = all defaults).
+    {
+        const { paramsFromEnv, STRATEGY_PARAM_SPEC } = require("./strategies/strategyParams");
+        if (STRATEGY_PARAM_SPEC[context.strategy]) {
+            const r = paramsFromEnv(context.strategy, process.env.STRATEGY_PARAMS_OVERRIDE);
+            context.strategyParams = r.values;
+            for (const m of [...r.errors, ...r.warnings]) console.warn(c.yellow(`[${context.tgPrefix}] strategy param: ${m}`));
+            console.log(c.dim(`[${context.tgPrefix}] ${context.strategy} params: ${JSON.stringify(r.values)}`));
         }
     }
     // DAILY_HA_BIAS daily-candle source — see context.dailyBiasCandle.

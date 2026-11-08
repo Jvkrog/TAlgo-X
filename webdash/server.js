@@ -42,6 +42,7 @@ const { createContractPinStore } = require("../data/contractPins");
 const { resolveCurrent } = require("../data/instrumentResolution");
 const { getDefinition, buildContext, defaultEodFor } = require("../core/context");
 const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = require("../strategies/strategies");
+const { STRATEGY_PARAM_SPEC, validateParams, paramsToEnv } = require("../strategies/strategyParams");
 const { INDICATOR_CATALOG } = require("../indicators/indicatorCatalog");
 const customStrategyDb = require("../strategies/customStrategyDb");
 const { TIMEFRAME_TO_INTERVAL, TIMEFRAME_MINUTES, fetchDailyCandles, fetchHistoricalCandles } = require("../data/historicalFetch");
@@ -519,6 +520,8 @@ async function getEngineProcesses() {
             flipConfirmCandles: p.pm2_env.env?.FLIP_CONFIRM_CANDLES_OVERRIDE ? Number(p.pm2_env.env.FLIP_CONFIRM_CANDLES_OVERRIDE) : null,
             candleType: normalizeCandleType(p.pm2_env.env?.CANDLE_TYPE_OVERRIDE) || null,
             rangeSize: p.pm2_env.env?.RANGE_SIZE_OVERRIDE ? Number(p.pm2_env.env.RANGE_SIZE_OVERRIDE) : null,
+            strategyParams: (() => { try { const raw = p.pm2_env.env?.STRATEGY_PARAMS_OVERRIDE; return raw ? JSON.parse(raw) : null; } catch { return null; } })(),
+            strategyParamSpec: STRATEGY_PARAM_SPEC[(p.pm2_env.env?.STRATEGY_OVERRIDE) || ""] || null,
             dailyBiasEntryTime: p.pm2_env.env?.DAILY_BIAS_ENTRY_TIME_OVERRIDE || null,
             hedgeGroup: p.pm2_env.env?.HEDGE_LINK_GROUP || null,
             hedgeRole:  p.pm2_env.env?.HEDGE_LINK_ROLE || null,
@@ -637,6 +640,8 @@ function buildProcessEnv(p, overrides = {}) {
     env.CANDLE_TYPE_OVERRIDE = p.candleType || "";
     env.RANGE_SIZE_OVERRIDE = p.rangeSize ? String(p.rangeSize) : "";
     env.PROCESS_NAME = p.name;
+    // Strategy-specific settings (strategyParams.js) — ALWAYS written ("" when none): pm2 restart merges env, an omitted key keeps the old value.
+    env.STRATEGY_PARAMS_OVERRIDE = paramsToEnv(p.strategy, p.strategyParams);
     env.DAILY_BIAS_ENTRY_TIME_OVERRIDE = p.dailyBiasEntryTime || "";
     env.HEDGE_LINK_GROUP = p.hedgeGroup || "";   // linked hedge pair: always written explicitly (pm2 env merges; an omitted key would silently unlink on edit/mode restart)
     env.HEDGE_LINK_ROLE  = p.hedgeGroup ? (p.hedgeRole || "") : "";
@@ -933,7 +938,7 @@ app.post("/api/toolbox/mode", async (req, res) => {
 // confirmLive requirement for going live — deliberately not folded in
 // here, so this route never needs that extra safety prompt).
 app.post("/api/toolbox/edit", async (req, res) => {
-    const { name, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, bandStep2, dsbDualMode, slTrail, atrSlTimeframe, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight, product, nrmlEod } = req.body || {};
+    const { strategyParams, name, lots, timeframe, lotMult, targetPoints, targetMode, bandStep, bandStep2, dsbDualMode, slTrail, atrSlTimeframe, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, rangeSize, chopFilterEnabled, chopPeriod, chopMax, sessionTargetRupees, carryOvernight, product, nrmlEod } = req.body || {};
     if (!name) return res.status(400).json({ error: "Name is required" });
 
     try {
@@ -1064,6 +1069,12 @@ app.post("/api/toolbox/edit", async (req, res) => {
                 if (!Number.isInteger(parsedConfirm) || parsedConfirm < 1) return res.status(400).json({ error: "Invalid flipConfirmCandles value" });
                 updated.flipConfirmCandles = parsedConfirm;
             }
+        }
+        if (strategyParams !== undefined && strategyParams !== null) {   // null = "not sent" (apply-from-backtest sends null for strategies without settings); {} = reset to defaults
+            if (!STRATEGY_PARAM_SPEC[p.strategy]) return res.status(400).json({ error: `${p.strategy} has no strategy settings` });
+            const v = validateParams(p.strategy, strategyParams || {});
+            if (!v.ok) return res.status(400).json({ error: v.errors.join("; ") });
+            updated.strategyParams = Object.keys(v.params).length ? v.params : null;
         }
         if (dailyBiasEntryTime !== undefined) {
             if (dailyBiasEntryTime === null || dailyBiasEntryTime === "" || dailyBiasEntryTime === "clear") {
@@ -1488,6 +1499,8 @@ app.get("/api/toolbox/strategies", async (req, res) => {
                 key,
                 label: (STRATEGY_INFO[key] || {}).label || key,
                 description: (STRATEGY_INFO[key] || {}).description || "",
+                params: STRATEGY_PARAM_SPEC[key] || null,           // generic strategy settings (rendered as a dynamic form)
+                forceCarry: !!(STRATEGY_INFO[key] || {}).forceCarry, // multi-day: NRML + carry-overnight always
                 timeframe: STRATEGY_TIMEFRAME[key] || "15m",
                 nativeCandle: nativeCandleType(key),
                 custom: false,
@@ -1586,7 +1599,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     const {
         underlying, exchange = "MCX", lots, lotMultOverride,
         live, confirmLive, carryOvernight, product, nrmlEod, hedgeGroup, hedgeRole,
-        strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, bandStep2, dsbDualMode, slTrail, atrSlTimeframe, biasPeriod, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
+        strategyParams, strategy, timeframe, targetPoints, targetMode, almaBandEnabled, almaFastLen, almaBandLen, almaChopFilterEnabled, bandStep, bandStep2, dsbDualMode, slTrail, atrSlTimeframe, biasPeriod, maxLosingSwitches, maxLosingTrades, maxProfitTrades, scalpTarget, scalpStopDay, scalpNext, dsbExitMode, greyExitEnabled, maxDailyLoss, disableDoubleOrders, atrSlMult, hardSlRupees, slDisabled, riskObserver, flipConfirmCandles, dailyBiasEntryTime, dailyBiasCandle, entryTime, volumeFilterEnabled, volumeSmaPeriod, longCandleFilterEnabled, longCandleAtrPeriod, longCandleAtrMult, longCandleCooldownCandles, htfGateEnabled, htfTimeframe, htfChopPeriod, htfChopMax, htfBandBlockEnabled, dailyHaGateEnabled, candleType, rangeSize,
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "Underlying is required" });
@@ -1650,7 +1663,19 @@ app.post("/api/toolbox/instrument", async (req, res) => {
         // Product / EOD handling. No product sent (old client) => legacy behaviour: carryOvernight true = NRML+carry, false = MIS.
         const pm = (() => { const r = resolveProductMode({ product, nrmlEod, carryOvernight }, { timeframe: tf }); return r.error ? r : (r.product ? r : { product: "MIS", carryOvernight: false }); })();
         if (pm.error) return res.status(400).json({ error: pm.error });
+        // Multi-day strategies (STRATEGY_INFO.forceCarry) always run NRML + carry-overnight — an EOD square-off would defeat them.
+        if ((STRATEGY_INFO[stratKey] || {}).forceCarry) { pm.product = "NRML"; pm.carryOvernight = true; }
+        // Strategy-specific settings: validated here, written to env EXPLICITLY below ("" when none) — never omitted.
+        let paramsEnv = "";
+        if (STRATEGY_PARAM_SPEC[stratKey]) {
+            const v = validateParams(stratKey, strategyParams || {});
+            if (!v.ok) return res.status(400).json({ error: v.errors.join("; ") });
+            paramsEnv = paramsToEnv(stratKey, v.params);
+        } else if (strategyParams && Object.keys(strategyParams).length) {
+            return res.status(400).json({ error: `${stratKey} has no strategy settings` });
+        }
         const env = {
+            STRATEGY_PARAMS_OVERRIDE: paramsEnv,
             UNDERLYING: underlying,
             EXCHANGE_OVERRIDE: exchange,
             LOTS_OVERRIDE: String(lotsVal),
@@ -1841,7 +1866,7 @@ app.get("/api/toolbox/backtest/params/:strategy", async (req, res) => {
 async function backtestHandler(req, res) {
     const {
         underlying, exchange = "MCX", strategy, timeframe,
-        days, from: fromStr, to: toStr, params = {}, lotMultOverride,
+        days, from: fromStr, to: toStr, params = {}, lotMultOverride, strategyParams: btStrategyParams, btCosts, btSlippageTicks,
         candleType: btCandleIn, rangeSize: btRangeIn,
         // Universal risk toggles — same fields backtestFlow.js's CLI Step 6
         // asks for and merges onto context/params, previously only
@@ -1919,6 +1944,18 @@ async function backtestHandler(req, res) {
         }
 
         const parsedParams = {};
+        // Strategy-specific settings (strategyParams.js) + MCX cost model switches (backtest/mcxCosts.js).
+        if (STRATEGY_PARAM_SPEC[strategy]) {
+            const v = validateParams(strategy, btStrategyParams || {});
+            if (!v.ok) return res.status(400).json({ error: v.errors.join("; ") });
+            parsedParams.strategyParams = v.params;
+        }
+        if (btCosts !== undefined && btCosts !== null && btCosts !== "") parsedParams.BT_COSTS = btCosts === true || btCosts === "true";
+        if (btSlippageTicks !== undefined && btSlippageTicks !== null && btSlippageTicks !== "") {
+            const n = Number(btSlippageTicks);
+            if (!Number.isFinite(n) || n < 0 || n > 20) return res.status(400).json({ error: "Slippage must be 0..20 ticks per side" });
+            parsedParams.BT_SLIPPAGE_TICKS = n;
+        }
         for (const [k, v] of Object.entries(params || {})) {
             const n = Number(v);
             if (Number.isFinite(n)) parsedParams[k] = n;
