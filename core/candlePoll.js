@@ -232,7 +232,7 @@ function createCandlePoll({ context, engineConfig, state, candles, slStore, targ
                     tg(`⚠ Target order FAILED\nPosition still open — manual exit required immediately`);
                 } else {
                     await positionsClose(price, "SCALP_TP");
-                    const scalpMode = !!context.scalpTargetRupees && !context.targetPoints;
+                    const scalpMode = (!!context.scalpTargetRupees && !context.targetPoints) || !!context.targetNoCooldown;   // targetNoCooldown: strategy-armed per-trade targets (HOURLY_HA_SCALP) never end the day
                     db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
                     slStore.clearTrail();
                     targetStore.clearTarget();

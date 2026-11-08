@@ -21,6 +21,16 @@ const STRATEGY_PARAM_SPEC = {
         { key: "maxLots",      label: "Max lots",                        type: "int",   default: 3,     min: 1,   max: 50,  help: "hard cap on the vol-targeted size" },
         { key: "minLotOvershoot", label: "Allow 1 lot up to (x budget)", type: "float", default: 1.5,   min: 1,   max: 5,   help: "if even 1 lot risks more than budget x this, the trade is SKIPPED (with an alert)" },
     ],
+    HOURLY_HA_SCALP: [
+        { key: "candleType",   label: "Previous-hour candle",            type: "enum",  default: "ha",     choices: ["ha", "normal"], help: "ha = Heikin-Ashi colour (chained over the 1h history); normal = plain open vs close" },
+        { key: "direction",    label: "Trade direction",                 type: "enum",  default: "follow", choices: ["follow", "fade"], help: "follow = green -> LONG, red -> SHORT; fade = the opposite" },
+        { key: "unit",         label: "Target / SL unit",                type: "enum",  default: "pct",    choices: ["pct", "points", "atr"], help: "pct = % of entry price; points = price points; atr = multiples of the 1h ATR" },
+        { key: "targetVal",    label: "Target distance",                 type: "float", default: 0.3,      min: 0.01, max: 100000, help: "in the chosen unit — placeholder default, tune per instrument with the backtest" },
+        { key: "slVal",        label: "Stop-loss distance",              type: "float", default: 0.3,      min: 0.01, max: 100000, help: "in the chosen unit — placeholder default, tune per instrument with the backtest" },
+        { key: "atrLen",       label: "ATR length (1h bars)",            type: "int",   default: 14,       min: 2,   max: 100, help: "only used when unit = atr" },
+        { key: "firstEntryTime", label: "First entry at/after (IST)",    type: "time",  default: "10:00",  help: "hourly entries are taken at each 1h candle close; none before this time" },
+        { key: "lastEntryTime",  label: "Last entry at/before (IST)",    type: "time",  default: "22:00",  help: "a trade is closed at the next hour end, so this must leave a full hour before the session ends (MCX 23:30/23:55)" },
+    ],
 };
 
 function coerce(spec, raw) {

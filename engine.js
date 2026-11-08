@@ -186,6 +186,14 @@ async function main() {
         context.carryOvernight = true;
         console.log(c.dim(`[${context.tgPrefix}] ${context.strategy}: carry overnight forced ON (multi-day strategy — an EOD square-off would defeat it)`));
     }
+    // Strategies flagged ownGates (STRATEGY_INFO — TREND_DONCHIAN_VT, HOURLY_HA_SCALP, ...) run their own entry rules: the universal
+    // daily-HA directional gate and entry-time gate in orders.enter() would veto them by construction, so they are forced OFF here
+    // whatever DAILY_HA_GATE_ENABLED_OVERRIDE / ENTRY_TIME_OVERRIDE say (the CLI/WebDash UI does not offer them for these strategies).
+    function applyOwnGatesPolicy() {
+        if (!(STRATEGY_INFO[context.strategy] || {}).ownGates) return;
+        context.dailyHaGateEnabled = false; context.entryTimeHour = null; context.entryTimeMinute = null; context.targetNoCooldown = true;
+        console.log(c.dim(`[${context.tgPrefix}] ${context.strategy}: daily-HA gate + entry-time gate forced OFF (strategy has its own entry rules)`));
+    }
     // A daily-timeframe engine decides once a day on a completed daily bar, so its positions are meant to
     // live across days — an EOD force-close would turn every trade into a one-day trade.
     if (context.timeframe === "1d" && !context.carryOvernight) {
@@ -556,6 +564,7 @@ async function main() {
     if (process.env.DAILY_HA_GATE_ENABLED_OVERRIDE !== undefined && process.env.DAILY_HA_GATE_ENABLED_OVERRIDE !== "") {
         context.dailyHaGateEnabled = process.env.DAILY_HA_GATE_ENABLED_OVERRIDE === "true";
     }
+    applyOwnGatesPolicy();
     console.log(c.dim(`[${context.tgPrefix}] Daily HA gate: ${context.dailyHaGateEnabled === false ? "off" : c.yellow("on — blocks entries against the previous completed daily candle's color")}`));
 
     // Candle type (RAW / HA / RANGE) — chosen at deploy, independent of strategy. Unset = the
