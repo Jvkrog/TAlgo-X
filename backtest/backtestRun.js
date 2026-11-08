@@ -109,6 +109,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
 
     // Daily engines hold positions across days (live forces carry-overnight for 1d, see engine.js).
     if (timeframe === "1d" || (STRATEGY_INFO[strategyKey] || {}).forceCarry) context.carryOvernight = true;
+    if ((STRATEGY_INFO[strategyKey] || {}).ownGates) { context.dailyHaGateEnabled = false; context.entryTimeHour = null; context.entryTimeMinute = null; context.targetNoCooldown = true; }   // same policy as engine.js applyOwnGatesPolicy
     const state   = createState();
     // pairSync (backtestLinkedPair.js): this run is one leg of a linked hedge pair — stops are suppressed while the legs are opposite.
     const slStore = createSLStore({ isDisabled: () => !!context.slDisabled, isSuppressed: () => !!(pairSync && pairSync.hedged()) });
@@ -156,7 +157,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     const positionsClose      = (price, reason) => positions.close(context, state, ledger, tg, price, reason);
     const positionsUnrealised = (price) => positions.unrealised(context, state, price);
 
-    const slCheck = createBacktestSL({ context, engineConfig, state, slStore, orders: broker, positionsClose, db: ledger, tg, candles: feed });
+    const slCheck = createBacktestSL({ context, engineConfig, state, slStore, targetStore, orders: broker, positionsClose, db: ledger, tg, candles: feed });
 
     // htfGate.js fetches LIVE data from Kite on a timer — meaningless
     // replaying a backdated candle feed, and backtests have no live
@@ -369,9 +370,14 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
                     console.log(c.yellow(`*** TARGET HIT — day net ${state.pnl.toFixed(2)}, still recovering — continuing ***`));
                 }
             }
+            // ownGates strategies (HOURLY_HA_SCALP, TREND_DONCHIAN_VT) decide at a candle's CLOSE. Intrabar order for them: target, then stop (worst
+            // case: a stop touched in the same candle wins) on the position carried INTO this candle, THEN the candle-close decision. A position opened
+            // at this close is never stop-checked against this same candle (its high/low pre-date the entry). Other strategies keep their old order.
+            const ownGates = !!(STRATEGY_INFO[strategyKey] || {}).ownGates;
+            if (ownGates) await slCheck.checkSL(currentCandle);
             await strategy.processCandle(currentCandle);
             if (pairSync) { pairSynced = true; await pairSync.afterSignal(currentCandle); }   // legs agree on hedged/aligned BEFORE this candle's stop check
-            await slCheck.checkSL(currentCandle);
+            if (!ownGates) await slCheck.checkSL(currentCandle);
 
             // Daily loss floor — realized P&L only, same as live.
             if (context.maxDailyLoss && state.pnl <= -context.maxDailyLoss) {

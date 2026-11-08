@@ -21,7 +21,7 @@ const { scalpRules, rupeesToPoints } = require("../strategies/scalpRules");
 const { selectAdaptiveTarget } = require("../strategies/adaptiveTarget");
 const { toHA, atrSeries, dpi, choppinessIndex } = require("../indicators/indicators");
 
-function createBacktestSL({ context, engineConfig, state, slStore, orders, positionsClose, db, tg, candles }) {
+function createBacktestSL({ context, engineConfig, state, slStore, targetStore = null, orders, positionsClose, db, tg, candles }) {
     // Frozen target of the open position (fixed or adaptive), keyed by trade so it is sized once and never re-decided.
     let armed = null;
     // Mirrors candlePoll.checkSL(price) exactly, except it's fed a candle's
@@ -102,7 +102,25 @@ function createBacktestSL({ context, engineConfig, state, slStore, orders, posit
         return "DAY_TARGET";
     }
 
+    // Strategies that arm their own take-profit in targetStore (context.targetNoCooldown, i.e. STRATEGY_INFO.ownGates — HOURLY_HA_SCALP): the
+    // stored level is checked against each LATER candle's high/low like the live tick check; stop touched in the same candle wins (worst
+    // case). A hit is one finished trade — NOT a "done for the day" cooldown (live: candlePoll scalpMode / targetNoCooldown).
+    async function checkStoreTarget(candle) {
+        const { target } = targetStore.getTarget();
+        if (target === null || target === undefined) return false;
+        const long = state.position === "LONG";
+        if (!(long ? candle.high >= target : candle.low <= target)) return false;
+        const { trail } = slStore.getTrail();
+        if (trail !== null && (long ? candle.low < trail : candle.high > trail)) return false;   // stop touched first (worst case)
+        tg(`🎯 ${state.position} TARGET @ ₹${target.toFixed(2)}`);
+        await positionsClose(target, "SCALP_TP");
+        db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+        slStore.clearTrail(); targetStore.clearTarget();
+        return true;
+    }
+
     async function checkTarget(candle) {
+        if (context.targetNoCooldown && targetStore && engineConfig.ENGINE_ENABLED && state.position) return await checkStoreTarget(candle);
         const scalpActive = !!context.scalpTargetRupees && !context.targetPoints;
         if (engineConfig.ENGINE_ENABLED && state.position && state.entryPrice && !scalpActive && (context.targetPoints || context.targetMode === "adaptive")) {
             return await checkPointsTarget(candle);
