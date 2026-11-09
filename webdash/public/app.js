@@ -3343,6 +3343,7 @@ async function renderBacktestParamsStep() {
       const m = data.summary;
       const fmtMoney = v => (v >= 0 ? "+" : "") + Math.round(v).toLocaleString();
       const logText = (data.logLines || []).join("\n");
+      const isIndexSpot = btState.exchange === "NSE" && /\s/.test(btState.underlying || "");   // NIFTY 50 / NIFTY BANK: index spot, not tradable
       resultBox.innerHTML = `
         <div class="tb-summary-grid">
           <div class="tb-summary-cell"><div class="k">Trades</div><div class="v">${m.trades}</div></div>
@@ -3357,13 +3358,13 @@ async function renderBacktestParamsStep() {
         <button type="button" class="btn btn-ghost" id="btAiBtn" style="margin-top:10px;width:100%">Analyse this backtest with AI</button>
         <div id="btAiOut"></div>
         ${btState.sourceName ? `<button type="button" class="tb-submit-btn" id="btApplyToInst" style="margin-top:10px;width:100%">Apply these settings to ${btState.sourceName} (restarts it)</button><div id="btApplyOut"></div>` : ""}
-        <button type="button" class="tb-submit-btn" id="btDeployFromBt" style="margin-top:10px;width:100%">Deploy instrument with this config</button>
+        ${isIndexSpot ? `<div class="tb-form-hint" style="margin-top:10px">${escHtml(btState.underlying)} is an index (spot) — backtest only, it can't be deployed. Deploy its future/option instead.</div>` : `<button type="button" class="tb-submit-btn" id="btDeployFromBt" style="margin-top:10px;width:100%">Deploy instrument with this config</button>`}
         <div class="tb-bt-log-wrap">
           <button type="button" class="tb-bt-log-toggle" id="btLogToggle">▸ show full backtest log (${(data.logLines || []).length} lines)</button>
           <pre class="tb-bt-log" id="btLogBody" hidden></pre>
         </div>
       `;
-      resultBox.querySelector("#btDeployFromBt").addEventListener("click", () => renderBtDeployView(body));
+      const depBtn = resultBox.querySelector("#btDeployFromBt"); if (depBtn) depBtn.addEventListener("click", () => renderBtDeployView(body));
       const applyBtn = resultBox.querySelector("#btApplyToInst");
       if (applyBtn) applyBtn.addEventListener("click", async () => {
         const name = btState.sourceName;

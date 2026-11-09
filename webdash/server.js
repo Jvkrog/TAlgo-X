@@ -1605,6 +1605,7 @@ app.post("/api/toolbox/instrument", async (req, res) => {
     } = req.body || {};
 
     if (!underlying) return res.status(400).json({ error: "Underlying is required" });
+    if (exchange === "NSE" && /^NIFTY[ A-Z]*$/.test(String(underlying)) && /\s/.test(String(underlying))) return res.status(400).json({ error: `${underlying} is an index (spot) — backtest only, it cannot be deployed` });
     if (!/^[A-Za-z0-9&_-]{1,30}$/.test(String(underlying))) return res.status(400).json({ error: "Underlying may only contain letters, digits, & _ -" });
     if (live && confirmLive !== "LIVE") {
         return res.status(400).json({ error: 'Switching to LIVE requires confirmLive: "LIVE" (typed, not assumed)' });
