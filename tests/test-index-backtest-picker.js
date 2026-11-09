@@ -25,5 +25,6 @@ const rows = [
     const fs = require("fs"), srv = fs.readFileSync(__dirname + "/../webdash/server.js", "utf8"), app = fs.readFileSync(__dirname + "/../webdash/public/app.js", "utf8");
     assert.ok(/req\.query\.indices === "1"/.test(srv)); assert.ok(app.includes("&indices=1&q="), "backtest picker asks for indices");
     const i = app.indexOf('btState.exchange = btn.dataset.ex;'); assert.ok(app.slice(i, i + 400).includes("runSearch()"), "switching exchange re-runs the search");
+    assert.ok(srv.includes("is an index (spot) — backtest only, it cannot be deployed"), "server refuses to deploy an index"); assert.ok(app.includes("isIndexSpot"), "UI hides Deploy for index spot");
     console.log("PASS index backtest picker"); process.exit(0);
 })().catch(e => { console.error("FAIL", e.message); process.exit(1); });
