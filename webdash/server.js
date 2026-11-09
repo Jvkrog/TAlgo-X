@@ -1566,7 +1566,9 @@ app.get("/api/toolbox/instruments", async (req, res) => {
     const q = (req.query.q || "").toLowerCase();
     try {
         const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
-        const all = exchange === "NSE" ? repo.listEquitySymbols() : repo.listUnderlyings();
+        // indices=1 (backtest picker only): NSE index spot (NIFTY 50, NIFTY BANK, ...) is listed too — not tradable, so never offered when adding instruments.
+        let all = exchange === "NSE" ? repo.listEquitySymbols() : repo.listUnderlyings();
+        if (exchange === "NSE" && req.query.indices === "1" && repo.listIndexSymbols) all = [...repo.listIndexSymbols(), ...all];
         const matches = q ? all.filter(u => u.toLowerCase().includes(q)) : all;
         res.json({ exchange, total: all.length, matches: matches.slice(0, 500), truncated: matches.length > 500 });
     } catch (err) {

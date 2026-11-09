@@ -144,7 +144,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     // costsDefault in STRATEGY_INFO (the newer ones); params.BT_COSTS true/false overrides for any strategy. Existing
     // strategies keep their historical gross numbers unless you ask for costs.
     const costsOn = params.BT_COSTS !== undefined ? params.BT_COSTS === true || params.BT_COSTS === "true"
-                  : !!(STRATEGY_INFO[strategyKey] && STRATEGY_INFO[strategyKey].costsDefault);
+                  : !!(STRATEGY_INFO[strategyKey] && STRATEGY_INFO[strategyKey].costsDefault) && context.exchange === "MCX";   // MCX charge model: off by default for NSE (index spot / equities)
     const costModel = costsOn ? { lotMult: context.lotMult, tickSize: context.tickSize,
         rates: params.BT_SLIPPAGE_TICKS !== undefined ? { slippageTicks: Number(params.BT_SLIPPAGE_TICKS) } : {} } : null;
     const ledger = createBacktestLedger({ clock, costModel });

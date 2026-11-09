@@ -22,7 +22,7 @@ function resolveCurrent(underlying, def, csvRepo, pinStore) {
     // which only make sense where a contract can go stale or need picking
     // between expiries.
     if (def.noRoll) {
-        const contract = csvRepo.findEquity(underlying);
+        const contract = csvRepo.findEquity(underlying) || (csvRepo.findIndex ? csvRepo.findIndex(underlying) : null);   // index spot: backtest-only (never in the equity map)
         if (!contract) {
             throw new Error(
                 `resolveCurrent: no equity found for "${underlying}" on ${def.exchange} — ` +

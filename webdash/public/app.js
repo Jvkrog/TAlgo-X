@@ -3020,6 +3020,9 @@ function renderBacktestInstrumentStep() {
     exBtns.forEach(b => b.classList.remove("picked", "paper", "live"));
     btn.classList.add("picked", btn.dataset.ex === "MCX" ? "paper" : "live");
     btState.exchange = btn.dataset.ex;
+    searchInput.placeholder = btState.exchange === "NSE" ? "e.g. NIFTY, BANK, RELIANCE..." : "Search underlying...";
+    searchInput.value = "";
+    runSearch();
   }));
   const searchInput = tbBacktestBody.querySelector("#btSearchInput");
   const pickList = tbBacktestBody.querySelector("#btPickList");
@@ -3029,7 +3032,7 @@ function renderBacktestInstrumentStep() {
     pickList.innerHTML = "";
     try {
       const q = searchInput.value.trim();
-      const data = await (await fetch(`/api/toolbox/instruments?exchange=${btState.exchange}&q=${encodeURIComponent(q)}`)).json();
+      const data = await (await fetch(`/api/toolbox/instruments?exchange=${btState.exchange}&indices=1&q=${encodeURIComponent(q)}`)).json();
       if (data.error) { hint.textContent = data.error; return; }
       if (data.matches.length === 0) { hint.textContent = "No matches"; return; }
       hint.textContent = data.truncated ? `Showing 500 of ${data.total} — narrow your search` : `${data.matches.length} match(es)`;

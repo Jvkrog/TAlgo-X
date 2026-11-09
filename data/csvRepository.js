@@ -10,11 +10,13 @@
 "use strict";
 
 const { NIFTY_UNIVERSE } = require("../scanner/niftyUniverse");
+const BACKTEST_INDICES = new Set(["NIFTY 50", "NIFTY BANK", "NIFTY FIN SERVICE", "NIFTY MID SELECT"]);
 
 function createCsvRepository({ fetchRows }) {
     let byToken            = new Map();
     let bySymbol           = new Map();
     let byUnderlyingExpiry = new Map();   // underlying -> [contract, ...] sorted by expiry asc
+    let byIndexSymbol      = new Map();   // NSE index spot (backtest only) — see indexRows
     let byEquitySymbol     = new Map();   // tradingsymbol -> contract (no expiry, no roll)
     // underlying -> expiry (ISO date string, no time) -> { ce: Map<strike, contract>, pe: Map<strike, contract> }
     let optionsByUE        = new Map();
@@ -25,6 +27,7 @@ function createCsvRepository({ fetchRows }) {
         const nextBySymbol = new Map();
         const nextByUE     = new Map();
         const nextByEquity = new Map();
+        const nextByIndex  = new Map();
         const nextOptions  = new Map();
 
         for (const r of rows) {
@@ -97,6 +100,14 @@ function createCsvRepository({ fetchRows }) {
             // real lot_size/tick_size and aren't tradable) — both carry
             // instrument_type "EQ" in the broker's dump, segment is the
             // actual signal.
+            // NSE index SPOT (segment "INDICES"): not tradable, but its token serves historical candles, so it is kept in its OWN map
+            // (never in byToken/bySymbol/byEquity — trading flows must not see it) for backtests only: NIFTY 50, NIFTY BANK, ...
+            if (r.segment === "INDICES" && r.exchange === "NSE" && BACKTEST_INDICES.has(r.tradingsymbol)) {
+                if (!r.instrument_token) continue;
+                nextByIndex.set(r.tradingsymbol, { token: Number(r.instrument_token), symbol: r.tradingsymbol, underlying: r.tradingsymbol, exchange: "NSE",
+                    expiry: null, lotSize: 1, tickSize: Number(r.tick_size) || 0.05, isIndex: true });
+                continue;
+            }
             if (r.instrument_type === "EQ" && r.segment === r.exchange) {
                 if (!r.instrument_token || !r.tradingsymbol) continue;
 
@@ -133,6 +144,7 @@ function createCsvRepository({ fetchRows }) {
         bySymbol           = nextBySymbol;
         byUnderlyingExpiry = nextByUE;
         byEquitySymbol     = nextByEquity;
+        byIndexSymbol      = nextByIndex;
         optionsByUE        = nextOptions;
         loadedAt           = new Date();
     }
@@ -152,6 +164,8 @@ function createCsvRepository({ fetchRows }) {
     function findFuturesFor(underlying) { return byUnderlyingExpiry.get(underlying) || []; }
     function listUnderlyings()          { return Array.from(byUnderlyingExpiry.keys()).sort(); }
     function findEquity(symbol)         { return byEquitySymbol.get(symbol) || null; }
+    function findIndex(symbol)          { return byIndexSymbol.get(symbol) || null; }
+    function listIndexSymbols()         { return Array.from(byIndexSymbol.keys()).sort(); }
     function listEquitySymbols()        { return Array.from(byEquitySymbol.keys()).sort(); }
     function getLoadedAt()              { return loadedAt; }
 
@@ -179,7 +193,7 @@ function createCsvRepository({ fetchRows }) {
     }
 
     return {
-        load, refresh, findByToken, findBySymbol, findFuturesFor, listUnderlyings, findEquity, listEquitySymbols, getLoadedAt,
+        load, refresh, findByToken, findBySymbol, findFuturesFor, listUnderlyings, findEquity, listEquitySymbols, findIndex, listIndexSymbols, getLoadedAt,
         listOptionUnderlyings, listOptionExpiries, getOptionChain, getOption,
     };
 }
