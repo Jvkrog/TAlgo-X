@@ -32,6 +32,7 @@ const { isVolumeBlocked } = require("../gates/volumeGate");
 const { evaluateLongCandle } = require("../gates/longCandleGate");
 const { createHaCandleReader } = require("../indicators/haCandleReader");
 const { createHourlyHaScalpStrategy } = require("./hourlyHaScalp");
+const { createMacdStrategy } = require("./macd");
 const { createTrendDonchianVtStrategy } = require("./trendDonchianVt");
 
 // ════════════════════════════════════════════════════════════════════════
@@ -7365,6 +7366,7 @@ const STRATEGIES = {
     DAILY_HA_BIAS:        createDailyHaBiasStrategy,
     TREND_DONCHIAN_VT:    createTrendDonchianVtStrategy,
     HOURLY_HA_SCALP:      createHourlyHaScalpStrategy,
+    MACD:                 createMacdStrategy,
 };
 
 // Toolbox-facing labels only — not a full param schema yet (that's a later
@@ -7398,6 +7400,7 @@ const STRATEGY_INFO = {
     DAILY_HA_BIAS:        { label: "Daily HA Bias (2-Trade)", description: "one decision a day \u2014 at/after a configurable entry time (default 10:00 IST, taken on the first 15m candle at/after it), take the previous COMPLETED daily HA candle's color as the day's bias (green -> LONG, red -> SHORT, doji -> no trade), fixed ATR-based SL from entry (ATR stop-loss multiplier x ATR, configurable), no target/reversal/re-entry; only exit besides SL is EOD (23:15 IST default) \u2014 at most one entry + one exit per day; gated by the long-candle/volatility-shock filter (default on)", short: "DHAB" },
     TREND_DONCHIAN_VT:    { label: "Donchian Trend (Vol-Targeted)", description: "multi-day trend following \u2014 one decision a day on the last COMPLETED daily bar: close beyond the N-day high/low (default 20) enters, close beyond the opposite M-day extreme (default 10) exits, fixed stop = k x daily ATR; position size = equity x risk% / (stop distance x lot multiplier) when equity is set (else the deployment's fixed lots); deploy NRML + carry-overnight; wires in none of the chop/volume/long-candle/HTF/daily-HA gates; backtests include MCX costs (brokerage, CTT, fees, slippage) by default", short: "DONCH", costsDefault: true, params: true, dailyBars: true, forceCarry: true, ownGates: true },
     HOURLY_HA_SCALP:      { label: "Hourly HA Scalp", description: "one scalp per hour \u2014 at each 1h candle close the previous 1h candle's colour (Heikin-Ashi by default) sets the side (green -> LONG, red -> SHORT, doji -> skip; 'fade' inverts), fixed configurable target and stop-loss (pct / points / ATR), whichever is hit first closes the trade, otherwise it is closed at the hour end and the next trade is decided from the new candle. Intraday only; entry window configurable; none of the universal entry gates apply.", short: "HSCALP", costsDefault: true, params: true, ownGates: true },
+    MACD:                 { label: "MACD", description: "classic MACD(fast, slow, signal): the side follows the histogram (cross mode) or the MACD line vs zero. Acts only on a fresh confirmed side change \u2014 never on boot into an old trend; exit = opposite signal (reversal). Anti-whipsaw options: ATR flip buffer, N confirm bars, zero-line entry filter; optional ATR stop. Universal entry gates apply as for other trend strategies.", short: "MACD", costsDefault: true, params: true },
 };
 
 // Each strategy's live/paper candle interval — this is a property of the
@@ -7474,6 +7477,7 @@ const STRATEGY_TIMEFRAME = {
     // this timeframe at all; also what makes context.js's defaultEodFor()
     // resolve this instrument's EOD to 23:15 IST, matching the spec's
     // "close at 11:15" exactly with zero extra config.
+    MACD:                 "1h",
     HOURLY_HA_SCALP:      "1h",   // acts on each 1h candle close (hour-end exit + next entry)
     TREND_DONCHIAN_VT:    "1h",   // decision clock only (one decision a day, same as DAILY_HA_BIAS) — signals come from daily bars
     DAILY_HA_BIAS:        "1h",   // trades on 15m candles — the decision fires on the first 15m candle at/after the configurable entry time

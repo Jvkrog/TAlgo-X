@@ -100,11 +100,13 @@ async function promptStrategyParams(strategy, current = {}) {
             const inp = (await ask(`  ${sp.label} [${cur}]${sp.choices ? ` (${sp.choices.join("/")})` : ""} — ${sp.help}: `)).trim();
             if (!inp) break;
             if (inp.toLowerCase() === "default") { delete out[sp.key]; break; }
-            const v = validateParams(strategy, { [sp.key]: inp });
+            const v = validateParams(strategy, { [sp.key]: inp }, { skipCross: true });
             if (v.ok) { out[sp.key] = v.params[sp.key]; break; }
             console.log(c.yellow(`  ${v.errors[0]}`));
         }
     }
+    const fin = validateParams(strategy, out);
+    if (!fin.ok) { console.log(c.yellow(`  ${fin.errors[0]} — enter the settings again`)); return await promptStrategyParams(strategy, out); }
     return out;
 }
 
@@ -1041,7 +1043,7 @@ async function editInstrument(procs) {
         // DAILY_HA_BIAS: which daily candle decides the side.
         // Universal entry time (every strategy except DAILY_HA_BIAS, which has its own above).
         let entryTime = p.entryTime;
-        if (p.strategy !== "DAILY_HA_BIAS" && !STRATEGY_PARAM_SPEC[p.strategy]) {
+        if (p.strategy !== "DAILY_HA_BIAS" && !(STRATEGY_INFO[p.strategy] || {}).ownGates) {
             const cur = p.entryTime || "off";
             const inp = (await ask(`  Entry time IST HH:MM — no new entries before it (current: ${cur}, "clear" = off, blank = keep): `)).trim();
             if (inp) {
@@ -1261,7 +1263,7 @@ async function riskManagement(procs) {
         const isDailyHaBias = p.strategy === "DAILY_HA_BIAS";
         // Strategies with their own parameter set (strategyParams.js) wire in none of the universal chop/volume/long-candle/HTF/double-order
         // gates either — each one documents its own gate policy in STRATEGY_INFO. Treated like DAILY_HA_BIAS for the gate prompts below.
-        const hasOwnParams = !!(STRATEGY_INFO[p.strategy] || {}).params;
+        const hasOwnParams = !!(STRATEGY_INFO[p.strategy] || {}).ownGates;
         const gateless = isDailyHaBias || hasOwnParams;
         if (gateless) {
             console.log(c.dim(`  ${p.strategy} ignores chop/double-order/volume/long-candle/HTF gates entirely (no target, one decision at the entry time) — skipping those prompts; only the ATR stop-loss multiplier, the daily-HA gate and max daily loss below actually apply`));
@@ -1965,7 +1967,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
     }
 
     let entryTime = null;
-    if (strategy !== "DAILY_HA_BIAS" && !STRATEGY_PARAM_SPEC[strategy]) {
+    if (strategy !== "DAILY_HA_BIAS" && !(STRATEGY_INFO[strategy] || {}).ownGates) {
         const inp = (await ask(`  Entry time IST HH:MM — no new entries before it (blank = 09:15, "clear" = off, trade from the start): `)).trim();
         if (!inp) entryTime = "09:15";
         else if (inp.toLowerCase() === "clear") entryTime = null;
@@ -1985,7 +1987,7 @@ async function configureAndStartInstrument(underlying, repo, exchange = "MCX") {
 
     // Strategies with their own parameter set (strategyParams.js): asked here, written to env explicitly below.
     const strategyParams = STRATEGY_PARAM_SPEC[strategy] ? await promptStrategyParams(strategy, {}) : null;
-    if (STRATEGY_PARAM_SPEC[strategy]) console.log(c.dim(`  ${strategy}: chop / volume / long-candle / HTF / daily-HA gates are NOT applied (see the strategy description); the gate prompts below only matter for other strategies.`));
+    if ((STRATEGY_INFO[strategy] || {}).ownGates) console.log(c.dim(`  ${strategy}: chop / volume / long-candle / HTF / daily-HA gates are NOT applied (see the strategy description); the gate prompts below only matter for other strategies.`));
 
     // Volume SMA entry gate — universal, opt-in, default OFF. Only enters
     // when the current candle's volume is strictly above a plain SMA

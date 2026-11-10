@@ -2756,8 +2756,8 @@ function renderAddConfigStep() {
   function renderAddStratParams(info) {
     const spec = info && info.params;
     stratParamsBox.style.display = spec ? "" : "none";
-    stratParamsBox.innerHTML = spec ? spFormHtml(spec, {}, "addSp") + `<div class="tb-form-label" style="margin-top:6px;color:var(--warn,#b8860b)">${info.forceCarry ? "Multi-day strategy: always NRML + carry-overnight. " : ""}Chop / volume / long-candle / HTF / daily-HA gates are not applied to this strategy.</div>` : "";
-    tbAddBody.querySelector("#addEntryTimeRow").style.display = (spec || (info && info.key === "DAILY_HA_BIAS")) ? "none" : "";
+    stratParamsBox.innerHTML = spec ? spFormHtml(spec, {}, "addSp") + `<div class="tb-form-label" style="margin-top:6px;color:var(--warn,#b8860b)">${info.forceCarry ? "Multi-day strategy: always NRML + carry-overnight. " : ""}${info.ownGates ? "Chop / volume / long-candle / HTF / daily-HA gates are not applied to this strategy." : "Universal entry gates (chop, volume, long-candle, HTF, daily-HA) apply as configured under risk management."}</div>` : "";
+    tbAddBody.querySelector("#addEntryTimeRow").style.display = ((info && info.ownGates) || (info && info.key === "DAILY_HA_BIAS")) ? "none" : "";
   }
   const _grp = { last: null, any: strategies.some(x => x.custom) };
   [...strategies.filter(x => x.custom), ...strategies.filter(x => !x.custom)].forEach(s => {
@@ -3207,7 +3207,7 @@ async function renderBacktestParamsStep() {
     const box = tbBacktestBody.querySelector("#btStratParams");
     if (sinfo && sinfo.params) {
       box.style.display = ""; box.innerHTML = spFormHtml(sinfo.params, {}, "btSp");
-      tbBacktestBody.querySelector("#btEntryTimeRow").style.display = "none";
+      if (sinfo.ownGates) tbBacktestBody.querySelector("#btEntryTimeRow").style.display = "none";
     }
   }
   if (btState.strategy === "DAILY_HA_BIAS") {

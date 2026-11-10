@@ -352,18 +352,24 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
 
     // Strategies with their own settings (strategyParams.js) — validated by the same code the live engine uses.
     if (!isCustom && STRATEGY_PARAM_SPEC[strategyKey]) {
-        const chosen = {};
-        for (const sp of STRATEGY_PARAM_SPEC[strategyKey]) {
-            for (;;) {
-                const inp = (await ask(`  ${sp.label} [default ${sp.default}]${sp.choices ? ` (${sp.choices.join("/")})` : ""} — ${sp.help}: `)).trim();
-                if (!inp) break;
-                const v = validateParams(strategyKey, { [sp.key]: inp });
-                if (v.ok) { chosen[sp.key] = v.params[sp.key]; break; }
-                console.log(c.yellow(`  ${v.errors[0]}`));
+        let chosen = {};
+        for (;;) {
+            chosen = {};
+            for (const sp of STRATEGY_PARAM_SPEC[strategyKey]) {
+                for (;;) {
+                    const inp = (await ask(`  ${sp.label} [default ${sp.default}]${sp.choices ? ` (${sp.choices.join("/")})` : ""} — ${sp.help || sp.label}: `)).trim();
+                    if (!inp) break;
+                    const v = validateParams(strategyKey, { [sp.key]: inp }, { skipCross: true });
+                    if (v.ok) { chosen[sp.key] = v.params[sp.key]; break; }
+                    console.log(c.yellow(`  ${v.errors[0]}`));
+                }
             }
+            const fin = validateParams(strategyKey, chosen);
+            if (fin.ok) break;
+            console.log(c.yellow(`  ${fin.errors[0]} — enter the settings again`));
         }
         params.strategyParams = chosen;
-        console.log(c.dim(`  ${strategyKey}: chop / volume / long-candle / HTF / daily-HA gates are NOT applied to this strategy.`));
+        if ((STRAT_INFO[strategyKey] || {}).ownGates) console.log(c.dim(`  ${strategyKey}: chop / volume / long-candle / HTF / daily-HA gates are NOT applied to this strategy.`));
     }
     // MCX transaction costs (backtest/mcxCosts.js): default ON for the newer strategies, OFF (historical gross) for the older ones.
     {
