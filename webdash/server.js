@@ -1512,6 +1512,7 @@ app.get("/api/toolbox/strategies", async (req, res) => {
                 description: (STRATEGY_INFO[key] || {}).description || "",
                 params: STRATEGY_PARAM_SPEC[key] || null,           // generic strategy settings (rendered as a dynamic form)
                 forceCarry: !!(STRATEGY_INFO[key] || {}).forceCarry, // multi-day: NRML + carry-overnight always
+                ownGates: !!(STRATEGY_INFO[key] || {}).ownGates,     // runs its own entry rules: universal gates + entry time are forced off
                 timeframe: STRATEGY_TIMEFRAME[key] || "15m",
                 nativeCandle: nativeCandleType(key),
                 custom: false,

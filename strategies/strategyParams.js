@@ -21,6 +21,16 @@ const STRATEGY_PARAM_SPEC = {
         { key: "maxLots",      label: "Max lots",                        type: "int",   default: 3,     min: 1,   max: 50,  help: "hard cap on the vol-targeted size" },
         { key: "minLotOvershoot", label: "Allow 1 lot up to (x budget)", type: "float", default: 1.5,   min: 1,   max: 5,   help: "if even 1 lot risks more than budget x this, the trade is SKIPPED (with an alert)" },
     ],
+    MACD: [
+        { key: "fast",        label: "Fast EMA length",              type: "int",   default: 12,  min: 2,  max: 200, help: "must be smaller than the slow length" },
+        { key: "slow",        label: "Slow EMA length",              type: "int",   default: 26,  min: 3,  max: 400, help: "must be larger than the fast length" },
+        { key: "signal",      label: "Signal EMA length",            type: "int",   default: 9,   min: 2,  max: 100, help: "EMA of the MACD line" },
+        { key: "mode",        label: "Signal mode",                  type: "enum",  default: "cross", choices: ["cross", "zero"], help: "cross = MACD line vs signal line (histogram sign); zero = MACD line vs zero" },
+        { key: "histBuffer",  label: "Flip buffer (x ATR14)",        type: "float", default: 0,   min: 0,  max: 5,  help: "histogram (or MACD in zero mode) must exceed this fraction of ATR before a side counts — anti flip-flop, 0 = off" },
+        { key: "confirmBars", label: "Confirm bars",                 type: "int",   default: 1,   min: 1,  max: 20, help: "the side must hold for N consecutive candles before it is acted on" },
+        { key: "zeroFilter",  label: "Zero-line entry filter",       type: "enum",  default: "off", choices: ["off", "on"], help: "on = LONG entries need MACD > 0, SHORT entries MACD < 0 (the opposite signal still exits)" },
+        { key: "stopAtrMult", label: "Stop-loss (x ATR14, 0 = none)", type: "float", default: 0,  min: 0,  max: 20, help: "fixed stop from entry; 0 = the opposite MACD signal is the only exit" },
+    ],
     HOURLY_HA_SCALP: [
         { key: "candleType",   label: "Previous-hour candle",            type: "enum",  default: "ha",     choices: ["ha", "normal"], help: "ha = Heikin-Ashi colour (chained over the 1h history); normal = plain open vs close" },
         { key: "direction",    label: "Trade direction",                 type: "enum",  default: "follow", choices: ["follow", "fade"], help: "follow = green -> LONG, red -> SHORT; fade = the opposite" },
@@ -55,6 +65,9 @@ function coerce(spec, raw) {
 
 // Returns { values, warnings, errors } — values always holds a usable value for EVERY spec key (invalid input falls back to the
 // default and is reported). Unknown keys are dropped with a warning.
+// Cross-field rules (checked after each field is valid on its own): { strategy: values -> error text | null }
+const CROSS_CHECKS = { MACD: v => v.fast < v.slow ? null : `fast EMA length (${v.fast}) must be smaller than slow EMA length (${v.slow})` };
+
 function resolveParams(strategyKey, raw) {
     const specs = STRATEGY_PARAM_SPEC[strategyKey] || [];
     const input = raw && typeof raw === "object" ? raw : {};
@@ -64,11 +77,13 @@ function resolveParams(strategyKey, raw) {
         if (r.ok) values[s.key] = r.value; else { values[s.key] = s.default; errors.push(r.why + ` — using default ${s.default}`); }
     }
     for (const k of Object.keys(input)) if (!specs.some(s => s.key === k)) warnings.push(`unknown parameter "${k}" ignored`);
+    const bad = CROSS_CHECKS[strategyKey] && CROSS_CHECKS[strategyKey](values);
+    if (bad) { for (const s of specs) values[s.key] = s.default; errors.push(bad + " — all defaults used"); }
     return { values, warnings, errors };
 }
 
 // Strict variant for CLI / WebDash input validation: { ok, params (only explicitly-set keys), errors }
-function validateParams(strategyKey, raw) {
+function validateParams(strategyKey, raw, { skipCross = false } = {}) {
     const specs = STRATEGY_PARAM_SPEC[strategyKey] || [], input = raw && typeof raw === "object" ? raw : {}, params = {}, errors = [];
     for (const s of specs) {
         if (input[s.key] === undefined || input[s.key] === null || input[s.key] === "") continue;
@@ -76,6 +91,7 @@ function validateParams(strategyKey, raw) {
         if (r.ok) params[s.key] = r.value; else errors.push(r.why);
     }
     for (const k of Object.keys(input)) if (!specs.some(s => s.key === k)) errors.push(`unknown parameter "${k}"`);
+    if (!errors.length && !skipCross && CROSS_CHECKS[strategyKey]) { const merged = {}; for (const s of specs) merged[s.key] = params[s.key] !== undefined ? params[s.key] : s.default; const bad = CROSS_CHECKS[strategyKey](merged); if (bad) errors.push(bad); }
     return { ok: errors.length === 0, params, errors };
 }
 
