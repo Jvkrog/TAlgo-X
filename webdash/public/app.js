@@ -1247,7 +1247,7 @@ function wirePanelDragAndResize(panel) {
 // browser (localStorage), keyed by card id, and re-applied whenever a grid re-renders its
 // cards (MutationObserver) so the 30s resync / start-stop never undoes an arrangement.
 const CANDLE_TEXT = { RAW: "Raw", HA: "Heikin-Ashi", RANGE: "Range bars" };
-const NATIVE_HA = new Set(["DYNAMIC_BAND","DYNAMIC_MID_COLOR","DYNAMIC_MID_COLOR_HL","ALMA_BAND","ALMA_DSB","DSB_DUAL","ALMA_FAST","ALMA_DUAL_BAND_SMA5","DUAL_ST_CHOP","MA_SLOPE","MA_SLOPE_SCALP","MA_SLOPE_PURE","MA_SLOPE_HM","HILEGA_MILEGA","DPI_TREND_MEANREV","DPI_MEANREV","ALMA_TRI_BAND","ALMA_PRO_FAST","ALMA_PRO_SLOW","PURE_HA"]);
+const NATIVE_HA = new Set(["DYNAMIC_BAND","DYNAMIC_MID_COLOR","DYNAMIC_MID_COLOR_HL","DSB_GREY","ALMA_BAND","ALMA_DSB","DSB_DUAL","ALMA_FAST","ALMA_DUAL_BAND_SMA5","DUAL_ST_CHOP","MA_SLOPE","MA_SLOPE_SCALP","MA_SLOPE_PURE","MA_SLOPE_HM","HILEGA_MILEGA","DPI_TREND_MEANREV","DPI_MEANREV","ALMA_TRI_BAND","ALMA_PRO_FAST","ALMA_PRO_SLOW","PURE_HA"]);
 function nativeCandleOf(strategy) { return NATIVE_HA.has(strategy) ? "HA" : "RAW"; }
 window.nativeCandleOf = nativeCandleOf;
 function candleText(inst) {
@@ -2060,7 +2060,7 @@ function openEditModal(inst) {
 
   const isAlmaProFast = inst.strategy === "ALMA_PRO_FAST";
   const isAlmaProSlow = inst.strategy === "ALMA_PRO_SLOW";
-  const isDynamicBand = inst.strategy === "DYNAMIC_BAND" || inst.strategy === "DYNAMIC_MID_COLOR" || (inst.strategy === "DYNAMIC_MID_COLOR_HL" || inst.strategy === "ALMA_DSB" || inst.strategy === "DSB_DUAL");
+  const isDynamicBand = inst.strategy === "DYNAMIC_BAND" || inst.strategy === "DYNAMIC_MID_COLOR" || (inst.strategy === "DYNAMIC_MID_COLOR_HL" || inst.strategy === "ALMA_DSB" || inst.strategy === "DSB_GREY" || inst.strategy === "DSB_DUAL");
   const isAlmaTriBand = inst.strategy === "ALMA_TRI_BAND";
 
   tbEditBody.innerHTML = `
@@ -2775,7 +2775,7 @@ function renderAddConfigStep() {
       almaFastLenRow.style.display = s.key === "ALMA_PRO_FAST" ? "" : "none";
       almaBandLenRow.style.display = (s.key === "ALMA_PRO_FAST" && tbAddBody.querySelector("#addAlmaBand").checked) ? "" : "none";
       almaChopRow.style.display = (s.key === "ALMA_PRO_FAST" || s.key === "ALMA_PRO_SLOW") ? "" : "none";
-      bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_MID_COLOR" || (s.key === "DYNAMIC_MID_COLOR_HL" || s.key === "ALMA_DSB" || s.key === "DSB_DUAL")) ? "" : "none";
+      bandStepRow.style.display = (s.key === "DYNAMIC_BAND" || s.key === "DYNAMIC_MID_COLOR" || (s.key === "DYNAMIC_MID_COLOR_HL" || s.key === "ALMA_DSB" || s.key === "DSB_GREY" || s.key === "DSB_DUAL")) ? "" : "none";
       dsbDualRow.style.display = s.key === "DSB_DUAL" ? "" : "none";
       greyExitRow.style.display = s.key === "ALMA_TRI_BAND" ? "" : "none";
       flipConfirmRow.style.display = s.key === "PURE_HA" ? "" : "none";
@@ -2868,7 +2868,7 @@ function renderAddConfigStep() {
         dsbExitMode: tbAddBody.querySelector("#addDsbExitMode").value,
         bandStep2: pickedStrategy === "DSB_DUAL" ? (tbAddBody.querySelector("#addBandStep2").value || undefined) : undefined,
         dsbDualMode: pickedStrategy === "DSB_DUAL" ? tbAddBody.querySelector("#addDsbDualMode").value : undefined,
-        bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || (pickedStrategy === "DYNAMIC_MID_COLOR_HL" || pickedStrategy === "ALMA_DSB" || pickedStrategy === "DSB_DUAL")) ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
+        bandStep: (pickedStrategy === "DYNAMIC_BAND" || pickedStrategy === "DYNAMIC_MID_COLOR" || (pickedStrategy === "DYNAMIC_MID_COLOR_HL" || pickedStrategy === "ALMA_DSB" || pickedStrategy === "DSB_GREY" || pickedStrategy === "DSB_DUAL")) ? (tbAddBody.querySelector("#addBandStep").value || undefined) : undefined,
         greyExitEnabled: pickedStrategy === "ALMA_TRI_BAND" ? tbAddBody.querySelector("#addGreyExit").checked : undefined,
         disableDoubleOrders: tbAddBody.querySelector("#addDisableDouble").checked,
         atrSlMult: tbAddBody.querySelector("#addAtrSlMult").value || undefined,

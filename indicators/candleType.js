@@ -19,10 +19,10 @@ const HA_NATIVE = new Set([
     "DPI_TREND_MEANREV", "DPI_MEANREV", "ALMA_TRI_BAND",
     "ALMA_PRO_FAST", "ALMA_PRO_SLOW", "PURE_HA",
     // Dynamic Step Band family: reads the plain candle buffer, so Heikin-Ashi is applied as the series view.
-    "DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL",
+    "DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "DSB_GREY",
 ]);
 // HA-native strategies that do NOT convert internally — their native HA is delivered as the series view.
-const HA_VIEW_NATIVE = new Set(["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL"]);
+const HA_VIEW_NATIVE = new Set(["DYNAMIC_BAND", "DYNAMIC_MID_COLOR", "DYNAMIC_MID_COLOR_HL", "DSB_GREY"]);
 
 function nativeCandleType(strategy) { return HA_NATIVE.has(strategy) ? "HA" : "RAW"; }
 

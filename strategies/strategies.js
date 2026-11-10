@@ -3456,6 +3456,174 @@ function createHilegaMilegaStrategy({ context, engineConfig, state, db, candles,
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// DSB_GREY — Dynamic Step Band with an MA-slope grey (sideways) state.
+// Port of the Pine "Dynamic Step Band [DSB] + Grey State" (see strategies/dsbGrey.js).
+// Band mid starts at the first open, moves one step per closed-candle breakout.
+// direction = +1 (green) / -1 (red) only when the breakout happens with a strong
+// ema(ohlc4, MA_SLOPE_LEN) slope angle (beyond MA_SLOPE_FILTER_TOP/BOTTOM),
+// 0 (grey) on a weak-slope breakout and whenever the slope is neutral.
+// Trading: enter on a change INTO green/red (LONG/SHORT); exit when direction
+// leaves the held side (grey -> flat, opposite colour -> exit and reverse).
+// A gate-blocked entry is retried while the colour holds; after a stop-out there
+// is no re-entry until the colour changes again. ATR trail + universal gates.
+// Band geometry is rebuilt from the candle buffer once per boot (same convention
+// as the other DSB strategies), then stepped one candle at a time.
+// ════════════════════════════════════════════════════════════════════════
+function createDsbGreyStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() }, htf, dailyHa }) {
+    const dsbg = require("./dsbGrey");
+    function persist(position, entryPrice, positionSource) {
+        db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
+    }
+    function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;
+        if (atrVal === null) return null;
+        const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
+        return side === "LONG" ? livePrice - offset : livePrice + offset;
+    }
+    const flagsFor = cs => dsbg.slopeFlags(cs, engineConfig.MA_SLOPE_LEN, engineConfig.MA_SLOPE_ATR_LEN, engineConfig.MA_SLOPE_FILTER_TOP, engineConfig.MA_SLOPE_FILTER_BOTTOM);
+
+    async function doExit(side, livePrice, reason) {
+        const closed = await orders.exit(side);
+        if (engineConfig.LIVE_ORDERS && closed === null) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} exit failed (${reason}) — will retry next candle`));
+            return false;
+        }
+        tg(`${side} EXIT (${reason}) @ ₹${livePrice.toFixed(2)}`);
+        const exitPnl = await positionsClose(livePrice, reason);
+        slStore.clearTrail();
+        targetStore.clearTarget();
+        persist(null, 0);
+        const col = exitPnl > 0 ? c.green : exitPnl < 0 ? c.red : c.white;
+        console.log(col(`[${context.tgPrefix}] ${side} ${reason}  @ ${livePrice.toFixed(2)}`));
+        return true;
+    }
+
+    async function doEnter(side, livePrice, atrVal, isReversal) {
+        const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
+        const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
+        const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
+        const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
+        const htfBlocked = await htf.isBlocked();
+        const dailyHaBlocked = await dailyHa.isBlocked(side);
+        reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
+        if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
+        else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+        else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
+        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+        else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
+        else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
+        const blocked = doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked;
+        const ordered = blocked ? null : await orders.enter(side);
+        if (blocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
+            console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
+            return false;
+        }
+        const slTrail = computeTrail(livePrice, atrVal, side);
+        state.position = side;
+        state.tradesToday = (state.tradesToday || 0) + 1;
+        state.entryPrice = livePrice;
+        state.positionSource = "DSB_GREY";
+        state.openTradeId = await db.insertOpenTrade(context.tgPrefix, context.symbol, side, context.lots, livePrice);
+        if (slTrail !== null && ((side === "LONG" && slTrail < livePrice) || (side === "SHORT" && slTrail > livePrice))) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
+        persist(side, livePrice, "DSB_GREY");
+        const arrow = side === "LONG" ? "▲" : "▼";
+        console.log(c[side === "LONG" ? "green" : "red"](`[${context.tgPrefix}] ${arrow} ${side} ENTRY (DSB_GREY) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}  Mid:${state.dsbg.mid.toFixed(2)}`));
+        emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null, arrow });
+        tg(`${arrow} ${side} ENTRY (DSB_GREY) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}\nMid: ${state.dsbg.mid.toFixed(2)}`);
+        return true;
+    }
+
+    // prevDir → newDir already applied to state.dsbg; act on it.
+    async function act(prevDir, newDir, atrVal, rawClose) {
+        const livePrice = candles.getLivePrice() ?? rawClose;
+        const uPnL = positionsUnrealised(livePrice);
+        const ts = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
+        const fmt = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+        const col = newDir === 1 ? "green" : newDir === -1 ? "red" : "gray";
+        const session = (state.pnl || 0) + uPnL;
+        console.log(c[state.position ? (uPnL > 0 ? "green" : uPnL < 0 ? "red" : "white") : "white"](`[${context.tgPrefix}] ${ts} DSBG ${newDir === 1 ? "▲" : newDir === -1 ? "▼" : "●"} ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}`));
+        emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null, color: col });
+        if (!engineConfig.ENGINE_ENABLED) return;
+
+        if (newDir !== prevDir) state.dsbgPending = newDir === 0 ? null : (newDir === 1 ? "LONG" : "SHORT");
+        const want = newDir === 1 ? "LONG" : newDir === -1 ? "SHORT" : null;
+        const startPos = state.position;
+
+        if (state.position && state.position !== want) {
+            await doExit(state.position, livePrice, want ? "DSB FLIP EXIT" : "GREY EXIT");
+        }
+        if (!state.position && want && state.dsbgPending === want) {
+            const ok = await doEnter(want, livePrice, atrVal, startPos !== null && startPos !== want);
+            if (ok) state.dsbgPending = null;
+        }
+        if (state.position && atrVal !== null) {
+            const slTrail = computeTrail(livePrice, atrVal, state.position);
+            if ((state.position === "LONG" && slTrail < livePrice) || (state.position === "SHORT" && slTrail > livePrice)) slStore.setTrail(slTrail, state.position === "LONG" ? 1 : -1);
+        }
+    }
+
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown()) return;
+        const rawCandles = candles.getRawCandles();
+        const warmupNeeded = Math.max(engineConfig.MA_SLOPE_LEN + 1, engineConfig.MA_SLOPE_ATR_LEN, engineConfig.ST_ATR_LEN) + 5;
+        if (rawCandles.length < warmupNeeded) {
+            console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${rawCandles.length}/${warmupNeeded}`));
+            return;
+        }
+        const size = context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
+        const atrVal = rawCandles.length >= engineConfig.ST_ATR_LEN + 1 ? atr(rawCandles, engineConfig.ST_ATR_LEN) : null;
+
+        if (!state.historyReplayed || !state.dsbg) {
+            state.historyReplayed = true;
+            const win = rawCandles.slice(-engineConfig.MAX_CANDLES);
+            const ser = dsbg.series(win, size, flagsFor(win));
+            state.dsbg = ser[ser.length - 1];
+            console.log(c.cyan(`[${context.tgPrefix}] HIST REPLAY  ${win.length} candles  MID:${state.dsbg.mid.toFixed(2)} dir:${state.dsbg.direction}`));
+            // Boot: a live colour with nothing held is taken now (same convention as the other DSB strategies).
+            state.dsbgPending = (!state.position && state.dsbg.direction !== 0) ? (state.dsbg.direction === 1 ? "LONG" : "SHORT") : null;
+            await act(state.dsbg.direction, state.dsbg.direction, atrVal, rawCandle.close);
+            return;
+        }
+
+        const flags = flagsFor(rawCandles)[rawCandles.length - 1];
+        const prevDir = state.dsbg.direction;
+        state.dsbg = dsbg.step(state.dsbg, rawCandle.close, flags, size);
+        await act(prevDir, state.dsbg.direction, atrVal, rawCandle.close);
+    }
+
+    async function initSignals() {
+        try {
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+            const today = clock.now().toISOString().split("T")[0];
+            if (engineConfig.RESUME_INTRADAY_ONLY && saved?.position) {
+                const shouldResume = (saved.entry_date ?? null) === today || context.carryOvernight;
+                if (shouldResume) {
+                    state.position = saved.position;
+                    state.entryPrice = saved.entry_price;
+                    state.positionSource = saved.position_source || "DSB_GREY";
+                    const openTrade = await db.getOpenTrade(context.tgPrefix);
+                    state.openTradeId = openTrade ? openTrade.id : null;
+                } else {
+                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                }
+            }
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+            state.tradesToday = await db.getTradeCountToday(context.tgPrefix);
+            console.log();
+            console.log(c.green(`[${context.tgPrefix}] ${state.position ? `${state.position}@${state.entryPrice}` : "flat"}`));
+            console.log();
+            await orders.reconcile(state);
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
+
+// ════════════════════════════════════════════════════════════════════════
 // DUAL_ST_CHOP — two independent SuperTrends (a faster/tighter one and a
 // slower/wider one) must AGREE on direction, gated by the Choppiness Index
 // so it only enters when the market isn't ranging. This is the classic
@@ -7556,6 +7724,7 @@ const STRATEGIES = {
     MA_SLOPE_PURE:       createMaSlopePureStrategy,
     MA_SLOPE_HM:          createMaSlopeHmStrategy,
     HILEGA_MILEGA:        createHilegaMilegaStrategy,
+    DSB_GREY:             createDsbGreyStrategy,
     ADAPTIVE_TREND:       createAdaptiveTrendStrategy,
     DPI_MEANREV:          createDpiMeanrevStrategy,
     DYNAMIC_BAND:         createDynamicBandStrategy,
@@ -7591,6 +7760,7 @@ const STRATEGY_INFO = {
     MA_SLOPE_PURE:       { label: "MA Slope Pure",               description: "color-only ema(56) slope, no ALMA band at all — enter on BULL/BEAR only once HA close agrees with SMA9, no trade in GREY, exit on a flip to the opposite decisive color or a flip into GREY", short: "PURE" },
     MA_SLOPE_HM:          { label: "MA Slope + Hilega-Milega",    description: "same entry as MA Slope Pure (color-only, no ALMA band) — exit is a Hilega-Milega RSI9/WMA21/EMA3 crossover against position direction, not a color flip", short: "HM" },
     HILEGA_MILEGA:        { label: "Hilega-Milega",            description: "pure Hilega-Milega: RSI9 on HA closes, EMA3 vs WMA21 — EMA3 above WMA21 = LONG, below = SHORT, opposite cross exits and reverses; ATR trail stop", short: "HM" },
+    DSB_GREY:             { label: "DSB + Grey State",              description: "Dynamic Step Band with an MA-slope grey (sideways) state: green/red only when a band breakout happens with a strong ema(ohlc4,56) slope, grey otherwise — trade green/red, flat in grey", short: "DSBG" },
     ADAPTIVE_TREND:       { label: "Adaptive Trend Envelope",     description: "port of BackQuant's Pine script — volatility-adaptive EMA blend spine wrapped in an EWMA-vol envelope; enter on regime flip to bull/bear, exit when regime no longer matches (flat or opposite)", short: "ATE" },
     DPI_MEANREV:          { label: "DPI Trend + Mean Reversion",  description: "the original DPI_TREND_MEANREV combo — ST1-confirmed DPI trend, RSI mean-reversion in the chop between", short: "DPIMR" },
     DYNAMIC_BAND:         { label: "Dynamic Band Breakout",       description: "fixed-price-step HIGH/MID/LOW band, closed-candle breakout only, immediate entry on breach (direct port of the reference Pine script), band shifts by one step on every entry/continuation, immediate exit+reverse on the opposite boundary — no ATR stop-loss, the reversal boundary itself is the stop", short: "DBAND" },
@@ -7644,6 +7814,7 @@ const STRATEGY_TIMEFRAME = {
     // strategy-specific reason to pick a different one.
     MA_SLOPE_HM:          "1h",
     HILEGA_MILEGA:        "1h",
+    DSB_GREY:             "1h",
     // No timeframe guidance from the Pine script itself (author didn't
     // specify one) — 15m for consistency with everything else in this file.
     ADAPTIVE_TREND:       "1h",
