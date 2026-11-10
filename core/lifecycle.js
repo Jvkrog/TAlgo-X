@@ -113,6 +113,7 @@ function createLifecycle({ context, engineConfig, state, db, candles, slStore, t
                 console.log(c.dim(`  pnl : ${pnlStr(realizedPnl)}  trades: ${closedTrades.length}  winrate: ${winRate}%`));
                 if (carriedUnreal !== null) console.log(c.yellow(`  open : ${state.position}@${state.entryPrice}  unrealized ${pnlStr(carriedUnreal)}  (NOT closed)`));
                 console.log();
+                _shutdown = true;   // from here nothing else may log or act: candle wrappers / watchers check isShutdown() so no line lands after the banner
                 console.log(c.bold("*** SHUTDOWN ***"));
 
                 // Web dashboard only: the underlying EXIT event (if a
