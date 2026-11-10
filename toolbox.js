@@ -28,6 +28,7 @@ const { resolveCurrent }         = require("./data/instrumentResolution");
 const { getDefinition, buildContext, defaultEodFor } = require("./core/context");
 const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = require("./strategies/strategies");
 const { STRATEGY_PARAM_SPEC, validateParams, paramsToEnv, paramsFromEnv } = require("./strategies/strategyParams");
+const { archiveInstrumentDbs } = require("./data/dbArchive");
 const { CANDLE_LABEL, nativeCandleType, normalizeCandleType, resolveCandleMode, overrideWarning } = require("./indicators/candleType");
 const { INDICATOR_CATALOG } = require("./indicators/indicatorCatalog");
 const { normalizePrice }    = require("./core/price");
@@ -3913,8 +3914,15 @@ async function restartSelected(procs) {
 async function deleteSelected(procs) {
     const targets = procs.filter(p => selected.has(p.name));
     if (targets.length === 0) { console.log(c.yellow("  Nothing selected")); await pauseForReview(); return; }
+    const removed = new Set();
     for (const p of targets) {
-        try { await pm2Delete(p.name); selected.delete(p.name); console.log(c.green(`  Removed ${p.name}`)); }
+        try {
+            await pm2Delete(p.name); selected.delete(p.name); removed.add(p.name); console.log(c.green(`  Removed ${p.name}`));
+            // the process is stopped now — move its database files to databases/deleted/ so a re-deploy starts clean
+            const arch = archiveInstrumentDbs(p, procs.filter(x => !removed.has(x.name)));
+            if (arch.moved.length) console.log(c.dim(`  Database archived: ${arch.moved.length} file(s) -> databases/deleted/`));
+            for (const e of arch.errors) console.log(c.yellow(`  Database archive problem: ${e} (the file stays where it was)`));
+        }
         catch (err) { console.log(c.red(`  Failed to remove ${p.name}: ${err.message}`)); }
     }
     await pauseForReview();

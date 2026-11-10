@@ -31,6 +31,7 @@ const { upsertEnvVar, readEnvVarFresh, ENV_PATH: ENV_FILE_PATH } = require("../u
 const { todayIST } = require("../utils/istTime");
 const { nativeCandleType, normalizeCandleType, candleSuffix } = require("../indicators/candleType");
 const { DB_DIR } = require("../data/dbDir");
+const { archiveInstrumentDbs } = require("../data/dbArchive");
 
 // ─── TOOLBOX PORT — same modules toolbox.js's Add Instrument / Backtest /
 // Setup Credentials screens use, required directly rather than reaching
@@ -871,12 +872,22 @@ app.post("/api/toolbox/delete", async (req, res) => {
     if (!Array.isArray(names) || names.length === 0) {
         return res.status(400).json({ error: "Names (array) is required" });
     }
-    const results = {};
+    const results = {}, archived = {};
+    let procs = []; try { procs = await getEngineProcesses(); } catch { /* without the list nothing is archived (files stay put) */ }
+    const removed = new Set();
     for (const name of names) {
-        try { await pm2Delete(name); results[name] = "ok"; }
+        try {
+            await pm2Delete(name); results[name] = "ok"; removed.add(name);
+            // stopped now — move this instrument's database files to databases/deleted/ so a re-deploy starts clean
+            const p = procs.find(x => x.name === name);
+            if (p) {
+                const arch = archiveInstrumentDbs(p, procs.filter(x => !removed.has(x.name)));
+                archived[name] = { moved: arch.moved.length, errors: arch.errors };
+            }
+        }
         catch (err) { results[name] = err.message; }
     }
-    res.json({ results });
+    res.json({ results, archived });
 });
 
 app.get("/api/toolbox/logs/:name", async (req, res) => {
