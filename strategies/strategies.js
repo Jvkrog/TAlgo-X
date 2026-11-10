@@ -3254,6 +3254,208 @@ function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, sl
 }
 
 // ════════════════════════════════════════════════════════════════════════
+// HILEGA_MILEGA — pure Hilega-Milega momentum strategy (MA_SLOPE_HM with the
+// MA-slope component removed). RSI(9) on HA closes -> WMA(21) slow + EMA(3)
+// fast. EMA3 above WMA21 = LONG, below = SHORT; the opposite cross exits and
+// reverses (entry is level-based while flat, exit is the edge-triggered
+// cross). ATR trail stop, universal gates before orders.enter.
+// ════════════════════════════════════════════════════════════════════════
+function createHilegaMilegaStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() }, htf, dailyHa }) {
+    function canEnter() {
+        const { hours, minutes } = istParts(clock.now());
+        return hours > engineConfig.TRADE_START_HOUR ||
+            (hours === engineConfig.TRADE_START_HOUR &&
+             minutes >= engineConfig.TRADE_START_MINUTE);
+    }
+
+    function persist(position, entryPrice, positionSource) {
+        db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
+    }
+
+    function computeTrail(livePrice, atrVal, side) {
+        const hardLevel = hardStopLevel(context, state, side, livePrice);
+        if (hardLevel !== null) return hardLevel;   // hard rupee stop replaces the ATR stop
+        if (atrVal === null) return null;
+        const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
+        return side === "LONG" ? livePrice - offset : livePrice + offset;
+    }
+
+    async function runSignals(price, entrySide, atrVal, currentState, hmPrev, hmNow) {
+        const livePrice = candles.getLivePrice() ?? price;
+        // See doubleOrderGate.js: disableDoubleOrders now only ever
+        // blocks a same-candle reversal (was open, flips to the opposite
+        // side), never an unrelated fresh entry after being flat since an
+        // earlier target/SL exit — captured here, before any exit below
+        // can clear state.position, so the entry check further down
+        // still knows what was open when this candle started.
+        const positionAtCallStart = state.position;
+
+        const uPnL = positionsUnrealised(livePrice);
+        const ts   = clock.now().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" });
+        const fmt  = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
+        const clr  = currentState === "BULL" ? "▲" : currentState === "BEAR" ? "▼" : "●";
+        const session   = (state.pnl || 0) + uPnL;
+        const lineColor = !state.position
+            ? c.white
+            : uPnL > 0 ? c.green : uPnL < 0 ? c.red : c.white;
+        console.log(lineColor(`[${context.tgPrefix}] ${ts} HM ${clr} ${livePrice.toFixed(2).padStart(7)}  ${fmt(uPnL).padStart(7)}  ${fmt(session).padStart(8)}`));
+        emitEvent(context.tgPrefix, "TICK", { price: livePrice, uPnl: uPnL, session, position: state.position, entryPrice: state.entryPrice || null });
+
+        // Exit: HM crossover against position direction — see header comment.
+        // Edge-triggered on the actual cross (needs both hmPrev and hmNow),
+        // not level-based, so it fires once, the candle it happens.
+        if (engineConfig.ENGINE_ENABLED && state.position && state.positionSource === "HILEGA_MILEGA" && hmPrev && hmNow) {
+            const hmCrossExit =
+                (state.position === "LONG"  && hmPrev.ema3 >= hmPrev.wma21 && hmNow.ema3 < hmNow.wma21) ||
+                (state.position === "SHORT" && hmPrev.ema3 <= hmPrev.wma21 && hmNow.ema3 > hmNow.wma21);
+            if (hmCrossExit) {
+                const closed = await orders.exit(state.position);
+                if (engineConfig.LIVE_ORDERS && closed === null) {
+                    console.log(c.yellow(`[${context.tgPrefix}] ${state.position} exit failed (HM_EXIT) — will retry next candle`));
+                } else {
+                    const e3 = hmNow.ema3.toFixed(1), w21 = hmNow.wma21.toFixed(1);
+                    tg(`${state.position} EXIT (HM_EXIT) @ ₹${livePrice.toFixed(2)}\nEMA3:${e3}  WMA21:${w21}`);
+                    await positionsClose(livePrice, "HM_EXIT");
+                    slStore.clearTrail();
+                    targetStore.clearTarget();
+                    persist(null, 0);
+                }
+            }
+        }
+
+        // Entry: level-based on the HM state
+        // while flat, no trade in grey.
+        if (engineConfig.ENGINE_ENABLED && !state.position && entrySide && canEnter()) {
+            const side = entrySide;
+            // Reversal-only, not count-based — see doubleOrderGate.js.
+            const isReversal = positionAtCallStart !== null && positionAtCallStart !== side;
+            const doubleBlocked = isDoubleOrderBlocked(context, state, isReversal);
+            const chopBlocked = isChopBlocked(context, engineConfig, candles, { force: engineConfig.CHOP_GATE_ALWAYS_FORCE !== false });
+            const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
+            const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
+            // htfGate.js — universal, every strategy, see its header for the
+            // exact condition (HTF trending but still inside its own ALMA band).
+            const htfBlocked = await htf.isBlocked();
+            // dailyHaGate.js — universal, every strategy (see its header).
+            const dailyHaBlocked = await dailyHa.isBlocked(side);
+            reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, chop: chopBlocked, volume: volumeBlocked, longCandle: longCandleBlocked, htf: htfBlocked, dailyHa: dailyHaBlocked }, dailyHa);
+            if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
+            else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
+            else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
+            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+            else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
+            else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
+            const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
+            if (chopBlocked || doubleBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
+                console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
+            } else {
+                const slTrail = computeTrail(livePrice, atrVal, side);
+
+                state.position    = side;
+                state.tradesToday = (state.tradesToday || 0) + 1;
+                state.entryPrice  = livePrice;
+                state.positionSource = "HILEGA_MILEGA";
+                state.openTradeId = await db.insertOpenTrade(
+                    context.tgPrefix, context.symbol, side, context.lots, livePrice
+                );
+
+                const trailValid =
+                    slTrail !== null &&
+                    ((side === "LONG"  && slTrail < livePrice) ||
+                     (side === "SHORT" && slTrail > livePrice));
+                if (trailValid) slStore.setTrail(slTrail, side === "LONG" ? 1 : -1);
+
+                persist(side, livePrice, "HILEGA_MILEGA");
+                // Session PnL at time of entry, not direction — see the Sep 2026
+                // "differentiate by profitability, not LONG/SHORT" request.
+                const entryCol = state.pnl > 0 ? c.green : state.pnl < 0 ? c.red : c.white;
+                console.log(entryCol(`[${context.tgPrefix}] ${side} ENTRY (HILEGA_MILEGA) @ ${livePrice.toFixed(2)}  Tr:${slTrail?.toFixed(2) ?? "-"}`));
+                emitEvent(context.tgPrefix, "ENTRY", { side, price: livePrice, trail: slTrail ?? null });
+                tg(`${side} ENTRY (HILEGA_MILEGA) @ ₹${livePrice.toFixed(2)}\nTrail: ₹${slTrail?.toFixed(2) ?? "-"}`);
+            }
+        }
+
+        // Refresh SL every candle — trail tightens as price moves in favour.
+        if (engineConfig.ENGINE_ENABLED && state.position && atrVal !== null) {
+            const slTrail      = computeTrail(livePrice, atrVal, state.position);
+            const refreshValid =
+                (state.position === "LONG"  && slTrail < livePrice) ||
+                (state.position === "SHORT" && slTrail > livePrice);
+            if (refreshValid) slStore.setTrail(slTrail, state.position === "LONG" ? 1 : -1);
+        }
+    }
+
+    async function processCandle(rawCandle) {
+        if (lifecycle.isShutdown()) return;
+        const rawCandles = candles.getRawCandles();
+
+        // HM needs RSI_LEN+1+WMA_LEN = 31 HA candles warmed (hmIndicator's minLen).
+        const warmupNeeded = Math.max(engineConfig.ST_ATR_LEN, 31) + 5;
+        if (rawCandles.length < warmupNeeded) {
+            console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${rawCandles.length}/${warmupNeeded}`));
+            return;
+        }
+
+        const atrForTrail = atr(rawCandles, engineConfig.ST_ATR_LEN);
+
+        // HM on HA closes; two most recent non-null entries = now / prev.
+        const haCloses = toHA(rawCandles).map(cd => cd.close);
+        const hmArr = hmIndicator(haCloses);
+        let hmNow = null, hmPrev = null;
+        for (let i = hmArr.length - 1; i >= 0 && (!hmNow || !hmPrev); i--) {
+            if (hmArr[i] !== null) {
+                if (!hmNow)       hmNow  = hmArr[i];
+                else if (!hmPrev) hmPrev = hmArr[i];
+            }
+        }
+        if (!hmNow) return;
+
+        // Level-based state: EMA3 above WMA21 = BULL (LONG), below = BEAR (SHORT).
+        const currentState = hmNow.ema3 > hmNow.wma21 ? "BULL" : hmNow.ema3 < hmNow.wma21 ? "BEAR" : "GREY";
+        const entrySide = currentState === "BULL" ? "LONG" : currentState === "BEAR" ? "SHORT" : null;
+
+        await runSignals(rawCandle.close, entrySide, atrForTrail, currentState, hmPrev, hmNow);
+    }
+
+    async function initSignals() {
+        try {
+            const saved = await db.loadPosition(context.tgPrefix, context.token);
+            const today = clock.now().toISOString().split("T")[0];
+
+            if (engineConfig.RESUME_INTRADAY_ONLY && saved?.position) {
+                const sameDay     = (saved.entry_date ?? null) === today;
+                const shouldResume = sameDay || context.carryOvernight;
+                if (shouldResume) {
+                    state.position   = saved.position;
+                    state.entryPrice = saved.entry_price;
+                    state.positionSource = saved.position_source || "HILEGA_MILEGA";
+
+                    const openTrade = await db.getOpenTrade(context.tgPrefix);
+                    state.openTradeId = openTrade ? openTrade.id : null;
+                } else {
+                    db.savePosition(context.tgPrefix, context.token, context.symbol, null, 0);
+                }
+            }
+
+            state.pnl = await db.getRealizedPnlToday(context.tgPrefix);
+            state.tradesToday = await db.getTradeCountToday(context.tgPrefix);
+
+            const info = state.position ? `${state.position}@${state.entryPrice}` : "flat";
+            console.log();
+            console.log(c.green(`[${context.tgPrefix}] ${info}`));
+            console.log();
+
+            await orders.reconcile(state);
+
+        } catch (err) {
+            console.warn(`INIT  [${context.tgPrefix}] restore failed:`, err.message);
+        }
+    }
+
+    return { processCandle, initSignals };
+}
+
+// ════════════════════════════════════════════════════════════════════════
 // DUAL_ST_CHOP — two independent SuperTrends (a faster/tighter one and a
 // slower/wider one) must AGREE on direction, gated by the Choppiness Index
 // so it only enters when the market isn't ranging. This is the classic
@@ -7353,6 +7555,7 @@ const STRATEGIES = {
     MA_SLOPE_SCALP:      createMaSlopeScalpStrategy,
     MA_SLOPE_PURE:       createMaSlopePureStrategy,
     MA_SLOPE_HM:          createMaSlopeHmStrategy,
+    HILEGA_MILEGA:        createHilegaMilegaStrategy,
     ADAPTIVE_TREND:       createAdaptiveTrendStrategy,
     DPI_MEANREV:          createDpiMeanrevStrategy,
     DYNAMIC_BAND:         createDynamicBandStrategy,
@@ -7387,6 +7590,7 @@ const STRATEGY_INFO = {
     MA_SLOPE_SCALP:      { label: "MA Slope Scalp",              description: "trend-capture on BULL/BEAR flip + scalp on GREY ALMA_BAND breakout — both exit on opposite flip OR band reentry; only scalp also has a tick-level +SCALP_TARGET_POINTS take-profit", short: "SCALP" },
     MA_SLOPE_PURE:       { label: "MA Slope Pure",               description: "color-only ema(56) slope, no ALMA band at all — enter on BULL/BEAR only once HA close agrees with SMA9, no trade in GREY, exit on a flip to the opposite decisive color or a flip into GREY", short: "PURE" },
     MA_SLOPE_HM:          { label: "MA Slope + Hilega-Milega",    description: "same entry as MA Slope Pure (color-only, no ALMA band) — exit is a Hilega-Milega RSI9/WMA21/EMA3 crossover against position direction, not a color flip", short: "HM" },
+    HILEGA_MILEGA:        { label: "Hilega-Milega",            description: "pure Hilega-Milega: RSI9 on HA closes, EMA3 vs WMA21 — EMA3 above WMA21 = LONG, below = SHORT, opposite cross exits and reverses; ATR trail stop", short: "HM" },
     ADAPTIVE_TREND:       { label: "Adaptive Trend Envelope",     description: "port of BackQuant's Pine script — volatility-adaptive EMA blend spine wrapped in an EWMA-vol envelope; enter on regime flip to bull/bear, exit when regime no longer matches (flat or opposite)", short: "ATE" },
     DPI_MEANREV:          { label: "DPI Trend + Mean Reversion",  description: "the original DPI_TREND_MEANREV combo — ST1-confirmed DPI trend, RSI mean-reversion in the chop between", short: "DPIMR" },
     DYNAMIC_BAND:         { label: "Dynamic Band Breakout",       description: "fixed-price-step HIGH/MID/LOW band, closed-candle breakout only, immediate entry on breach (direct port of the reference Pine script), band shifts by one step on every entry/continuation, immediate exit+reverse on the opposite boundary — no ATR stop-loss, the reversal boundary itself is the stop", short: "DBAND" },
@@ -7439,6 +7643,7 @@ const STRATEGY_TIMEFRAME = {
     // Same entry cadence as MA_SLOPE_PURE (identical entry logic) — no
     // strategy-specific reason to pick a different one.
     MA_SLOPE_HM:          "1h",
+    HILEGA_MILEGA:        "1h",
     // No timeframe guidance from the Pine script itself (author didn't
     // specify one) — 15m for consistency with everything else in this file.
     ADAPTIVE_TREND:       "1h",
