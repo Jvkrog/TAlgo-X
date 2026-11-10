@@ -31,7 +31,7 @@ const { upsertEnvVar, readEnvVarFresh, ENV_PATH: ENV_FILE_PATH } = require("../u
 const { todayIST } = require("../utils/istTime");
 const { nativeCandleType, normalizeCandleType, candleSuffix } = require("../indicators/candleType");
 const { DB_DIR } = require("../data/dbDir");
-const { archiveInstrumentDbs } = require("../data/dbArchive");
+const { archiveInstrumentDbs, archiveLegDbs, hedgePairLegNames, dualHedgeLegNames } = require("../data/dbArchive");
 
 // ─── TOOLBOX PORT — same modules toolbox.js's Add Instrument / Backtest /
 // Setup Credentials screens use, required directly rather than reaching
@@ -2664,8 +2664,12 @@ app.post("/api/toolbox/hedgepairs/stop", async (req, res) => {
 
 app.delete("/api/toolbox/hedgepairs/:name", async (req, res) => {
     try {
+        let all = []; try { all = await getHedgePairProcesses(); } catch { /* without the list nothing is archived */ }
         await pm2Delete(req.params.name);
-        res.json({ ok: true });
+        // stopped now — move its leg databases to databases/deleted/ so a re-deploy starts clean
+        const gone = all.find(x => x.name === req.params.name);
+        const archived = gone ? archiveLegDbs(hedgePairLegNames(gone), all.filter(x => x.name !== req.params.name).flatMap(hedgePairLegNames)) : null;
+        res.json({ ok: true, archived: archived ? { moved: archived.moved.length, errors: archived.errors } : null });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -3131,8 +3135,12 @@ app.post("/api/toolbox/dualhedge/stop", async (req, res) => {
 
 app.delete("/api/toolbox/dualhedge/:name", async (req, res) => {
     try {
+        let all = []; try { all = await getDualHedgeProcesses(); } catch { /* without the list nothing is archived */ }
         await pm2Delete(req.params.name);
-        res.json({ ok: true });
+        // stopped now — move its leg databases to databases/deleted/ so a re-deploy starts clean
+        const gone = all.find(x => x.name === req.params.name);
+        const archived = gone ? archiveLegDbs(dualHedgeLegNames(gone), all.filter(x => x.name !== req.params.name).flatMap(dualHedgeLegNames)) : null;
+        res.json({ ok: true, archived: archived ? { moved: archived.moved.length, errors: archived.errors } : null });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

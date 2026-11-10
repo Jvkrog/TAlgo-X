@@ -28,7 +28,11 @@ const { resolveCurrent }         = require("./data/instrumentResolution");
 const { getDefinition, buildContext, defaultEodFor } = require("./core/context");
 const { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY } = require("./strategies/strategies");
 const { STRATEGY_PARAM_SPEC, validateParams, paramsToEnv, paramsFromEnv } = require("./strategies/strategyParams");
-const { archiveInstrumentDbs } = require("./data/dbArchive");
+const { archiveInstrumentDbs, archiveLegDbs, hedgePairLegNames, dualHedgeLegNames } = require("./data/dbArchive");
+function reportArchive(arch) {
+    if (arch.moved.length) console.log(c.dim(`  Database archived: ${arch.moved.length} file(s) -> databases/deleted/`));
+    for (const e of arch.errors) console.log(c.yellow(`  Database archive problem: ${e} (the file stays where it was)`));
+}
 const { CANDLE_LABEL, nativeCandleType, normalizeCandleType, resolveCandleMode, overrideWarning } = require("./indicators/candleType");
 const { INDICATOR_CATALOG } = require("./indicators/indicatorCatalog");
 const { normalizePrice }    = require("./core/price");
@@ -2871,7 +2875,11 @@ async function hedgePairScreen() {
         if (input === "A")      await addHedgePair();
         else if (input === "X") await hedgePairActionByNumber(pairs, "stop", n => pm2Stop(n));
         else if (input === "S") await hedgePairActionByNumber(pairs, "start", n => pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name: n, cwd: __dirname }));
-        else if (input === "D") await hedgePairActionByNumber(pairs, "remove", n => pm2Delete(n));
+        else if (input === "D") await hedgePairActionByNumber(pairs, "remove", async n => {
+            await pm2Delete(n);
+            const gone = pairs.find(x => x.name === n);   // stopped now — archive its leg databases so a re-deploy starts clean
+            if (gone) reportArchive(archiveLegDbs(hedgePairLegNames(gone), pairs.filter(x => x.name !== n).flatMap(hedgePairLegNames)));
+        });
         else if (input === "T") await backtestHedgePairFlow();
         else if (input === "L") {
             const idx = await ask("  View logs for which number: ");
@@ -3465,7 +3473,11 @@ async function dualHedgeScreen() {
         if (input === "A")      await addDualHedge();
         else if (input === "X") await dualHedgeActionByNumber(deployments, "stop", n => pm2Stop(n));
         else if (input === "S") await dualHedgeActionByNumber(deployments, "start", n => pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name: n, cwd: __dirname }));
-        else if (input === "D") await dualHedgeActionByNumber(deployments, "remove", n => pm2Delete(n));
+        else if (input === "D") await dualHedgeActionByNumber(deployments, "remove", async n => {
+            await pm2Delete(n);
+            const gone = deployments.find(x => x.name === n);
+            if (gone) reportArchive(archiveLegDbs(dualHedgeLegNames(gone), deployments.filter(x => x.name !== n).flatMap(dualHedgeLegNames)));
+        });
         else if (input === "U") await manageDualHedgeUsersScreen();
         else if (input === "T") await backtestDualHedgeFlow();
         else if (input === "L") {

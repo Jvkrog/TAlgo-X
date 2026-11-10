@@ -672,8 +672,9 @@ async function main() {
       signalsInstance.processCandle = async function (candle, ...rest) {
           // End of day reached and flat: a candle closing right on the EOD time (e.g. the 23:00 close of a 1h bar) must not
           // open a position the EOD routine has just closed. Open positions still go through, so exits keep working.
+          if (lifecycleInstance.isShutdown()) return;   // shutdown banner already printed — stay silent
           if (!state.position && lifecycleInstance.eodReached()) {
-              console.log(c.dim(`[${context.tgPrefix}] end of day reached — no new entries, candle skipped`));
+              if (!state.eodSkipLogged) { state.eodSkipLogged = true; console.log(c.dim(`[${context.tgPrefix}] end of day reached — no new entries, candles skipped`)); }   // once, not per candle
               return;
           }
           setCurrentCandle(candle); return rawProcess.call(this, candle, ...rest);
@@ -683,7 +684,8 @@ async function main() {
         const { isHedged } = require("./hedge/hedgeLink");
         setInterval(() => {
             try {
-                hedgeLink.publish(state.position);
+                hedgeLink.publish(state.position);   // keep publishing (the peer must see us flat after the EOD exit) ...
+                if (lifecycleInstance.isShutdown()) return;   // ... but no hedged/unhedged log lines or stop changes after "*** SHUTDOWN ***"
                 const hedged = isHedged(state.position, hedgeLink.peerSide());
                 if (hedged === hedgedNow) return;
                 hedgedNow = hedged;
