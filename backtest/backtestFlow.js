@@ -114,6 +114,15 @@ const STRATEGY_PARAMS = {
         { key: "VWAP_MIN_CANDLES",     label: "Session candles before the bands are used" },
         { key: "ATR_SL_MULT",          label: "ATR stop-loss multiplier" },
     ],
+    DSB_GREY: [
+        { key: "BAND_STEP_DEFAULT",       label: "Band step \u2014 fixed price distance moved per breakout" },
+        { key: "MA_SLOPE_LEN",            label: "EMA length (on ohlc4) for the slope" },
+        { key: "MA_SLOPE_ATR_LEN",        label: "ATR length used in the angle formula" },
+        { key: "MA_SLOPE_FILTER_TOP",     label: "Slope angle above this = strong up (degrees)" },
+        { key: "MA_SLOPE_FILTER_BOTTOM",  label: "Slope angle below this = strong down (degrees)" },
+        { key: "ST_ATR_LEN",              label: "ATR length (SL trail)" },
+        { key: "ATR_SL_MULT",             label: "ATR stop-loss multiplier" },
+    ],
     DSB_DUAL: [
         { key: "BAND_STEP_DEFAULT", label: "DSB 1 step \u2014 faster band (price distance)" },
         { key: "BAND_STEP2_DEFAULT", label: "DSB 2 step \u2014 slower band (price distance)" },
