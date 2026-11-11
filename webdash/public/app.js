@@ -3376,6 +3376,9 @@ async function renderBacktestParamsStep() {
         const payload = { name };
         keys.forEach(k => { if (k in body || body[k] === undefined) payload[k] = body[k] === undefined ? null : body[k]; });
         if (btState.strategy === "DAILY_HA_BIAS") delete payload.entryTime; else { delete payload.dailyBiasEntryTime; delete payload.dailyBiasCandle; delete payload.slTrail; delete payload.atrSlTimeframe; }
+        { const tp = body.params || {};
+          if (payload.atrSlMult == null && tp.ATR_SL_MULT) payload.atrSlMult = tp.ATR_SL_MULT;
+          if (btState.strategy === "DSB_DUAL" && payload.bandStep2 == null && tp.BAND_STEP2_DEFAULT) payload.bandStep2 = tp.BAND_STEP2_DEFAULT; }
         if (btState.strategy === "ALMA_BAND") { delete payload.atrSlMult; delete payload.hardSlRupees; }
         const out = resultBox.querySelector("#btApplyOut");
         applyBtn.disabled = true; applyBtn.textContent = "Applying...";
@@ -3430,6 +3433,9 @@ function renderBtDeployView(bt) {
   const onOff = (flag, detail) => flag ? `ON${detail ? " — " + detail : ""}` : "OFF";
   const P = bt.params || {};
   const bandStep = P.BAND_STEP_DEFAULT || null;
+  // A multiplier tuned in the backtest's strategy-parameter box (ATR_SL_MULT) is per-instrument on deploy; the Risk-section field wins if both are set.
+  const atrSlMultDeploy = bt.atrSlMult || P.ATR_SL_MULT || undefined;
+  const bandStep2Deploy = bt.strategy === "DSB_DUAL" ? (bt.bandStep2 || P.BAND_STEP2_DEFAULT || undefined) : undefined;
   const almaFastLen = P.ALMA_PRO_FAST_LEN || null;
   const almaBandLen = P.ALMA_PRO_BAND_LEN || null;
   const isDhab = bt.strategy === "DAILY_HA_BIAS";
@@ -3442,7 +3448,7 @@ function renderBtDeployView(bt) {
     [isDhab ? "Entry time" : "Entry time (no entries before)", (isDhab ? bt.dailyBiasEntryTime : bt.entryTime) || "—"],
     ...(isDhab ? [["Daily bias candle", bt.dailyBiasCandle || "default"]] : []),
     ...(isDhab ? [["Trailing stop", bt.slTrail ? "On (chandelier)" : "Off"], ["ATR timeframe", bt.atrSlTimeframe === "1h" ? "1-hour" : "instrument candles"]] : []),
-    ["Stop-loss", bt.slDisabled ? "Disabled" : bt.hardSlRupees ? `Hard ₹${bt.hardSlRupees}` : bt.atrSlMult ? `ATR × ${bt.atrSlMult}` : "ATR (default multiplier)"],
+    ["Stop-loss", bt.slDisabled ? "Disabled" : bt.hardSlRupees ? `Hard ₹${bt.hardSlRupees}` : atrSlMultDeploy ? `ATR × ${atrSlMultDeploy}` : "ATR (default multiplier)"],
     ["Chop filter", onOff(bt.chopFilterEnabled, `period ${bt.chopPeriod || "default"}, max ${bt.chopMax || "default"}`)],
     ["Long-candle block", onOff(bt.longCandleFilterEnabled, `ATR ${bt.longCandleAtrPeriod || "def"} × ${bt.longCandleAtrMult || "def"}, cooldown ${bt.longCandleCooldownCandles || "def"}`)],
     ["Volume filter", onOff(bt.volumeFilterEnabled, `SMA ${bt.volumeSmaPeriod || "default"}`)],
@@ -3458,10 +3464,11 @@ function renderBtDeployView(bt) {
     ...(bt.dsbExitMode === "SL" ? [["Exit mode", "Stop-loss only"]] : []),
     ...(bt.sessionTargetRupees ? [["Session target", "₹" + bt.sessionTargetRupees + " (backtest only — not applied on deploy)"]] : []),
     ...(bandStep ? [["Band step", bandStep]] : []),
+    ...(bandStep2Deploy ? [["DSB 2 step", bandStep2Deploy]] : []),
     ...(almaFastLen ? [["ALMA fast length", almaFastLen]] : []),
     ...(almaBandLen ? [["ALMA band length", almaBandLen]] : []),
   ];
-  const otherParams = Object.entries(P).filter(([k]) => !["BAND_STEP_DEFAULT", "ALMA_PRO_FAST_LEN", "ALMA_PRO_BAND_LEN"].includes(k));
+  const otherParams = Object.entries(P).filter(([k]) => !["BAND_STEP_DEFAULT", "BAND_STEP2_DEFAULT", "ATR_SL_MULT", "ALMA_PRO_FAST_LEN", "ALMA_PRO_BAND_LEN"].includes(k));
   view.innerHTML = `
     <div class="tb-form-hint" style="margin-bottom:10px">Deploy a live engine using the settings from this backtest.</div>
     <table class="tb-deploy-sum" style="width:100%;border-collapse:collapse;font-size:13px">
@@ -3513,7 +3520,8 @@ function renderBtDeployView(bt) {
       almaFastLen: bt.strategy === "ALMA_PRO_FAST" ? (almaFastLen || undefined) : undefined,
       almaBandLen: bt.strategy === "ALMA_PRO_FAST" ? (almaBandLen || undefined) : undefined,
       disableDoubleOrders: !!bt.disableDoubleOrders,
-      atrSlMult: bt.atrSlMult, hardSlRupees: bt.hardSlRupees, slDisabled: bt.slDisabled,
+      atrSlMult: atrSlMultDeploy, hardSlRupees: bt.hardSlRupees, slDisabled: bt.slDisabled,
+      bandStep2: bandStep2Deploy, dsbDualMode: bt.strategy === "DSB_DUAL" ? bt.dsbDualMode : undefined,
       dailyBiasEntryTime: bt.dailyBiasEntryTime, entryTime: bt.entryTime, dailyBiasCandle: bt.dailyBiasCandle,
       slTrail: !!bt.slTrail, atrSlTimeframe: bt.atrSlTimeframe,
       volumeFilterEnabled: !!bt.volumeFilterEnabled, volumeSmaPeriod: bt.volumeSmaPeriod,
