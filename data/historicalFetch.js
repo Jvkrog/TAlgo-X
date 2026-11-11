@@ -128,13 +128,21 @@ async function fetchHistoricalCandles({ kc, token, timeframe, from, to }) {
 // Kite's day-interval endpoint doesn't carry the same tight per-call
 // date-span cap the intraday intervals do, so no chunking is needed.
 async function fetchDailyCandles({ kc, token, from, to }) {
-    const bars = await kc.getHistoricalData(
-        token,
-        "day",
-        new Date(from).toISOString().split("T")[0],
-        new Date(to).toISOString().split("T")[0]
-    );
-    return (bars || [])
+    // Kite rejects a "day" request wider than 2000 days ("interval exceeds max limit") — split wide ranges.
+    const DAY = 24 * 60 * 60 * 1000, DAILY_CHUNK = 1900;
+    const bars = [];
+    let cs = new Date(from).getTime();
+    const end = new Date(to).getTime();
+    let first = true;
+    while (cs <= end) {
+        if (!first) await sleep(CHUNK_DELAY_MS);
+        first = false;
+        const ce = Math.min(cs + DAILY_CHUNK * DAY, end);
+        bars.push(...((await kc.getHistoricalData(token, "day", new Date(cs).toISOString().split("T")[0], new Date(ce).toISOString().split("T")[0])) || []));
+        cs = ce + DAY;
+    }
+    const seen = new Set();
+    return bars
         .map(b => ({
             open:  parseFloat(b.open),
             high:  parseFloat(b.high),
@@ -142,7 +150,8 @@ async function fetchDailyCandles({ kc, token, from, to }) {
             close: parseFloat(b.close),
             date:  new Date(b.date),
         }))
-        .sort((a, b) => a.date - b.date);
+        .sort((a, b) => a.date - b.date)
+        .filter(c => { const k = c.date.getTime(); if (seen.has(k)) return false; seen.add(k); return true; });
 }
 
 module.exports = { fetchHistoricalCandles, fetchDailyCandles, timeframeToInterval, TIMEFRAME_TO_INTERVAL, TIMEFRAME_MINUTES };

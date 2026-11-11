@@ -90,9 +90,18 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     // lookback window are filtered out of the final report below — they're
     // warmup context, not something the person asked to backtest.
     const WARMUP_LOOKBACK_DAYS = timeframe === "1d" ? 150 : 10;   // daily bars: ~100 trading days of warmup
-    const fetchFrom = new Date(from.getTime() - WARMUP_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+    let fetchFrom = new Date(from.getTime() - WARMUP_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
 
     const rawTimeCandles = await fetchHistoricalCandles({ kc, token: context.token, timeframe, from: fetchFrom, to });
+    // "Max history": the requested range can start long before the contract has any data. Start the window at the first candle
+    // that actually exists, so everything downstream (range bars, daily bars, report dates) only covers real data.
+    if (rawTimeCandles.length && rawTimeCandles[0].date > fetchFrom) {
+        const firstMs = new Date(rawTimeCandles[0].date).getTime();
+        if (firstMs - fetchFrom.getTime() > 3 * 24 * 60 * 60 * 1000) {
+            fetchFrom = new Date(firstMs);
+            if (from.getTime() < firstMs) from = new Date(firstMs);
+        }
+    }
     if (rawTimeCandles.length === 0) {
         throw new Error("runBacktest: no historical candles returned for this range — check the date range and market holidays");
     }
