@@ -1276,12 +1276,16 @@ function recordBlock(msg) {
     }, 5000);
 }
 const IST_MS = 5.5 * 60 * 60 * 1000;
+const MAX_HISTORY_DAYS = 3650;   // "max" history request: ~10 years back; historicalFetch stops at the contract's first candle
 const istDayStr = ms => new Date(ms + IST_MS).toISOString().split("T")[0];
 // Chart window: the previous month of candles (daily charts: ~5 months), plus 8 extra days fetched only as indicator warm-up.
-function chartWindow(tf, now) {
-    const span = tf === "1d" ? 150 : 30;
+// range: undefined = default window; a number of days; or "max" (as far back as the contract has data).
+function chartWindow(tf, now, range) {
+    const isMax = String(range || "").toLowerCase() === "max";
+    const n = Number(range);
+    const span = isMax ? MAX_HISTORY_DAYS : (Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), MAX_HISTORY_DAYS) : (tf === "1d" ? 150 : 30));
     const fromTs = Date.parse(istDayStr(now - span * 86400000) + "T00:00:00+05:30");
-    return { fromTs, fetchFrom: new Date(tf === "1d" ? fromTs : fromTs - 8 * 86400000) };
+    return { fromTs, max: isMax, fetchFrom: new Date(tf === "1d" ? fromTs : fromTs - 8 * 86400000) };
 }
 // Overlay lines restricted to the displayed window (the extra warm-up bars before it are not drawn).
 function chartOverlayFor(p, tfBars, fromTs) {
@@ -1354,8 +1358,9 @@ app.get("/api/chart/:name/overlay", async (req, res) => {
         const contract = chartContract(p, repo, exchange);
         const tf = p.timeframe || STRATEGY_TIMEFRAME[p.strategy] || "15m";
         const now = Date.now();
-        const win = chartWindow(tf, now);
+        const win = chartWindow(tf, now, req.query.range);
         const tfBars = await fetchHistoricalCandles({ kc: ensureToolboxKite(), token: contract.token, timeframe: tf, from: win.fetchFrom, to: new Date(now) });
+        if (win.max && tfBars.length) win.fromTs = tfBars[0].date.getTime();
         res.json({ overlay: await applyJournalColors(p, chartOverlayFor(p, tfBars, win.fromTs), TIMEFRAME_MINUTES[tf]), blocks: blocksForDay(p.underlying, win.fromTs, p.outLogPath, p.name) });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -1465,12 +1470,13 @@ app.get("/api/chart/:name", async (req, res) => {
         if (!TIMEFRAME_MINUTES[tf]) return res.status(400).json({ error: `Unsupported timeframe ${tf}` });
         const kc = ensureToolboxKite();
         const now = Date.now();
-        const win = chartWindow(tf, now);
+        const win = chartWindow(tf, now, req.query.range);
+        const minWin = chartWindow(tf, now);   // 1-minute bars (range-bar builder) always cover just the default window
         const row = b => [new Date(b.date).getTime(), +b.open, +b.high, +b.low, +b.close];
         // 1-minute bars of the whole window feed the range-bar builder; sent only when asked (they are the heavy part).
         const loadMinutes = async () => {
             const out = [];
-            for (let t = win.fromTs; t <= now; t += 25 * 86400000) {   // Kite caps 1-minute history per request
+            for (let t = minWin.fromTs; t <= now; t += 25 * 86400000) {   // Kite caps 1-minute history per request
                 const a = istDayStr(t), z = istDayStr(Math.min(t + 24 * 86400000, now));
                 out.push(...((await kc.getHistoricalData(contract.token, "minute", `${a} 00:00:00`, `${z} 23:59:59`)) || []));
             }
@@ -1480,6 +1486,7 @@ app.get("/api/chart/:name", async (req, res) => {
         if (req.query.only === "minutes") return res.json({ minuteBars: (await loadMinutes()).map(row) });
         const tfBars = await fetchHistoricalCandles({ kc, token: contract.token, timeframe: tf, from: win.fetchFrom, to: new Date(now) });
         if (!tfBars.length) return res.status(404).json({ error: "No historical bars returned" });
+        if (win.max) win.fromTs = tfBars[0].date.getTime();   // max: show everything the contract has
         const day = istDayStr(tfBars[tfBars.length - 1].date.getTime());
         const mins = req.query.minutes === "1" ? await loadMinutes() : [];
         const a = atrFn(tfBars.map(b => ({ open: b.open, high: b.high, low: b.low, close: b.close })), engineConfig.ST_ATR_LEN);
@@ -1923,7 +1930,7 @@ async function backtestHandler(req, res) {
     if (fromStr) {
         from = new Date(isDay(fromStr) ? `${fromStr}T00:00:00+05:30` : fromStr);
     } else {
-        const d = days ? Number(days) : 30;
+        const d = String(days || "").trim().toLowerCase() === "max" ? MAX_HISTORY_DAYS : (days ? Number(days) : 30);   // "max" = as far back as the contract has data (fetch stops at its first candle)
         if (!Number.isFinite(d) || d <= 0) return res.status(400).json({ error: "Invalid days value" });
         from = new Date(to.getTime() - d * 24 * 60 * 60 * 1000);
     }
