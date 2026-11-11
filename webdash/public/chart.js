@@ -13,6 +13,9 @@
   const istDay = ms => new Date(ms + IST_S * 1000).toISOString().split("T")[0];
 
   let modal, els = {}, S = null;   // S = state of the open chart, null when closed
+  // History range chosen in the chart toolbar ("" = default 1 month, days, or "max"); remembered per browser.
+  let histRange = ""; try { histRange = localStorage.getItem("talgox.chartHist") || ""; } catch { histRange = ""; }
+  const rangeQs = () => (histRange ? `range=${encodeURIComponent(histRange)}` : "");
 
   function loadScript(src) {
     return new Promise((resolve, reject) => {
@@ -276,6 +279,7 @@
             <button class="btn btn-ghost" data-r="dsbBtn" title="Dynamic Step Band — settings, direction changes, backtest">DSB &#9881;</button>
             <button class="btn btn-ghost" data-r="colorsBtn" title="Candle and chart colours">Colors</button>
           </div>
+          <label class="chart-range" title="How much history to load (Max = everything the contract has)">history <select data-r="histRange"><option value="">1 month</option><option value="90">3 months</option><option value="180">6 months</option><option value="365">1 year</option><option value="max">Max</option></select></label>
           <label class="chart-range" data-r="rangeWrap" style="display:none">range <input type="number" data-r="range" min="0.01" step="any"></label>
           <span class="chart-status" data-r="status"></span>
         </div>
@@ -291,6 +295,7 @@
     document.body.appendChild(modal);
     modal.querySelectorAll("[data-r]").forEach(e => { els[e.dataset.r] = e; });
     els.close.addEventListener("click", close);
+    els.histRange.addEventListener("change", () => { histRange = els.histRange.value; try { localStorage.setItem("talgox.chartHist", histRange); } catch { /* not remembered */ } if (S) open(S.inst); });
     els.popout.addEventListener("click", () => { if (S) window.open("/chart.html?name=" + encodeURIComponent(S.inst.name), "_blank"); });
     els.pick.addEventListener("change", () => { const i = (window.chartInstruments || []).find(x => x.name === els.pick.value); if (i) { history.replaceState(null, "", "?name=" + encodeURIComponent(i.name)); open(i); } });
     modal.addEventListener("click", e => { if (e.target === modal && !window.chartStandalone) close(); });
@@ -466,7 +471,7 @@
   async function refreshOverlay() {
     if (!S) return;
     try {
-      const r = await fetch(`/api/chart/${encodeURIComponent(S.inst.name)}/overlay`);
+      const r = await fetch(`/api/chart/${encodeURIComponent(S.inst.name)}/overlay${rangeQs() ? "?" + rangeQs() : ""}`);
       const d = await r.json();
       if (!r.ok || !S) return;
       S.overlay = d.overlay;
@@ -871,7 +876,8 @@
     stopDepth();
     S = null;
     els.title.textContent = `${inst.underlying} · ${inst.label || inst.strategy}${" · " + (inst.candleType || (window.nativeCandleOf ? window.nativeCandleOf(inst.strategy) : ""))}`;
-    els.status.textContent = "loading…";
+    els.status.textContent = histRange === "max" ? "loading max history…" : "loading…";
+    els.histRange.value = histRange;
     els.box.innerHTML = "";
     els.popout.style.display = window.chartStandalone ? "none" : "";
     els.close.style.display = window.chartStandalone ? "none" : "";
@@ -880,7 +886,8 @@
     modal.classList.add("open");
     try {
       await ensureLibs();
-      const r = await fetch(`/api/chart/${encodeURIComponent(inst.name)}${(inst.candleType || (window.nativeCandleOf ? window.nativeCandleOf(inst.strategy) : "")) === "RANGE" ? "?minutes=1" : ""}`);
+      const qs = [(inst.candleType || (window.nativeCandleOf ? window.nativeCandleOf(inst.strategy) : "")) === "RANGE" ? "minutes=1" : "", rangeQs()].filter(Boolean).join("&");
+      const r = await fetch(`/api/chart/${encodeURIComponent(inst.name)}${qs ? "?" + qs : ""}`);
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "chart request failed");
       // Open on the candle type the instrument actually trades: its override, else the strategy's own native type.

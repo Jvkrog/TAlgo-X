@@ -337,8 +337,8 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
         if (toStr) to = new Date(isDay(toStr) ? `${toStr.trim()}T23:59:59+05:30` : toStr);
         if (isNaN(from.getTime()) || isNaN(to.getTime())) { console.log(c.yellow("  invalid date")); await pauseForReview(); return; }
     } else {
-        const daysInput = await ask("  days back (default 30): ");
-        const days = daysInput ? Number(daysInput) : 30;
+        const daysInput = await ask("  days back (default 30, or \"max\" for all available history): ");
+        const days = /^max$/i.test(daysInput.trim()) ? 3650 : (daysInput ? Number(daysInput) : 30);
         if (!Number.isFinite(days) || days <= 0) { console.log(c.yellow("  invalid days value")); await pauseForReview(); return; }
         from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
     }

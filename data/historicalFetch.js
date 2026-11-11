@@ -25,6 +25,8 @@ const TIMEFRAME_MINUTES = {
 };
 
 const CHUNK_DAYS  = 60;   // conservative — safely under Kite's per-call cap at every supported interval
+const MAX_WALK_DAYS = 400;  // ranges longer than this are fetched newest-first and stop at the contract's first candle
+const EMPTY_STOP = 3;       // consecutive empty chunks (after data was seen) that mean "history ends here"
 const CHUNK_DELAY_MS = 350; // stays comfortably under Kite's ~3 req/sec historical-data rate limit
 
 function timeframeToInterval(timeframe) {
@@ -59,23 +61,7 @@ async function fetchHistoricalCandles({ kc, token, timeframe, from, to }) {
     const end       = new Date(to);
     if (chunkStart > end) throw new Error("historicalFetch: `from` is after `to`");
 
-    let firstChunk = true;
-    while (chunkStart <= end) {
-        if (!firstChunk) await sleep(CHUNK_DELAY_MS);
-        firstChunk = false;
-
-        const chunkEnd = new Date(Math.min(
-            chunkStart.getTime() + CHUNK_DAYS * 24 * 60 * 60 * 1000,
-            end.getTime()
-        ));
-
-        const bars = await kc.getHistoricalData(
-            token,
-            interval,
-            chunkStart.toISOString().split("T")[0],
-            chunkEnd.toISOString().split("T")[0]
-        );
-
+    const pushBars = bars => {
         for (const b of bars || []) {
             candles.push({
                 open:  parseFloat(b.open),
@@ -86,8 +72,37 @@ async function fetchHistoricalCandles({ kc, token, timeframe, from, to }) {
                 volume: b.volume !== undefined ? parseFloat(b.volume) || 0 : 0,   // same field live candles carry (candlePoll.js); VWAP_SD_BANDS needs it in a backtest
             });
         }
+        return (bars || []).length;
+    };
+    const DAY = 24 * 60 * 60 * 1000;
 
-        chunkStart = new Date(chunkEnd.getTime() + 24 * 60 * 60 * 1000);
+    if (end.getTime() - chunkStart.getTime() > MAX_WALK_DAYS * DAY) {
+        // "Max history" ranges (more than ~a year): walk BACKWARDS from the newest chunk and stop once data has
+        // started and then runs out (EMPTY_STOP consecutive empty chunks = before the contract's first candle).
+        let cursorEnd = end.getTime(), seenData = false, empties = 0, firstCall = true;
+        while (cursorEnd >= chunkStart.getTime()) {
+            if (!firstCall) await sleep(CHUNK_DELAY_MS);
+            firstCall = false;
+            const cs = Math.max(cursorEnd - CHUNK_DAYS * DAY, chunkStart.getTime());
+            const n = pushBars(await kc.getHistoricalData(token, interval, new Date(cs).toISOString().split("T")[0], new Date(cursorEnd).toISOString().split("T")[0]));
+            if (n > 0) { seenData = true; empties = 0; } else if (seenData && ++empties >= EMPTY_STOP) break;
+            cursorEnd = cs - DAY;
+        }
+    } else {
+        let firstChunk = true;
+        while (chunkStart <= end) {
+            if (!firstChunk) await sleep(CHUNK_DELAY_MS);
+            firstChunk = false;
+
+            const chunkEnd = new Date(Math.min(chunkStart.getTime() + CHUNK_DAYS * DAY, end.getTime()));
+            pushBars(await kc.getHistoricalData(
+                token,
+                interval,
+                chunkStart.toISOString().split("T")[0],
+                chunkEnd.toISOString().split("T")[0]
+            ));
+            chunkStart = new Date(chunkEnd.getTime() + DAY);
+        }
     }
 
     // Chunk boundaries shouldn't overlap a candle since they're split on day
