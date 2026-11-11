@@ -27,13 +27,18 @@ try { files = fs.readdirSync(dir).filter(f => /-(out|error)-color\.log$/.test(f)
 try {
     const out = require("child_process").execFileSync("pm2", ["jlist"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15000, maxBuffer: 64 * 1024 * 1024 });
     const list = JSON.parse(out.slice(out.indexOf("[")));
-    const live = new Set();
+    // Our engines have a coloured "-color.log" sidecar; processes that are not ours (no plainLog) only have the plain
+    // PM2 log, so those are tailed directly instead of being silently left out.
+    const live = [];
     for (const p of list) for (const lp of [p.pm2_env && p.pm2_env.pm_out_log_path, p.pm2_env && p.pm2_env.pm_err_log_path]) {
-        if (lp) live.add(path.basename(lp).replace(/\.log$/, "-color.log"));
+        if (!lp) continue;
+        const side = String(lp).replace(/\.log$/, "-color.log");
+        if (fs.existsSync(side)) live.push(path.isAbsolute(side) ? side : path.join(dir, path.basename(side)));
+        else if (fs.existsSync(lp)) live.push(lp);
     }
-    if (live.size) files = files.filter(f => live.has(f));
+    if (live.length) files = [...new Set(live)];
 } catch { /* pm2 unavailable: show every coloured log */ }
-files = files.filter(f => (withErr || /-out-color\.log$/.test(f)) && (!words.length || words.some(w => f.toLowerCase().includes(w))));
+files = files.filter(f => (withErr || /-out(-color)?\.log$/.test(f)) && (!words.length || words.some(w => path.basename(f).toLowerCase().includes(w))));
 if (!files.length) { console.error(`no coloured logs found in ${dir}${words.length ? " matching " + words.join(", ") : ""} (they appear once an engine has run with the current version)`); process.exit(1); }
 
 const PAL = [36, 35, 33, 32, 34, 96, 95, 93];
@@ -41,14 +46,14 @@ const strip = t => t.replace(/\x1b\[[0-9;]*m/g, "");
 // Width is read on every line, so rotating a phone / resizing a window applies immediately.
 const cols = () => Math.max(30, (process.stdout.columns || 80) - 1);
 // On a narrow screen the process tag is shortened so the log text keeps most of the width.
-const names = files.map(f => f.replace(/-(out|error)-color\.log$/, ""));
+const names = files.map(f => path.basename(f).replace(/-(out|error)(-color)?\.log$/, ""));
 const tagFor = (i, narrow) => {
     let nm = names[i];
     const max = narrow ? 8 : 28;
     if (nm.length > max) nm = nm.slice(0, max - 1) + "…";
     return { text: `\x1b[${PAL[i % PAL.length]}m${nm}\x1b[0m\x1b[2m|\x1b[0m `, w: nm.length + 2 };
 };
-const state = files.map((f, i) => ({ p: path.join(dir, f), i, pos: 0, rest: "" }));
+const state = files.map((f, i) => ({ p: path.resolve(dir, f), i, pos: 0, rest: "" }));
 
 // Wraps one coloured line: first row gets w1 visible chars, later rows w2 (colour is re-applied
 // after each break so wrapped text keeps its colour).
