@@ -7,6 +7,7 @@
 
 const { toHA, alma, supertrend } = require("./indicators");
 const { createBandStepper } = require("./dynamicBandReader");
+const dsbGrey = require("../strategies/dsbGrey");
 
 const COLORS = { high: "#4de3ff", mid: "#eafff2", low: "#ffb347", a: "#4de3ff", b: "#ffb347" };
 
@@ -36,6 +37,21 @@ function computeOverlay(strategy, bars, ctx, cfg) {
             if (s) pts.push([bars[i].t, s.bandMid, s.color === "red" ? "#ff5266" : "#33ff88"]);
         }
         return { label: `Dynamic mid color (step ${step}) — green = long, red = short`, lines: [{ name: `mid (step ${step})`, color: "#33ff88", width: 3, points: pts }] };
+    }
+
+    if (strategy === "DSB_GREY") {
+        const step = ctx.bandStep ?? cfg.BAND_STEP_DEFAULT;
+        const src = ctx.candleType === "RAW" || ctx.candleType === "RANGE" ? bars : toHA(bars);
+        const flags = dsbGrey.slopeFlags(src, cfg.MA_SLOPE_LEN, cfg.MA_SLOPE_ATR_LEN, cfg.MA_SLOPE_FILTER_TOP, cfg.MA_SLOPE_FILTER_BOTTOM);
+        const ser = dsbGrey.series(src, step, flags), pts = [], markers = [];
+        const col = d => d === 1 ? "#33ff88" : d === -1 ? "#ff5266" : "#8a949c";
+        ser.forEach((s, i) => {
+            pts.push([bars[i].t, s.mid, col(s.direction)]);
+            const prev = i ? ser[i - 1].direction : 0;
+            if (s.direction !== 0 && s.direction !== prev) markers.push({ t: bars[i].t, dir: s.direction });
+        });
+        return { label: `DSB Grey (step ${step}, slope EMA ${cfg.MA_SLOPE_LEN} ±${cfg.MA_SLOPE_FILTER_TOP}) — green = long, red = short, grey = sideways`, keepColors: true, markers,
+            lines: [{ name: `DSB grey mid (step ${step})`, color: "#8a949c", width: 2, points: pts }] };
     }
 
     if (strategy === "ALMA_BAND") {

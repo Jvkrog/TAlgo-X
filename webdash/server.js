@@ -1289,6 +1289,7 @@ function chartOverlayFor(p, tfBars, fromTs) {
         const bars = tfBars.map(b => ({ t: b.date.getTime(), open: b.open, high: b.high, low: b.low, close: b.close }));
         const ov = computeOverlay(p.strategy, bars, { bandStep: p.bandStep ? Number(p.bandStep) : null, bandStep2: p.bandStep2 ? Number(p.bandStep2) : null, almaFastLen: p.almaFastLen || null, candleType: p.candleType || null }, engineConfig);
         if (ov.lines) ov.lines.forEach(l => { l.points = l.points.filter(pt => pt[0] >= fromTs); });
+        if (ov.markers) ov.markers = ov.markers.filter(m => m.t >= fromTs);
         return ov;
     } catch (err) {
         return { note: "indicator unavailable: " + err.message };
@@ -1315,7 +1316,7 @@ function journalSides(p) {
 }
 async function applyJournalColors(p, ov, tfMinutes) {
     try {
-        if (!ov || !ov.lines) return ov;
+        if (!ov || !ov.lines || ov.keepColors) return ov;   // keepColors: grey/green/red is the indicator itself, not the position
         const trades = await journalSides(p);
         if (!trades.length) return ov;
         const slack = 90 * 1000, barMs = tfMinutes * 60000;

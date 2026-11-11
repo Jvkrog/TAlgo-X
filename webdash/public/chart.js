@@ -408,11 +408,18 @@
       ls.setData(data);
       S.lineSeries.push(ls);
     }
+    drawMarkers();
+  }
+  // Direction-change triangles from the strategy overlay (DSB Grey: UP / DOWN like the TradingView script).
+  function overlayMarks() {
+    const ov = S.overlay;
+    if (!S.ind || !ov || !ov.markers) return [];
+    return ov.markers.map(m => ({ time: Math.floor(m.t / 1000) + IST_S, position: m.dir === 1 ? "belowBar" : "aboveBar", shape: m.dir === 1 ? "arrowUp" : "arrowDown", color: m.dir === 1 ? "#33ff88" : "#ff5266", text: m.dir === 1 ? "UP" : "DOWN" }));
   }
 
   // ── Filters tab: markers where an entry gate blocked a signal ──
   function drawMarkers() {
-    const dsbMarks = S.dsbMarks || [];
+    const dsbMarks = (S.dsbMarks || []).concat(overlayMarks());
     if (!S.filters || !S.dispT || !S.dispT.length) { S.series.setMarkers(dsbMarks.slice().sort((a, b) => a.time - b.time)); return; }
     const groups = new Map();   // "time|side" -> Set(reasons)
     for (const b of S.blocks) {
