@@ -3227,6 +3227,8 @@ async function renderBacktestParamsStep() {
   tbBacktestBody.querySelector("#btDsbDualRow").style.display = btState.strategy === "DSB_DUAL" ? "" : "none";
   const paramsBox = tbBacktestBody.querySelector("#btParamsBox");
   paramDefs.forEach(pd => {
+    // The Risk section already has the (per-instrument) ATR stop-loss multiplier — don't show a second one here.
+    if (pd.key === "ATR_SL_MULT" && btState.strategy !== "ALMA_BAND") return;
     const row = document.createElement("div");
     row.className = "tb-form-row";
     row.innerHTML = `<div class="tb-form-label">${pd.label} (default ${pd.default})</div><input type="number" step="any" data-param="${pd.key}" placeholder="${pd.default}">`;

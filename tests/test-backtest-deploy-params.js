@@ -8,4 +8,5 @@ assert.ok(/atrSlMult:\s*atrSlMultDeploy/.test(seg), "deploy body sends it");
 assert.ok(/bandStep2:\s*bandStep2Deploy/.test(seg), "deploy body sends DSB 2 step");
 assert.ok(/"ATR_SL_MULT", "ALMA_PRO_FAST_LEN"/.test(seg), "no longer listed as 'not applied'");
 assert.ok(/payload\.atrSlMult = tp\.ATR_SL_MULT/.test(src), "apply-to-instrument carries it too");
+assert.ok(/pd\.key === "ATR_SL_MULT" && btState\.strategy !== "ALMA_BAND"\) return/.test(src), "duplicate ATR SL tunable hidden");
 console.log("all passed");
