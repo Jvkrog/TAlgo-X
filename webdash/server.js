@@ -1291,7 +1291,7 @@ function chartWindow(tf, now, range) {
 function chartOverlayFor(p, tfBars, fromTs) {
     try {
         const bars = tfBars.map(b => ({ t: b.date.getTime(), open: b.open, high: b.high, low: b.low, close: b.close }));
-        const ov = computeOverlay(p.strategy, bars, { bandStep: p.bandStep ? Number(p.bandStep) : null, bandStep2: p.bandStep2 ? Number(p.bandStep2) : null, almaFastLen: p.almaFastLen || null, candleType: p.candleType || null }, engineConfig);
+        const ov = computeOverlay(p.strategy, bars, { bandStep: p.bandStep ? Number(p.bandStep) : null, bandStep2: p.bandStep2 ? Number(p.bandStep2) : null, almaFastLen: p.almaFastLen || null, candleType: p.candleType || null, strategyParams: p.strategyParams || null }, engineConfig);
         if (ov.lines) ov.lines.forEach(l => { l.points = l.points.filter(pt => pt[0] >= fromTs); });
         if (ov.markers) ov.markers = ov.markers.filter(m => m.t >= fromTs);
         return ov;

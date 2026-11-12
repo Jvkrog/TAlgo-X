@@ -3471,6 +3471,9 @@ function createHilegaMilegaStrategy({ context, engineConfig, state, db, candles,
 // ════════════════════════════════════════════════════════════════════════
 function createDsbGreyStrategy({ context, engineConfig, state, db, candles, slStore, targetStore, orders, positionsClose, positionsUnrealised, lifecycle, tg, clock = { now: () => new Date() }, htf, dailyHa }) {
     const dsbg = require("./dsbGrey");
+    const resolved = require("./strategyParams").resolveParams("DSB_GREY", context.strategyParams);
+    const P = resolved.values;
+    for (const m of [...resolved.errors, ...resolved.warnings]) console.warn(c.yellow(`[${context.tgPrefix}] DSB_GREY param: ${m}`));
     function persist(position, entryPrice, positionSource) {
         db.savePosition(context.tgPrefix, context.token, context.symbol, position, entryPrice || 0, positionSource);
     }
@@ -3481,7 +3484,7 @@ function createDsbGreyStrategy({ context, engineConfig, state, db, candles, slSt
         const offset = (context.atrSlMult ?? engineConfig.ATR_SL_MULT) * atrVal;
         return side === "LONG" ? livePrice - offset : livePrice + offset;
     }
-    const flagsFor = cs => dsbg.slopeFlags(cs, engineConfig.MA_SLOPE_LEN, engineConfig.MA_SLOPE_ATR_LEN, engineConfig.MA_SLOPE_FILTER_TOP, engineConfig.MA_SLOPE_FILTER_BOTTOM);
+    const flagsFor = cs => dsbg.slopeFlags(cs, P.maLen, P.maAtrLen, P.filterTop, P.filterBottom);
 
     async function doExit(side, livePrice, reason) {
         const closed = await orders.exit(side);
@@ -3566,13 +3569,13 @@ function createDsbGreyStrategy({ context, engineConfig, state, db, candles, slSt
     async function processCandle(rawCandle) {
         if (lifecycle.isShutdown()) return;
         const rawCandles = candles.getRawCandles();
-        const warmupNeeded = Math.max(engineConfig.MA_SLOPE_LEN + 1, engineConfig.MA_SLOPE_ATR_LEN, engineConfig.ST_ATR_LEN) + 5;
+        const warmupNeeded = Math.max(P.maLen + 1, P.maAtrLen, P.slAtrLen) + 5;
         if (rawCandles.length < warmupNeeded) {
             console.log(c.dim(`[${context.tgPrefix}] WARMUP  ${rawCandles.length}/${warmupNeeded}`));
             return;
         }
         const size = context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
-        const atrVal = rawCandles.length >= engineConfig.ST_ATR_LEN + 1 ? atr(rawCandles, engineConfig.ST_ATR_LEN) : null;
+        const atrVal = rawCandles.length >= P.slAtrLen + 1 ? atr(rawCandles, P.slAtrLen) : null;
 
         if (!state.historyReplayed || !state.dsbg) {
             state.historyReplayed = true;
@@ -7760,7 +7763,7 @@ const STRATEGY_INFO = {
     MA_SLOPE_PURE:       { label: "MA Slope Pure",               description: "color-only ema(56) slope, no ALMA band at all — enter on BULL/BEAR only once HA close agrees with SMA9, no trade in GREY, exit on a flip to the opposite decisive color or a flip into GREY", short: "PURE" },
     MA_SLOPE_HM:          { label: "MA Slope + Hilega-Milega",    description: "same entry as MA Slope Pure (color-only, no ALMA band) — exit is a Hilega-Milega RSI9/WMA21/EMA3 crossover against position direction, not a color flip", short: "HM" },
     HILEGA_MILEGA:        { label: "Hilega-Milega",            description: "pure Hilega-Milega: RSI9 on HA closes, EMA3 vs WMA21 — EMA3 above WMA21 = LONG, below = SHORT, opposite cross exits and reverses; ATR trail stop", short: "HM" },
-    DSB_GREY:             { label: "DSB + Grey State",              description: "Dynamic Step Band with an MA-slope grey (sideways) state: green/red only when a band breakout happens with a strong ema(ohlc4,56) slope, grey otherwise — trade green/red, flat in grey", short: "DSBG" },
+    DSB_GREY:             { params: true, label: "DSB + Grey State",              description: "Dynamic Step Band with an MA-slope grey (sideways) state: green/red only when a band breakout happens with a strong ema(ohlc4,56) slope, grey otherwise — trade green/red, flat in grey", short: "DSBG" },
     ADAPTIVE_TREND:       { label: "Adaptive Trend Envelope",     description: "port of BackQuant's Pine script — volatility-adaptive EMA blend spine wrapped in an EWMA-vol envelope; enter on regime flip to bull/bear, exit when regime no longer matches (flat or opposite)", short: "ATE" },
     DPI_MEANREV:          { label: "DPI Trend + Mean Reversion",  description: "the original DPI_TREND_MEANREV combo — ST1-confirmed DPI trend, RSI mean-reversion in the chop between", short: "DPIMR" },
     DYNAMIC_BAND:         { label: "Dynamic Band Breakout",       description: "fixed-price-step HIGH/MID/LOW band, closed-candle breakout only, immediate entry on breach (direct port of the reference Pine script), band shifts by one step on every entry/continuation, immediate exit+reverse on the opposite boundary — no ATR stop-loss, the reversal boundary itself is the stop", short: "DBAND" },
