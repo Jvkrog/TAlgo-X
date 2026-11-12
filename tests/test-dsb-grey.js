@@ -50,4 +50,18 @@ t("backtest e2e: trades both sides, GREY EXIT / flip exits occur, no errors", as
     const reasons = new Set(tr.map(x => x.exit_reason)); console.error("   exit reasons:", [...reasons].join(","));
     assert.ok(reasons.has("GREY EXIT") || reasons.has("DSB FLIP EXIT"), "a signal exit occurred");
 });
+t("settings: spec validates and per-instrument params change the backtest (not engine-wide config)", async () => {
+    const { validateParams, resolveParams } = require("../strategies/strategyParams");
+    assert.ok(STRATEGY_INFO.DSB_GREY.params === true);
+    assert.deepStrictEqual(resolveParams("DSB_GREY", null).values, { maLen: 56, maAtrLen: 14, filterTop: 2, filterBottom: -2, slAtrLen: 10 });
+    assert.ok(validateParams("DSB_GREY", { filterTop: 1, filterBottom: 3 }).errors.length, "bottom must be below top");
+    const run2 = async sp => {
+        const def = getDefinition("NATGASMINI", "MCX"), context = buildContext(def, { token: 1, symbol: "NATGASMINI26X", expiry: new Date("2027-12-01"), tickSize: 0.1, lotSize: 1 });
+        context.lotMult = 250; context.timeframe = "1h"; context.carryOvernight = false; context.lots = 1; context.bandStep = 1;
+        const log = console.log; console.log = () => {}; console.warn = () => {};
+        try { return (await runBacktest({ strategyKey: "DSB_GREY", strategyLabel: "DSBG", context, timeframe: "1h", from: new Date("2026-02-02T00:00:00+05:30"), to: new Date("2026-06-30T23:59:59+05:30"), params: sp ? { strategyParams: sp } : {}, kc })).report.trades.length; } finally { console.log = log; }
+    };
+    const base = await run2(null), tuned = await run2({ maLen: 12, filterTop: 0.2, filterBottom: -0.2 });
+    assert.ok(base !== tuned, `tuned slope settings must change the result (base ${base}, tuned ${tuned})`);
+});
 (async () => { let f = 0; for (const [n, fn] of T) { try { await fn(); console.log("  ok  ", n); } catch (e) { f++; console.log("  FAIL", n, "\n", e.stack); } } console.log(f ? f + " failed" : "all passed"); process.exit(f ? 1 : 0); })();

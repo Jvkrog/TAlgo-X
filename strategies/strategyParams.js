@@ -21,6 +21,13 @@ const STRATEGY_PARAM_SPEC = {
         { key: "maxLots",      label: "Max lots",                        type: "int",   default: 3,     min: 1,   max: 50,  help: "hard cap on the vol-targeted size" },
         { key: "minLotOvershoot", label: "Allow 1 lot up to (x budget)", type: "float", default: 1.5,   min: 1,   max: 5,   help: "if even 1 lot risks more than budget x this, the trade is SKIPPED (with an alert)" },
     ],
+    DSB_GREY: [
+        { key: "maLen",        label: "Slope EMA length (on ohlc4)",     type: "int",   default: 56,  min: 5,   max: 500, help: "EMA whose slope angle decides green / red / grey" },
+        { key: "maAtrLen",     label: "ATR length in the angle formula", type: "int",   default: 14,  min: 2,   max: 200, help: "angle = atan((ema - ema[1]) / ATR) in degrees" },
+        { key: "filterTop",    label: "Strong-up angle above (degrees)", type: "float", default: 2,   min: -90, max: 90,  help: "slope angle above this = strong up" },
+        { key: "filterBottom", label: "Strong-down angle below (degrees)", type: "float", default: -2, min: -90, max: 90, help: "slope angle below this = strong down" },
+        { key: "slAtrLen",     label: "ATR length (SL trail)",           type: "int",   default: 10,  min: 2,   max: 200, help: "ATR period behind the trailing stop (distance = ATR x the stop-loss multiplier)" },
+    ],
     MACD: [
         { key: "fast",        label: "Fast EMA length",              type: "int",   default: 12,  min: 2,  max: 200, help: "must be smaller than the slow length" },
         { key: "slow",        label: "Slow EMA length",              type: "int",   default: 26,  min: 3,  max: 400, help: "must be larger than the fast length" },
@@ -66,7 +73,7 @@ function coerce(spec, raw) {
 // Returns { values, warnings, errors } — values always holds a usable value for EVERY spec key (invalid input falls back to the
 // default and is reported). Unknown keys are dropped with a warning.
 // Cross-field rules (checked after each field is valid on its own): { strategy: values -> error text | null }
-const CROSS_CHECKS = { MACD: v => v.fast < v.slow ? null : `fast EMA length (${v.fast}) must be smaller than slow EMA length (${v.slow})` };
+const CROSS_CHECKS = { DSB_GREY: v => v.filterBottom < v.filterTop ? null : `strong-down angle (${v.filterBottom}) must be below strong-up angle (${v.filterTop})`, MACD: v => v.fast < v.slow ? null : `fast EMA length (${v.fast}) must be smaller than slow EMA length (${v.slow})` };
 
 function resolveParams(strategyKey, raw) {
     const specs = STRATEGY_PARAM_SPEC[strategyKey] || [];

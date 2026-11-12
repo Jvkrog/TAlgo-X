@@ -42,7 +42,8 @@ function computeOverlay(strategy, bars, ctx, cfg) {
     if (strategy === "DSB_GREY") {
         const step = ctx.bandStep ?? cfg.BAND_STEP_DEFAULT;
         const src = ctx.candleType === "RAW" || ctx.candleType === "RANGE" ? bars : toHA(bars);
-        const flags = dsbGrey.slopeFlags(src, cfg.MA_SLOPE_LEN, cfg.MA_SLOPE_ATR_LEN, cfg.MA_SLOPE_FILTER_TOP, cfg.MA_SLOPE_FILTER_BOTTOM);
+        const P = require("../strategies/strategyParams").resolveParams("DSB_GREY", ctx.strategyParams).values;
+        const flags = dsbGrey.slopeFlags(src, P.maLen, P.maAtrLen, P.filterTop, P.filterBottom);
         const ser = dsbGrey.series(src, step, flags), pts = [], markers = [];
         const col = d => d === 1 ? "#33ff88" : d === -1 ? "#ff5266" : "#8a949c";
         ser.forEach((s, i) => {
@@ -50,7 +51,7 @@ function computeOverlay(strategy, bars, ctx, cfg) {
             const prev = i ? ser[i - 1].direction : 0;
             if (s.direction !== 0 && s.direction !== prev) markers.push({ t: bars[i].t, dir: s.direction });
         });
-        return { label: `DSB Grey (step ${step}, slope EMA ${cfg.MA_SLOPE_LEN} ±${cfg.MA_SLOPE_FILTER_TOP}) — green = long, red = short, grey = sideways`, keepColors: true, markers,
+        return { label: `DSB Grey (step ${step}, slope EMA ${P.maLen}, ${P.filterBottom}..${P.filterTop}°) — green = long, red = short, grey = sideways`, keepColors: true, markers,
             lines: [{ name: `DSB grey mid (step ${step})`, color: "#8a949c", width: 2, points: pts }] };
     }
 
