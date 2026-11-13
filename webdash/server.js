@@ -2882,7 +2882,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     } = req.body || {};
 
     const strategy = String(strategyIn || "DUAL").toUpperCase();
-    if (strategy !== "DUAL" && strategy !== "BIAS" && strategy !== "REALIZE") return res.status(400).json({ error: "Strategy must be DUAL, BIAS or REALIZE" });
+    if (strategy !== "DUAL" && strategy !== "BIAS" && strategy !== "REALIZE" && strategy !== "PRICE_MA") return res.status(400).json({ error: "Strategy must be DUAL, BIAS, REALIZE or PRICE_MA" });
     if (!underlying || !longUser || !shortUser) {
         return res.status(400).json({ error: "Underlying, longUser and shortUser are all required" });
     }
@@ -3041,7 +3041,15 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
         if (strategy !== "BIAS" && (opts.longContract || opts.shortContract) && (opts.longContract || opts.contractSymbol || "") !== (opts.shortContract || opts.contractSymbol || "")) {
             return res.status(400).json({ error: "Different contracts per account are only supported for the BIAS strategy" });
         }
-        if (strategy === "REALIZE") {
+        if (strategy === "PRICE_MA") {
+            const base = parseHHMM(b.baseTime, "09:15");
+            if (!base) return res.status(400).json({ error: "BaseTime must be HH:MM (IST)" });
+            opts.baseHour = base.hour; opts.baseMinute = base.minute;
+            if (b.eodTime) { const e = parseHHMM(b.eodTime); if (!e) return res.status(400).json({ error: "EodTime must be HH:MM (IST)" }); opts.eodHour = e.hour; opts.eodMinute = e.minute; }
+            opts.minSlope = Math.max(0, Number(b.minSlope) || 0);
+            opts.confirmMinutes = Math.max(1, Math.floor(Number(b.confirmMinutes) || 1));
+            opts.maProxy = String(b.maProxy || "ohlc4").toLowerCase();
+        } else if (strategy === "REALIZE") {
             opts.realizeRupees = Number(b.realizeRupees) || 3000;
             opts.lossAlertRupees = Number(b.lossAlertRupees) || 0;
         } else if (strategy === "BIAS") {
