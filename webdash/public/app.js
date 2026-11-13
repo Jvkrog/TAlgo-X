@@ -4946,6 +4946,7 @@ async function renderDualHedgeAddForm() {
       lossAlertRupees: tbDualHedgeBody.querySelector("#dhLossAlert").value || undefined,
       gapCapture: tbDualHedgeBody.querySelector("#dhStrategy").value === "DUAL" && tbDualHedgeBody.querySelector("#dhGap").checked,
       gcEntry: "23:20", gcExit: "23:25",
+      baseTime: q("#dbPmaBase").value || "09:15", eodTime: q("#dbPmaEod").value || undefined, minSlope: q("#dbPmaMinSlope").value || 0, confirmMinutes: q("#dbPmaConfirm").value || 1, maProxy: q("#dbPmaProxy").value,
     };
     const btn = tbDualHedgeBody.querySelector("#dhAddSubmit");
     btn.disabled = true; btn.textContent = "Starting...";
@@ -5032,7 +5033,7 @@ async function renderDualHedgeBacktestForm() {
   tbDualHedgeBody.innerHTML = `
     <button class="tb-back-link" id="dbBack">\u2039 back</button>
     <div class="tb-form-hint" style="margin:8px 0">Backtest \u2014 <b>${escHtml(dhAddState.underlying)}</b> (market data only, no accounts needed)</div>
-    <div class="tb-form-row"><div class="tb-form-label">Strategy</div><select id="dbStrategy"><option value="DUAL">Dual hedge (band-following)</option><option value="BIAS">Bias hedge (daily DSB core + band hedge)</option><option value="REALIZE">Realize &amp; re-open (profit lock, NRML carry)</option></select></div>
+    <div class="tb-form-row"><div class="tb-form-label">Strategy</div><select id="dbStrategy"><option value="DUAL">Dual hedge (band-following)</option><option value="BIAS">Bias hedge (daily DSB core + band hedge)</option><option value="REALIZE">Realize &amp; re-open (profit lock, NRML carry)</option><option value="PRICE_MA">Price-MA hedge (1-min tick-average slope)</option></select></div>
     <div class="tb-form-row"><div class="tb-form-label">Lots per leg</div><input type="number" id="dbLots" min="1" step="1" value="1"></div>
     <div class="tb-form-row"><div class="tb-form-label">lot multiplier (blank = context.js override)</div><input type="number" id="dbLotMult" min="0" step="any"></div>
     <div class="tb-form-row" id="dbSingleContract"><div class="tb-form-label">Contract (both accounts)</div><select id="dbContract">${contractOpts}</select></div>
@@ -5040,6 +5041,14 @@ async function renderDualHedgeBacktestForm() {
     <div id="dbRealize" style="display:none">
       <div class="tb-form-row"><div class="tb-form-label">Realize when a leg's profit exceeds \u20b9 (the leg is closed, then the same side is re-opened)</div><input type="number" id="dbRealizeRupees" min="1" step="1" value="3000"></div>
       <div class="tb-form-row"><div class="tb-form-label">Losing-leg alert at \u20b9 down (blank = off; counted in the report, nothing is closed)</div><input type="number" id="dbLossAlert" min="1" step="1"></div>
+    </div>
+    <div id="dbPma" style="display:none">
+      <div class="tb-form-hint">Bases: LONG MIS (long acct) + SHORT MIS (short acct) at the base time. Rising 1-min price MA \u2192 LONG NRML hedge in the SHORT acct; falling \u2192 SHORT NRML hedge in the LONG acct. Everything closes at EOD. Backtest approximates the tick average from minute candles (no brokerage/taxes).</div>
+      <div class="tb-form-row"><div class="tb-form-label">Base entry time IST</div><input type="time" id="dbPmaBase" value="09:15"></div>
+      <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (blank = default)</div><input type="time" id="dbPmaEod"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Min slope (points; 0 = exact spec)</div><input type="number" id="dbPmaMinSlope" min="0" step="any" value="0"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Confirm minutes before a flip</div><input type="number" id="dbPmaConfirm" min="1" step="1" value="1"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Minute MA proxy</div><select id="dbPmaProxy"><option value="ohlc4" selected>(O+H+L+C)/4</option><option value="close">Close</option><option value="hl2">(H+L)/2</option></select></div>
     </div>
     <div id="dbDual">
       <div class="tb-form-row"><div class="tb-form-label">Signal</div><select id="dbSignal"><option value="RANGE" selected>Range bars + Dynamic Step Band (live engine)</option><option value="HA_DSB">Heikin-Ashi + Dynamic Step Band</option><option value="HA">Heikin-Ashi colour only</option></select></div>
@@ -5078,13 +5087,14 @@ async function renderDualHedgeBacktestForm() {
   const q = id => tbDualHedgeBody.querySelector(id);
   q("#dbBack").addEventListener("click", () => { dhAddState = null; loadDualHedgeList(); });
   const sync = () => {
-    const st = q("#dbStrategy").value, bias = st === "BIAS", realize = st === "REALIZE";
+    const st = q("#dbStrategy").value, bias = st === "BIAS", realize = st === "REALIZE", pma = st === "PRICE_MA";
+    q("#dbPma").style.display = pma ? "" : "none";
     q("#dbRealize").style.display = realize ? "" : "none";
-    const bsRow = q("#dbBandStep").closest(".tb-form-row"); if (bsRow) bsRow.style.display = realize ? "none" : "";
-    q("#dbDual").style.display = bias || realize ? "none" : "";
+    const bsRow = q("#dbBandStep").closest(".tb-form-row"); if (bsRow) bsRow.style.display = realize || pma ? "none" : "";
+    q("#dbDual").style.display = bias || realize || pma ? "none" : "";
     q("#dbBias").style.display = bias ? "" : "none";
     q("#dbSingleContract").style.display = bias ? "none" : "";
-    q("#dbHaRow").style.display = !bias && !realize && q("#dbSignal").value !== "RANGE" ? "" : "none";
+    q("#dbHaRow").style.display = !bias && !realize && !pma && q("#dbSignal").value !== "RANGE" ? "" : "none";
     const atrMode = q("#dbSlMode").value === "ATR";
     q("#dbAtrRows").style.display = atrMode ? "" : "none";
     q("#dbMaxLossLabel").textContent = atrMode ? "Rupee backstop while ATR isn't available yet \u20b9" : "Stop \u20b9";

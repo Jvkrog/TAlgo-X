@@ -3358,11 +3358,19 @@ async function backtestDualHedgeFlow() {
     console.log(c.dim("    D = Dual — each account trades its own side off ONE signal; carries overnight; exits arm after a leg's first flip"));
     console.log(c.dim("    B = Bias hedge — daily DSB / HA candle sets the core account (green = LONG acct, red = SHORT acct); the OTHER account"));
     console.log(c.dim("        hedges when the Dynamic Band turns against the core; core carried or closed at EOD (your choice)"));
-    const strategy = await askChoice("Strategy [D/B, default D]", { D: "DUAL", B: "BIAS" }, "DUAL");
+    const strategy = await askChoice("Strategy [D/B/P, default D] (P = Price-MA hedge: 1-min tick-average slope)", { D: "DUAL", B: "BIAS", P: "PRICE_MA" }, "DUAL");
 
     const opts = { strategy };
     let contractSymbol = null;
-    if (strategy === "BIAS") {
+    if (strategy === "PRICE_MA") {
+        contractSymbol = await pickLegContract(repo, underlying, "BOTH ACCOUNTS");
+        const bt = await askTime("Base entry time IST (LONG MIS + SHORT MIS)", 9, 15);
+        opts.baseHour = bt.hour; opts.baseMinute = bt.minute;
+        opts.minSlope = await askNum("Min slope in price points (0 = exact spec, default 0)", 0, { positive: false });
+        opts.confirmMinutes = Math.max(1, Math.floor(await askNum("Confirm minutes before a hedge flip (default 1)", 1)));
+        opts.maProxy = await askChoice("Minute average proxy: O = (O+H+L+C)/4, C = close, H = (H+L)/2 [O/C/H, default O]", { O: "ohlc4", C: "close", H: "hl2" }, "ohlc4");
+        console.log(c.dim("  Backtest approximates the tick average from minute candles; no brokerage/taxes. EOD is automatic."));
+    } else if (strategy === "BIAS") {
         opts.longContract  = await pickLegContract(repo, underlying, "LONG ACCOUNT");
         opts.shortContract = await pickLegContract(repo, underlying, "SHORT ACCOUNT");
     } else {
@@ -3380,7 +3388,7 @@ async function backtestDualHedgeFlow() {
         const t = await askTime("Core entry time IST (decided once a day)", 10, 0);
         opts.entryHour = t.hour; opts.entryMinute = t.minute;
         console.log(c.dim("  EOD time (when MIS close applies / an EOD_ONLY hedge closes): automatic for this band timeframe (23:15 for 15m, 23:00 for 30m/1h). No target or stop."));
-    } else {
+    } else if (strategy !== "PRICE_MA") {
         opts.slMode = await askChoice("Stop type [R = rupees, A = ATR multiple from entry, default R]", { R: "RUPEES", A: "ATR" }, "RUPEES");
         if (opts.slMode === "ATR") {
             opts.atrSlMult = await askNum(`ATR stop multiplier (blank = default ${engineConfig.ATR_SL_MULT})`, null, { optional: true });

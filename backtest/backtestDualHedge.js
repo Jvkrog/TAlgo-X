@@ -144,6 +144,7 @@ const positions = require("../core/positions");
 const { computeMetrics } = require("./backtestMetrics");
 const { setEmitSuppressed } = require("../core/eventBridge");
 const { buildDualHedgeReport, saveDualHedgeReport } = require("./backtestDualHedgeReport");
+const { replayPriceMaHedge } = require("./backtestPriceMaHedge");
 const engineConfig = require("../core/engineConfig");
 const c = require("../utils/c");
 
@@ -892,10 +893,20 @@ async function runDualHedgeBacktest({
     takeProfit = 3000, maxLoss = 3000,
     slMode = "RUPEES", atrSlMult, atrTimeframe = "1h",   // DUAL only — see replayDualHedge
     gapCapture = false, gcHour = 23, gcMinute = 20, gcQuitHour = 23, gcQuitMinute = 25,
+    baseHour = 9, baseMinute = 15, minSlope = 0, confirmMinutes = 1, maProxy = "ohlc4",   // PRICE_MA only
     slippagePoints = 0, from, to, kc, progress,
 }) {
     strategy = String(strategy).toUpperCase();
-    if (strategy !== "DUAL" && strategy !== "BIAS" && strategy !== "REALIZE") throw new Error(`runDualHedgeBacktest: strategy must be DUAL, BIAS or REALIZE (got ${strategy})`);
+    if (strategy !== "DUAL" && strategy !== "BIAS" && strategy !== "REALIZE" && strategy !== "PRICE_MA") throw new Error(`runDualHedgeBacktest: strategy must be DUAL, BIAS, REALIZE or PRICE_MA (got ${strategy})`);
+    const isPma = strategy === "PRICE_MA";
+    if (isPma) {
+        minSlope = Number(minSlope) || 0; confirmMinutes = Number(confirmMinutes) || 1; maProxy = String(maProxy || "ohlc4").toLowerCase();
+        if (!(minSlope >= 0)) throw new Error("runDualHedgeBacktest: minSlope must be >= 0");
+        if (!(Number.isInteger(confirmMinutes) && confirmMinutes >= 1)) throw new Error("runDualHedgeBacktest: confirmMinutes must be a whole number >= 1");
+        if (!["ohlc4", "hl2", "close"].includes(maProxy)) throw new Error("runDualHedgeBacktest: maProxy must be ohlc4, hl2 or close");
+        const e1 = defaultEodFor("1m", exchange);
+        eodHour = eodHour ?? e1.eodHour; eodMinute = eodMinute ?? e1.eodMinute;
+    }
     const isBias = strategy === "BIAS";
     const isRealize = strategy === "REALIZE";
     if (isRealize) {
@@ -923,7 +934,7 @@ async function runDualHedgeBacktest({
         const eod = defaultEodFor(bandTimeframe, exchange);
         eodHour   = eodHour   ?? eod.eodHour;
         eodMinute = eodMinute ?? eod.eodMinute;
-    } else if (!isRealize) {
+    } else if (!isRealize && !isPma) {
         for (const [name, v] of [["takeProfit", takeProfit], ["maxLoss", maxLoss]]) {
             if (!(Number(v) > 0)) throw new Error(`runDualHedgeBacktest: ${name} must be a positive number (got ${v})`);
         }
@@ -960,8 +971,8 @@ async function runDualHedgeBacktest({
 
     const bandStep  = longLeg.context.bandStep ?? engineConfig.BAND_STEP_DEFAULT;
     const rangeSize = rangeSizeOverride ? Number(rangeSizeOverride) : bandStep;
-    if (!isRealize && (isBias || !isHA || isHaDsb) && !(bandStep > 0)) throw new Error(`runDualHedgeBacktest: invalid band step (${bandStep})`);
-    if (!isBias && !isRealize && !isHA && !(rangeSize > 0)) throw new Error(`runDualHedgeBacktest: invalid range size (${rangeSize})`);
+    if (!isRealize && !isPma && (isBias || !isHA || isHaDsb) && !(bandStep > 0)) throw new Error(`runDualHedgeBacktest: invalid band step (${bandStep})`);
+    if (!isBias && !isRealize && !isPma && !isHA && !(rangeSize > 0)) throw new Error(`runDualHedgeBacktest: invalid range size (${rangeSize})`);
 
     const fromMs = Date.parse(`${dayKeyIST(from)}T00:00:00+05:30`);
     const toMs   = Date.parse(`${dayKeyIST(to)}T23:59:59+05:30`);
@@ -979,7 +990,25 @@ async function runDualHedgeBacktest({
     let res, params, anchorMs, anchorNote, candles;
     setEmitSuppressed(true);   // in-process backtest must not flood a live webdash log (see eventBridge.js)
     try {
-        if (isRealize) {
+        if (isPma) {
+            // ─── PRICE_MA: 1-minute Price-MA signal (proxied from minute candles) + MIS bases + NRML hedge, flat at EOD.
+            if (splitContracts) throw new Error("runDualHedgeBacktest: PRICE_MA trades one contract in both accounts");
+            if (!(eodHour * 60 + eodMinute > baseHour * 60 + baseMinute)) throw new Error(`runDualHedgeBacktest: EOD (${hhmm(eodHour, eodMinute)}) must be after the base entry time (${hhmm(baseHour, baseMinute)})`);
+            anchorMs = fromMs; anchorNote = "none (the signal needs only the previous minute)";
+            console.log(c.dim(`  price-MA hedge: bases ${hhmm(baseHour, baseMinute)} IST (MIS), EOD ${hhmm(eodHour, eodMinute)}, minute average proxied by ${maProxy}${minSlope ? `, min slope ${minSlope}` : ""}${confirmMinutes > 1 ? `, ${confirmMinutes}-minute confirm` : ""}`));
+            candles = await fetchMinuteCandles({ kc, token, fromMs, toMs, progress });
+            if (candles.length === 0) throw new Error(noCandles);
+            res = await replayPriceMaHedge({
+                longCtx: longLeg.context, shortCtx: shortLeg.context, candles, tradeFromMs: fromMs,
+                baseHour, baseMinute, eodHour, eodMinute, minSlope, confirmMinutes, maProxy,
+                slippagePoints: Number(slippagePoints), progress,
+            });
+            params = {
+                strategy: "PRICE_MA", signal: `1-minute Price MA (${maProxy} proxy)`, base: hhmm(baseHour, baseMinute), eod: hhmm(eodHour, eodMinute),
+                minSlope, confirmMinutes, maProxy, bandStep: null, rangeSize: null, takeProfit: null, maxLoss: null, gapCapture: null,
+                rangeStart: fmtIST(anchorMs), anchor: anchorNote, slippagePoints: Number(slippagePoints),
+            };
+        } else if (isRealize) {
             // ─── REALIZE: no signal, only the 1-minute clock.
             anchorMs = fromMs; anchorNote = "none (no signal to warm up)";
             console.log(c.dim(`  realize & re-open: close a leg at +\u20b9${realizeRupees} then re-open the same side (NRML carry)${lossAlertRupees ? `  |  loss alert \u20b9${lossAlertRupees}` : ""}`));
