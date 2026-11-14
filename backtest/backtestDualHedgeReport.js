@@ -103,6 +103,7 @@ function renderDualHedgeHtml(report) {
     const isRealize = report.params.strategy === "REALIZE";
     const isPma = report.params.strategy === "PRICE_MA";
     const isPnl = isPma && report.params.hedgeMode === "PNL";
+    const isCarry = isPma && report.params.carry === true;
     const rows = report.trades
         .filter(t => t.status === "CLOSED")
         .map(t => {
@@ -134,9 +135,9 @@ function renderDualHedgeHtml(report) {
         ? `Dual Hedge \u2014 ${esc(report.symbol)} (${p.coreSignal === "DAILY_DSB" ? "daily DSB (HA)" : "daily HA bias"} core + ${esc(p.bandTimeframe)}${p.bandHa ? " HA" : ""} band hedge)`
         : `Dual Hedge \u2014 ${esc(report.symbol)} (LONG acct / SHORT acct)`;
     const settings = isPnl
-        ? `LONG MIS + SHORT MIS bases at ${esc(p.base)} IST \u00b7 each base is hedged against its OWN loss, checked once a minute: base P&amp;L below -${p.pnlBand} pt opens an NRML hedge (SHORT in the LONG account / LONG in the SHORT account), back above +${p.pnlBand} pt closes it \u00b7 smoothing ${p.pnlSmooth} sample(s) \u00b7 everything closed at ${esc(p.eod)} IST \u00b7 slippage ${p.slippagePoints} pt per order`
+        ? `LONG ${isCarry ? "NRML" : "MIS"} + SHORT ${isCarry ? "NRML" : "MIS"} bases at ${esc(p.base)} IST \u00b7 each base is hedged against its OWN loss, checked once a minute: base P&amp;L below -${p.pnlBand} pt opens an NRML hedge (SHORT in the LONG account / LONG in the SHORT account), back above +${p.pnlBand} pt closes it \u00b7 smoothing ${p.pnlSmooth} sample(s) \u00b7 ${isCarry ? "NRML bases, NOTHING closed at EOD (carried overnight)" : `everything closed at ${esc(p.eod)} IST`} \u00b7 slippage ${p.slippagePoints} pt per order`
         : isPma
-        ? `LONG MIS + SHORT MIS bases at ${esc(p.base)} IST \u00b7 GREEN (MA rising) opens a LONG NRML hedge in the SHORT account, RED a SHORT NRML hedge in the LONG account \u00b7 NEUTRAL keeps the hedge \u00b7 everything closed at ${esc(p.eod)} IST \u00b7 ${p.minSlope ? `min slope ${p.minSlope} \u00b7 ` : "exact-zero slope \u00b7 "}${p.confirmMinutes > 1 ? `${p.confirmMinutes}-minute confirm \u00b7 ` : ""}minute average proxied by ${esc(p.maProxy)} \u00b7 slippage ${p.slippagePoints} pts \u00b7 no brokerage/taxes`
+        ? `LONG ${isCarry ? "NRML" : "MIS"} + SHORT ${isCarry ? "NRML" : "MIS"} bases at ${esc(p.base)} IST \u00b7 GREEN (MA rising) opens a LONG NRML hedge in the SHORT account, RED a SHORT NRML hedge in the LONG account \u00b7 NEUTRAL keeps the hedge \u00b7 ${isCarry ? "NRML bases, NOTHING closed at EOD (carried overnight)" : `everything closed at ${esc(p.eod)} IST`} \u00b7 ${p.minSlope ? `min slope ${p.minSlope} \u00b7 ` : "exact-zero slope \u00b7 "}${p.confirmMinutes > 1 ? `${p.confirmMinutes}-minute confirm \u00b7 ` : ""}minute average proxied by ${esc(p.maProxy)} \u00b7 slippage ${p.slippagePoints} pts \u00b7 no brokerage/taxes`
         : isRealize
         ? `every leg opens its own side (NRML carry); when a leg's profit exceeds \u20b9${p.realizeRupees} it is closed and the same side re-opened \u00b7 the losing leg is never closed${p.lossAlertRupees ? ` (alert level \u20b9${p.lossAlertRupees})` : ""} \u00b7 session 09:00\u201323:25 IST \u00b7 slippage ${p.slippagePoints} pts`
         : isBias
