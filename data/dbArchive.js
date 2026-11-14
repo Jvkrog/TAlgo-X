@@ -75,7 +75,9 @@ function legDbFiles(contextName) {
 }
 // context.name of each DB-owning leg: pair = "<core> (CORE)" + "<hedge> (HEDGE)"; dual hedge / dual bias hedge = "<u> (Dual [Bias ]Hedge <SIDE>: <account>)"
 const hedgePairLegNames = p => [`${p.coreUnderlying} (CORE)`, `${p.hedgeUnderlying} (HEDGE)`];
-const dualHedgeLegNames = p => ["Dual Hedge", "Dual Bias Hedge"].flatMap(k => [[ "LONG", p.longUser ], ["SHORT", p.shortUser]].filter(x => x[1]).map(([side, user]) => `${p.underlying} (${k} ${side}: ${user})`));
+const dualHedgeLegNames = p => p.strategy === "PRICE_MA" ? pmaLegNames(p) : ["Dual Hedge", "Dual Bias Hedge"].flatMap(k => [[ "LONG", p.longUser ], ["SHORT", p.shortUser]].filter(x => x[1]).map(([side, user]) => `${p.underlying} (${k} ${side}: ${user})`));
+// Price-MA hedge: four sub-legs per instrument, "<u> (Price MA Hedge <ACCOUNT>_<BASE|HEDGE>: <account>)"
+const pmaLegNames = p => [["LONG", p.longUser], ["SHORT", p.shortUser]].filter(x => x[1]).flatMap(([acct, user]) => ["BASE", "HEDGE"].map(k => `${p.underlying} (Price MA Hedge ${acct}_${k}: ${user})`));
 
 // `legNames` = this deployment's leg context names; `othersLegNames` = flat list of the remaining deployments' leg names (a leg whose
 // name is still used by another deployment keeps its file — they would share it anyway).

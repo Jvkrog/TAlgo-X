@@ -2910,8 +2910,16 @@ async function hedgePairScreen() {
 async function getDualHedgeProcesses() {
     const list = await pm2List();
     return list
-        .filter(p => p.pm2_env.env?.DH_UNDERLYING)
-        .map(p => ({
+        .filter(p => p.pm2_env.env?.DH_UNDERLYING || p.pm2_env.env?.PMA_UNDERLYING)
+        .map(p => p.pm2_env.env?.PMA_UNDERLYING ? {
+            script: "priceMaHedgeEngine.js", strategy: "PRICE_MA", name: p.name,
+            underlying: p.pm2_env.env.PMA_UNDERLYING, longUser: p.pm2_env.env.PMA_LONG_USER, shortUser: p.pm2_env.env.PMA_SHORT_USER,
+            status: p.pm2_env.status, uptime: p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
+            lots: p.pm2_env.env.PMA_LOTS_OVERRIDE || "1", live: p.pm2_env.env.LIVE_ORDERS_OVERRIDE === "true", exchange: p.pm2_env.env.PMA_EXCHANGE_OVERRIDE || "MCX",
+            contractSymbol: p.pm2_env.env.PMA_CONTRACT_OVERRIDE || null,
+            outLogPath: p.pm2_env.pm_out_log_path, errLogPath: p.pm2_env.pm_err_log_path,
+        } : ({
+            script:     "dualHedgeEngine.js",
             name:       p.name,
             underlying: p.pm2_env.env.DH_UNDERLYING,
             longUser:   p.pm2_env.env.DH_LONG_USER,
@@ -2942,6 +2950,7 @@ async function getDualHedgeProcesses() {
             errLogPath: p.pm2_env.pm_err_log_path,
         }));
 }
+const dhScript = d => (d && d.strategy === "PRICE_MA") ? "priceMaHedgeEngine.js" : "dualHedgeEngine.js";
 
 // Two ONLINE deployments may not share an account on the same underlying +
 // exchange (they would fight over one broker position). Returns a message or null.
@@ -2954,6 +2963,48 @@ async function dualHedgeAccountConflict(underlying, accounts, selfName) {
         if (hit) return `account "${hit}" is already running ${underlying} in ${d.name} \u2014 stop it first`;
     }
     return null;
+}
+
+// PRICE_MA strategy deploy (priceMaHedgeEngine.js): MIS bases at a set time + NRML hedge following the 1-minute tick-average slope, flat at EOD.
+async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverride, lots, contractSymbol = null }) {
+    console.log(c.dim("  Bases: LONG MIS (long account) + SHORT MIS (short account) at the base time."));
+    console.log(c.dim("  Hedge: rising 1-min price MA -> LONG NRML in the SHORT account; falling -> SHORT NRML in the LONG account. All closed at EOD."));
+    const btIn = (await ask("  Base entry time IST (HH:MM, default 09:15): ")).trim() || "09:15";
+    const bm = btIn.match(/^(\d{1,2}):(\d{2})$/);
+    if (!bm || Number(bm[1]) > 23 || Number(bm[2]) > 59) { console.log(c.yellow("  Invalid time — use HH:MM")); await pauseForReview(); return; }
+    const baseHour = Number(bm[1]), baseMinute = Number(bm[2]);
+    const eod = defaultEodFor("1m", "MCX");
+    if (eod.eodHour * 60 + eod.eodMinute <= baseHour * 60 + baseMinute) { console.log(c.yellow("  Base time must be before EOD")); await pauseForReview(); return; }
+    const msIn = (await ask("  Min slope in price points (0 = exact spec, default 0): ")).trim();
+    const minSlope = msIn ? Number(msIn) : 0;
+    if (!Number.isFinite(minSlope) || minSlope < 0) { console.log(c.yellow("  Invalid min slope")); await pauseForReview(); return; }
+    const cmIn = (await ask("  Confirm minutes before the hedge flips (default 1): ")).trim();
+    const confirmMinutes = cmIn ? Number(cmIn) : 1;
+    if (!Number.isInteger(confirmMinutes) || confirmMinutes < 1) { console.log(c.yellow("  Invalid confirm minutes")); await pauseForReview(); return; }
+    const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
+    let isLive = modeInput === "L";
+    if (isLive) {
+        const confirmLive = (await ask(c.red('  This will place REAL orders on BOTH accounts. type "LIVE" to confirm: '))).trim();
+        if (confirmLive !== "LIVE") { console.log(c.dim("  Not confirmed — starting in paper mode instead")); isLive = false; }
+    }
+    const name = `${getShortName(underlying)}PriceMA`;
+    const conflict = await dualHedgeAccountConflict(underlying, [longUser.name, shortUser.name], name);
+    if (conflict) { console.log(c.red(`  Refused: ${conflict}`)); await pauseForReview(); return; }
+    const env = {
+        PMA_UNDERLYING: underlying, PMA_LONG_USER: longUser.name, PMA_SHORT_USER: shortUser.name, PMA_EXCHANGE_OVERRIDE: "MCX",
+        PMA_LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), PMA_CONTRACT_OVERRIDE: contractSymbol || "",
+        PMA_BASE_HOUR: String(baseHour), PMA_BASE_MINUTE: String(baseMinute), PMA_EOD_HOUR: String(eod.eodHour), PMA_EOD_MINUTE: String(eod.eodMinute),
+        PMA_MIN_SLOPE: String(minSlope), PMA_CONFIRM_MINUTES: String(confirmMinutes),
+    };
+    if (lotMultOverride) env.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
+    try {
+        await pm2Start({ ...PM2_BASE_OPTS, script: "priceMaHedgeEngine.js", name, cwd: __dirname, env });
+        console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  bases ${btIn}  ${isLive ? "LIVE" : "paper"})`));
+        console.log(c.dim("  The engine exits at EOD — start it again each trading morning."));
+    } catch (err) {
+        console.log(c.red(`  Failed to start: ${err.message}`));
+    }
+    await pauseForReview();
 }
 
 // BIAS strategy deploy: daily-HA core + Dynamic Band hedge, flat at EOD.
@@ -3152,9 +3203,14 @@ async function addDualHedge() {
     const lots = lotsInput ? Number(lotsInput) : 1;
     if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  Invalid lots value")); await pauseForReview(); return; }
 
-    const stratIn = (await ask("  Strategy: [D] Dual band-following, [B] Bias hedge (daily HA core + band hedge, flat at EOD) (default D): ")).trim().toUpperCase();
-    if (stratIn !== "" && stratIn !== "D" && stratIn !== "B") { console.log(c.yellow("  Invalid strategy")); await pauseForReview(); return; }
+    const stratIn = (await ask("  Strategy: [D] Dual band-following, [B] Bias hedge (daily HA core + band hedge, flat at EOD), [P] Price-MA hedge (1-min tick-average slope, flat at EOD) (default D): ")).trim().toUpperCase();
+    if (stratIn !== "" && stratIn !== "D" && stratIn !== "B" && stratIn !== "P") { console.log(c.yellow("  Invalid strategy")); await pauseForReview(); return; }
     const csvForContracts = await ensureCsvLoaded();
+    if (stratIn === "P") {
+        const contractSymbol = await pickLegContract(csvForContracts, underlying, "BOTH ACCOUNTS");
+        await addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverride, lots, contractSymbol });
+        return;
+    }
     if (stratIn === "B") {
         const longContract  = await pickLegContract(csvForContracts, underlying, "LONG ACCOUNT");
         const shortContract = await pickLegContract(csvForContracts, underlying, "SHORT ACCOUNT");
@@ -3482,7 +3538,7 @@ async function dualHedgeScreen() {
 
         if (input === "A")      await addDualHedge();
         else if (input === "X") await dualHedgeActionByNumber(deployments, "stop", n => pm2Stop(n));
-        else if (input === "S") await dualHedgeActionByNumber(deployments, "start", n => pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name: n, cwd: __dirname }));
+        else if (input === "S") await dualHedgeActionByNumber(deployments, "start", n => pm2Start({ ...PM2_BASE_OPTS, script: dhScript(deployments.find(x => x.name === n)), name: n, cwd: __dirname }));
         else if (input === "D") await dualHedgeActionByNumber(deployments, "remove", async n => {
             await pm2Delete(n);
             const gone = deployments.find(x => x.name === n);
@@ -4189,7 +4245,7 @@ async function rollContract(procs) {
                 // enough for dualHedgeContext.js to pick it up for BOTH
                 // legs (they resolve the same underlying independently,
                 // but from the same pin).
-                await pm2Restart({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name: dh.name, cwd: __dirname });
+                await pm2Restart({ ...PM2_BASE_OPTS, script: dhScript(dh), name: dh.name, cwd: __dirname });
                 console.log(c.green(`  Restarted ${dh.name} — now running ${p.underlying} on ${next.symbol}`));
             } catch (err) {
                 console.log(c.red(`  Restart failed for ${dh.name}: ${err.message} — pin is saved, restart manually when ready`));

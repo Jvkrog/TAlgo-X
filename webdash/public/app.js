@@ -383,6 +383,9 @@ function dualHedgeStrategyText(d) {
   if (d.strategy === "REALIZE") {
     return `realize & re-open \u00b7 closes a leg at +\u20b9${d.realizeRupees || 3000} then re-opens it (NRML)${d.lossAlertRupees ? ` \u00b7 loss alert -\u20b9${d.lossAlertRupees}` : ""} \u00b7 losing leg never closed`;
   }
+  if (d.strategy === "PRICE_MA") {
+    return `price-MA hedge \u00b7 bases @${d.baseTime} (MIS) \u00b7 NRML hedge follows the 1-min tick-average slope${Number(d.minSlope) > 0 ? ` \u00b7 min slope ${d.minSlope}` : ""}${Number(d.confirmMinutes) > 1 ? ` \u00b7 confirm ${d.confirmMinutes}m` : ""} \u00b7 flat at ${d.eodTime || "EOD"}`;
+  }
   if (d.strategy === "BIAS") {
     const unwind = d.unwindMode === "EOD_ONLY" ? "held to EOD" : "unwinds when the band flips back";
     return `dual bias hedge \u00b7 core: ${d.coreSignal === "DAILY_DSB" ? "daily DSB (HA)" : "daily HA"} @${d.entryTime} \u00b7 hedge: ${d.bandTimeframe}${d.bandHa ? " HA" : ""} band (${unwind}) \u00b7 ${d.coreEod === "CARRY" ? "core carried (NRML)" : `flat ${d.eodTime || "EOD"}${d.coreEod === "CLOSE_MIS" ? " (MIS)" : ""}`}`;
@@ -406,7 +409,7 @@ function buildDualHedgeCard(d) {
       </div>
     </div>
     <div class="card-price-row">
-      <span class="card-price">LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot ${d.strategy === "BIAS" ? (d.coreEod === "CARRY" ? "each \u00b7 core carried" : "each \u00b7 flat at EOD") : "NRML each"}</span>
+      <span class="card-price">LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot ${d.strategy === "PRICE_MA" ? "each \u00b7 MIS base + NRML hedge" : d.strategy === "BIAS" ? (d.coreEod === "CARRY" ? "each \u00b7 core carried" : "each \u00b7 flat at EOD") : "NRML each"}</span>
     </div>
     <div class="pnl-row">
       <div class="pnl-box">
@@ -1852,7 +1855,7 @@ async function loadToolboxExtra() {
     ]);
     toolboxExtra = [
       ...(hp.pairs || []).map(p => ({ kind: "hedgepair", name: p.name, label: `${p.coreUnderlying} / ${p.hedgeUnderlying}`, tag: "HEDGE PAIR", status: p.status, live: p.live })),
-      ...(dh.deployments || []).map(d => ({ kind: "dualhedge", name: d.name, label: d.underlying, tag: d.strategy === "BIAS" ? "DUAL BIAS HEDGE" : d.strategy === "REALIZE" ? "DUAL REALIZE" : "DUAL HEDGE", status: d.status, live: d.live })),
+      ...(dh.deployments || []).map(d => ({ kind: "dualhedge", name: d.name, label: d.underlying, tag: d.strategy === "BIAS" ? "DUAL BIAS HEDGE" : d.strategy === "REALIZE" ? "DUAL REALIZE" : d.strategy === "PRICE_MA" ? "PRICE-MA HEDGE" : "DUAL HEDGE", status: d.status, live: d.live })),
     ];
   } catch { toolboxExtra = []; }
 }
@@ -4793,7 +4796,7 @@ function renderDualHedgeAddUnderlyingPicker() {
 
 function dhSubmitLabel() {
   const st = tbDualHedgeBody.querySelector("#dhStrategy").value;
-  return st === "BIAS" ? "Start bias hedge" : st === "REALIZE" ? "Start realize & re-open" : "Start dual hedge";
+  return st === "BIAS" ? "Start bias hedge" : st === "REALIZE" ? "Start realize & re-open" : st === "PRICE_MA" ? "Start Price-MA hedge" : "Start dual hedge";
 }
 
 async function renderDualHedgeAddForm() {
@@ -4818,7 +4821,7 @@ async function renderDualHedgeAddForm() {
   tbDualHedgeBody.innerHTML = `
     <button class="tb-back-link" id="dhBack">\u2039 back</button>
     <div class="tb-form-hint" style="margin:8px 0">Underlying: <b>${dhAddState.underlying}</b></div>
-    <div class="tb-form-row"><div class="tb-form-label">Strategy</div><select id="dhStrategy"><option value="DUAL">Dual hedge (band-following)</option><option value="BIAS">Bias hedge (daily DSB core + band hedge)</option><option value="REALIZE">Realize &amp; re-open (profit lock, NRML carry)</option></select></div>
+    <div class="tb-form-row"><div class="tb-form-label">Strategy</div><select id="dhStrategy"><option value="DUAL">Dual hedge (band-following)</option><option value="BIAS">Bias hedge (daily DSB core + band hedge)</option><option value="REALIZE">Realize &amp; re-open (profit lock, NRML carry)</option><option value="PRICE_MA">Price-MA hedge (1-min tick-average slope)</option></select></div>
     <div class="tb-form-hint" id="dhStrategyHint" style="margin-bottom:8px"></div>
 
     <div class="tb-form-row"><div class="tb-form-label">LONG account</div><select id="dhLongUser">${userOptions}</select></div>
@@ -4837,6 +4840,12 @@ async function renderDualHedgeAddForm() {
       <div class="tb-form-row"><div class="tb-form-label">Hedge unwind</div><select id="dhUnwind"><option value="BAND_FLIP">Band (DSB) favourable to the core closes the hedge</option><option value="EOD_ONLY">Hold the hedge to EOD</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Dynamic Band timeframe (hedge)</div><select id="dhBandTf"><option value="5m">5m</option><option value="15m">15m</option><option value="30m">30m</option><option value="1h" selected>1h</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Core entry time IST (previous daily HA candle decides, once a day)</div><input type="time" id="dhEntryTime" value="10:00"></div>
+    </div>
+    <div id="dhPmaOnly" style="display:none">
+      <div class="tb-form-row"><div class="tb-form-label">Base entry time IST (LONG MIS on the long account, SHORT MIS on the short account)</div><input type="time" id="dhPmaBase" value="09:15"></div>
+      <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (blank = default) \u2014 hedge and both bases are closed</div><input type="time" id="dhPmaEod"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Min slope in price points (0 = exact spec; |slope| at or below this is NEUTRAL)</div><input type="number" id="dhPmaMinSlope" min="0" step="any" value="0"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Confirm minutes before the hedge flips (1 = immediately)</div><input type="number" id="dhPmaConfirm" min="1" step="1" value="1"></div>
     </div>
     <div id="dhRealizeOnly" style="display:none">
       <div class="tb-form-row"><div class="tb-form-label">Realize when a leg's profit exceeds \u20b9 (default 3000) \u2014 the leg is closed, then the same side is opened again</div><input type="number" id="dhRealizeRupees" min="1" step="1" value="3000"></div>
@@ -4876,6 +4885,7 @@ async function renderDualHedgeAddForm() {
   const dhHints = {
     DUAL: "LONG account enters LONG only, SHORT account enters SHORT only \u2014 both carry overnight, SL only arms after that leg's own first adverse flip.",
     REALIZE: "LONG on the long account + SHORT on the short account, NRML. When a leg's profit passes the set value it is closed (realized) and the same position is opened again for overnight carry. The losing leg is left alone \u2014 add funds to that account yourself (optional Telegram alert).",
+    PRICE_MA: "Bases: LONG MIS (long account) + SHORT MIS (short account) at the base time. Each minute the average of all ticks is compared with the previous minute: rising \u2192 LONG NRML hedge in the SHORT account, falling \u2192 SHORT NRML hedge in the LONG account (the old hedge is closed first, confirmed). Flat keeps the hedge. Everything is closed at EOD.",
     BIAS: "The daily Dynamic Step Band (on daily HA candles) or the previous daily HA candle sets the core (green = LONG account, red = SHORT account). The OTHER account hedges when the Dynamic Band (default 1h HA is your pick below) turns against the core. The core is carried overnight (NRML) or closed at EOD (MIS) \u2014 your choice. No gap capture.",
   };
   const dhSyncStrategy = () => {
@@ -4884,12 +4894,15 @@ async function renderDualHedgeAddForm() {
     tbDualHedgeBody.querySelector("#dhDualOnly").style.display = st === "DUAL" ? "" : "none";
     tbDualHedgeBody.querySelector("#dhDualOnly2").style.display = st === "DUAL" ? "" : "none";
     tbDualHedgeBody.querySelector("#dhRealizeOnly").style.display = st === "REALIZE" ? "" : "none";
+    const pmaSel = st === "PRICE_MA";
+    tbDualHedgeBody.querySelector("#dhPmaOnly").style.display = pmaSel ? "" : "none";
+    tbDualHedgeBody.querySelector("#dhBandStep2Row").style.display = pmaSel ? "none" : "";
     const bsRow = tbDualHedgeBody.querySelector("#dhBandStep")?.closest(".tb-form-row");
-    if (bsRow) bsRow.style.display = st === "REALIZE" ? "none" : "";
+    if (bsRow) bsRow.style.display = (st === "REALIZE" || st === "PRICE_MA") ? "none" : "";
     tbDualHedgeBody.querySelector("#dhBiasOnly").style.display = st === "BIAS" ? "" : "none";
     tbDualHedgeBody.querySelector("#dhSingleContract").style.display = st === "BIAS" ? "none" : "";
     tbDualHedgeBody.querySelector("#dhSubmitLabelHolder")?.remove();
-    tbDualHedgeBody.querySelector("#dhAddSubmit").textContent = st === "BIAS" ? "Start bias hedge" : st === "REALIZE" ? "Start realize & re-open" : "Start dual hedge";
+    tbDualHedgeBody.querySelector("#dhAddSubmit").textContent = dhSubmitLabel();
   };
   tbDualHedgeBody.querySelector("#dhStrategy").addEventListener("change", dhSyncStrategy);
   dhSyncStrategy();
@@ -4946,7 +4959,8 @@ async function renderDualHedgeAddForm() {
       lossAlertRupees: tbDualHedgeBody.querySelector("#dhLossAlert").value || undefined,
       gapCapture: tbDualHedgeBody.querySelector("#dhStrategy").value === "DUAL" && tbDualHedgeBody.querySelector("#dhGap").checked,
       gcEntry: "23:20", gcExit: "23:25",
-      baseTime: q("#dbPmaBase").value || "09:15", eodTime: q("#dbPmaEod").value || undefined, minSlope: q("#dbPmaMinSlope").value || 0, confirmMinutes: q("#dbPmaConfirm").value || 1, maProxy: q("#dbPmaProxy").value,
+      baseTime: tbDualHedgeBody.querySelector("#dhPmaBase").value || "09:15", eodTime: tbDualHedgeBody.querySelector("#dhPmaEod").value || undefined,
+      minSlope: tbDualHedgeBody.querySelector("#dhPmaMinSlope").value || 0, confirmMinutes: tbDualHedgeBody.querySelector("#dhPmaConfirm").value || 1,
     };
     const btn = tbDualHedgeBody.querySelector("#dhAddSubmit");
     btn.disabled = true; btn.textContent = "Starting...";
@@ -5132,6 +5146,7 @@ async function renderDualHedgeBacktestForm() {
       realizeRupees: q("#dbRealizeRupees").value || undefined, lossAlertRupees: q("#dbLossAlert").value || undefined,
       gapCapture: q("#dbStrategy").value === "DUAL" && q("#dbGap").checked,
       gcEntry: "23:20", gcExit: "23:25",
+      baseTime: q("#dbPmaBase").value || "09:15", eodTime: q("#dbPmaEod").value || undefined, minSlope: q("#dbPmaMinSlope").value || 0, confirmMinutes: q("#dbPmaConfirm").value || 1, maProxy: q("#dbPmaProxy").value,
     };
     const btn = q("#dbSubmit");
     btn.disabled = true; btn.textContent = "Running...";

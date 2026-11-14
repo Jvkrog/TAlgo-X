@@ -2731,11 +2731,30 @@ async function findAccountConflict(underlying, accounts, selfName) {
     return null;
 }
 
+// Price-MA hedge engine (priceMaHedgeEngine.js) — own PMA_* env, shown in the same dual-hedge list.
+function pmaDeployment(p) {
+    const e = p.pm2_env.env || {};
+    return {
+        script: "priceMaHedgeEngine.js", strategy: "PRICE_MA", name: p.name,
+        underlying: e.PMA_UNDERLYING, longUser: e.PMA_LONG_USER, shortUser: e.PMA_SHORT_USER,
+        status: p.pm2_env.status, uptime: p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
+        lots: e.PMA_LOTS_OVERRIDE || "1", live: e.LIVE_ORDERS_OVERRIDE === "true", exchange: e.PMA_EXCHANGE_OVERRIDE || "MCX",
+        contractSymbol: e.PMA_CONTRACT_OVERRIDE || null,
+        baseTime: hhmmPad(e.PMA_BASE_HOUR ?? 9, e.PMA_BASE_MINUTE ?? 15),
+        eodTime: (e.PMA_EOD_HOUR !== undefined && e.PMA_EOD_HOUR !== "") ? hhmmPad(e.PMA_EOD_HOUR, e.PMA_EOD_MINUTE ?? 0) : null,
+        minSlope: e.PMA_MIN_SLOPE || "0", confirmMinutes: e.PMA_CONFIRM_MINUTES || "1",
+        outLogPath: p.pm2_env.pm_out_log_path, errLogPath: p.pm2_env.pm_err_log_path,
+    };
+}
+// script to (re)start a deployment with, by its strategy
+const dhScript = d => (d && d.strategy === "PRICE_MA") ? "priceMaHedgeEngine.js" : "dualHedgeEngine.js";
+
 async function getDualHedgeProcesses() {
     const list = await pm2List();
     return list
-        .filter(p => p.pm2_env.env?.DH_UNDERLYING)
-        .map(p => ({
+        .filter(p => p.pm2_env.env?.DH_UNDERLYING || p.pm2_env.env?.PMA_UNDERLYING)
+        .map(p => p.pm2_env.env?.PMA_UNDERLYING ? pmaDeployment(p) : ({
+            script:     "dualHedgeEngine.js",
             name:       p.name,
             underlying: p.pm2_env.env.DH_UNDERLYING,
             longUser:   p.pm2_env.env.DH_LONG_USER,
@@ -2879,6 +2898,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
         coreSignal: coreSignalIn, bandHa: bandHaIn, coreEod: coreEodIn, coreAccount: coreAccountIn, flipCore: flipCoreIn,
         realizeRupees, lossAlertRupees, contractSymbol, longContract, shortContract,
+        baseTime, minSlope, confirmMinutes,
     } = req.body || {};
 
     const strategy = String(strategyIn || "DUAL").toUpperCase();
@@ -2921,7 +2941,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     if (strategy !== "BIAS" && (longContract || shortContract) && (longContract || contractSymbol || "") !== (shortContract || contractSymbol || "")) {
         return res.status(400).json({ error: "Different contracts per account are only supported for the BIAS strategy" });
     }
-    const name = strategy === "BIAS" ? `${getShortName(underlying)}DualBias` : strategy === "REALIZE" ? `${getShortName(underlying)}DualRealize` : `${getShortName(underlying)}DualHedge`;
+    const name = strategy === "PRICE_MA" ? `${getShortName(underlying)}PriceMA` : strategy === "BIAS" ? `${getShortName(underlying)}DualBias` : strategy === "REALIZE" ? `${getShortName(underlying)}DualRealize` : `${getShortName(underlying)}DualHedge`;
     const conflict = await findAccountConflict(underlying, [longUser, shortUser], name);
     if (conflict) return res.status(409).json({ error: conflict });
 
@@ -2939,6 +2959,32 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     if (bandStepOverride) env.DH_BAND_STEP_OVERRIDE = String(bandStepOverride);
     env.DH_BAND_STEP2_OVERRIDE = (strategy === "DUAL" && Number(bandStep2Override) > 0) ? String(Number(bandStep2Override)) : "";
 
+    if (strategy === "PRICE_MA") {
+        const base = parseHHMM(baseTime, "09:15");
+        if (!base) return res.status(400).json({ error: "BaseTime must be HH:MM (IST)" });
+        const eodDef = defaultEodFor("1m", "MCX");
+        const eod = eodTime ? parseHHMM(eodTime) : { hour: eodDef.eodHour, minute: eodDef.eodMinute };
+        if (!eod) return res.status(400).json({ error: "EodTime must be HH:MM (IST)" });
+        if (eod.hour * 60 + eod.minute <= base.hour * 60 + base.minute) return res.status(400).json({ error: "BaseTime must be before EOD" });
+        const ms = minSlope === undefined || minSlope === "" ? 0 : Number(minSlope);
+        const cm = confirmMinutes === undefined || confirmMinutes === "" ? 1 : Number(confirmMinutes);
+        if (!(ms >= 0)) return res.status(400).json({ error: "MinSlope must be >= 0" });
+        if (!(Number.isInteger(cm) && cm >= 1)) return res.status(400).json({ error: "ConfirmMinutes must be a whole number >= 1" });
+        const pmaEnv = {
+            PMA_UNDERLYING: underlying, PMA_LONG_USER: env.DH_LONG_USER, PMA_SHORT_USER: env.DH_SHORT_USER, PMA_EXCHANGE_OVERRIDE: "MCX",
+            PMA_LOTS_OVERRIDE: env.DH_LOTS_OVERRIDE, LIVE_ORDERS_OVERRIDE: env.LIVE_ORDERS_OVERRIDE,
+            PMA_CONTRACT_OVERRIDE: env.DH_CONTRACT_OVERRIDE,   // always written (PM2 restart merges env)
+            PMA_BASE_HOUR: String(base.hour), PMA_BASE_MINUTE: String(base.minute), PMA_EOD_HOUR: String(eod.hour), PMA_EOD_MINUTE: String(eod.minute),
+            PMA_MIN_SLOPE: String(ms), PMA_CONFIRM_MINUTES: String(cm),
+        };
+        if (lotMultOverride) pmaEnv.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
+        try {
+            await pm2Start({ ...PM2_BASE_OPTS, script: "priceMaHedgeEngine.js", name, cwd: ROOT, env: pmaEnv });
+            return res.json({ ok: true, name });
+        } catch (err) {
+            return res.status(500).json({ error: err.message });
+        }
+    }
     if (strategy === "REALIZE") {
         for (const [label, v] of [["realizeRupees", realizeRupees], ["lossAlertRupees", lossAlertRupees]]) {
             if (v !== undefined && v !== null && v !== "" && !(Number(v) > 0)) return res.status(400).json({ error: `${label} must be a positive number` });
@@ -3018,7 +3064,7 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
     const b = req.body || {};
     try {
         const strategy = String(b.strategy || "DUAL").toUpperCase();
-        if (strategy !== "DUAL" && strategy !== "BIAS" && strategy !== "REALIZE") return res.status(400).json({ error: "Strategy must be DUAL, BIAS or REALIZE" });
+        if (strategy !== "DUAL" && strategy !== "BIAS" && strategy !== "REALIZE" && strategy !== "PRICE_MA") return res.status(400).json({ error: "Strategy must be DUAL, BIAS, REALIZE or PRICE_MA" });
         if (!b.underlying) return res.status(400).json({ error: "Underlying is required" });
         const from = new Date(b.from), to = new Date(b.to);
         if (isNaN(from) || isNaN(to)) return res.status(400).json({ error: "From and to must be YYYY-MM-DD" });
@@ -3132,7 +3178,8 @@ app.post("/api/toolbox/dualhedge/start", async (req, res) => {
     const { name } = req.body || {};
     if (!name) return res.status(400).json({ error: "Name is required" });
     try {
-        await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: ROOT });
+        let dep = null; try { dep = (await getDualHedgeProcesses()).find(x => x.name === name); } catch { /* default script */ }
+        await pm2Start({ ...PM2_BASE_OPTS, script: dhScript(dep), name, cwd: ROOT });
         res.json({ ok: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -3330,7 +3377,7 @@ app.post("/api/toolbox/roll/apply", async (req, res) => {
             for (const dh of affectedDuals) {
                 try {
                     // Same reasoning as the hedge-pair restart above.
-                    await pm2RestartWithConfig({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name: dh.name, cwd: ROOT });
+                    await pm2RestartWithConfig({ ...PM2_BASE_OPTS, script: dhScript(dh), name: dh.name, cwd: ROOT });
                     result.restarted.push(dh.name);
                 } catch (err) {
                     result.restartFailed.push({ name: dh.name, error: err.message });
