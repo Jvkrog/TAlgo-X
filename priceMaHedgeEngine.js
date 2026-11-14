@@ -21,6 +21,9 @@
 //   PMA_CONTRACT_OVERRIDE         optional exact tradingsymbol (else the current contract)
 //   PMA_BASE_HOUR / PMA_BASE_MINUTE   base entry time IST, default 09:15
 //   PMA_EOD_HOUR / PMA_EOD_MINUTE     default context.js defaultEodFor("1m", exchange)
+//   PMA_MODE                      SLOPE (default: hedge follows the 1-minute price-MA colour) | PNL (each base is hedged against its OWN loss:
+//                                 base P&L < -PMA_PNL_BAND points -> open that account's NRML hedge, back above +band -> close it; checked once a minute)
+//   PMA_PNL_BAND                  default 0 (points)   PMA_PNL_SMOOTH  default 1 (average of the last N once-a-minute P&L samples; 1 = raw)
 //   PMA_MIN_SLOPE                 default 0   (|slope| <= this counts as NEUTRAL; 0 = exact zero as specified)
 //   PMA_CONFIRM_MINUTES           default 1   (same colour for N consecutive minutes before the hedge flips)
 //   PMA_STALE_SECONDS             default 150 (a signal older than this never opens/flips a hedge)
@@ -64,6 +67,11 @@ async function main() {
     if (!UNDERLYING || !LONG_USER || !SHORT_USER) fail("PMA_UNDERLYING, PMA_LONG_USER and PMA_SHORT_USER are all required");
     if (LONG_USER.toUpperCase() === SHORT_USER.toUpperCase()) fail("PMA_LONG_USER and PMA_SHORT_USER must be two different accounts");
     const EXCHANGE = process.env.PMA_EXCHANGE_OVERRIDE || "MCX";
+    const MODE = String(process.env.PMA_MODE || "SLOPE").toUpperCase();
+    if (MODE !== "SLOPE" && MODE !== "PNL") fail("PMA_MODE must be SLOPE or PNL");
+    const PNL_BAND = envNum(process.env.PMA_PNL_BAND, 0), PNL_SMOOTH = envInt(process.env.PMA_PNL_SMOOTH, 1);
+    if (!(PNL_BAND >= 0)) fail("PMA_PNL_BAND must be >= 0");
+    if (!(Number.isInteger(PNL_SMOOTH) && PNL_SMOOTH >= 1)) fail("PMA_PNL_SMOOTH must be a whole number >= 1");
     const MIN_SLOPE = envNum(process.env.PMA_MIN_SLOPE, 0);
     const CONFIRM = envInt(process.env.PMA_CONFIRM_MINUTES, 1);
     const STALE_MS = envInt(process.env.PMA_STALE_SECONDS, 150) * 1000;
@@ -159,6 +167,7 @@ async function main() {
     const token = legs.LONG_BASE.context.token;
     for (const l of L) if (l.context.token !== token) fail(`legs resolved to different contracts (${l.context.symbol} vs ${legs.LONG_BASE.context.symbol}) — pin one contract`);
     console.log(c.bold(`PRICE MA HEDGE  ${legs.LONG_BASE.context.symbol}  LONG:${longUser.name} (${legs.LONG_BASE.context.lots} lot)  SHORT:${shortUser.name} (${legs.SHORT_BASE.context.lots} lot)  base ${hhmm(baseHour, baseMinute)}  EOD ${hhmm(eodHour, eodMinute)}  minSlope ${MIN_SLOPE}  confirm ${CONFIRM}m`));
+    if (MODE === "PNL") console.log(c.bold(`MODE=PNL: each base is hedged against its own loss (band ${PNL_BAND} pts, smooth ${PNL_SMOOTH}); the price MA is not used`));
 
     // ── prices ────────────────────────────────────────────────────────────────────────────────────
     let lastTick = null;   // { price, at }
@@ -249,17 +258,19 @@ async function main() {
     };
 
     // ── signal + controller ───────────────────────────────────────────────────────────────────────
-    const clock = () => { const p = istParts(); return { today: todayIST(), hours: p.hours, minutes: p.minutes, nowMs: Date.now() }; };
+    const clock = () => { const now = new Date(Date.now()), p = istParts(now); return { today: todayIST(now), hours: p.hours, minutes: p.minutes, nowMs: now.getTime() }; };
     const signal = createPriceMaSignal({ minSlope: MIN_SLOPE, confirmMinutes: CONFIRM, maxGapMinutes: 2, log: m => console.log(c.yellow(m)) });
-    const controller = createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxSignalAgeMs: STALE_MS, log: m => console.log(c.cyan(m)) });
+    const controller = createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxSignalAgeMs: STALE_MS, hedgeMode: MODE, pnlBand: PNL_BAND, pnlSmooth: PNL_SMOOTH,
+        getPrice: () => (lastTick ? { price: lastTick.price, atMs: lastTick.at } : null), log: m => console.log(c.cyan(m)) });
 
     const stateFile = path.join(require("./data/dbDir").DB_DIR, `pma_${legs.LONG_BASE.context.underlying || UNDERLYING}_${longUser.name}_${shortUser.name}.json`.replace(/[^A-Za-z0-9_.-]/g, "_"));
     function persistState() {
         try {
             fs.mkdirSync(path.dirname(stateFile), { recursive: true });
-            const hedge = controller.activeHedge();
+            const hedge = controller.activeHedge(), hedgesOpen = controller.activeHedges();
             const body = { date: todayIST(), instrument: legs.LONG_BASE.context.symbol, longUser: longUser.name, shortUser: shortUser.name,
                 signal: signal.getState(), controller: controller.getState(),
+                mode: MODE, hedges: hedgesOpen.map(h => ({ account: h.account, direction: h.side, lots: h.context.lots })),
                 hedge: hedge ? { account: hedge.account, direction: hedge.side, product: "NRML", lots: hedge.context.lots, status: "ACTIVE" } : null, savedAt: new Date().toISOString() };
             fs.writeFileSync(stateFile + ".tmp", JSON.stringify(body)); fs.renameSync(stateFile + ".tmp", stateFile);
         } catch (e) { console.warn(`state file write failed: ${e.message}`); }
@@ -282,7 +293,7 @@ async function main() {
         if (ev.signal) controller.setSignal(ev.signal, Date.now());
         persistState();
     }
-    const handle = evs => { for (const ev of evs) onMinute(ev); };
+    const handle = evs => { if (MODE === "PNL") return; for (const ev of evs) onMinute(ev); };   // PNL mode: the price MA is not used
 
     const ticker = new KiteTicker({ api_key: longUser.apiKey, access_token: longUser.accessToken });
     ticker.connect();

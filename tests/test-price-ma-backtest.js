@@ -48,4 +48,26 @@ t("report renders with the PRICE_MA sections", async () => {
     const html = renderDualHedgeHtml({ params: { strategy: "PRICE_MA", base: "09:15", eod: "23:15", minSlope: 0, confirmMinutes: 1, maProxy: "ohlc4", slippagePoints: 0, rangeStart: "x", anchor: "none" }, trades: r.trades, stats: r.stats, symbol: "NATGASMINI26X", longLots: 1, shortLots: 1, metrics: { long: cm(r.longTrades), short: cm(r.shortTrades), combined: cm(r.trades) }, mtm: r.mtm, range: { from: "a", to: "b" }, meta: { candles: candles.length, signalBars: r.signalBars, signalKind: r.signalKind }, runAt: new Date().toISOString(), lotMult: 250 });
     assert.ok(/Price-MA Hedge/.test(html) && /APPROXIMATION/.test(html) && /<th>Role<\/th>/.test(html));
 });
+t("PNL mode: hedge opens only when its own base is under water, closes when back in profit; flat at EOD", async () => {
+    const r = await run({ hedgeMode: "PNL" });
+    const hs = r.trades.filter(x => x.role === "HEDGE");
+    assert.ok(hs.length >= 2, "hedges happen on a swinging market");
+    assert.ok(r.trades.every(x => x.status === "CLOSED"));
+    assert.ok(hs.every(x => x.exit_reason === "EOD" || /BASE BACK IN PROFIT/.test(x.exit_reason)), "hedge exits: " + [...new Set(hs.map(x => x.exit_reason))]);
+    // a LONG-account hedge (SHORT) is only ever opened while the LONG base is under water at that moment
+    for (const h of hs) {
+        const baseLeg = h.leg === "LONG" ? "LONG" : "SHORT";
+        const base = r.trades.find(x => x.role === "BASE" && x.leg === baseLeg && new Date(x.entry_time) <= new Date(h.entry_time) && new Date(x.exit_time) >= new Date(h.entry_time));
+        assert.ok(base, "a base was open when the hedge opened");
+        const underWater = baseLeg === "LONG" ? h.entry_price < base.entry_price : h.entry_price > base.entry_price;
+        assert.ok(underWater, `${baseLeg} hedge @${h.entry_price} should open below/above its base entry ${base.entry_price}`);
+    }
+    assert.ok(r.stats.hedgeEntries >= 2 && r.signalKind.includes("Base-loss"));
+});
+t("PNL mode: a wider band means fewer hedge cycles; smoothing and bad options validate", async () => {
+    const a = await run({ hedgeMode: "PNL" }), b = await run({ hedgeMode: "PNL", pnlBand: 2 });
+    assert.ok(b.stats.hedgeEntries <= a.stats.hedgeEntries, `band 2: ${b.stats.hedgeEntries} vs ${a.stats.hedgeEntries}`);
+    await run({ hedgeMode: "PNL", pnlSmooth: 5 });
+    await assert.rejects(() => run({ hedgeMode: "PNL", pnlBand: -1 }));
+});
 (async () => { let f = 0; for (const [n, fn] of T) { try { await fn(); console.log("  ok  ", n); } catch (e) { f++; console.log("  FAIL", n, "\n", e.stack); } } console.log(f ? f + " failed" : "all passed"); process.exit(f ? 1 : 0); })();

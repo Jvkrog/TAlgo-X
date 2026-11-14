@@ -17,7 +17,12 @@
 // resolve true ONLY on a confirmed fill/flat (state is already updated by then); false leaves everything as it was.
 "use strict";
 
-function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxSignalAgeMs = 150 * 1000, log = () => {} }) {
+// hedgeMode "PNL" (alternative to the MA-slope colour): each base is hedged against ITS OWN loss, evaluated once per IST minute —
+//     base P&L (points, vs its entry) < -pnlBand  -> open that account's NRML hedge (LONG_BASE -> LONG_HEDGE short, SHORT_BASE -> SHORT_HEDGE long)
+//     base P&L > +pnlBand and the hedge is open   -> close the hedge; in between nothing changes.
+// The two accounts are independent, so both hedges can be open at once. getPrice() -> { price, atMs } | null. pnlSmooth N averages the
+// last N once-a-minute P&L samples before the test (1 = the raw latest value).
+function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxSignalAgeMs = 150 * 1000, hedgeMode = "SLOPE", getPrice = () => null, pnlBand = 0, pnlSmooth = 1, log = () => {} }) {
     const { LONG_BASE, SHORT_BASE, LONG_HEDGE, SHORT_HEDGE } = legs;
     if (!(LONG_BASE && SHORT_BASE && LONG_HEDGE && SHORT_HEDGE)) throw new Error("priceMaHedgeController: needs LONG_BASE, SHORT_BASE, LONG_HEDGE, SHORT_HEDGE");
     const baseMin = baseHour * 60 + baseMinute, eodMin = eodHour * 60 + eodMinute;
@@ -32,6 +37,32 @@ function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinut
     const warnOnce = (k, m) => { if (!warned.has(k)) { warned.add(k); log(m); } };
 
     function setSignal(signal, atMs) { sig = { signal, atMs }; }
+    const PNL = String(hedgeMode).toUpperCase() === "PNL";
+    if (!(pnlBand >= 0)) throw new Error("priceMaHedgeController: pnlBand must be >= 0");
+    const smoothN = Math.max(1, Math.floor(Number(pnlSmooth) || 1));
+    let pnlSamples = { LONG_BASE: [], SHORT_BASE: [] }, lastEval = { today: null, min: -1 };
+
+    async function pnlHedges(t, nowMin) {
+        if (lastEval.today === t.today && lastEval.min === nowMin) return "OK";      // once per IST minute (retried within it only if an order was left pending)
+        const q = getPrice();
+        if (!q || !(q.price > 0) || t.nowMs - q.atMs > maxSignalAgeMs) { warnOnce(`pxstale:${t.today}:${nowMin}`, "[HEDGE_CONTROLLER] no fresh price — hedge check skipped"); return "OK"; }
+        let pending = false;
+        for (const [base, hedge, dir] of [[LONG_BASE, LONG_HEDGE, 1], [SHORT_BASE, SHORT_HEDGE, -1]]) {
+            if (!base.state.position) { pnlSamples[base.key] = []; continue; }
+            const arr = pnlSamples[base.key]; arr.push(dir * (q.price - base.state.entryPrice)); if (arr.length > smoothN) arr.shift();
+            const v = arr.reduce((a, b) => a + b, 0) / arr.length;
+            if (v < -pnlBand && !hedge.state.position) {
+                if (hedge.blocked) { warnOnce(`blk:${hedge.key}`, `[HEDGE_CONTROLLER] ${hedge.key} is BLOCKED (${hedge.blockedReason || "see boot log"}) — no hedge`); continue; }
+                log(`[HEDGE_CONTROLLER] Mode=PNL ${base.key} P&L=${v.toFixed(2)}pts Action=OPEN_${hedge.side}_NRML Account=${hedge.account}_ACCOUNT`);
+                const ok = await broker.enter(hedge, "BASE LOSS HEDGE"); if (!(ok && hedge.state.position)) pending = true;
+            } else if (v > pnlBand && hedge.state.position) {
+                log(`[HEDGE_CONTROLLER] Mode=PNL ${base.key} P&L=${v.toFixed(2)}pts Action=EXIT_${hedge.side}_NRML Account=${hedge.account}_ACCOUNT`);
+                if (!(await exitLeg(hedge, "BASE BACK IN PROFIT"))) pending = true;
+            }
+        }
+        if (!pending) lastEval = { today: t.today, min: nowMin };
+        return pending ? "EXIT_PENDING" : "OK";
+    }
 
     async function exitLeg(leg, why) {
         if (!leg.state.position) return true;
@@ -62,6 +93,8 @@ function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinut
                 if (ok && leg.state.position) baseEnteredOn[leg.key] = t.today;
             }
 
+            if (PNL) return await pnlHedges(t, nowMin);
+
             // 2) hedge — only from a FRESH GREEN/RED signal; NEUTRAL / none / stale leaves the current hedge untouched
             if (!sig || sig.signal === "NEUTRAL") return "OK";
             if (t.nowMs - sig.atMs > maxSignalAgeMs) { warnOnce(`stale:${sig.atMs}`, `[HEDGE_CONTROLLER] signal ${sig.signal} is stale (${Math.round((t.nowMs - sig.atMs) / 1000)}s old) — no hedge action`); return "OK"; }
@@ -85,9 +118,10 @@ function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinut
     return {
         tick, setSignal,
         getState: () => ({ baseEnteredOn: { ...baseEnteredOn } }),
-        restore: s => { if (s && s.baseEnteredOn) baseEnteredOn = { ...s.baseEnteredOn }; },
+        restore: s => { if (s && s.baseEnteredOn) baseEnteredOn = { ...s.baseEnteredOn }; if (!s || !s.baseEnteredOn || !Object.keys(s.baseEnteredOn).length) { pnlSamples = { LONG_BASE: [], SHORT_BASE: [] }; lastEval = { today: null, min: -1 }; } },
         markBaseEntered: (leg, today) => { baseEnteredOn[leg.key] = today; },
         activeHedge: () => hedges.find(l => l.state.position) || null,
+        activeHedges: () => hedges.filter(l => l.state.position),
     };
 }
 

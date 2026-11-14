@@ -2743,6 +2743,7 @@ function pmaDeployment(p) {
         baseTime: hhmmPad(e.PMA_BASE_HOUR ?? 9, e.PMA_BASE_MINUTE ?? 15),
         eodTime: (e.PMA_EOD_HOUR !== undefined && e.PMA_EOD_HOUR !== "") ? hhmmPad(e.PMA_EOD_HOUR, e.PMA_EOD_MINUTE ?? 0) : null,
         minSlope: e.PMA_MIN_SLOPE || "0", confirmMinutes: e.PMA_CONFIRM_MINUTES || "1",
+        hedgeMode: (e.PMA_MODE || "SLOPE").toUpperCase(), pnlBand: e.PMA_PNL_BAND || "0", pnlSmooth: e.PMA_PNL_SMOOTH || "1",
         outLogPath: p.pm2_env.pm_out_log_path, errLogPath: p.pm2_env.pm_err_log_path,
     };
 }
@@ -2898,7 +2899,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
         coreSignal: coreSignalIn, bandHa: bandHaIn, coreEod: coreEodIn, coreAccount: coreAccountIn, flipCore: flipCoreIn,
         realizeRupees, lossAlertRupees, contractSymbol, longContract, shortContract,
-        baseTime, minSlope, confirmMinutes,
+        baseTime, minSlope, confirmMinutes, hedgeMode: hedgeModeIn, pnlBand, pnlSmooth,
     } = req.body || {};
 
     const strategy = String(strategyIn || "DUAL").toUpperCase();
@@ -2970,12 +2971,18 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         const cm = confirmMinutes === undefined || confirmMinutes === "" ? 1 : Number(confirmMinutes);
         if (!(ms >= 0)) return res.status(400).json({ error: "MinSlope must be >= 0" });
         if (!(Number.isInteger(cm) && cm >= 1)) return res.status(400).json({ error: "ConfirmMinutes must be a whole number >= 1" });
+        const hm = String(hedgeModeIn || "SLOPE").toUpperCase();
+        if (hm !== "SLOPE" && hm !== "PNL") return res.status(400).json({ error: "HedgeMode must be SLOPE or PNL" });
+        const pb = pnlBand === undefined || pnlBand === "" ? 0 : Number(pnlBand), ps = pnlSmooth === undefined || pnlSmooth === "" ? 1 : Number(pnlSmooth);
+        if (!(pb >= 0)) return res.status(400).json({ error: "PnlBand must be >= 0" });
+        if (!(Number.isInteger(ps) && ps >= 1)) return res.status(400).json({ error: "PnlSmooth must be a whole number >= 1" });
         const pmaEnv = {
             PMA_UNDERLYING: underlying, PMA_LONG_USER: env.DH_LONG_USER, PMA_SHORT_USER: env.DH_SHORT_USER, PMA_EXCHANGE_OVERRIDE: "MCX",
             PMA_LOTS_OVERRIDE: env.DH_LOTS_OVERRIDE, LIVE_ORDERS_OVERRIDE: env.LIVE_ORDERS_OVERRIDE,
             PMA_CONTRACT_OVERRIDE: env.DH_CONTRACT_OVERRIDE,   // always written (PM2 restart merges env)
             PMA_BASE_HOUR: String(base.hour), PMA_BASE_MINUTE: String(base.minute), PMA_EOD_HOUR: String(eod.hour), PMA_EOD_MINUTE: String(eod.minute),
             PMA_MIN_SLOPE: String(ms), PMA_CONFIRM_MINUTES: String(cm),
+            PMA_MODE: hm, PMA_PNL_BAND: String(pb), PMA_PNL_SMOOTH: String(ps),   // always written (PM2 restart merges env)
         };
         if (lotMultOverride) pmaEnv.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
         try {
@@ -3095,6 +3102,10 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
             opts.minSlope = Math.max(0, Number(b.minSlope) || 0);
             opts.confirmMinutes = Math.max(1, Math.floor(Number(b.confirmMinutes) || 1));
             opts.maProxy = String(b.maProxy || "ohlc4").toLowerCase();
+            opts.hedgeMode = String(b.hedgeMode || "SLOPE").toUpperCase();
+            if (opts.hedgeMode !== "SLOPE" && opts.hedgeMode !== "PNL") return res.status(400).json({ error: "HedgeMode must be SLOPE or PNL" });
+            opts.pnlBand = Math.max(0, Number(b.pnlBand) || 0);
+            opts.pnlSmooth = Math.max(1, Math.floor(Number(b.pnlSmooth) || 1));
         } else if (strategy === "REALIZE") {
             opts.realizeRupees = Number(b.realizeRupees) || 3000;
             opts.lossAlertRupees = Number(b.lossAlertRupees) || 0;

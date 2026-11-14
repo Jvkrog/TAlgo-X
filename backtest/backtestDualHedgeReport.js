@@ -102,6 +102,7 @@ function renderDualHedgeHtml(report) {
     const isBias = report.params.strategy === "BIAS";
     const isRealize = report.params.strategy === "REALIZE";
     const isPma = report.params.strategy === "PRICE_MA";
+    const isPnl = isPma && report.params.hedgeMode === "PNL";
     const rows = report.trades
         .filter(t => t.status === "CLOSED")
         .map(t => {
@@ -126,27 +127,33 @@ function renderDualHedgeHtml(report) {
     const p = report.params, s = report.stats;
     const gap = p.gapCapture ? `gap capture ${p.gapCapture.time}\u2192${p.gapCapture.quit}` : "no gap capture";
     const title = isPma
-        ? `Price-MA Hedge \u2014 ${esc(report.symbol)} (MIS bases + 1-minute Price MA NRML hedge)`
+        ? `${isPnl ? "Base-loss Hedge" : "Price-MA Hedge"} \u2014 ${esc(report.symbol)} (MIS bases + ${isPnl ? "NRML hedge against each base's loss" : "1-minute Price MA NRML hedge"})`
         : isRealize
         ? `Dual Hedge \u2014 ${esc(report.symbol)} (realize &amp; re-open, LONG acct / SHORT acct)`
         : isBias
         ? `Dual Hedge \u2014 ${esc(report.symbol)} (${p.coreSignal === "DAILY_DSB" ? "daily DSB (HA)" : "daily HA bias"} core + ${esc(p.bandTimeframe)}${p.bandHa ? " HA" : ""} band hedge)`
         : `Dual Hedge \u2014 ${esc(report.symbol)} (LONG acct / SHORT acct)`;
-    const settings = isPma
+    const settings = isPnl
+        ? `LONG MIS + SHORT MIS bases at ${esc(p.base)} IST \u00b7 each base is hedged against its OWN loss, checked once a minute: base P&amp;L below -${p.pnlBand} pt opens an NRML hedge (SHORT in the LONG account / LONG in the SHORT account), back above +${p.pnlBand} pt closes it \u00b7 smoothing ${p.pnlSmooth} sample(s) \u00b7 everything closed at ${esc(p.eod)} IST \u00b7 slippage ${p.slippagePoints} pt per order`
+        : isPma
         ? `LONG MIS + SHORT MIS bases at ${esc(p.base)} IST \u00b7 GREEN (MA rising) opens a LONG NRML hedge in the SHORT account, RED a SHORT NRML hedge in the LONG account \u00b7 NEUTRAL keeps the hedge \u00b7 everything closed at ${esc(p.eod)} IST \u00b7 ${p.minSlope ? `min slope ${p.minSlope} \u00b7 ` : "exact-zero slope \u00b7 "}${p.confirmMinutes > 1 ? `${p.confirmMinutes}-minute confirm \u00b7 ` : ""}minute average proxied by ${esc(p.maProxy)} \u00b7 slippage ${p.slippagePoints} pts \u00b7 no brokerage/taxes`
         : isRealize
         ? `every leg opens its own side (NRML carry); when a leg's profit exceeds \u20b9${p.realizeRupees} it is closed and the same side re-opened \u00b7 the losing leg is never closed${p.lossAlertRupees ? ` (alert level \u20b9${p.lossAlertRupees})` : ""} \u00b7 session 09:00\u201323:25 IST \u00b7 slippage ${p.slippagePoints} pts`
         : isBias
         ? `core decided once a day at ${esc(p.entry)} IST from the ${p.coreSignal === "DAILY_DSB" ? "daily Dynamic Step Band on daily Heikin-Ashi candles" : "previous daily HA candle"} ${p.coreAccount && p.coreAccount !== "AUTO" ? `(the ${p.coreAccount} account is always the core and takes the signal's side)` : "(green \u2192 LONG acct, red \u2192 SHORT acct)"} \u00b7 hedge = the OTHER account when the ${esc(p.bandTimeframe)}${p.bandHa ? " HA" : ""} Dynamic Band (step ${p.bandStep}) turns against the core \u00b7 unwind ${esc(p.unwindMode)} \u00b7 ${p.coreEod === "CARRY" ? (p.flipCore ? "core carried overnight (NRML); when the daily signal flips, core + hedge are closed and the core re-opens on the new side" : "core carried overnight (NRML), never closed at EOD") : `both flat at EOD ${esc(p.eod)} IST${p.coreEod === "CLOSE_MIS" ? " (MIS)" : ""}`} \u00b7 slippage ${p.slippagePoints} pts`
         : `take-profit \u20b9${p.takeProfit} \u00b7 stop ${p.slMode === "ATR" ? `${p.atrSlMult}x ATR(${p.atrLen}) on ${esc(p.atrTimeframe)}, from entry (rupee backstop \u20b9${p.maxLoss} until ATR is available)` : `\u20b9${p.maxLoss}`} (armed only after a leg flips) \u00b7 signal ${esc(p.signal)}${p.bandStep ? ` (band step ${p.bandStep}, range ${p.rangeSize})` : ""} \u00b7 ${gap} \u00b7 slippage ${p.slippagePoints} pts`;
-    const activity = isPma
+    const activity = isPnl
+        ? `base entries ${s.baseEntries} \u00b7 hedge entries ${s.hedgeEntries} / exits ${s.hedgeExits} \u00b7 EOD exits ${s.exits.eod}`
+        : isPma
         ? `signal minutes ${s.signalMinutes} (GREEN ${s.greenMinutes} / RED ${s.redMinutes} / NEUTRAL ${s.neutralMinutes}) \u00b7 colour flips ${s.colourFlips} \u00b7 base entries ${s.baseEntries} \u00b7 hedge entries ${s.hedgeEntries} / exits ${s.hedgeExits} \u00b7 EOD exits ${s.exits.eod} \u00b7 gap resets ${s.gapResets}`
         : isRealize
         ? `entries LONG ${s.entries.LONG} / SHORT ${s.entries.SHORT} \u00b7 realizes LONG ${s.realizes.LONG} / SHORT ${s.realizes.SHORT} \u00b7 days a leg was past the loss alert: LONG ${s.lossAlertDays.LONG} / SHORT ${s.lossAlertDays.SHORT} \u00b7 backtest-end exits ${s.exits.backtestEnd}`
         : isBias
         ? `core days LONG ${s.coreDays.LONG} / SHORT ${s.coreDays.SHORT} \u00b7 days with no usable daily read ${s.noBiasDays}${p.flipCore ? ` \u00b7 core flips ${s.coreFlips}` : ""} \u00b7 hedge entries ${s.hedgeEntries} \u00b7 band unwinds ${s.hedgeUnwinds} \u00b7 exits: EOD ${s.exits.eod}, band unwind ${s.exits.bandUnwind}${p.flipCore ? `, daily flip ${s.exits.flip}` : ""}, backtest-end ${s.exits.backtestEnd}`
         : `${s.evaluations} evaluations (${s.missedSlotEvals} on a slot with no candle) \u00b7 entries LONG ${s.entries.LONG} / SHORT ${s.entries.SHORT} \u00b7 flips LONG ${s.flips.LONG} / SHORT ${s.flips.SHORT} \u00b7 exits: take-profit ${s.exits.takeProfit}, stop ${s.exits.stopLoss}, gap-realize ${s.exits.gapRealize}, backtest-end ${s.exits.backtestEnd}${p.gapCapture ? ` \u00b7 gap-capture days ${s.gapCaptureDays} (skipped ${s.gapCaptureSkippedDays})` : ""}`;
-    const carryNote = isPma
+    const carryNote = isPnl
+        ? "The hedge is decided at each minute's open price (the live engine samples the latest tick once a minute). Every cycle of the base's P&L crossing zero costs two hedge orders and can lose on the hedge leg \u2014 judge the hedge entry count against brokerage and taxes, which are not modelled."
+        : isPma
         ? "APPROXIMATION: live averages every websocket tick of each minute; history only has minute candles, so the minute average is proxied from the candle and real GREEN/RED flips can differ. Brokerage, taxes and margin are not modelled, and every flip is two orders \u2014 judge the flip count against costs."
         : isRealize
         ? "The losing leg is never closed, so closed-trade P&L only shows the booked profits; the equity curve and MTM drawdown show the open loss you would have to fund."
