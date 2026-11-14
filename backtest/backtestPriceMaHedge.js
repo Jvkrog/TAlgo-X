@@ -39,7 +39,7 @@ const PROXIES = {
 async function replayPriceMaHedge({
     longCtx, shortCtx, candles, tradeFromMs,
     baseHour = 9, baseMinute = 15, eodHour = 23, eodMinute = 15,
-    minSlope = 0, confirmMinutes = 1, maProxy = "ohlc4", hedgeMode = "SLOPE", pnlBand = 0, pnlSmooth = 1,
+    minSlope = 0, confirmMinutes = 1, maProxy = "ohlc4", hedgeMode = "SLOPE", pnlBand = 0, pnlSmooth = 1, carry = false,
     slippagePoints = 0, progress, verbose = true,
 }) {
     if (!candles.length) throw new Error("replayPriceMaHedge: no candles");
@@ -104,7 +104,7 @@ async function replayPriceMaHedge({
     const controller = createPriceMaHedgeController({
         legs, broker, clock: () => ({ today: dayKeyIST(new Date(nowMs)), hours: Math.floor(minuteOfDay(nowMs) / 60), minutes: minuteOfDay(nowMs) % 60, nowMs }),
         baseHour, baseMinute, eodHour, eodMinute, maxSignalAgeMs: 150 * 1000, log: m => log(c.dim(m)),
-        hedgeMode, pnlBand, pnlSmooth, getPrice: () => ({ price: execPx, atMs: nowMs }),   // PNL mode: the decision is taken at the minute's open
+        carry, hedgeMode, pnlBand, pnlSmooth, getPrice: () => ({ price: execPx, atMs: nowMs }),   // PNL mode: the decision is taken at the minute's open
     });
 
     const unreal = leg => leg.state.position ? positions.unrealised(leg.ctx, leg.state, lastClose) : 0;
@@ -138,7 +138,7 @@ async function replayPriceMaHedge({
 
         const next = candles[i + 1];
         const dayEnds = !!next && dayKeyIST(next.date) !== dayKey;
-        if (dayEnds || !next) {   // data for the day ends before the EOD minute: close at this candle's close (hedge first)
+        if (!carry && (dayEnds || !next)) {   // data for the day ends before the EOD minute: close at this candle's close (hedge first)
             execPx = cn.close;
             const open = L.filter(l => l.state.position).sort((a, b) => (b.kind === "HEDGE") - (a.kind === "HEDGE"));
             if (open.length && next) { log("**EOD**"); for (const l of open) await exit(l, "EOD_FORCE"); }
@@ -173,7 +173,7 @@ async function replayPriceMaHedge({
     return {
         longTrades, shortTrades, trades, stats,
         mtm: { finalEquity: realized(), peak, trough, maxDrawdown: maxDD, maxDrawdownAt: ddAt ? ddAt.toISOString() : null, worstUnrealized: { LONG: worst("LONG"), SHORT: worst("SHORT") }, daily },
-        signalBars: stats.signalMinutes, signalKind: isPnl ? `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}; decided once a minute at the minute open)` : `Price MA (1m ${maProxy} proxy of the tick average)`,
+        signalBars: stats.signalMinutes, signalKind: (carry ? "NRML carry-overnight \u00b7 " : "") + (isPnl ? `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}; decided once a minute at the minute open)` : `Price MA (1m ${maProxy} proxy of the tick average)`),
     };
 }
 

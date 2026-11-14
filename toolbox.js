@@ -2975,6 +2975,9 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
     const baseHour = Number(bm[1]), baseMinute = Number(bm[2]);
     const eod = defaultEodFor("1m", "MCX");
     if (eod.eodHour * 60 + eod.eodMinute <= baseHour * 60 + baseMinute) { console.log(c.yellow("  Base time must be before EOD")); await pauseForReview(); return; }
+    const cIn = (await ask("  Positions: [D] flat at EOD (bases MIS)  [C] NRML carry overnight (bases NRML, nothing closed at EOD; engine exits at EOD and recovers them next start) (default D): ")).trim().toUpperCase();
+    if (cIn !== "" && cIn !== "D" && cIn !== "C") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
+    const carry = cIn === "C";
     const hmIn = (await ask("  Hedge trigger: [M] 1-min price-MA slope colour  [L] each base's own loss (hedge while its P&L < 0) (default M): ")).trim().toUpperCase();
     if (hmIn !== "" && hmIn !== "M" && hmIn !== "L") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
     const hedgeMode = hmIn === "L" ? "PNL" : "SLOPE";
@@ -3008,7 +3011,7 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
         PMA_LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), PMA_CONTRACT_OVERRIDE: contractSymbol || "",
         PMA_BASE_HOUR: String(baseHour), PMA_BASE_MINUTE: String(baseMinute), PMA_EOD_HOUR: String(eod.eodHour), PMA_EOD_MINUTE: String(eod.eodMinute),
         PMA_MIN_SLOPE: String(minSlope), PMA_CONFIRM_MINUTES: String(confirmMinutes),
-        PMA_MODE: hedgeMode, PMA_PNL_BAND: String(pnlBand), PMA_PNL_SMOOTH: String(pnlSmooth),
+        PMA_MODE: hedgeMode, PMA_PNL_BAND: String(pnlBand), PMA_PNL_SMOOTH: String(pnlSmooth), PMA_CARRY: String(carry),
     };
     if (lotMultOverride) env.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
     try {
@@ -3436,6 +3439,7 @@ async function backtestDualHedgeFlow() {
         contractSymbol = await pickLegContract(repo, underlying, "BOTH ACCOUNTS");
         const bt = await askTime("Base entry time IST (LONG MIS + SHORT MIS)", 9, 15);
         opts.baseHour = bt.hour; opts.baseMinute = bt.minute;
+        opts.carry = (await askChoice("Positions: D = flat at EOD (bases MIS), C = NRML carry overnight (bases NRML, nothing closed at EOD) [D/C, default D]", { D: "DAY", C: "CARRY" }, "DAY")) === "CARRY";
         opts.hedgeMode = await askChoice("Hedge trigger: M = 1-min price-MA slope colour, L = each base's own loss (hedge when its P&L < 0, close when back > 0) [M/L, default M]", { M: "SLOPE", L: "PNL" }, "SLOPE");
         if (opts.hedgeMode === "PNL") {
             opts.pnlBand = await askNum("Loss band in price points (0 = hedge on any loss, default 0)", 0, { positive: false });

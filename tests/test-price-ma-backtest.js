@@ -70,4 +70,15 @@ t("PNL mode: a wider band means fewer hedge cycles; smoothing and bad options va
     await run({ hedgeMode: "PNL", pnlSmooth: 5 });
     await assert.rejects(() => run({ hedgeMode: "PNL", pnlBand: -1 }));
 });
+t("carry: nothing closed at EOD, bases entered once, positions run across days, closed at backtest end", async () => {
+    const r = await run({ carry: true });
+    assert.ok(!r.trades.some(x => x.exit_reason === "EOD" || x.exit_reason === "EOD_FORCE"), "no EOD exits");
+    const bases = r.trades.filter(x => x.role === "BASE");
+    assert.strictEqual(bases.length, 2, "one base per account for the whole run: " + bases.length);
+    assert.ok(bases.every(x => x.exit_reason === "BACKTEST_END"), "bases only close at the end");
+    const d1 = new Date(candles[0].date.getTime()).getTime() + 86400000;
+    assert.ok(bases.every(x => new Date(x.exit_time).getTime() > d1), "bases were held past the first day");
+    assert.ok(r.trades.filter(x => x.role === "HEDGE").length >= 2 && r.signalKind.includes("NRML carry"));
+    for (const mode of ["SLOPE", "PNL"]) { const q = await run({ carry: true, hedgeMode: mode }); assert.ok(q.trades.every(x => x.status === "CLOSED")); }
+});
 (async () => { let f = 0; for (const [n, fn] of T) { try { await fn(); console.log("  ok  ", n); } catch (e) { f++; console.log("  FAIL", n, "\n", e.stack); } } console.log(f ? f + " failed" : "all passed"); process.exit(f ? 1 : 0); })();

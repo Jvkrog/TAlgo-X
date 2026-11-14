@@ -23,6 +23,8 @@
 //   PMA_EOD_HOUR / PMA_EOD_MINUTE     default context.js defaultEodFor("1m", exchange)
 //   PMA_MODE                      SLOPE (default: hedge follows the 1-minute price-MA colour) | PNL (each base is hedged against its OWN loss:
 //                                 base P&L < -PMA_PNL_BAND points -> open that account's NRML hedge, back above +band -> close it; checked once a minute)
+//   PMA_CARRY                     default false. true = NRML carry overnight: bases are NRML too and NOTHING is closed at EOD; open legs are recovered
+//                                 the next morning (the broker nets base + hedge of an account, so recovery checks the account's NET NRML quantity)
 //   PMA_PNL_BAND                  default 0 (points)   PMA_PNL_SMOOTH  default 1 (average of the last N once-a-minute P&L samples; 1 = raw)
 //   PMA_MIN_SLOPE                 default 0   (|slope| <= this counts as NEUTRAL; 0 = exact zero as specified)
 //   PMA_CONFIRM_MINUTES           default 1   (same colour for N consecutive minutes before the hedge flips)
@@ -69,6 +71,7 @@ async function main() {
     const EXCHANGE = process.env.PMA_EXCHANGE_OVERRIDE || "MCX";
     const MODE = String(process.env.PMA_MODE || "SLOPE").toUpperCase();
     if (MODE !== "SLOPE" && MODE !== "PNL") fail("PMA_MODE must be SLOPE or PNL");
+    const CARRY = String(process.env.PMA_CARRY || "false").toLowerCase() === "true";
     const PNL_BAND = envNum(process.env.PMA_PNL_BAND, 0), PNL_SMOOTH = envInt(process.env.PMA_PNL_SMOOTH, 1);
     if (!(PNL_BAND >= 0)) fail("PMA_PNL_BAND must be >= 0");
     if (!(Number.isInteger(PNL_SMOOTH) && PNL_SMOOTH >= 1)) fail("PMA_PNL_SMOOTH must be a whole number >= 1");
@@ -115,8 +118,8 @@ async function main() {
         context.tgPrefix = context.tgPrefix.replace("_DH_", "_PMA_");
         context.name = context.name.replace("Dual Hedge", "Price MA Hedge");
         context.tgLabel = `Price MA Hedge ${key} (${user.name})`;
-        context.carryOvernight = false;                          // the engine flattens everything at EOD itself
-        context.product = kind === "HEDGE" ? "NRML" : "MIS";     // orders.js productFor(): one product per orders instance
+        context.carryOvernight = CARRY;                          // false: the engine flattens everything at EOD itself
+        context.product = (CARRY || kind === "HEDGE") ? "NRML" : "MIS";     // orders.js productFor(): one product per orders instance
         context.eodHour = eodHour; context.eodMinute = eodMinute;
         const { tg } = createTelegram(context, engineConfig);
         const db = createDb(context); db.initDB();
@@ -135,6 +138,7 @@ async function main() {
         try { saved = await db.loadPosition(context.tgPrefix, context.token); } catch (e) { console.warn(`[${context.tgPrefix}] boot resume failed: ${e.message}`); }
         const ours = saved && saved.position && (saved.position_source === "PMA_BASE" || saved.position_source === "PMA_HEDGE");
         const brokerQty = LIVE ? qtyOf(brokerNet[leg.account], leg) : null;
+        if (CARRY && LIVE) return recoverCarry(leg, saved, ours);   // base + hedge share one NRML row at the broker -> checked per account below
         const expectSign = leg.side === "LONG" ? 1 : -1;
         if (ours && saved.position === leg.side) {
             if (LIVE && Math.sign(brokerQty) !== expectSign) {
@@ -156,6 +160,30 @@ async function main() {
         state.pnl = await db.getRealizedPnlToday(context.tgPrefix).catch(() => 0);
     }
 
+    // CARRY: an account's base and hedge (same contract, both NRML) are ONE net row at the broker, so adoption is decided per account:
+    // the broker's net NRML quantity must equal the sum of the legs the DB says are open; anything else blocks that account's legs.
+    const carryPending = [];
+    async function recoverCarry(leg, saved, ours) {
+        const { context, db, state } = leg;
+        if (ours && saved.position === leg.side) {
+            state.position = saved.position; state.entryPrice = saved.entry_price;
+            const ot = await db.getOpenTrade(context.tgPrefix); state.openTradeId = ot ? ot.id : null;
+        }
+        carryPending.push(leg);
+        state.pnl = await db.getRealizedPnlToday(context.tgPrefix).catch(() => 0);
+    }
+    function reconcileCarry(all) {
+        for (const account of ["LONG", "SHORT"]) {
+            const mine = all.filter(l => l.account === account);
+            const expected = mine.reduce((a, l) => a + (l.state.position ? (l.side === "LONG" ? 1 : -1) * l.context.lots : 0), 0);
+            const actual = qtyOf(brokerNet[account], mine[0]);
+            if (actual === expected) { for (const l of mine) if (l.state.position) tag("RECOVERY", `${l.key}: resumed ${l.state.position}@${l.state.entryPrice} (NRML carry, broker net ${actual} == expected ${expected})`); continue; }
+            const why = `broker net NRML ${actual} lots on ${mine[0].context.symbol} != expected ${expected} from this engine's records`;
+            tag("RECOVERY", `${account} account: ${why} — its legs are BLOCKED and nothing is adopted or duplicated`);
+            for (const l of mine) { l.blocked = true; l.blockedReason = why; l.state.position = null; }
+            mine[0].tg(`⚠ [${mine[0].context.tgPrefix}] ${why}. ${account} account legs blocked. Verify manually.`);
+        }
+    }
     if (LIVE) { brokerNet.LONG = await fetchNet(longKc); brokerNet.SHORT = await fetchNet(shortKc); }
     const legs = {
         LONG_BASE:   await buildLeg("LONG_BASE",   "LONG",  "BASE",  "LONG",  longUser,  longKc),
@@ -164,9 +192,11 @@ async function main() {
         SHORT_HEDGE: await buildLeg("SHORT_HEDGE", "SHORT", "HEDGE", "LONG",  shortUser, shortKc),
     };
     const L = Object.values(legs);
+    if (CARRY && LIVE) reconcileCarry(L);
     const token = legs.LONG_BASE.context.token;
     for (const l of L) if (l.context.token !== token) fail(`legs resolved to different contracts (${l.context.symbol} vs ${legs.LONG_BASE.context.symbol}) — pin one contract`);
     console.log(c.bold(`PRICE MA HEDGE  ${legs.LONG_BASE.context.symbol}  LONG:${longUser.name} (${legs.LONG_BASE.context.lots} lot)  SHORT:${shortUser.name} (${legs.SHORT_BASE.context.lots} lot)  base ${hhmm(baseHour, baseMinute)}  EOD ${hhmm(eodHour, eodMinute)}  minSlope ${MIN_SLOPE}  confirm ${CONFIRM}m`));
+    if (CARRY) console.log(c.bold("CARRY=NRML: bases are NRML and nothing is closed at EOD; positions stay open overnight and are recovered on the next start"));
     if (MODE === "PNL") console.log(c.bold(`MODE=PNL: each base is hedged against its own loss (band ${PNL_BAND} pts, smooth ${PNL_SMOOTH}); the price MA is not used`));
 
     // ── prices ────────────────────────────────────────────────────────────────────────────────────
@@ -260,7 +290,7 @@ async function main() {
     // ── signal + controller ───────────────────────────────────────────────────────────────────────
     const clock = () => { const now = new Date(Date.now()), p = istParts(now); return { today: todayIST(now), hours: p.hours, minutes: p.minutes, nowMs: now.getTime() }; };
     const signal = createPriceMaSignal({ minSlope: MIN_SLOPE, confirmMinutes: CONFIRM, maxGapMinutes: 2, log: m => console.log(c.yellow(m)) });
-    const controller = createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxSignalAgeMs: STALE_MS, hedgeMode: MODE, pnlBand: PNL_BAND, pnlSmooth: PNL_SMOOTH,
+    const controller = createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxSignalAgeMs: STALE_MS, carry: CARRY, hedgeMode: MODE, pnlBand: PNL_BAND, pnlSmooth: PNL_SMOOTH,
         getPrice: () => (lastTick ? { price: lastTick.price, atMs: lastTick.at } : null), log: m => console.log(c.cyan(m)) });
 
     const stateFile = path.join(require("./data/dbDir").DB_DIR, `pma_${legs.LONG_BASE.context.underlying || UNDERLYING}_${longUser.name}_${shortUser.name}.json`.replace(/[^A-Za-z0-9_.-]/g, "_"));
@@ -313,8 +343,8 @@ async function main() {
 
     async function eodReportAndExit() {
         let total = 0; const lines = [];
-        for (const l of L) { const r = await l.db.getRealizedPnlToday(l.context.tgPrefix).catch(() => 0); total += r; lines.push(`${l.key.padEnd(11)} (${l.user.name}) realized ${positions.pnlStr(r)} | ${l.state.position ? l.state.position + " still OPEN" : "flat"}`); }
-        const report = `Price MA Hedge EOD (${LIVE ? "LIVE" : "PAPER"}) — ${todayIST()}\n${lines.join("\n")}\ntotal ${positions.pnlStr(total)}`;
+        for (const l of L) { const r = await l.db.getRealizedPnlToday(l.context.tgPrefix).catch(() => 0); total += r; lines.push(`${l.key.padEnd(11)} (${l.user.name}) realized ${positions.pnlStr(r)} | ${l.state.position ? l.state.position + (CARRY ? " carried overnight @ " + l.state.entryPrice : " still OPEN") : "flat"}`); }
+        const report = `Price MA Hedge EOD${CARRY ? " — NRML CARRY, positions left open" : ""} (${LIVE ? "LIVE" : "PAPER"}) — ${todayIST()}\n${lines.join("\n")}\ntotal ${positions.pnlStr(total)}`;
         console.log(c.bold(report.replace(/\n/g, "   ")));
         await legs.LONG_BASE.tg(report);
         console.log(c.bold("*** NORMAL SHUTDOWN ***"));

@@ -13,6 +13,9 @@
 // not confirmed nothing new is opened and the next tick retries. NEUTRAL (or no / stale signal) never touches a hedge.
 // EOD (from eodHour:eodMinute): hedges first, then both bases, retried every tick until every leg is flat; no new entries.
 //
+// carry (NRML carry-overnight): nothing is flattened at EOD — bases (NRML) and any open hedge stay open and are picked up again
+// the next morning; from EOD on the controller only stops acting (EOD_DONE). A base is taken only while that leg is flat.
+//
 // A leg is { key, account, kind, side, blocked, state:{position}, context }. broker.enter(leg, why) / broker.exit(leg, why)
 // resolve true ONLY on a confirmed fill/flat (state is already updated by then); false leaves everything as it was.
 "use strict";
@@ -22,7 +25,7 @@
 //     base P&L > +pnlBand and the hedge is open   -> close the hedge; in between nothing changes.
 // The two accounts are independent, so both hedges can be open at once. getPrice() -> { price, atMs } | null. pnlSmooth N averages the
 // last N once-a-minute P&L samples before the test (1 = the raw latest value).
-function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxSignalAgeMs = 150 * 1000, hedgeMode = "SLOPE", getPrice = () => null, pnlBand = 0, pnlSmooth = 1, log = () => {} }) {
+function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxSignalAgeMs = 150 * 1000, carry = false, hedgeMode = "SLOPE", getPrice = () => null, pnlBand = 0, pnlSmooth = 1, log = () => {} }) {
     const { LONG_BASE, SHORT_BASE, LONG_HEDGE, SHORT_HEDGE } = legs;
     if (!(LONG_BASE && SHORT_BASE && LONG_HEDGE && SHORT_HEDGE)) throw new Error("priceMaHedgeController: needs LONG_BASE, SHORT_BASE, LONG_HEDGE, SHORT_HEDGE");
     const baseMin = baseHour * 60 + baseMinute, eodMin = eodHour * 60 + eodMinute;
@@ -71,6 +74,7 @@ function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinut
     }
 
     async function eod() {
+        if (carry) return "EOD_DONE";                       // positions deliberately left open overnight
         for (const leg of hedges) if (leg.state.position) await exitLeg(leg, "EOD");
         if (hedges.every(l => !l.state.position)) for (const leg of bases) if (leg.state.position) await exitLeg(leg, "EOD");
         return all.every(l => !l.state.position) ? "EOD_DONE" : "EOD_PENDING";

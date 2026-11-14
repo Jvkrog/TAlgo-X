@@ -119,4 +119,15 @@ t("P5 PNL smoothing averages the last N samples", async () => {
     minute(clk, 3); px.price = 99; await c.tick();        // pnl samples 1,1,-1 -> mean 0.33 > 0 -> still no long hedge
     assert.ok(!orders.some(o => /LONG_HEDGE/.test(o)));
 });
+t("C1 carry: nothing is closed at EOD, no entries after it, bases are not re-entered next day while open", async () => {
+    const { c, orders, clk, legs } = make({ ctl: { carry: true } });
+    await c.tick(); sig(c, clk, "GREEN"); await c.tick(); orders.length = 0;
+    clk.hours = 23; clk.minutes = 20; assert.strictEqual(await c.tick(), "EOD_DONE"); assert.deepStrictEqual(orders, [], "no EOD exits");
+    assert.ok(legs.LONG_BASE.state.position && legs.SHORT_BASE.state.position && legs.SHORT_HEDGE.state.position, "bases and the hedge stay open");
+    sig(c, clk, "RED"); await c.tick(); assert.deepStrictEqual(orders, [], "no hedge flips after EOD");
+    clk.today = "2026-11-13"; clk.hours = 10; clk.minutes = 0; clk.nowMs += 86400000; c.restore({ baseEnteredOn: {} });   // next morning, fresh engine start
+    await c.tick(); assert.deepStrictEqual(orders, [], "carried bases are not entered again");
+    sig(c, clk, "RED"); await c.tick();
+    assert.deepStrictEqual(orders, ["EXIT SHORT_HEDGE (RED FLIP)", "ENTER LONG_HEDGE NRML SHORT (RED HEDGE)"], "the carried hedge is managed normally the next day");
+});
 (async () => { let f = 0; for (const [n, fn] of T) { try { await fn(); console.log("  ok  ", n); } catch (e) { f++; console.log("  FAIL", n, "\n", e.stack); } } console.log(f ? f + " failed" : "all passed"); process.exit(f ? 1 : 0); })();

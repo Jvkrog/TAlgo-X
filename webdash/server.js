@@ -2743,7 +2743,7 @@ function pmaDeployment(p) {
         baseTime: hhmmPad(e.PMA_BASE_HOUR ?? 9, e.PMA_BASE_MINUTE ?? 15),
         eodTime: (e.PMA_EOD_HOUR !== undefined && e.PMA_EOD_HOUR !== "") ? hhmmPad(e.PMA_EOD_HOUR, e.PMA_EOD_MINUTE ?? 0) : null,
         minSlope: e.PMA_MIN_SLOPE || "0", confirmMinutes: e.PMA_CONFIRM_MINUTES || "1",
-        hedgeMode: (e.PMA_MODE || "SLOPE").toUpperCase(), pnlBand: e.PMA_PNL_BAND || "0", pnlSmooth: e.PMA_PNL_SMOOTH || "1",
+        carry: String(e.PMA_CARRY).toLowerCase() === "true", hedgeMode: (e.PMA_MODE || "SLOPE").toUpperCase(), pnlBand: e.PMA_PNL_BAND || "0", pnlSmooth: e.PMA_PNL_SMOOTH || "1",
         outLogPath: p.pm2_env.pm_out_log_path, errLogPath: p.pm2_env.pm_err_log_path,
     };
 }
@@ -2899,7 +2899,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
         coreSignal: coreSignalIn, bandHa: bandHaIn, coreEod: coreEodIn, coreAccount: coreAccountIn, flipCore: flipCoreIn,
         realizeRupees, lossAlertRupees, contractSymbol, longContract, shortContract,
-        baseTime, minSlope, confirmMinutes, hedgeMode: hedgeModeIn, pnlBand, pnlSmooth,
+        baseTime, minSlope, confirmMinutes, hedgeMode: hedgeModeIn, pnlBand, pnlSmooth, carry,
     } = req.body || {};
 
     const strategy = String(strategyIn || "DUAL").toUpperCase();
@@ -2982,7 +2982,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
             PMA_CONTRACT_OVERRIDE: env.DH_CONTRACT_OVERRIDE,   // always written (PM2 restart merges env)
             PMA_BASE_HOUR: String(base.hour), PMA_BASE_MINUTE: String(base.minute), PMA_EOD_HOUR: String(eod.hour), PMA_EOD_MINUTE: String(eod.minute),
             PMA_MIN_SLOPE: String(ms), PMA_CONFIRM_MINUTES: String(cm),
-            PMA_MODE: hm, PMA_PNL_BAND: String(pb), PMA_PNL_SMOOTH: String(ps),   // always written (PM2 restart merges env)
+            PMA_MODE: hm, PMA_PNL_BAND: String(pb), PMA_PNL_SMOOTH: String(ps), PMA_CARRY: String(carry === true),   // always written (PM2 restart merges env)
         };
         if (lotMultOverride) pmaEnv.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
         try {
@@ -3102,6 +3102,7 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
             opts.minSlope = Math.max(0, Number(b.minSlope) || 0);
             opts.confirmMinutes = Math.max(1, Math.floor(Number(b.confirmMinutes) || 1));
             opts.maProxy = String(b.maProxy || "ohlc4").toLowerCase();
+            opts.carry = b.carry === true;
             opts.hedgeMode = String(b.hedgeMode || "SLOPE").toUpperCase();
             if (opts.hedgeMode !== "SLOPE" && opts.hedgeMode !== "PNL") return res.status(400).json({ error: "HedgeMode must be SLOPE or PNL" });
             opts.pnlBand = Math.max(0, Number(b.pnlBand) || 0);
