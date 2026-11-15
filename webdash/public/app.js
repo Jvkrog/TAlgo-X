@@ -4844,8 +4844,8 @@ async function renderDualHedgeAddForm() {
     <div id="dhPmaOnly" style="display:none">
       <div class="tb-form-row"><div class="tb-form-label">Base entry time IST (LONG MIS on the long account, SHORT MIS on the short account)</div><input type="time" id="dhPmaBase" value="09:15"></div>
       <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (blank = default) \u2014 hedge and both bases are closed</div><input type="time" id="dhPmaEod"></div>
-      <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dhPmaCarry"><span>NRML bases held constant (long in the long account, short in the short account, never closed by the engine); the hedge is MIS and is closed at EOD</span></label></div>
-      <div class="tb-form-row"><div class="tb-form-label">Hedge trigger</div><select id="dhPmaMode"><option value="SLOPE" selected>1-min price-MA slope colour</option><option value="PNL">Each base's own loss (hedge while its P&amp;L &lt; 0, close when back in profit)</option></select></div>
+      <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dhPmaCarry" checked><span>NRML bases held constant (long in the long account, short in the short account, never closed by the engine); the hedge is MIS and is closed at EOD</span></label></div>
+      <div class="tb-form-row"><div class="tb-form-label">Hedge trigger</div><select id="dhPmaMode"><option value="SLOPE">1-min price-MA slope colour</option><option value="PNL" selected>Each base's own loss (hedge while its P&amp;L &lt; 0, close when back in profit)</option></select></div>
       <div id="dhPmaSlopeRows">
       <div class="tb-form-row"><div class="tb-form-label">Min slope in price points (0 = exact spec; |slope| at or below this is NEUTRAL)</div><input type="number" id="dhPmaMinSlope" min="0" step="any" value="0"></div>
       <div class="tb-form-row"><div class="tb-form-label">Confirm minutes before the hedge flips (1 = immediately)</div><input type="number" id="dhPmaConfirm" min="1" step="1" value="1"></div>
@@ -5072,8 +5072,8 @@ async function renderDualHedgeBacktestForm() {
       <div class="tb-form-hint">Bases: LONG MIS (long acct) + SHORT MIS (short acct) at the base time. Rising 1-min price MA \u2192 LONG NRML hedge in the SHORT acct; falling \u2192 SHORT NRML hedge in the LONG acct. Everything closes at EOD. Backtest approximates the tick average from minute candles (no brokerage/taxes).</div>
       <div class="tb-form-row"><div class="tb-form-label">Base entry time IST</div><input type="time" id="dbPmaBase" value="09:15"></div>
       <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (blank = default)</div><input type="time" id="dbPmaEod"></div>
-      <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dbPmaCarry"><span>NRML bases held constant (long in the long account, short in the short account, never closed by the engine); the hedge is MIS and is closed at EOD</span></label></div>
-      <div class="tb-form-row"><div class="tb-form-label">Hedge trigger</div><select id="dbPmaMode"><option value="SLOPE" selected>1-min price-MA slope colour</option><option value="PNL">Each base's own loss (hedge while its P&amp;L &lt; 0)</option></select></div>
+      <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dbPmaCarry" checked><span>NRML bases held constant (long in the long account, short in the short account, never closed by the engine); the hedge is MIS and is closed at EOD</span></label></div>
+      <div class="tb-form-row"><div class="tb-form-label">Hedge trigger</div><select id="dbPmaMode"><option value="SLOPE">1-min price-MA slope colour</option><option value="PNL" selected>Each base's own loss (hedge while its P&amp;L &lt; 0)</option></select></div>
       <div id="dbPmaSlopeRows">
       <div class="tb-form-row"><div class="tb-form-label">Min slope (points; 0 = exact spec)</div><input type="number" id="dbPmaMinSlope" min="0" step="any" value="0"></div>
       <div class="tb-form-row"><div class="tb-form-label">Confirm minutes before a flip</div><input type="number" id="dbPmaConfirm" min="1" step="1" value="1"></div>
