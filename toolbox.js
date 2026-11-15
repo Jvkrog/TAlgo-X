@@ -2967,36 +2967,22 @@ async function dualHedgeAccountConflict(underlying, accounts, selfName) {
 
 // PRICE_MA strategy deploy (priceMaHedgeEngine.js): MIS bases at a set time + NRML hedge following the 1-minute tick-average slope, flat at EOD.
 async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverride, lots, contractSymbol = null }) {
-    console.log(c.dim("  Bases: LONG MIS (long account) + SHORT MIS (short account) at the base time."));
-    console.log(c.dim("  Hedge: rising 1-min price MA -> LONG NRML in the SHORT account; falling -> SHORT NRML in the LONG account. All closed at EOD."));
+    console.log(c.dim("  Bases: LONG NRML (long account) + SHORT NRML (short account) at the base time, held constant."));
+    console.log(c.dim("  Hedge (MIS): rising 1-min price MA -> LONG in the SHORT account; falling -> SHORT in the LONG account. The hedge is closed at EOD."));
     const btIn = (await ask("  Base entry time IST (HH:MM, default 09:15): ")).trim() || "09:15";
     const bm = btIn.match(/^(\d{1,2}):(\d{2})$/);
     if (!bm || Number(bm[1]) > 23 || Number(bm[2]) > 59) { console.log(c.yellow("  Invalid time — use HH:MM")); await pauseForReview(); return; }
     const baseHour = Number(bm[1]), baseMinute = Number(bm[2]);
     const eod = defaultEodFor("1m", "MCX");
     if (eod.eodHour * 60 + eod.eodMinute <= baseHour * 60 + baseMinute) { console.log(c.yellow("  Base time must be before EOD")); await pauseForReview(); return; }
-    const cIn = (await ask("  Positions: [D] day (MIS bases + NRML hedge, all flat at EOD)  [C] carry (NRML bases held constant, MIS hedge closed at EOD; the engine exits at EOD and recovers the bases next start) (default D): ")).trim().toUpperCase();
-    if (cIn !== "" && cIn !== "D" && cIn !== "C") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
-    const carry = cIn === "C";
-    const hmIn = (await ask("  Hedge trigger: [M] 1-min price-MA slope colour  [L] each base's own loss (hedge while its P&L < 0) (default M): ")).trim().toUpperCase();
-    if (hmIn !== "" && hmIn !== "M" && hmIn !== "L") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
-    const hedgeMode = hmIn === "L" ? "PNL" : "SLOPE";
-    let minSlope = 0, confirmMinutes = 1, pnlBand = 0, pnlSmooth = 1;
-    if (hedgeMode === "PNL") {
-        const bIn = (await ask("  Loss band in price points (0 = any loss, default 0): ")).trim();
-        pnlBand = bIn ? Number(bIn) : 0;
-        if (!Number.isFinite(pnlBand) || pnlBand < 0) { console.log(c.yellow("  Invalid band")); await pauseForReview(); return; }
-        const sIn = (await ask("  Smooth over N once-a-minute P&L samples (1 = raw, default 1): ")).trim();
-        pnlSmooth = sIn ? Number(sIn) : 1;
-        if (!Number.isInteger(pnlSmooth) || pnlSmooth < 1) { console.log(c.yellow("  Invalid smoothing")); await pauseForReview(); return; }
-    } else {
+    const carry = true, hedgeMode = "SLOPE", pnlBand = 0, pnlSmooth = 1;   // NRML bases held constant + MIS hedge closed at EOD; trigger = 1-min price-MA slope
+    let minSlope = 0, confirmMinutes = 1;
     const msIn = (await ask("  Min slope in price points (0 = exact spec, default 0): ")).trim();
     minSlope = msIn ? Number(msIn) : 0;
     if (!Number.isFinite(minSlope) || minSlope < 0) { console.log(c.yellow("  Invalid min slope")); await pauseForReview(); return; }
     const cmIn = (await ask("  Confirm minutes before the hedge flips (default 1): ")).trim();
     confirmMinutes = cmIn ? Number(cmIn) : 1;
     if (!Number.isInteger(confirmMinutes) || confirmMinutes < 1) { console.log(c.yellow("  Invalid confirm minutes")); await pauseForReview(); return; }
-    }
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
@@ -3437,20 +3423,14 @@ async function backtestDualHedgeFlow() {
     let contractSymbol = null;
     if (strategy === "PRICE_MA") {
         contractSymbol = await pickLegContract(repo, underlying, "BOTH ACCOUNTS");
-        const bt = await askTime("Base entry time IST (LONG MIS + SHORT MIS)", 9, 15);
+        const bt = await askTime("Base entry time IST (LONG NRML + SHORT NRML)", 9, 15);
         opts.baseHour = bt.hour; opts.baseMinute = bt.minute;
-        opts.carry = (await askChoice("Positions: D = day (MIS bases + NRML hedge, flat at EOD), C = carry (NRML bases held constant, MIS hedge closed at EOD) [D/C, default D]", { D: "DAY", C: "CARRY" }, "DAY")) === "CARRY";
-        opts.hedgeMode = await askChoice("Hedge trigger: M = 1-min price-MA slope colour, L = each base's own loss (hedge when its P&L < 0, close when back > 0) [M/L, default M]", { M: "SLOPE", L: "PNL" }, "SLOPE");
-        if (opts.hedgeMode === "PNL") {
-            opts.pnlBand = await askNum("Loss band in price points (0 = hedge on any loss, default 0)", 0, { positive: false });
-            opts.pnlSmooth = Math.max(1, Math.floor(await askNum("Smooth over N once-a-minute P&L samples (1 = raw, default 1)", 1)));
-            console.log(c.dim("  Decided at each minute's open price; no brokerage/taxes. EOD is automatic."));
-        } else {
-            opts.minSlope = await askNum("Min slope in price points (0 = exact spec, default 0)", 0, { positive: false });
-            opts.confirmMinutes = Math.max(1, Math.floor(await askNum("Confirm minutes before a hedge flip (default 1)", 1)));
-            opts.maProxy = await askChoice("Minute average proxy: O = (O+H+L+C)/4, C = close, H = (H+L)/2 [O/C/H, default O]", { O: "ohlc4", C: "close", H: "hl2" }, "ohlc4");
-            console.log(c.dim("  Backtest approximates the tick average from minute candles; no brokerage/taxes. EOD is automatic."));
-        }
+        opts.carry = true;   // NRML bases held constant + MIS hedge closed at EOD
+        opts.hedgeMode = "SLOPE";
+        opts.minSlope = await askNum("Min slope in price points (0 = exact spec, default 0)", 0, { positive: false });
+        opts.confirmMinutes = Math.max(1, Math.floor(await askNum("Confirm minutes before a hedge flip (default 1)", 1)));
+        opts.maProxy = await askChoice("Minute average proxy: O = (O+H+L+C)/4, C = close, H = (H+L)/2 [O/C/H, default O]", { O: "ohlc4", C: "close", H: "hl2" }, "ohlc4");
+        console.log(c.dim("  Backtest approximates the tick average from minute candles; no brokerage/taxes. EOD is automatic."));
     } else if (strategy === "BIAS") {
         opts.longContract  = await pickLegContract(repo, underlying, "LONG ACCOUNT");
         opts.shortContract = await pickLegContract(repo, underlying, "SHORT ACCOUNT");

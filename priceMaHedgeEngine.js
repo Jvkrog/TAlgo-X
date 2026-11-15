@@ -23,7 +23,7 @@
 //   PMA_EOD_HOUR / PMA_EOD_MINUTE     default context.js defaultEodFor("1m", exchange)
 //   PMA_MODE                      SLOPE (default: hedge follows the 1-minute price-MA colour) | PNL (each base is hedged against its OWN loss:
 //                                 base P&L < -PMA_PNL_BAND points -> open that account's NRML hedge, back above +band -> close it; checked once a minute)
-//   PMA_CARRY                     default false. true = bases are NRML and held constant (long in the LONG account, short in the SHORT account, never closed by the
+//   PMA_CARRY                     default TRUE (false = day mode: MIS bases + NRML hedge, all flat at EOD). true = bases are NRML and held constant (long in the LONG account, short in the SHORT account, never closed by the
 //                                 engine, recovered on each start); the hedge is MIS (a separate broker row — an NRML sell would just close the long) and is
 //                                 closed at EOD by the engine, before the broker would square it off (which costs more).
 //   PMA_PNL_BAND                  default 0 (points)   PMA_PNL_SMOOTH  default 1 (average of the last N once-a-minute P&L samples; 1 = raw)
@@ -72,7 +72,7 @@ async function main() {
     const EXCHANGE = process.env.PMA_EXCHANGE_OVERRIDE || "MCX";
     const MODE = String(process.env.PMA_MODE || "SLOPE").toUpperCase();
     if (MODE !== "SLOPE" && MODE !== "PNL") fail("PMA_MODE must be SLOPE or PNL");
-    const CARRY = String(process.env.PMA_CARRY || "false").toLowerCase() === "true";
+    const CARRY = String(process.env.PMA_CARRY || "true").toLowerCase() !== "false";
     const PNL_BAND = envNum(process.env.PMA_PNL_BAND, 0), PNL_SMOOTH = envInt(process.env.PMA_PNL_SMOOTH, 1);
     if (!(PNL_BAND >= 0)) fail("PMA_PNL_BAND must be >= 0");
     if (!(Number.isInteger(PNL_SMOOTH) && PNL_SMOOTH >= 1)) fail("PMA_PNL_SMOOTH must be a whole number >= 1");
