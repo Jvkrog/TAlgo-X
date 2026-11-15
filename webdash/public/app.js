@@ -384,7 +384,7 @@ function dualHedgeStrategyText(d) {
     return `realize & re-open \u00b7 closes a leg at +\u20b9${d.realizeRupees || 3000} then re-opens it (NRML)${d.lossAlertRupees ? ` \u00b7 loss alert -\u20b9${d.lossAlertRupees}` : ""} \u00b7 losing leg never closed`;
   }
   if (d.strategy === "PRICE_MA") {
-    return (d.carry ? "hedge carried overnight \u00b7 " : "") + (d.hedgeMode === "PNL" ? `base-loss hedge \u00b7 bases @${d.baseTime} (MIS) \u00b7 NRML hedge while a base is under water${Number(d.pnlBand) > 0 ? ` (band ${d.pnlBand}pt)` : ""}${Number(d.pnlSmooth) > 1 ? ` \u00b7 smooth ${d.pnlSmooth}` : ""} \u00b7 ${d.carry ? `bases flat at ${d.eodTime || "EOD"}, hedge carried` : `flat at ${d.eodTime || "EOD"}`}` : `price-MA hedge \u00b7 bases @${d.baseTime} (MIS) \u00b7 NRML hedge follows the 1-min tick-average slope${Number(d.minSlope) > 0 ? ` \u00b7 min slope ${d.minSlope}` : ""}${Number(d.confirmMinutes) > 1 ? ` \u00b7 confirm ${d.confirmMinutes}m` : ""} \u00b7 ${d.carry ? `bases flat at ${d.eodTime || "EOD"}, hedge carried` : `flat at ${d.eodTime || "EOD"}`}`);
+    return (d.carry ? "NRML carry \u00b7 " : "") + (d.hedgeMode === "PNL" ? `base-loss hedge \u00b7 bases @${d.baseTime} (${d.carry ? "NRML" : "MIS"}) \u00b7 NRML hedge while a base is under water${Number(d.pnlBand) > 0 ? ` (band ${d.pnlBand}pt)` : ""}${Number(d.pnlSmooth) > 1 ? ` \u00b7 smooth ${d.pnlSmooth}` : ""} \u00b7 ${d.carry ? "left open overnight" : `flat at ${d.eodTime || "EOD"}`}` : `price-MA hedge \u00b7 bases @${d.baseTime} (${d.carry ? "NRML" : "MIS"}) \u00b7 NRML hedge follows the 1-min tick-average slope${Number(d.minSlope) > 0 ? ` \u00b7 min slope ${d.minSlope}` : ""}${Number(d.confirmMinutes) > 1 ? ` \u00b7 confirm ${d.confirmMinutes}m` : ""} \u00b7 ${d.carry ? "left open overnight" : `flat at ${d.eodTime || "EOD"}`}`);
   }
   if (d.strategy === "BIAS") {
     const unwind = d.unwindMode === "EOD_ONLY" ? "held to EOD" : "unwinds when the band flips back";
@@ -4844,7 +4844,7 @@ async function renderDualHedgeAddForm() {
     <div id="dhPmaOnly" style="display:none">
       <div class="tb-form-row"><div class="tb-form-label">Base entry time IST (LONG MIS on the long account, SHORT MIS on the short account)</div><input type="time" id="dhPmaBase" value="09:15"></div>
       <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (blank = default) \u2014 hedge and both bases are closed</div><input type="time" id="dhPmaEod"></div>
-      <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dhPmaCarry"><span>Carry the NRML hedge overnight \u2014 at EOD only the MIS bases are closed; an open hedge stays and is recovered on the next start</span></label></div>
+      <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dhPmaCarry"><span>NRML carry overnight \u2014 bases are NRML, nothing is closed at EOD; open legs are recovered on the next start</span></label></div>
       <div class="tb-form-row"><div class="tb-form-label">Hedge trigger</div><select id="dhPmaMode"><option value="SLOPE" selected>1-min price-MA slope colour</option><option value="PNL">Each base's own loss (hedge while its P&amp;L &lt; 0, close when back in profit)</option></select></div>
       <div id="dhPmaSlopeRows">
       <div class="tb-form-row"><div class="tb-form-label">Min slope in price points (0 = exact spec; |slope| at or below this is NEUTRAL)</div><input type="number" id="dhPmaMinSlope" min="0" step="any" value="0"></div>
@@ -5072,7 +5072,7 @@ async function renderDualHedgeBacktestForm() {
       <div class="tb-form-hint">Bases: LONG MIS (long acct) + SHORT MIS (short acct) at the base time. Rising 1-min price MA \u2192 LONG NRML hedge in the SHORT acct; falling \u2192 SHORT NRML hedge in the LONG acct. Everything closes at EOD. Backtest approximates the tick average from minute candles (no brokerage/taxes).</div>
       <div class="tb-form-row"><div class="tb-form-label">Base entry time IST</div><input type="time" id="dbPmaBase" value="09:15"></div>
       <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (blank = default)</div><input type="time" id="dbPmaEod"></div>
-      <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dbPmaCarry"><span>Carry the NRML hedge overnight \u2014 at EOD only the MIS bases are closed, the hedge stays open (workaround for daily flip-flop)</span></label></div>
+      <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dbPmaCarry"><span>NRML carry overnight \u2014 bases are NRML, nothing is closed at EOD (workaround for daily flip-flop)</span></label></div>
       <div class="tb-form-row"><div class="tb-form-label">Hedge trigger</div><select id="dbPmaMode"><option value="SLOPE" selected>1-min price-MA slope colour</option><option value="PNL">Each base's own loss (hedge while its P&amp;L &lt; 0)</option></select></div>
       <div id="dbPmaSlopeRows">
       <div class="tb-form-row"><div class="tb-form-label">Min slope (points; 0 = exact spec)</div><input type="number" id="dbPmaMinSlope" min="0" step="any" value="0"></div>

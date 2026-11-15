@@ -13,8 +13,8 @@
 // not confirmed nothing new is opened and the next tick retries. NEUTRAL (or no / stale signal) never touches a hedge.
 // EOD (from eodHour:eodMinute): hedges first, then both bases, retried every tick until every leg is flat; no new entries.
 //
-// carry (NRML hedge carried overnight): at EOD only the MIS BASES are closed; an open NRML hedge is left open and managed again the
-// next day (it is a different broker row from the MIS base, so nothing nets). From EOD on there are no entries or flips (EOD_DONE).
+// carry (NRML carry-overnight): nothing is flattened at EOD — bases (NRML) and any open hedge stay open and are picked up again
+// the next morning; from EOD on the controller only stops acting (EOD_DONE). A base is taken only while that leg is flat.
 //
 // A leg is { key, account, kind, side, blocked, state:{position}, context }. broker.enter(leg, why) / broker.exit(leg, why)
 // resolve true ONLY on a confirmed fill/flat (state is already updated by then); false leaves everything as it was.
@@ -74,10 +74,7 @@ function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinut
     }
 
     async function eod() {
-        if (carry) {                                          // only the MIS bases are flattened; the NRML hedge stays
-            for (const leg of bases) if (leg.state.position) await exitLeg(leg, "EOD");
-            return bases.every(l => !l.state.position) ? "EOD_DONE" : "EOD_PENDING";
-        }
+        if (carry) return "EOD_DONE";                       // positions deliberately left open overnight
         for (const leg of hedges) if (leg.state.position) await exitLeg(leg, "EOD");
         if (hedges.every(l => !l.state.position)) for (const leg of bases) if (leg.state.position) await exitLeg(leg, "EOD");
         return all.every(l => !l.state.position) ? "EOD_DONE" : "EOD_PENDING";

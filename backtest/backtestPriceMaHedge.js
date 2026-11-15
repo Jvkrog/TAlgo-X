@@ -138,9 +138,9 @@ async function replayPriceMaHedge({
 
         const next = candles[i + 1];
         const dayEnds = !!next && dayKeyIST(next.date) !== dayKey;
-        if (dayEnds || !next) {   // data for the day ends before the EOD minute: close at this candle's close (hedge first)
+        if (!carry && (dayEnds || !next)) {   // data for the day ends before the EOD minute: close at this candle's close (hedge first)
             execPx = cn.close;
-            const open = L.filter(l => l.state.position && !(carry && l.kind === "HEDGE" && next)).sort((a, b) => (b.kind === "HEDGE") - (a.kind === "HEDGE"));
+            const open = L.filter(l => l.state.position).sort((a, b) => (b.kind === "HEDGE") - (a.kind === "HEDGE"));
             if (open.length && next) { log("**EOD**"); for (const l of open) await exit(l, "EOD_FORCE"); }
         }
         for (const leg of L) {   // MAE / worst unrealized along the candle's path
@@ -173,7 +173,7 @@ async function replayPriceMaHedge({
     return {
         longTrades, shortTrades, trades, stats,
         mtm: { finalEquity: realized(), peak, trough, maxDrawdown: maxDD, maxDrawdownAt: ddAt ? ddAt.toISOString() : null, worstUnrealized: { LONG: worst("LONG"), SHORT: worst("SHORT") }, daily },
-        signalBars: stats.signalMinutes, signalKind: (carry ? "NRML hedge carried overnight \u00b7 " : "") + (isPnl ? `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}; decided once a minute at the minute open)` : `Price MA (1m ${maProxy} proxy of the tick average)`),
+        signalBars: stats.signalMinutes, signalKind: (carry ? "NRML carry-overnight \u00b7 " : "") + (isPnl ? `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}; decided once a minute at the minute open)` : `Price MA (1m ${maProxy} proxy of the tick average)`),
     };
 }
 
