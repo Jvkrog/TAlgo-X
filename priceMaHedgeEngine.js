@@ -1,13 +1,16 @@
 // priceMaHedgeEngine.js — Dual-account Price-MA hedge: TWO Kite logins (dualHedgeUsers.js), ONE instrument.
 //
 //   BASE   at the configured IST time (once per day): LONG account -> LONG MIS, SHORT account -> SHORT MIS.
-//   HEDGE  each base is hedged against its OWN loss (P&L vs entry, once per IST minute): base P&L < -band points -> that
-//          account opens an opposite hedge; back above +band -> the hedge is closed. Both hedges may be open at once.
+//   SIGNAL every websocket LTP of each IST minute is averaged (hedge/priceMaSignal.js); this minute's MA minus the
+//          previous minute's MA: > 0 GREEN, < 0 RED, == 0 NEUTRAL.
+//   HEDGE  GREEN -> the SHORT account (SHORT MIS is losing) opens a LONG NRML hedge; RED -> the LONG account opens a
+//          SHORT NRML hedge. A colour change closes the old hedge first (confirmed), then opens the new one. NEUTRAL
+//          keeps whatever is open.
 //   EOD    from the EOD time both NRML hedge and MIS bases are explicitly closed (hedge first, retried until flat; CARRY: only the MIS hedge),
 //          then the process reports and exits 0 (PM2 start needed next trading day).
-// Decisions: hedge/priceMaHedgeController.js (pure, unit-tested). This
+// Decisions: hedge/priceMaHedgeController.js (pure, unit-tested). Signal maths: hedge/priceMaSignal.js (pure). This
 // file is plumbing: users, contexts, ticker, order placement + FILL CONFIRMATION, DB/broker recovery, Telegram.
-// No order is ever placed from the raw tick callback — ticks only feed the last price; a 5 s decision loop acts.
+// No order is ever placed from the raw tick callback — ticks only feed the signal; a 5 s decision loop acts.
 // PAPER mode (LIVE_ORDERS_OVERRIDE != "true"): same flow, fills are simulated at the last price, no broker orders.
 //
 // ENV VARS:
@@ -18,11 +21,15 @@
 //   PMA_CONTRACT_OVERRIDE         optional exact tradingsymbol (else the current contract)
 //   PMA_BASE_HOUR / PMA_BASE_MINUTE   base entry time IST, default 09:15
 //   PMA_EOD_HOUR / PMA_EOD_MINUTE     default context.js defaultEodFor("1m", exchange)
-//   PMA_CARRY                     default TRUE (false = day mode: MIS bases + NRML hedge, all flat at EOD). true = bases are NRML and held constant (long in the LONG account, short in the SHORT account, never closed by the
+//   PMA_MODE                      SLOPE (default: hedge follows the 1-minute price-MA colour) | PNL (each base is hedged against its OWN loss:
+//                                 base P&L < -PMA_PNL_BAND points -> open that account's NRML hedge, back above +band -> close it; checked once a minute)
+//   PMA_CARRY                     default false. true = bases are NRML and held constant (long in the LONG account, short in the SHORT account, never closed by the
 //                                 engine, recovered on each start); the hedge is MIS (a separate broker row — an NRML sell would just close the long) and is
 //                                 closed at EOD by the engine, before the broker would square it off (which costs more).
 //   PMA_PNL_BAND                  default 0 (points)   PMA_PNL_SMOOTH  default 1 (average of the last N once-a-minute P&L samples; 1 = raw)
-//   PMA_STALE_SECONDS             default 150 (a price older than this never opens/closes a hedge)
+//   PMA_MIN_SLOPE                 default 0   (|slope| <= this counts as NEUTRAL; 0 = exact zero as specified)
+//   PMA_CONFIRM_MINUTES           default 1   (same colour for N consecutive minutes before the hedge flips)
+//   PMA_STALE_SECONDS             default 150 (a signal older than this never opens/flips a hedge)
 //   PMA_POLL_MS                   default 5000 (decision loop)
 //   LIVE_ORDERS_OVERRIDE          "true" | "false"
 // Start (PM2):  PMA_UNDERLYING=NATGASMINI PMA_LONG_USER=a PMA_SHORT_USER=b PMA_LOTMULT_OVERRIDE=250 \
@@ -48,6 +55,7 @@ const { createOrders } = require("./core/orders");
 const positions = require("./core/positions");
 const { emitEvent } = require("./core/eventBridge");
 const { istParts, todayIST } = require("./utils/istTime");
+const { createPriceMaSignal } = require("./hedge/priceMaSignal");
 const { createPriceMaHedgeController } = require("./hedge/priceMaHedgeController");
 
 const envInt = (v, d) => (v !== undefined && v !== "" && Number.isFinite(Number(v))) ? Number(v) : d;
@@ -62,12 +70,18 @@ async function main() {
     if (!UNDERLYING || !LONG_USER || !SHORT_USER) fail("PMA_UNDERLYING, PMA_LONG_USER and PMA_SHORT_USER are all required");
     if (LONG_USER.toUpperCase() === SHORT_USER.toUpperCase()) fail("PMA_LONG_USER and PMA_SHORT_USER must be two different accounts");
     const EXCHANGE = process.env.PMA_EXCHANGE_OVERRIDE || "MCX";
-    const CARRY = String(process.env.PMA_CARRY || "true").toLowerCase() !== "false";
+    const MODE = String(process.env.PMA_MODE || "SLOPE").toUpperCase();
+    if (MODE !== "SLOPE" && MODE !== "PNL") fail("PMA_MODE must be SLOPE or PNL");
+    const CARRY = String(process.env.PMA_CARRY || "false").toLowerCase() === "true";
     const PNL_BAND = envNum(process.env.PMA_PNL_BAND, 0), PNL_SMOOTH = envInt(process.env.PMA_PNL_SMOOTH, 1);
     if (!(PNL_BAND >= 0)) fail("PMA_PNL_BAND must be >= 0");
     if (!(Number.isInteger(PNL_SMOOTH) && PNL_SMOOTH >= 1)) fail("PMA_PNL_SMOOTH must be a whole number >= 1");
+    const MIN_SLOPE = envNum(process.env.PMA_MIN_SLOPE, 0);
+    const CONFIRM = envInt(process.env.PMA_CONFIRM_MINUTES, 1);
     const STALE_MS = envInt(process.env.PMA_STALE_SECONDS, 150) * 1000;
     const POLL_MS = Math.max(1000, envInt(process.env.PMA_POLL_MS, 5000));
+    if (!(MIN_SLOPE >= 0)) fail("PMA_MIN_SLOPE must be >= 0");
+    if (!(Number.isInteger(CONFIRM) && CONFIRM >= 1)) fail("PMA_CONFIRM_MINUTES must be a whole number >= 1");
     const baseHour = envInt(process.env.PMA_BASE_HOUR, 9), baseMinute = envInt(process.env.PMA_BASE_MINUTE, 15);
     const eodDef = defaultEodFor("1m", EXCHANGE);
     const eodHour = envInt(process.env.PMA_EOD_HOUR, eodDef.eodHour), eodMinute = envInt(process.env.PMA_EOD_MINUTE, eodDef.eodMinute);
@@ -156,9 +170,9 @@ async function main() {
     const L = Object.values(legs);
     const token = legs.LONG_BASE.context.token;
     for (const l of L) if (l.context.token !== token) fail(`legs resolved to different contracts (${l.context.symbol} vs ${legs.LONG_BASE.context.symbol}) — pin one contract`);
-    console.log(c.bold(`BASE-LOSS HEDGE  ${legs.LONG_BASE.context.symbol}  LONG:${longUser.name} (${legs.LONG_BASE.context.lots} lot)  SHORT:${shortUser.name} (${legs.SHORT_BASE.context.lots} lot)  base ${hhmm(baseHour, baseMinute)}  EOD ${hhmm(eodHour, eodMinute)}  ${CARRY ? "NRML bases + MIS hedge" : "MIS bases + NRML hedge"}`));
+    console.log(c.bold(`PRICE MA HEDGE  ${legs.LONG_BASE.context.symbol}  LONG:${longUser.name} (${legs.LONG_BASE.context.lots} lot)  SHORT:${shortUser.name} (${legs.SHORT_BASE.context.lots} lot)  base ${hhmm(baseHour, baseMinute)}  EOD ${hhmm(eodHour, eodMinute)}  minSlope ${MIN_SLOPE}  confirm ${CONFIRM}m`));
     if (CARRY) console.log(c.bold("CARRY: bases are NRML and held constant (never closed by the engine, recovered on each start); hedges are MIS and are closed at EOD"));
-    console.log(c.bold(`HEDGE: each base is hedged against its own loss (band ${PNL_BAND} pts, smooth ${PNL_SMOOTH})`));
+    if (MODE === "PNL") console.log(c.bold(`MODE=PNL: each base is hedged against its own loss (band ${PNL_BAND} pts, smooth ${PNL_SMOOTH}); the price MA is not used`));
 
     // ── prices ────────────────────────────────────────────────────────────────────────────────────
     let lastTick = null;   // { price, at }
@@ -248,9 +262,10 @@ async function main() {
         },
     };
 
-    // ── controller ───────────────────────────────────────────────────────────────────────
+    // ── signal + controller ───────────────────────────────────────────────────────────────────────
     const clock = () => { const now = new Date(Date.now()), p = istParts(now); return { today: todayIST(now), hours: p.hours, minutes: p.minutes, nowMs: now.getTime() }; };
-    const controller = createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxPriceAgeMs: STALE_MS, carry: CARRY, pnlBand: PNL_BAND, pnlSmooth: PNL_SMOOTH,
+    const signal = createPriceMaSignal({ minSlope: MIN_SLOPE, confirmMinutes: CONFIRM, maxGapMinutes: 2, log: m => console.log(c.yellow(m)) });
+    const controller = createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxSignalAgeMs: STALE_MS, carry: CARRY, hedgeMode: MODE, pnlBand: PNL_BAND, pnlSmooth: PNL_SMOOTH,
         getPrice: () => (lastTick ? { price: lastTick.price, atMs: lastTick.at } : null), log: m => console.log(c.cyan(m)) });
 
     const stateFile = path.join(require("./data/dbDir").DB_DIR, `pma_${legs.LONG_BASE.context.underlying || UNDERLYING}_${longUser.name}_${shortUser.name}.json`.replace(/[^A-Za-z0-9_.-]/g, "_"));
@@ -259,8 +274,8 @@ async function main() {
             fs.mkdirSync(path.dirname(stateFile), { recursive: true });
             const hedge = controller.activeHedge(), hedgesOpen = controller.activeHedges();
             const body = { date: todayIST(), instrument: legs.LONG_BASE.context.symbol, longUser: longUser.name, shortUser: shortUser.name,
-                controller: controller.getState(),
-                hedges: hedgesOpen.map(h => ({ account: h.account, direction: h.side, lots: h.context.lots })),
+                signal: signal.getState(), controller: controller.getState(),
+                mode: MODE, hedges: hedgesOpen.map(h => ({ account: h.account, direction: h.side, lots: h.context.lots })),
                 hedge: hedge ? { account: hedge.account, direction: hedge.side, product: hedge.product, lots: hedge.context.lots, status: "ACTIVE" } : null, savedAt: new Date().toISOString() };
             fs.writeFileSync(stateFile + ".tmp", JSON.stringify(body)); fs.renameSync(stateFile + ".tmp", stateFile);
         } catch (e) { console.warn(`state file write failed: ${e.message}`); }
@@ -268,27 +283,38 @@ async function main() {
     try {   // restore (the DB rows + broker already decided which positions exist)
         const s = JSON.parse(fs.readFileSync(stateFile, "utf8"));
         if (s.date === today0 && s.instrument === legs.LONG_BASE.context.symbol) {
-            controller.restore(s.controller);
-            tag("RECOVERY", `controller state restored (hedge ${s.hedge ? s.hedge.account + " " + s.hedge.direction : "none"})`);
+            signal.restore(s.signal); controller.restore(s.controller);
+            tag("RECOVERY", `controller state restored (signal ${s.signal && s.signal.signal || "none"}, hedge ${s.hedge ? s.hedge.account + " " + s.hedge.direction : "none"})`);
         }
     } catch { /* no / unreadable state file: start clean */ }
     // A base that exists after recovery was already entered today.
     for (const l of [legs.LONG_BASE, legs.SHORT_BASE]) if (l.state.position) controller.markBaseEntered(l, today0);
 
+    function onMinute(ev) {
+        const f = x => (x === null || x === undefined ? "-" : x.toFixed(2));
+        const sl = ev.slope === null ? "-" : (ev.slope >= 0 ? "+" : "") + ev.slope.toFixed(2);
+        console.log(c.bold(`[PRICE_MA] Instrument=${UNDERLYING} Ticks=${ev.n} CurrentMA=${f(ev.ma)} PreviousMA=${f(ev.prevMa)} Slope=${sl} Raw=${ev.raw || "BASELINE"} Signal=${ev.signal || "NONE"}`));
+        if (ev.transition) console.log(c.bold(`[PRICE_MA] SIGNAL TRANSITION ${ev.from || "NONE"} -> ${ev.signal}`));
+        if (ev.signal) controller.setSignal(ev.signal, Date.now());
+        persistState();
+    }
+    const handle = evs => { if (MODE === "PNL") return; for (const ev of evs) onMinute(ev); };   // PNL mode: the price MA is not used
+
     const ticker = new KiteTicker({ api_key: longUser.apiKey, access_token: longUser.accessToken });
     ticker.connect();
     ticker.on("connect", () => { ticker.subscribe([token]); ticker.setMode(ticker.modeLTP, [token]); tag("WS", "connected"); });
-    ticker.on("ticks", ticks => {                       // ticks ONLY feed the last price — no order is placed here
-        for (const t of ticks) if (t.instrument_token === token && t.last_price) { lastTick = { price: t.last_price, at: Date.now() }; }
+    ticker.on("ticks", ticks => {                       // ticks ONLY feed the signal — no order is placed here
+        for (const t of ticks) if (t.instrument_token === token && t.last_price) { lastTick = { price: t.last_price, at: Date.now() }; handle(signal.addTick(t.last_price, Date.now())); }
     });
     ticker.on("error", err => console.error(c.red(`WS  error: ${err && err.message ? err.message : err}`)));
-    ticker.on("close", () => console.log(c.dim("WS  closed — price goes stale after " + STALE_MS / 1000 + "s; no hedge decision until fresh ticks arrive")));
+    ticker.on("close", () => console.log(c.dim("WS  closed — signal goes stale after " + STALE_MS / 1000 + "s; no new hedge until fresh minutes arrive")));
     ticker.on("reconnect", n => console.log(c.dim(`WS  reconnect #${n}`)));
     ticker.on("noreconnect", async () => {
         console.error(c.red("WS  max reconnects — exiting so PM2 restarts (positions are recovered from the broker/DB on boot)"));
         try { await legs.LONG_BASE.tg("⚠ Price MA Hedge: market-data socket cannot reconnect — restarting. Open positions untouched."); } catch { /* best effort */ }
         process.exit(1);
     });
+    setInterval(() => handle(signal.flush(Date.now())), 2000);   // close a minute even if no later tick arrives
 
     async function eodReportAndExit() {
         let total = 0; const lines = [];
@@ -312,7 +338,7 @@ async function main() {
                 lastBeat = Date.now();
                 const px = await getLtp().catch(() => null);
                 const pos = L.filter(l => l.state.position).map(l => `${l.key}:${l.state.position}@${l.state.entryPrice.toFixed(2)}`).join("  ") || "flat";
-                console.log(c.dim(`[PMA] ${new Date().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })}  price ${px === null ? "-" : px.toFixed(2)}  ${pos}`));
+                console.log(c.dim(`[PMA] ${new Date().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })}  price ${px === null ? "-" : px.toFixed(2)}  ${pos}  signal ${signal.getSignal() || "none"}`));
                 if (px !== null) for (const l of L) emitEvent(l.context.tgPrefix, "LTP", { price: px, uPnl: l.state.position ? positions.unrealised(l.context, l.state, px) : 0, session: l.state.pnl || 0, position: l.state.position || null });
             }
         } catch (err) { console.error(c.red(`PMA loop error: ${err.message}`)); }

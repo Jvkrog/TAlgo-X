@@ -11,17 +11,13 @@ t("both server routes accept PRICE_MA", () => {
     assert.ok(!/Strategy must be DUAL, BIAS or REALIZE"/.test(web), "stale message gone");
 });
 t("every PMA_* env the deploy writes is read by the engine", () => {
-    for (const k of ["PMA_UNDERLYING", "PMA_LONG_USER", "PMA_SHORT_USER", "PMA_EXCHANGE_OVERRIDE", "PMA_LOTS_OVERRIDE", "PMA_CONTRACT_OVERRIDE", "PMA_BASE_HOUR", "PMA_BASE_MINUTE", "PMA_EOD_HOUR", "PMA_EOD_MINUTE", "PMA_LOTMULT_OVERRIDE", "PMA_PNL_BAND", "PMA_PNL_SMOOTH", "PMA_CARRY"]) {
+    for (const k of ["PMA_UNDERLYING", "PMA_LONG_USER", "PMA_SHORT_USER", "PMA_EXCHANGE_OVERRIDE", "PMA_LOTS_OVERRIDE", "PMA_CONTRACT_OVERRIDE", "PMA_BASE_HOUR", "PMA_BASE_MINUTE", "PMA_EOD_HOUR", "PMA_EOD_MINUTE", "PMA_MIN_SLOPE", "PMA_CONFIRM_MINUTES", "PMA_LOTMULT_OVERRIDE", "PMA_MODE", "PMA_PNL_BAND", "PMA_PNL_SMOOTH", "PMA_CARRY"]) {
         assert.ok(web.includes(k), "server writes " + k); assert.ok(cli.includes(k), "toolbox writes " + k); assert.ok(eng.includes(k), "engine reads " + k);
     }
 });
 t("start/restart choose the engine script by strategy (server + toolbox)", () => {
     assert.ok(web.includes("dhScript(dh)") && web.includes("script: dhScript(dep)"));
     assert.ok(cli.includes("dhScript(dh)") && cli.includes("dhScript(deployments.find"));
-});
-t("slope hedging is gone everywhere", () => {
-    for (const [n, s] of [["server", web], ["toolbox", cli], ["ui", ui], ["engine", eng]]) assert.ok(!/PMA_MIN_SLOPE|PMA_CONFIRM_MINUTES|PMA_MODE|priceMaSignal|dhPmaMinSlope|dbPmaProxy/.test(s), n + " still mentions slope hedging");
-    assert.ok(!fs.existsSync(path.join(root, "hedge/priceMaSignal.js")));
 });
 t("UI posts the Price-MA fields from the deploy form and the backtest form", () => {
     assert.ok(ui.includes('#dhPmaBase') && ui.includes('#dbPmaBase') && ui.includes('PRICE_MA'));

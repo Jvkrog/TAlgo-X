@@ -1,4 +1,4 @@
-// priceMaHedgeController: base legs, base-loss (P&L) hedge, duplicates, failures, stale price, EOD, carry.
+// priceMaHedgeController: base MIS legs, GREEN/RED hedge flips, NEUTRAL, duplicates, failures, stale signal, EOD.
 "use strict";
 const assert = require("assert");
 const { createPriceMaHedgeController } = require("../hedge/priceMaHedgeController");
@@ -8,20 +8,81 @@ function make(opts = {}) {
     const legs = { LONG_BASE: mk("LONG_BASE", "LONG", "BASE", "LONG"), SHORT_BASE: mk("SHORT_BASE", "SHORT", "BASE", "SHORT"), LONG_HEDGE: mk("LONG_HEDGE", "LONG", "HEDGE", "SHORT"), SHORT_HEDGE: mk("SHORT_HEDGE", "SHORT", "HEDGE", "LONG") };
     const orders = [], failEnter = new Set(opts.failEnter || []), failExit = new Set(opts.failExit || []);
     const broker = {
-        async enter(leg, why) { if (failEnter.has(leg.key)) return false; orders.push(`ENTER ${leg.key} ${leg.kind === "BASE" ? "MIS" : "NRML"} ${leg.side} (${why})`); leg.state.position = leg.side; leg.state.entryPrice = px.price; return true; },
+        async enter(leg, why) { if (failEnter.has(leg.key)) return false; orders.push(`ENTER ${leg.key} ${leg.kind === "BASE" ? "MIS" : "NRML"} ${leg.side} (${why})`); leg.state.position = leg.side; return true; },
         async exit(leg, why) { if (failExit.has(leg.key)) return false; orders.push(`EXIT ${leg.key} (${why})`); leg.state.position = null; return true; },
     };
     const clk = { today: "2026-11-12", hours: 10, minutes: 0, nowMs: 1000000 };
     const logs = [];
-    const px = { price: 100 };
-    const c = createPriceMaHedgeController({ legs, broker, clock: () => clk, baseHour: 9, baseMinute: 15, eodHour: 23, eodMinute: 20, log: m => logs.push(m), maxPriceAgeMs: 150000, getPrice: () => ({ price: px.price, atMs: px.atMs === undefined ? clk.nowMs : px.atMs }), ...(opts.ctl || {}) });
+    const px = { price: 100, atMs: 0 };
+    const c = createPriceMaHedgeController({ legs, broker, clock: () => clk, baseHour: 9, baseMinute: 15, eodHour: 23, eodMinute: 20, log: m => logs.push(m), maxSignalAgeMs: 150000, getPrice: () => ({ price: px.price, atMs: clk.nowMs }), ...(opts.ctl || {}) });
     return { c, legs, orders, clk, logs, failEnter, failExit, px };
 }
+const sig = (c, clk, s) => c.setSignal(s, clk.nowMs);
 
-// ---- hedge each base against its own loss, once per IST minute ----
+t("1 base legs: LONG MIS in the LONG account, SHORT MIS in the SHORT account, once per day", async () => {
+    const { c, orders, legs, clk } = make();
+    clk.hours = 9; clk.minutes = 0; assert.strictEqual(await c.tick(), "WAITING"); assert.deepStrictEqual(orders, []);
+    clk.hours = 9; clk.minutes = 15; await c.tick(); await c.tick();
+    assert.deepStrictEqual(orders, ["ENTER LONG_BASE MIS LONG (BASE)", "ENTER SHORT_BASE MIS SHORT (BASE)"]);
+    legs.LONG_BASE.state.position = null;               // base closed by hand later the same day: NOT re-entered
+    await c.tick(); assert.strictEqual(orders.length, 2);
+});
+t("2 GREEN opens LONG NRML hedge in the SHORT account", async () => {
+    const { c, orders, clk } = make(); await c.tick(); sig(c, clk, "GREEN"); await c.tick();
+    assert.strictEqual(orders[orders.length - 1], "ENTER SHORT_HEDGE NRML LONG (GREEN HEDGE)");
+});
+t("3 GREEN->RED closes the LONG hedge first, then opens SHORT NRML hedge in the LONG account; 4 RED->GREEN back", async () => {
+    const { c, orders, clk } = make(); await c.tick(); sig(c, clk, "GREEN"); await c.tick(); orders.length = 0;
+    sig(c, clk, "RED"); await c.tick();
+    assert.deepStrictEqual(orders, ["EXIT SHORT_HEDGE (RED FLIP)", "ENTER LONG_HEDGE NRML SHORT (RED HEDGE)"]);
+    orders.length = 0; sig(c, clk, "GREEN"); await c.tick();
+    assert.deepStrictEqual(orders, ["EXIT LONG_HEDGE (GREEN FLIP)", "ENTER SHORT_HEDGE NRML LONG (GREEN HEDGE)"]);
+});
+t("5 NEUTRAL preserves the hedge", async () => {
+    const { c, orders, clk, legs } = make(); await c.tick(); sig(c, clk, "GREEN"); await c.tick(); orders.length = 0;
+    sig(c, clk, "NEUTRAL"); await c.tick(); await c.tick(); assert.deepStrictEqual(orders, []); assert.strictEqual(legs.SHORT_HEDGE.state.position, "LONG");
+});
+t("6/7 duplicate GREEN and RED signals place no duplicate orders", async () => {
+    const { c, orders, clk } = make(); await c.tick(); sig(c, clk, "GREEN"); await c.tick(); await c.tick(); await c.tick();
+    assert.strictEqual(orders.filter(o => o.startsWith("ENTER SHORT_HEDGE")).length, 1);
+    sig(c, clk, "RED"); await c.tick(); await c.tick(); await c.tick();
+    assert.strictEqual(orders.filter(o => o.startsWith("ENTER LONG_HEDGE")).length, 1);
+});
+t("9 stale signal (ws down) opens no hedge", async () => {
+    const { c, orders, clk } = make(); await c.tick(); sig(c, clk, "GREEN"); clk.nowMs += 10 * 60 * 1000; await c.tick();
+    assert.ok(!orders.some(o => o.includes("HEDGE")), "no hedge from a 10-minute-old signal");
+});
+t("11 rejected hedge entry leaves state clean and retries; failed exit blocks the new hedge", async () => {
+    const f = make({ failEnter: ["SHORT_HEDGE"] }); await f.c.tick(); sig(f.c, f.clk, "GREEN"); await f.c.tick();
+    assert.strictEqual(f.legs.SHORT_HEDGE.state.position, null); f.failEnter.clear(); await f.c.tick();
+    assert.strictEqual(f.legs.SHORT_HEDGE.state.position, "LONG", "retried on the next tick");
+    const g = make({ failExit: ["SHORT_HEDGE"] }); await g.c.tick(); sig(g.c, g.clk, "GREEN"); await g.c.tick(); sig(g.c, g.clk, "RED");
+    assert.strictEqual(await g.c.tick(), "EXIT_PENDING"); assert.ok(!g.legs.LONG_HEDGE.state.position, "no new hedge on top of an unconfirmed one");
+    g.failExit.clear(); await g.c.tick(); assert.strictEqual(g.legs.SHORT_HEDGE.state.position, null); assert.strictEqual(g.legs.LONG_HEDGE.state.position, "SHORT");
+});
+t("no hedge while the losing base is not open; blocked legs never trade", async () => {
+    const a = make({ failEnter: ["SHORT_BASE"] }); await a.c.tick(); sig(a.c, a.clk, "GREEN"); await a.c.tick();
+    assert.ok(!a.orders.some(o => o.includes("HEDGE")), "SHORT base missing -> nothing to hedge");
+    const b = make(); b.legs.LONG_BASE.blocked = true; await b.c.tick(); assert.ok(!b.orders.some(o => o.includes("LONG_BASE")));
+});
+t("12 EOD: hedge closed first, then both bases, retried until flat; no entries after", async () => {
+    const { c, orders, clk, failExit, legs } = make(); await c.tick(); sig(c, clk, "GREEN"); await c.tick(); orders.length = 0;
+    clk.hours = 23; clk.minutes = 20; failExit.add("SHORT_HEDGE");
+    assert.strictEqual(await c.tick(), "EOD_PENDING"); assert.deepStrictEqual(orders, [], "bases untouched while the hedge is still open");
+    failExit.clear(); assert.strictEqual(await c.tick(), "EOD_DONE");
+    assert.deepStrictEqual(orders, ["EXIT SHORT_HEDGE (EOD)", "EXIT LONG_BASE (EOD)", "EXIT SHORT_BASE (EOD)"]);
+    sig(c, clk, "RED"); await c.tick(); assert.ok(Object.values(legs).every(l => !l.state.position), "no entries after EOD");
+});
+t("10 restart: restored base-entered flag does not duplicate a base; resumed hedge is not re-entered", async () => {
+    const { c, orders, clk, legs } = make();
+    legs.LONG_BASE.state.position = "LONG"; legs.SHORT_BASE.state.position = "SHORT"; legs.SHORT_HEDGE.state.position = "LONG";
+    c.restore({ baseEnteredOn: { LONG_BASE: clk.today, SHORT_BASE: clk.today } });
+    sig(c, clk, "GREEN"); await c.tick(); await c.tick(); assert.deepStrictEqual(orders, []);
+});
+// ---- PNL mode (hedge each base against its own loss, once per IST minute) ----
 const minute = (clk, m) => { clk.minutes = m; clk.nowMs += 60000; };
 function pnlSetup(ctl) {
-    const k = make({ ctl: { ...(ctl || {}) } });
+    const k = make({ ctl: { hedgeMode: "PNL", ...(ctl || {}) } });
     k.legs.LONG_BASE.state.entryPrice = 100; k.legs.SHORT_BASE.state.entryPrice = 100;
     return k;
 }
@@ -58,47 +119,15 @@ t("P5 PNL smoothing averages the last N samples", async () => {
     minute(clk, 3); px.price = 99; await c.tick();        // pnl samples 1,1,-1 -> mean 0.33 > 0 -> still no long hedge
     assert.ok(!orders.some(o => /LONG_HEDGE/.test(o)));
 });
-t("C1 carry: at EOD only the MIS hedge closes, the NRML bases stay; next day bases are not entered again and the hedge is managed normally", async () => {
-    const { c, orders, clk, legs, px } = make({ ctl: { carry: true } });
-    await c.tick(); minute(clk, 1); px.price = 99; await c.tick(); assert.ok(legs.LONG_HEDGE.state.position); orders.length = 0;
+t("C1 carry: at EOD only the MIS hedge closes, the NRML bases stay; next day they are not entered again and the hedge is managed normally", async () => {
+    const { c, orders, clk, legs } = make({ ctl: { carry: true } });
+    await c.tick(); sig(c, clk, "GREEN"); await c.tick(); orders.length = 0;
     clk.hours = 23; clk.minutes = 20; assert.strictEqual(await c.tick(), "EOD_DONE");
-    assert.deepStrictEqual(orders, ["EXIT LONG_HEDGE (EOD)"], "only the hedge is closed");
-    assert.ok(legs.LONG_BASE.state.position && legs.SHORT_BASE.state.position && !legs.LONG_HEDGE.state.position, "bases held");
-    orders.length = 0; minute(clk, 21); px.price = 98; await c.tick(); assert.deepStrictEqual(orders, [], "no hedge after EOD");
-    clk.today = "2026-11-13"; clk.hours = 9; clk.minutes = 15; clk.nowMs += 86400000; c.restore({ baseEnteredOn: {} }); px.price = 100;   // next morning
+    assert.deepStrictEqual(orders, ["EXIT SHORT_HEDGE (EOD)"], "only the hedge is closed");
+    assert.ok(legs.LONG_BASE.state.position && legs.SHORT_BASE.state.position && !legs.SHORT_HEDGE.state.position, "bases held");
+    orders.length = 0; sig(c, clk, "RED"); await c.tick(); assert.deepStrictEqual(orders, [], "no hedge after EOD");
+    clk.today = "2026-11-13"; clk.hours = 9; clk.minutes = 15; clk.nowMs += 86400000; c.restore({ baseEnteredOn: {} });   // next morning
     await c.tick(); assert.deepStrictEqual(orders, [], "held bases are not entered again");
-    minute(clk, 16); px.price = 97; await c.tick(); assert.ok(orders.some(o => /ENTER LONG_HEDGE/.test(o)), "hedge opens again while the base loses");
-});
-t("1 base legs entered once per day at the base time, never re-entered", async () => {
-    const { c, orders, legs, clk } = make();
-    clk.hours = 9; clk.minutes = 0; assert.strictEqual(await c.tick(), "WAITING"); assert.deepStrictEqual(orders, []);
-    clk.hours = 9; clk.minutes = 15; await c.tick(); await c.tick();
-    assert.deepStrictEqual(orders, ["ENTER LONG_BASE MIS LONG (BASE)", "ENTER SHORT_BASE MIS SHORT (BASE)"]);
-    legs.LONG_BASE.state.position = null; await c.tick(); assert.strictEqual(orders.length, 2);
-});
-t("P6 a rejected hedge entry leaves state clean and retries", async () => {
-    const k = pnlSetup({}); k.failEnter.add("LONG_HEDGE"); await k.c.tick(); minute(k.clk, 1); k.px.price = 99; await k.c.tick();
-    assert.strictEqual(k.legs.LONG_HEDGE.state.position, null); k.failEnter.clear(); await k.c.tick();
-    assert.strictEqual(k.legs.LONG_HEDGE.state.position, "SHORT", "retried");
-});
-t("P7 no hedge while the losing base is not open; blocked legs never trade; stale price decides nothing", async () => {
-    const a = pnlSetup({}); a.failEnter.add("LONG_BASE"); await a.c.tick(); minute(a.clk, 1); a.px.price = 99; await a.c.tick();
-    assert.ok(!a.orders.some(o => o.includes("HEDGE")), "LONG base missing -> nothing to hedge");
-    const b = pnlSetup({}); b.legs.LONG_BASE.blocked = true; await b.c.tick(); assert.ok(!b.orders.some(o => o.includes("LONG_BASE")));
-    const s = pnlSetup({}); await s.c.tick(); minute(s.clk, 1); s.px.price = 99; s.px.atMs = -1e9; s.orders.length = 0; await s.c.tick();
-    assert.deepStrictEqual(s.orders, [], "stale price");
-});
-t("P8 day mode EOD: hedge closed first, then both bases, retried until flat", async () => {
-    const { c, orders, clk, failExit, px } = pnlSetup({}); await c.tick(); minute(clk, 1); px.price = 99; await c.tick(); orders.length = 0;
-    clk.hours = 23; clk.minutes = 20; failExit.add("LONG_HEDGE");
-    assert.strictEqual(await c.tick(), "EOD_PENDING"); assert.deepStrictEqual(orders, [], "bases untouched while the hedge is open");
-    failExit.clear(); assert.strictEqual(await c.tick(), "EOD_DONE");
-    assert.deepStrictEqual(orders, ["EXIT LONG_HEDGE (EOD)", "EXIT LONG_BASE (EOD)", "EXIT SHORT_BASE (EOD)"]);
-});
-t("P9 restart: restored state does not duplicate bases or the resumed hedge", async () => {
-    const { c, orders, clk, legs, px } = pnlSetup({});
-    legs.LONG_BASE.state.position = "LONG"; legs.SHORT_BASE.state.position = "SHORT"; legs.LONG_BASE.state.entryPrice = 100; legs.SHORT_BASE.state.entryPrice = 100; legs.LONG_HEDGE.state.position = "SHORT";
-    c.restore({ baseEnteredOn: { LONG_BASE: clk.today, SHORT_BASE: clk.today } });
-    minute(clk, 1); px.price = 99; await c.tick(); await c.tick(); assert.deepStrictEqual(orders, []);
+    sig(c, clk, "RED"); await c.tick(); assert.deepStrictEqual(orders, ["ENTER LONG_HEDGE NRML SHORT (RED HEDGE)"], "hedge opens again on the new signal");
 });
 (async () => { let f = 0; for (const [n, fn] of T) { try { await fn(); console.log("  ok  ", n); } catch (e) { f++; console.log("  FAIL", n, "\n", e.stack); } } console.log(f ? f + " failed" : "all passed"); process.exit(f ? 1 : 0); })();
