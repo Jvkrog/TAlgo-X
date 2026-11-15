@@ -13,8 +13,9 @@
 // not confirmed nothing new is opened and the next tick retries. NEUTRAL (or no / stale signal) never touches a hedge.
 // EOD (from eodHour:eodMinute): hedges first, then both bases, retried every tick until every leg is flat; no new entries.
 //
-// carry (NRML hedge carried overnight): at EOD only the MIS BASES are closed; an open NRML hedge is left open and managed again the
-// next day (it is a different broker row from the MIS base, so nothing nets). From EOD on there are no entries or flips (EOD_DONE).
+// carry (NRML bases held constant): the engine's legs swap products — the BASES are NRML (opened once, never closed by the engine, picked up
+// again on every start) and the HEDGES are MIS (a separate broker row, so selling against a losing NRML base does not close it). At EOD only
+// the MIS hedge is closed (before the broker's square-off, which would cost more). From EOD on there are no entries or flips (EOD_DONE).
 //
 // A leg is { key, account, kind, side, blocked, state:{position}, context }. broker.enter(leg, why) / broker.exit(leg, why)
 // resolve true ONLY on a confirmed fill/flat (state is already updated by then); false leaves everything as it was.
@@ -40,6 +41,7 @@ function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinut
     const warnOnce = (k, m) => { if (!warned.has(k)) { warned.add(k); log(m); } };
 
     function setSignal(signal, atMs) { sig = { signal, atMs }; }
+    const hp = l => (l.context && l.context.product) || (carry ? "MIS" : "NRML");
     const PNL = String(hedgeMode).toUpperCase() === "PNL";
     if (!(pnlBand >= 0)) throw new Error("priceMaHedgeController: pnlBand must be >= 0");
     const smoothN = Math.max(1, Math.floor(Number(pnlSmooth) || 1));
@@ -56,10 +58,10 @@ function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinut
             const v = arr.reduce((a, b) => a + b, 0) / arr.length;
             if (v < -pnlBand && !hedge.state.position) {
                 if (hedge.blocked) { warnOnce(`blk:${hedge.key}`, `[HEDGE_CONTROLLER] ${hedge.key} is BLOCKED (${hedge.blockedReason || "see boot log"}) — no hedge`); continue; }
-                log(`[HEDGE_CONTROLLER] Mode=PNL ${base.key} P&L=${v.toFixed(2)}pts Action=OPEN_${hedge.side}_NRML Account=${hedge.account}_ACCOUNT`);
+                log(`[HEDGE_CONTROLLER] Mode=PNL ${base.key} P&L=${v.toFixed(2)}pts Action=OPEN_${hedge.side}_${hp(hedge)} Account=${hedge.account}_ACCOUNT`);
                 const ok = await broker.enter(hedge, "BASE LOSS HEDGE"); if (!(ok && hedge.state.position)) pending = true;
             } else if (v > pnlBand && hedge.state.position) {
-                log(`[HEDGE_CONTROLLER] Mode=PNL ${base.key} P&L=${v.toFixed(2)}pts Action=EXIT_${hedge.side}_NRML Account=${hedge.account}_ACCOUNT`);
+                log(`[HEDGE_CONTROLLER] Mode=PNL ${base.key} P&L=${v.toFixed(2)}pts Action=EXIT_${hedge.side}_${hp(hedge)} Account=${hedge.account}_ACCOUNT`);
                 if (!(await exitLeg(hedge, "BASE BACK IN PROFIT"))) pending = true;
             }
         }
@@ -74,9 +76,9 @@ function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinut
     }
 
     async function eod() {
-        if (carry) {                                          // only the MIS bases are flattened; the NRML hedge stays
-            for (const leg of bases) if (leg.state.position) await exitLeg(leg, "EOD");
-            return bases.every(l => !l.state.position) ? "EOD_DONE" : "EOD_PENDING";
+        if (carry) {                                          // only the MIS hedge is flattened; the NRML bases stay
+            for (const leg of hedges) if (leg.state.position) await exitLeg(leg, "EOD");
+            return hedges.every(l => !l.state.position) ? "EOD_DONE" : "EOD_PENDING";
         }
         for (const leg of hedges) if (leg.state.position) await exitLeg(leg, "EOD");
         if (hedges.every(l => !l.state.position)) for (const leg of bases) if (leg.state.position) await exitLeg(leg, "EOD");
@@ -110,13 +112,13 @@ function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinut
             const loserBase = want === SHORT_HEDGE ? SHORT_BASE : LONG_BASE;
 
             if (stale.state.position) {
-                log(`[HEDGE_CONTROLLER] Signal=${sig.signal} Action=EXIT_${stale.side}_NRML Account=${stale.account}_ACCOUNT`);
+                log(`[HEDGE_CONTROLLER] Signal=${sig.signal} Action=EXIT_${stale.side}_${hp(stale)} Account=${stale.account}_ACCOUNT`);
                 if (!(await exitLeg(stale, `${sig.signal} FLIP`))) return "EXIT_PENDING";   // never open the new hedge on top of an unconfirmed one
             }
             if (want.state.position) return "OK";                                            // duplicate colour: already hedged
             if (want.blocked) { warnOnce(`blk:${want.key}`, `[HEDGE_CONTROLLER] ${want.key} is BLOCKED (${want.blockedReason || "see boot log"}) — no hedge`); return "OK"; }
             if (!loserBase.state.position) { warnOnce(`nobase:${loserBase.key}:${t.today}`, `[HEDGE_CONTROLLER] ${loserBase.key} is not open — nothing to hedge yet`); return "OK"; }
-            log(`[HEDGE_CONTROLLER] Signal=${sig.signal} Action=OPEN_${want.side}_NRML Account=${want.account}_ACCOUNT`);
+            log(`[HEDGE_CONTROLLER] Signal=${sig.signal} Action=OPEN_${want.side}_${hp(want)} Account=${want.account}_ACCOUNT`);
             await broker.enter(want, `${sig.signal} HEDGE`);
             return "OK";
         } finally { busy = false; }

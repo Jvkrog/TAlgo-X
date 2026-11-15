@@ -119,14 +119,15 @@ t("P5 PNL smoothing averages the last N samples", async () => {
     minute(clk, 3); px.price = 99; await c.tick();        // pnl samples 1,1,-1 -> mean 0.33 > 0 -> still no long hedge
     assert.ok(!orders.some(o => /LONG_HEDGE/.test(o)));
 });
-t("C1 carry: at EOD only the MIS bases close, the NRML hedge stays; no flips after EOD; the hedge is managed again next day", async () => {
+t("C1 carry: at EOD only the MIS hedge closes, the NRML bases stay; next day they are not entered again and the hedge is managed normally", async () => {
     const { c, orders, clk, legs } = make({ ctl: { carry: true } });
     await c.tick(); sig(c, clk, "GREEN"); await c.tick(); orders.length = 0;
     clk.hours = 23; clk.minutes = 20; assert.strictEqual(await c.tick(), "EOD_DONE");
-    assert.deepStrictEqual(orders.sort(), ["EXIT LONG_BASE (EOD)", "EXIT SHORT_BASE (EOD)"], "only the bases are closed");
-    assert.ok(!legs.LONG_BASE.state.position && !legs.SHORT_BASE.state.position && legs.SHORT_HEDGE.state.position, "hedge carried");
-    orders.length = 0; sig(c, clk, "RED"); await c.tick(); assert.deepStrictEqual(orders, [], "no hedge flips after EOD");
+    assert.deepStrictEqual(orders, ["EXIT SHORT_HEDGE (EOD)"], "only the hedge is closed");
+    assert.ok(legs.LONG_BASE.state.position && legs.SHORT_BASE.state.position && !legs.SHORT_HEDGE.state.position, "bases held");
+    orders.length = 0; sig(c, clk, "RED"); await c.tick(); assert.deepStrictEqual(orders, [], "no hedge after EOD");
     clk.today = "2026-11-13"; clk.hours = 9; clk.minutes = 15; clk.nowMs += 86400000; c.restore({ baseEnteredOn: {} });   // next morning
-    await c.tick(); assert.deepStrictEqual(orders.sort(), ["ENTER LONG_BASE NRML LONG (BASE)".replace("NRML ", "MIS "), "ENTER SHORT_BASE MIS SHORT (BASE)"].sort(), "bases re-enter, the carried hedge is untouched: " + orders);
+    await c.tick(); assert.deepStrictEqual(orders, [], "held bases are not entered again");
+    sig(c, clk, "RED"); await c.tick(); assert.deepStrictEqual(orders, ["ENTER LONG_HEDGE NRML SHORT (RED HEDGE)"], "hedge opens again on the new signal");
 });
 (async () => { let f = 0; for (const [n, fn] of T) { try { await fn(); console.log("  ok  ", n); } catch (e) { f++; console.log("  FAIL", n, "\n", e.stack); } } console.log(f ? f + " failed" : "all passed"); process.exit(f ? 1 : 0); })();

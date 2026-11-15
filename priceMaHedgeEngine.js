@@ -6,7 +6,7 @@
 //   HEDGE  GREEN -> the SHORT account (SHORT MIS is losing) opens a LONG NRML hedge; RED -> the LONG account opens a
 //          SHORT NRML hedge. A colour change closes the old hedge first (confirmed), then opens the new one. NEUTRAL
 //          keeps whatever is open.
-//   EOD    from the EOD time both NRML hedge and MIS bases are explicitly closed (hedge first, retried until flat),
+//   EOD    from the EOD time both NRML hedge and MIS bases are explicitly closed (hedge first, retried until flat; CARRY: only the MIS hedge),
 //          then the process reports and exits 0 (PM2 start needed next trading day).
 // Decisions: hedge/priceMaHedgeController.js (pure, unit-tested). Signal maths: hedge/priceMaSignal.js (pure). This
 // file is plumbing: users, contexts, ticker, order placement + FILL CONFIRMATION, DB/broker recovery, Telegram.
@@ -23,8 +23,9 @@
 //   PMA_EOD_HOUR / PMA_EOD_MINUTE     default context.js defaultEodFor("1m", exchange)
 //   PMA_MODE                      SLOPE (default: hedge follows the 1-minute price-MA colour) | PNL (each base is hedged against its OWN loss:
 //                                 base P&L < -PMA_PNL_BAND points -> open that account's NRML hedge, back above +band -> close it; checked once a minute)
-//   PMA_CARRY                     default false. true = the NRML HEDGE is carried overnight: at EOD only the MIS bases are closed; the hedge is recovered
-//                                 (DB + broker) and managed again the next day. MIS base and NRML hedge are separate broker rows, so nothing nets.
+//   PMA_CARRY                     default false. true = bases are NRML and held constant (long in the LONG account, short in the SHORT account, never closed by the
+//                                 engine, recovered on each start); the hedge is MIS (a separate broker row — an NRML sell would just close the long) and is
+//                                 closed at EOD by the engine, before the broker would square it off (which costs more).
 //   PMA_PNL_BAND                  default 0 (points)   PMA_PNL_SMOOTH  default 1 (average of the last N once-a-minute P&L samples; 1 = raw)
 //   PMA_MIN_SLOPE                 default 0   (|slope| <= this counts as NEUTRAL; 0 = exact zero as specified)
 //   PMA_CONFIRM_MINUTES           default 1   (same colour for N consecutive minutes before the hedge flips)
@@ -119,7 +120,7 @@ async function main() {
         context.name = context.name.replace("Dual Hedge", "Price MA Hedge");
         context.tgLabel = `Price MA Hedge ${key} (${user.name})`;
         context.carryOvernight = false;                          // product is fixed per leg below; the engine closes at EOD itself
-        context.product = kind === "HEDGE" ? "NRML" : "MIS";     // orders.js productFor(): one product per orders instance
+        context.product = (kind === "HEDGE") === CARRY ? "MIS" : "NRML";   // day mode: MIS base + NRML hedge; CARRY: NRML base (held) + MIS hedge     // orders.js productFor(): one product per orders instance
         context.eodHour = eodHour; context.eodMinute = eodMinute;
         const { tg } = createTelegram(context, engineConfig);
         const db = createDb(context); db.initDB();
@@ -170,7 +171,7 @@ async function main() {
     const token = legs.LONG_BASE.context.token;
     for (const l of L) if (l.context.token !== token) fail(`legs resolved to different contracts (${l.context.symbol} vs ${legs.LONG_BASE.context.symbol}) — pin one contract`);
     console.log(c.bold(`PRICE MA HEDGE  ${legs.LONG_BASE.context.symbol}  LONG:${longUser.name} (${legs.LONG_BASE.context.lots} lot)  SHORT:${shortUser.name} (${legs.SHORT_BASE.context.lots} lot)  base ${hhmm(baseHour, baseMinute)}  EOD ${hhmm(eodHour, eodMinute)}  minSlope ${MIN_SLOPE}  confirm ${CONFIRM}m`));
-    if (CARRY) console.log(c.bold("CARRY: the NRML hedge is left open overnight; only the MIS bases are closed at EOD (a carried hedge is recovered from the DB + broker on the next start)"));
+    if (CARRY) console.log(c.bold("CARRY: bases are NRML and held constant (never closed by the engine, recovered on each start); hedges are MIS and are closed at EOD"));
     if (MODE === "PNL") console.log(c.bold(`MODE=PNL: each base is hedged against its own loss (band ${PNL_BAND} pts, smooth ${PNL_SMOOTH}); the price MA is not used`));
 
     // ── prices ────────────────────────────────────────────────────────────────────────────────────
@@ -275,7 +276,7 @@ async function main() {
             const body = { date: todayIST(), instrument: legs.LONG_BASE.context.symbol, longUser: longUser.name, shortUser: shortUser.name,
                 signal: signal.getState(), controller: controller.getState(),
                 mode: MODE, hedges: hedgesOpen.map(h => ({ account: h.account, direction: h.side, lots: h.context.lots })),
-                hedge: hedge ? { account: hedge.account, direction: hedge.side, product: "NRML", lots: hedge.context.lots, status: "ACTIVE" } : null, savedAt: new Date().toISOString() };
+                hedge: hedge ? { account: hedge.account, direction: hedge.side, product: hedge.product, lots: hedge.context.lots, status: "ACTIVE" } : null, savedAt: new Date().toISOString() };
             fs.writeFileSync(stateFile + ".tmp", JSON.stringify(body)); fs.renameSync(stateFile + ".tmp", stateFile);
         } catch (e) { console.warn(`state file write failed: ${e.message}`); }
     }
@@ -317,8 +318,8 @@ async function main() {
 
     async function eodReportAndExit() {
         let total = 0; const lines = [];
-        for (const l of L) { const r = await l.db.getRealizedPnlToday(l.context.tgPrefix).catch(() => 0); total += r; lines.push(`${l.key.padEnd(11)} (${l.user.name}) realized ${positions.pnlStr(r)} | ${l.state.position ? l.state.position + (CARRY && l.kind === "HEDGE" ? " carried overnight @ " + l.state.entryPrice : " still OPEN") : "flat"}`); }
-        const report = `Price MA Hedge EOD${CARRY ? " — NRML hedge carried overnight" : ""} (${LIVE ? "LIVE" : "PAPER"}) — ${todayIST()}\n${lines.join("\n")}\ntotal ${positions.pnlStr(total)}`;
+        for (const l of L) { const r = await l.db.getRealizedPnlToday(l.context.tgPrefix).catch(() => 0); total += r; lines.push(`${l.key.padEnd(11)} (${l.user.name}) realized ${positions.pnlStr(r)} | ${l.state.position ? l.state.position + (CARRY && l.kind === "BASE" ? " held overnight @ " + l.state.entryPrice : " still OPEN") : "flat"}`); }
+        const report = `Price MA Hedge EOD${CARRY ? " — NRML bases held, MIS hedge closed" : ""} (${LIVE ? "LIVE" : "PAPER"}) — ${todayIST()}\n${lines.join("\n")}\ntotal ${positions.pnlStr(total)}`;
         console.log(c.bold(report.replace(/\n/g, "   ")));
         await legs.LONG_BASE.tg(report);
         console.log(c.bold("*** NORMAL SHUTDOWN ***"));

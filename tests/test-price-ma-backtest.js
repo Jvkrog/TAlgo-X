@@ -70,13 +70,15 @@ t("PNL mode: a wider band means fewer hedge cycles; smoothing and bad options va
     await run({ hedgeMode: "PNL", pnlSmooth: 5 });
     await assert.rejects(() => run({ hedgeMode: "PNL", pnlBand: -1 }));
 });
-t("carry: MIS bases still close daily, the NRML hedge runs across days, everything closes at the backtest end", async () => {
+t("carry: NRML bases are entered once and held across days; the MIS hedge is flat at every EOD; all closed at the backtest end", async () => {
     const r = await run({ carry: true });
     const bases = r.trades.filter(x => x.role === "BASE"), hs = r.trades.filter(x => x.role === "HEDGE");
-    assert.strictEqual(bases.length, 4, "bases enter every day");
-    assert.ok(bases.every(x => x.exit_reason === "EOD"), "bases close at EOD");
-    assert.ok(hs.some(h => new Date(h.exit_time).getTime() - new Date(h.entry_time).getTime() > 8 * 3600e3 && !/EOD/.test(h.exit_reason)), "a hedge outlived its day");
-    assert.ok(r.signalKind.includes("hedge carried overnight") && r.trades.every(x => x.status === "CLOSED"));
+    assert.strictEqual(bases.length, 2, "one base per account for the whole run");
+    assert.ok(bases.every(x => x.exit_reason === "BACKTEST_END"), "bases are only closed at the end");
+    assert.ok(hs.length >= 2 && hs.every(h => new Date(h.exit_time).getTime() - new Date(h.entry_time).getTime() < 17 * 3600e3), "hedges are intraday");
+    for (const day of ["2026-11-11", "2026-11-12"]) assert.ok(hs.some(h => h.entry_time.slice(0, 10) === day), "hedging happens every day: " + day);
+    assert.ok(hs.some(h => h.exit_reason === "EOD"), "hedges closed at EOD");
+    assert.ok(r.signalKind.includes("MIS hedge") && r.trades.every(x => x.status === "CLOSED"));
     for (const mode of ["SLOPE", "PNL"]) { const q = await run({ carry: true, hedgeMode: mode }); assert.ok(q.trades.every(x => x.status === "CLOSED")); }
 });
 (async () => { let f = 0; for (const [n, fn] of T) { try { await fn(); console.log("  ok  ", n); } catch (e) { f++; console.log("  FAIL", n, "\n", e.stack); } } console.log(f ? f + " failed" : "all passed"); process.exit(f ? 1 : 0); })();
