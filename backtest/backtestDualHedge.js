@@ -893,14 +893,14 @@ async function runDualHedgeBacktest({
     takeProfit = 3000, maxLoss = 3000,
     slMode = "RUPEES", atrSlMult, atrTimeframe = "1h",   // DUAL only — see replayDualHedge
     gapCapture = false, gcHour = 23, gcMinute = 20, gcQuitHour = 23, gcQuitMinute = 25,
-    baseHour = 9, baseMinute = 15, pnlBand = 0, pnlSmooth = 1, carry = false,
+    baseHour = 9, baseMinute = 15, pnlBand = 0, pnlSmooth = 1, carry = true,
     slippagePoints = 0, from, to, kc, progress,
 }) {
     strategy = String(strategy).toUpperCase();
     if (strategy !== "DUAL" && strategy !== "BIAS" && strategy !== "REALIZE" && strategy !== "PRICE_MA") throw new Error(`runDualHedgeBacktest: strategy must be DUAL, BIAS, REALIZE or PRICE_MA (got ${strategy})`);
     const isPma = strategy === "PRICE_MA";
     if (isPma) {
-        carry = carry === true;
+        carry = carry !== false;   // NRML bases held + MIS hedge is the standard mode
         pnlBand = Number(pnlBand) || 0; pnlSmooth = Number(pnlSmooth) || 1;
         if (!(pnlBand >= 0)) throw new Error("runDualHedgeBacktest: pnlBand must be >= 0");
         if (!(Number.isInteger(pnlSmooth) && pnlSmooth >= 1)) throw new Error("runDualHedgeBacktest: pnlSmooth must be a whole number >= 1");
