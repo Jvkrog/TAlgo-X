@@ -2974,7 +2974,7 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
     const baseHour = Number(bm[1]), baseMinute = Number(bm[2]);
     const eod = defaultEodFor("1m", "MCX");
     if (eod.eodHour * 60 + eod.eodMinute <= baseHour * 60 + baseMinute) { console.log(c.yellow("  Base time must be before EOD")); await pauseForReview(); return; }
-    const cIn = (await ask("  Positions: [D] flat at EOD (bases MIS)  [C] NRML carry overnight (bases NRML, nothing closed at EOD; engine exits at EOD and recovers them next start) (default D): ")).trim().toUpperCase();
+    const cIn = (await ask("  Positions: [D] flat at EOD (bases MIS)  [C] carry the NRML hedge overnight (at EOD only the MIS bases close; the engine exits and recovers the hedge next start) (default D): ")).trim().toUpperCase();
     if (cIn !== "" && cIn !== "D" && cIn !== "C") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
     const carry = cIn === "C";
     const hmIn = (await ask("  Hedge trigger: [M] 1-min price-MA slope colour  [L] each base's own loss (hedge while its P&L < 0) (default M): ")).trim().toUpperCase();
@@ -3438,7 +3438,7 @@ async function backtestDualHedgeFlow() {
         contractSymbol = await pickLegContract(repo, underlying, "BOTH ACCOUNTS");
         const bt = await askTime("Base entry time IST (LONG MIS + SHORT MIS)", 9, 15);
         opts.baseHour = bt.hour; opts.baseMinute = bt.minute;
-        opts.carry = (await askChoice("Positions: D = flat at EOD (bases MIS), C = NRML carry overnight (bases NRML, nothing closed at EOD) [D/C, default D]", { D: "DAY", C: "CARRY" }, "DAY")) === "CARRY";
+        opts.carry = (await askChoice("Positions: D = flat at EOD (bases MIS), C = carry the NRML hedge overnight (only MIS bases close at EOD) [D/C, default D]", { D: "DAY", C: "CARRY" }, "DAY")) === "CARRY";
         opts.hedgeMode = await askChoice("Hedge trigger: M = 1-min price-MA slope colour, L = each base's own loss (hedge when its P&L < 0, close when back > 0) [M/L, default M]", { M: "SLOPE", L: "PNL" }, "SLOPE");
         if (opts.hedgeMode === "PNL") {
             opts.pnlBand = await askNum("Loss band in price points (0 = hedge on any loss, default 0)", 0, { positive: false });
