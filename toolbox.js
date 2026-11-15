@@ -2974,7 +2974,9 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
     const baseHour = Number(bm[1]), baseMinute = Number(bm[2]);
     const eod = defaultEodFor("1m", "MCX");
     if (eod.eodHour * 60 + eod.eodMinute <= baseHour * 60 + baseMinute) { console.log(c.yellow("  Base time must be before EOD")); await pauseForReview(); return; }
-    const carry = true;   // NRML bases held constant + MIS hedge closed at EOD
+    const cIn = (await ask("  Positions: [C] carry overnight (NRML bases held constant, MIS hedge closed at EOD)  [D] day (MIS bases + NRML hedge, all flat at EOD) (default C): ")).trim().toUpperCase();
+    if (cIn !== "" && cIn !== "C" && cIn !== "D") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
+    const carry = cIn !== "D";
     const bandIn = (await ask("  Loss band in points (0 = hedge as soon as base P&L < 0, default 0): ")).trim();
     const pnlBand = bandIn ? Number(bandIn) : 0;
     if (!Number.isFinite(pnlBand) || pnlBand < 0) { console.log(c.yellow("  Invalid loss band")); await pauseForReview(); return; }
@@ -3422,7 +3424,7 @@ async function backtestDualHedgeFlow() {
         contractSymbol = await pickLegContract(repo, underlying, "BOTH ACCOUNTS");
         const bt = await askTime("Base entry time IST (LONG NRML + SHORT NRML)", 9, 15);
         opts.baseHour = bt.hour; opts.baseMinute = bt.minute;
-        opts.carry = true;   // NRML bases held constant + MIS hedge closed at EOD
+        opts.carry = (await askChoice("Positions: C = carry overnight (NRML bases held constant, MIS hedge closed at EOD), D = day (MIS bases + NRML hedge, flat at EOD) [C/D, default C]", { C: "CARRY", D: "DAY" }, "CARRY")) === "CARRY";
         opts.pnlBand = await askNum("Loss band in points (0 = hedge when base P&L < 0, default 0)", 0, { positive: false });
         opts.pnlSmooth = Math.max(1, Math.floor(await askNum("Smoothing: last N once-a-minute P&L samples (default 1 = raw)", 1)));
         console.log(c.dim("  Backtest checks P&L at each minute open; no brokerage/taxes. EOD is automatic."));
