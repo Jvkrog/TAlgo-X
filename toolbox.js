@@ -2975,12 +2975,12 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
     const baseHour = Number(bm[1]), baseMinute = Number(bm[2]);
     const eod = defaultEodFor("1m", "MCX");
     if (eod.eodHour * 60 + eod.eodMinute <= baseHour * 60 + baseMinute) { console.log(c.yellow("  Base time must be before EOD")); await pauseForReview(); return; }
-    const cIn = (await ask("  Positions: [D] day (MIS bases + NRML hedge, all flat at EOD)  [C] carry (NRML bases held constant, MIS hedge closed at EOD; the engine exits at EOD and recovers the bases next start) (default D): ")).trim().toUpperCase();
+    const cIn = (await ask("  Positions: [D] day (MIS bases + NRML hedge, all flat at EOD)  [C] carry (NRML bases held constant, MIS hedge closed at EOD; the engine exits at EOD and recovers the bases next start) (default C): ")).trim().toUpperCase();
     if (cIn !== "" && cIn !== "D" && cIn !== "C") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
-    const carry = cIn === "C";
-    const hmIn = (await ask("  Hedge trigger: [M] 1-min price-MA slope colour  [L] each base's own loss (hedge while its P&L < 0) (default M): ")).trim().toUpperCase();
+    const carry = cIn !== "D";
+    const hmIn = (await ask("  Hedge trigger: [M] 1-min price-MA slope colour  [L] each base's own loss (hedge while its P&L < 0) (default L): ")).trim().toUpperCase();
     if (hmIn !== "" && hmIn !== "M" && hmIn !== "L") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
-    const hedgeMode = hmIn === "L" ? "PNL" : "SLOPE";
+    const hedgeMode = hmIn === "M" ? "SLOPE" : "PNL";
     let minSlope = 0, confirmMinutes = 1, pnlBand = 0, pnlSmooth = 1;
     if (hedgeMode === "PNL") {
         const bIn = (await ask("  Loss band in price points (0 = any loss, default 0): ")).trim();
@@ -3439,8 +3439,8 @@ async function backtestDualHedgeFlow() {
         contractSymbol = await pickLegContract(repo, underlying, "BOTH ACCOUNTS");
         const bt = await askTime("Base entry time IST (LONG MIS + SHORT MIS)", 9, 15);
         opts.baseHour = bt.hour; opts.baseMinute = bt.minute;
-        opts.carry = (await askChoice("Positions: D = day (MIS bases + NRML hedge, flat at EOD), C = carry (NRML bases held constant, MIS hedge closed at EOD) [D/C, default D]", { D: "DAY", C: "CARRY" }, "DAY")) === "CARRY";
-        opts.hedgeMode = await askChoice("Hedge trigger: M = 1-min price-MA slope colour, L = each base's own loss (hedge when its P&L < 0, close when back > 0) [M/L, default M]", { M: "SLOPE", L: "PNL" }, "SLOPE");
+        opts.carry = (await askChoice("Positions: D = day (MIS bases + NRML hedge, flat at EOD), C = carry (NRML bases held constant, MIS hedge closed at EOD) [D/C, default C]", { D: "DAY", C: "CARRY" }, "CARRY")) === "CARRY";
+        opts.hedgeMode = await askChoice("Hedge trigger: M = 1-min price-MA slope colour, L = each base's own loss (hedge when its P&L < 0, close when back > 0) [M/L, default L]", { M: "SLOPE", L: "PNL" }, "PNL");
         if (opts.hedgeMode === "PNL") {
             opts.pnlBand = await askNum("Loss band in price points (0 = hedge on any loss, default 0)", 0, { positive: false });
             opts.pnlSmooth = Math.max(1, Math.floor(await askNum("Smooth over N once-a-minute P&L samples (1 = raw, default 1)", 1)));
