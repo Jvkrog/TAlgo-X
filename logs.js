@@ -24,6 +24,7 @@ let files = [];
 try { files = fs.readdirSync(dir).filter(f => /-(out|error)-color\.log$/.test(f)); } catch { /* handled below */ }
 // Only processes PM2 still knows about: log files of deleted processes stay on disk, so list from `pm2 jlist`.
 // (If pm2 can't be queried the old list-everything behaviour is kept.)
+const pmIds = new Map();   // log file -> pm2 id (shown like `pm2 logs`: "34|ZnmPric |")
 try {
     const out = require("child_process").execFileSync("pm2", ["jlist"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15000, maxBuffer: 64 * 1024 * 1024 });
     const list = JSON.parse(out.slice(out.indexOf("[")));
@@ -33,8 +34,8 @@ try {
     for (const p of list) for (const lp of [p.pm2_env && p.pm2_env.pm_out_log_path, p.pm2_env && p.pm2_env.pm_err_log_path]) {
         if (!lp) continue;
         const side = String(lp).replace(/\.log$/, "-color.log");
-        if (fs.existsSync(side)) live.push(path.isAbsolute(side) ? side : path.join(dir, path.basename(side)));
-        else if (fs.existsSync(lp)) live.push(lp);
+        const chosen = fs.existsSync(side) ? (path.isAbsolute(side) ? side : path.join(dir, path.basename(side))) : (fs.existsSync(lp) ? lp : null);
+        if (chosen) { live.push(chosen); pmIds.set(path.resolve(dir, chosen), p.pm_id); }
     }
     if (live.length) files = [...new Set(live)];
 } catch { /* pm2 unavailable: show every coloured log */ }
@@ -47,11 +48,12 @@ const strip = t => t.replace(/\x1b\[[0-9;]*m/g, "");
 const cols = () => Math.max(30, (process.stdout.columns || 80) - 1);
 // On a narrow screen the process tag is shortened so the log text keeps most of the width.
 const names = files.map(f => path.basename(f).replace(/-(out|error)(-color)?\.log$/, ""));
-const tagFor = (i, narrow) => {
-    let nm = names[i];
-    const max = narrow ? 8 : 28;
-    if (nm.length > max) nm = nm.slice(0, max - 1) + "…";
-    return { text: `\x1b[${PAL[i % PAL.length]}m${nm}\x1b[0m\x1b[2m|\x1b[0m `, w: nm.length + 2 };
+// Same look as `pm2 logs`: "<pm2 id>|<name, 7 chars padded to 8>| " — only the colour is added.
+const tagFor = i => {
+    const id = pmIds.get(path.resolve(dir, files[i]));
+    const nm = names[i].slice(0, 7).padEnd(8);
+    const label = (id === undefined ? "" : `${id}|`) + nm;
+    return { text: `\x1b[${PAL[i % PAL.length]}m${label}\x1b[0m\x1b[2m| \x1b[0m`, w: label.length + 2 };
 };
 const state = files.map((f, i) => ({ p: path.resolve(dir, f), i, pos: 0, rest: "" }));
 
@@ -69,7 +71,7 @@ function wrapAnsi(line, w1, w2) {
     return out;
 }
 function write(s, l) {
-    const c = cols(), narrow = c < 80, t = tagFor(s.i, narrow);
+    const c = cols(), narrow = c < 80, t = tagFor(s.i);
     // wide: wrapped rows hang under the log text; narrow: they use nearly the full width
     const hang = narrow ? 2 : t.w;
     const rows = wrapAnsi(l, Math.max(10, c - t.w), Math.max(10, c - hang));
@@ -87,7 +89,7 @@ for (const s of state) {
         const fd = fs.openSync(s.p, "r"), buf = Buffer.alloc(size - from);
         fs.readSync(fd, buf, 0, buf.length, from); fs.closeSync(fd);
         const lines = buf.toString("utf8").split("\n").filter(l => l.trim()).slice(-n);
-        process.stdout.write(`\x1b[2m${names[s.i]} · last ${lines.length} lines\x1b[0m\n`);
+        process.stdout.write(`\n${path.resolve(dir, files[s.i]).replace(/-color\.log$/, ".log")} last ${lines.length} lines:\n`);
         lines.forEach(l => write(s, l));
         s.pos = size;
     } catch { /* file vanished */ }
