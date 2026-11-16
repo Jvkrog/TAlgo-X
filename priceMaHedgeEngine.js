@@ -337,11 +337,21 @@ async function main() {
             const r = await controller.tick();
             if (r === "EOD_DONE") { finished = true; await eodReportAndExit(); return; }
             if (r === "EOD_PENDING") console.error(c.red("EOD flatten incomplete — retrying next poll"));
-            if (Date.now() - lastBeat >= 15 * 60 * 1000) {
+            if (Date.now() - lastBeat >= 5 * 60 * 1000) {
                 lastBeat = Date.now();
                 const px = await getLtp().catch(() => null);
-                const pos = L.filter(l => l.state.position).map(l => `${l.key}:${l.state.position}@${l.state.entryPrice.toFixed(2)}`).join("  ") || "flat";
-                console.log(c.dim(`[PMA] ${new Date().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })}  price ${px === null ? "-" : px.toFixed(2)}  ${pos}`));
+                const f = (v, d = 2) => (v >= 0 ? "+" : "") + v.toFixed(d);
+                const lines = [`[PMA] ${new Date().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })}  LTP ${px === null ? "-" : px.toFixed(2)}`];
+                let totU = 0, totR = 0;
+                for (const l of L) {
+                    const u = l.state.position && px !== null ? positions.unrealised(l.context, l.state, px) : 0;
+                    const pts = l.state.position && px !== null ? (l.state.position === "LONG" ? 1 : -1) * (px - l.state.entryPrice) : 0;
+                    totU += u; totR += (l.state.pnl || 0);
+                    const where = l.state.position ? `${l.state.position} @${l.state.entryPrice.toFixed(2)}` : "flat";
+                    lines.push(`   ${l.key.padEnd(11)} ${(l.user && l.user.name || "").padEnd(8)} ${where.padEnd(15)} ${l.state.position ? `${f(pts)} pts  ${f(u, 0)}` : "-"}${(l.state.pnl || 0) ? `   realized ${f(l.state.pnl, 0)}` : ""}`);
+                }
+                lines.push(`   ${"NET".padEnd(11)} ${"".padEnd(8)} ${"".padEnd(15)} unrealized ${f(totU, 0)}   realized ${f(totR, 0)}   total ${f(totU + totR, 0)}`);
+                console.log(c.dim(lines.join("\n")));
                 if (px !== null) emitLegPnl(true);
             }
         } catch (err) { console.error(c.red(`PMA loop error: ${err.message}`)); }
