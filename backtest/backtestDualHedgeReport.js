@@ -97,6 +97,24 @@ function equityChart(daily) {
 </svg>`;
 }
 
+// Inline SVG: cumulative realized P&L of one account's closed trades, one step per trade (in exit order).
+function tradePnlChart(trades, color) {
+    const closed = trades.filter(x => x.status === "CLOSED");
+    if (closed.length < 2) return `<div class="meta">not enough closed trades for a chart</div>`;
+    const W = 1000, H = 200, padL = 64, padR = 12, padT = 12, padB = 24;
+    let run = 0; const pts = [0].concat(closed.map(x => (run += (x.pnl || 0))));
+    const lo = Math.min(...pts, 0), hi = Math.max(...pts, 0), span = (hi - lo) || 1;
+    const x = i => padL + (i / (pts.length - 1)) * (W - padL - padR);
+    const y = v => padT + (1 - (v - lo) / span) * (H - padT - padB);
+    return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#161a22;border:1px solid #2a2e37;border-radius:8px">
+  <line x1="${padL}" x2="${W - padR}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="#3a3f4b" stroke-dasharray="4 4"/>
+  <polyline fill="none" stroke="${color}" stroke-width="1.8" points="${pts.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}"/>
+  <text x="6" y="${padT + 10}" fill="#9aa0ab" font-size="11">${fmtMoney(hi)}</text>
+  <text x="6" y="${H - padB}" fill="#9aa0ab" font-size="11">${fmtMoney(lo)}</text>
+  <text x="${W - padR - 4}" y="${padT + 10}" fill="${color}" font-size="11" text-anchor="end">cumulative realized P&amp;L (closed trades)</text>
+</svg>`;
+}
+
 function renderDualHedgeHtml(report) {
     let running = 0;
     const isBias = report.params.strategy === "BIAS";
@@ -105,7 +123,9 @@ function renderDualHedgeHtml(report) {
     const isPnl = isPma && report.params.hedgeMode === "PNL";
     const isCarry = isPma && report.params.carry === true;
     const hedgeProd = isCarry ? "MIS" : "NRML";
-    const rows = report.trades
+    const rowsFor = list => {
+        let running = 0;
+        return list
         .filter(t => t.status === "CLOSED")
         .map(t => {
             const pnlClass = (t.pnl || 0) >= 0 ? "pos" : "neg";
@@ -125,7 +145,28 @@ function renderDualHedgeHtml(report) {
             </tr>`;
         })
         .join("");
-
+    };
+    const tradeTable = (list, runningLabel) => `<table><thead><tr>
+  <th>Acct</th>${isBias || isPma ? "<th>Role</th>" : ""}<th>Entry Time (IST)</th><th>Side</th><th>Entry</th><th>Exit Time (IST)</th><th>Exit</th><th>PnL</th><th>MAE</th><th>Flipped</th><th>${runningLabel}</th><th>Reason</th>
+</tr></thead><tbody>${rowsFor(list) || `<tr><td colspan="12">no closed trades in this range</td></tr>`}</tbody></table>`;
+    const closedOf = list => list.filter(x => x.status === "CLOSED");
+    const longT = report.trades.filter(x => x.leg === "LONG"), shortT = report.trades.filter(x => x.leg === "SHORT");
+    const byRole = list => { const c = closedOf(list), n = r => c.filter(x => x.role === r).length, sum = r => c.filter(x => x.role === r).reduce((a, x) => a + (x.pnl || 0), 0);
+        return isBias || isPma ? `<div class="meta">${["BASE", "CORE", "HEDGE"].filter(r => n(r)).map(r => `${r} ${n(r)} trades, net ${fmtMoney(sum(r))}`).join(" \u00b7 ")}</div>` : ""; };
+    const pane = (id, label, list, m, color, extra) => `<div class="pane" id="pane-${id}">
+<h2>${label}</h2>
+${extra || ""}${metricsCards(m)}
+${byRole(list)}
+<div style="margin-top:12px">${tradePnlChart(list, color)}</div>
+<h2>Trades (${m.trades})${id === "all" ? " \u2014 gold rows are the SHORT account" : ""}${isBias ? "; Role = CORE (daily-bias leg) or HEDGE" : ""}</h2>
+${tradeTable(list, id === "all" ? "Combined PnL" : "Running PnL")}
+</div>`;
+    const wu = report.mtm.worstUnrealized || {};
+    const panes = pane("all", "Combined (LONG + SHORT, closed trades)", report.trades, report.metrics.combined, "#3ecf8e")
+        + pane("long", "LONG account", longT, report.metrics.long, "#3ecf8e", `<div class="meta">Worst unrealized (MTM): <span class="neg">${fmtMoney(wu.LONG || 0)}</span></div>`)
+        + pane("short", "SHORT account", shortT, report.metrics.short, "#c9a86a", `<div class="meta">Worst unrealized (MTM): <span class="neg">${fmtMoney(wu.SHORT || 0)}</span></div>`);
+    const tabs = `<div class="tabs"><button class="tab active" data-p="all">Combined</button><button class="tab" data-p="long">LONG account</button><button class="tab" data-p="short">SHORT account</button></div>`;
+    const tabJs = `<script>(function(){var t=document.querySelectorAll(".tab"),p=document.querySelectorAll(".pane");function show(id){t.forEach(function(b){b.classList.toggle("active",b.dataset.p===id)});p.forEach(function(e){e.style.display=e.id==="pane-"+id?"block":"none"})}t.forEach(function(b){b.addEventListener("click",function(){show(b.dataset.p)})});show("all")})();</script>`;
     const p = report.params, s = report.stats;
     const gap = p.gapCapture ? `gap capture ${p.gapCapture.time}\u2192${p.gapCapture.quit}` : "no gap capture";
     const title = isPma
@@ -177,6 +218,11 @@ th{background:#161a22} td:first-child,th:first-child{text-align:left}
 .card .label{font-size:11px;color:#9aa0ab} .card .value{font-size:20px;margin-top:4px;font-weight:600}
 .pos{color:#3ecf8e}.neg{color:#f0616d}
 .short-leg td{color:#c9a86a}
+.tabs{display:flex;gap:8px;margin-top:24px;border-bottom:1px solid #2a2e37}
+.tab{background:#161a22;color:#9aa0ab;border:1px solid #2a2e37;border-bottom:none;border-radius:8px 8px 0 0;padding:8px 18px;font-size:14px;cursor:pointer}
+.tab.active{background:#0b0d12;color:#e6e6e6;border-color:#3ecf8e}
+.pane{display:none}
+.pane h2:first-child{margin-top:16px}
 .note{color:#9aa0ab;font-size:12px;margin-top:6px}
 </style></head><body>
 <h1>${title}</h1>
@@ -188,23 +234,13 @@ ${mtmCards(report.mtm)}
 <div style="margin-top:12px">${equityChart(report.mtm.daily)}</div>
 <div class="note">Max MTM drawdown ${fmtMoney(report.mtm.maxDrawdown)}${report.mtm.maxDrawdownAt ? ` (bottomed ${esc(report.mtm.maxDrawdownAt)})` : ""}. ${carryNote}</div>
 
-<h2>Combined (LONG + SHORT, closed trades)</h2>
-${metricsCards(report.metrics.combined)}
-
-<h2>LONG account only</h2>
-${metricsCards(report.metrics.long)}
-
-<h2>SHORT account only</h2>
-${metricsCards(report.metrics.short)}
-
 <h2>Activity</h2>
 <div class="meta">${activity}</div>
 
-<h2>Trades (${report.metrics.combined.trades}) \u2014 gold rows are the SHORT account${isBias ? "; Role = CORE (daily-bias leg) or HEDGE" : ""}</h2>
-<table><thead><tr>
-  <th>Acct</th>${isBias || isPma ? "<th>Role</th>" : ""}<th>Entry Time (IST)</th><th>Side</th><th>Entry</th><th>Exit Time (IST)</th><th>Exit</th><th>PnL</th><th>MAE</th><th>Flipped</th><th>Combined PnL</th><th>Reason</th>
-</tr></thead><tbody>${rows || `<tr><td colspan="12">no closed trades in this range</td></tr>`}</tbody></table>
+${tabs}
+${panes}
 <div class="note">MAE = worst unrealized PnL during the trade. Times are UTC ISO (IST = +5:30). Fills are modeled from 1-minute OHLC \u2014 see backtestDualHedge.js's header for the assumptions.</div>
+${tabJs}
 </body></html>`;
 }
 
