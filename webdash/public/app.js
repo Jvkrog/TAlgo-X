@@ -378,6 +378,8 @@ async function loadHedgePairs() {
 let dualHedges = [];
 let dualHedgeLegIndex = new Map(); // tgPrefix -> {dealName, leg:"long"|"short"}
 const dualHedgeLegPnl = new Map(); // tgPrefix -> last {uPnl, session}
+const pmaLegState = new Map();
+let pmaLastPrice = new Map();     // underlying -> last LTP
 
 function dualHedgeStrategyText(d) {
   if (d.strategy === "REALIZE") {
@@ -411,7 +413,18 @@ function buildDualHedgeCard(d) {
     <div class="card-price-row">
       <span class="card-price">LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot ${d.strategy === "PRICE_MA" ? (d.carry ? "each \u00b7 NRML base + MIS hedge" : "each \u00b7 MIS base + NRML hedge") : d.strategy === "BIAS" ? (d.coreEod === "CARRY" ? "each \u00b7 core carried" : "each \u00b7 flat at EOD") : "NRML each"}</span>
     </div>
+    ${d.strategy === "PRICE_MA" ? `<div class="pnl-row">
+      <div class="pnl-box"><span class="pnl-label">LONG base (${d.longUser})</span><span class="pnl-value flat" data-role="LONG_BASE-pnl">+0</span><span class="pnl-label" data-role="LONG_BASE-pos">flat</span></div>
+      <div class="pnl-box"><span class="pnl-label">LONG hedge (${d.longUser})</span><span class="pnl-value flat" data-role="LONG_HEDGE-pnl">+0</span><span class="pnl-label" data-role="LONG_HEDGE-pos">flat</span></div>
+      <div class="pnl-box"><span class="pnl-label">SHORT base (${d.shortUser})</span><span class="pnl-value flat" data-role="SHORT_BASE-pnl">+0</span><span class="pnl-label" data-role="SHORT_BASE-pos">flat</span></div>
+      <div class="pnl-box"><span class="pnl-label">SHORT hedge (${d.shortUser})</span><span class="pnl-value flat" data-role="SHORT_HEDGE-pnl">+0</span><span class="pnl-label" data-role="SHORT_HEDGE-pos">flat</span></div>
+    </div>
     <div class="pnl-row">
+      <div class="pnl-box"><span class="pnl-label">LTP</span><span class="pnl-value flat" data-role="pma-ltp">-</span></div>
+      <div class="pnl-box"><span class="pnl-label">Unrealized</span><span class="pnl-value flat" data-role="unrealized">+0</span></div>
+      <div class="pnl-box"><span class="pnl-label">Realized</span><span class="pnl-value flat" data-role="realized">+0</span></div>
+      <div class="pnl-box"><span class="pnl-label">Net</span><span class="pnl-value flat" data-role="net">+0</span></div>
+    </div>` : `    <div class="pnl-row">
       <div class="pnl-box">
         <span class="pnl-label">LONG (${d.longUser})</span>
         <span class="pnl-value flat" data-role="long-pnl">+0</span>
@@ -428,7 +441,7 @@ function buildDualHedgeCard(d) {
         <span class="pnl-label">Realized</span>
         <span class="pnl-value flat" data-role="realized">+0</span>
       </div>
-    </div>
+    </div>`}
     <div class="card-controls">
       <button class="btn btn-start" data-action="start">Start</button>
       <button class="btn btn-stop" data-action="stop">Stop</button>
@@ -475,6 +488,35 @@ function updateDualHedgeLeg(engine, uPnl, session) {
   if (rEl) { rEl.textContent = fmtSigned(totalRealized); rEl.className = `pnl-value ${cls(totalRealized)}`; }
 }
 
+const PMA_KEYS = ["LONG_BASE", "LONG_HEDGE", "SHORT_BASE", "SHORT_HEDGE"];
+function updatePmaLeg(msg) {
+  const m = /^(.+)_PMA_(LONG_BASE|LONG_HEDGE|SHORT_BASE|SHORT_HEDGE)$/.exec(String(msg.engine || ""));
+  if (!m) return false;
+  const [, underlying, key] = m;
+  pmaLegState.set(msg.engine, { uPnl: Number(msg.uPnl) || 0, session: Number(msg.session) || 0, position: msg.position || null, entryPrice: msg.entryPrice });
+  if (Number.isFinite(Number(msg.price))) pmaLastPrice.set(underlying, Number(msg.price));
+  paintPmaCards(underlying);
+  return true;
+}
+function paintPmaCards(underlying) {
+  dualHedges.filter(d => d.strategy === "PRICE_MA" && d.underlying === underlying).forEach(d => {
+    const el = document.getElementById(`dh-${d.name}`); if (!el) return;
+    let u = 0, s = 0;
+    PMA_KEYS.forEach(k => {
+      const st = pmaLegState.get(`${underlying}_PMA_${k}`) || { uPnl: 0, session: 0, position: null };
+      u += st.uPnl; s += st.session;
+      const pEl = el.querySelector(`[data-role="${k}-pnl"]`);
+      if (pEl) { pEl.textContent = fmtSigned(st.session); pEl.className = `pnl-value ${cls(st.session)}`; }
+      const posEl = el.querySelector(`[data-role="${k}-pos"]`);
+      if (posEl) posEl.textContent = st.position ? `${st.position} @${Number(st.entryPrice).toFixed(2)}` : "flat";
+    });
+    const set = (role, v) => { const e = el.querySelector(`[data-role="${role}"]`); if (e) { e.textContent = fmtSigned(v); e.className = `pnl-value ${cls(v)}`; } };
+    set("unrealized", u); set("realized", s - u); set("net", s);
+    const l = el.querySelector('[data-role="pma-ltp"]'); const px = pmaLastPrice.get(underlying);
+    if (l && px !== undefined) l.textContent = px.toFixed(2);
+  });
+}
+
 async function loadDualHedges() {
   try {
     const data = await (await fetch("/api/toolbox/dualhedge")).json();
@@ -493,6 +535,7 @@ async function loadDualHedges() {
       dualHedgeLegIndex.set(`${d.underlying}_DH_SHORT`, { ...legMeta, leg: "short" });
     });
     // The grid was just rebuilt with +0 placeholders: paint the last known numbers straight back (otherwise it blanks until the next tick).
+    dualHedges.forEach(d => { if (d.strategy === "PRICE_MA") paintPmaCards(d.underlying); });
     dualHedges.forEach(d => { updateDualHedgeLeg(`${d.underlying}_DH_LONG`, undefined, undefined); updateDualHedgeLeg(`${d.underlying}_DH_SHORT`, undefined, undefined); });
   } catch (err) {
     // best-effort, same as loadHedgePairs
@@ -935,6 +978,7 @@ function handleEvent(msg) {
   // Live price stream (chart + card price). Never replayed, never logged.
   if (msg.type === "LTP") {
     if (window.chartOnLtp) window.chartOnLtp(msg);
+    if (updatePmaLeg(msg)) return;
     cardsForEvent(msg.engine, msg.proc).forEach(i => {
       const el = document.getElementById(cardId(i));
       if (el) paintPrice(el, i, Number(msg.price));
