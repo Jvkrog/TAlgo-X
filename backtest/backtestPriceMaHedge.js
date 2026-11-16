@@ -27,7 +27,7 @@ const sgn = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
 async function replayPriceMaHedge({
     longCtx, shortCtx, candles, tradeFromMs,
     baseHour = 9, baseMinute = 15, eodHour = 23, eodMinute = 15,
-    pnlBand = 0, pnlSmooth = 1, carry = false,
+    pnlBand = 0, pnlSmooth = 1, checkMinutes = 1, carry = false,
     slippagePoints = 0, progress, verbose = true,
 }) {
     if (!candles.length) throw new Error("replayPriceMaHedge: no candles");
@@ -87,7 +87,7 @@ async function replayPriceMaHedge({
     const controller = createPriceMaHedgeController({
         legs, broker, clock: () => ({ today: dayKeyIST(new Date(nowMs)), hours: Math.floor(minuteOfDay(nowMs) / 60), minutes: minuteOfDay(nowMs) % 60, nowMs }),
         baseHour, baseMinute, eodHour, eodMinute, maxPriceAgeMs: 150 * 1000, log: m => log(c.dim(m)),
-        carry, pnlBand, pnlSmooth, getPrice: () => ({ price: execPx, atMs: nowMs }),   // the decision is taken at the minute's open
+        carry, pnlBand, pnlSmooth, checkMinutes, getPrice: () => ({ price: execPx, atMs: nowMs }),   // the decision is taken at the minute's open
     });
 
     const unreal = leg => leg.state.position ? positions.unrealised(leg.ctx, leg.state, lastClose) : 0;
@@ -146,7 +146,7 @@ async function replayPriceMaHedge({
     return {
         longTrades, shortTrades, trades, stats,
         mtm: { finalEquity: realized(), peak, trough, maxDrawdown: maxDD, maxDrawdownAt: ddAt ? ddAt.toISOString() : null, worstUnrealized: { LONG: worst("LONG"), SHORT: worst("SHORT") }, daily, series },
-        signalBars: stats.signalMinutes, signalKind: (carry ? "NRML bases held, MIS hedge closed at EOD \u00b7 " : "") + `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}; decided once a minute at the minute open)`,
+        signalBars: stats.signalMinutes, signalKind: (carry ? "NRML bases held, MIS hedge closed at EOD \u00b7 " : "") + `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}; decided every ${checkMinutes} min at the minute open)`,
     };
 }
 

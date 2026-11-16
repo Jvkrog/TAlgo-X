@@ -2742,7 +2742,7 @@ function pmaDeployment(p) {
         contractSymbol: e.PMA_CONTRACT_OVERRIDE || null,
         baseTime: hhmmPad(e.PMA_BASE_HOUR ?? 9, e.PMA_BASE_MINUTE ?? 15),
         eodTime: (e.PMA_EOD_HOUR !== undefined && e.PMA_EOD_HOUR !== "") ? hhmmPad(e.PMA_EOD_HOUR, e.PMA_EOD_MINUTE ?? 0) : null,
-        carry: String(e.PMA_CARRY).toLowerCase() !== "false", pnlBand: e.PMA_PNL_BAND || "0", pnlSmooth: e.PMA_PNL_SMOOTH || "1",
+        carry: String(e.PMA_CARRY).toLowerCase() !== "false", pnlBand: e.PMA_PNL_BAND || "0", pnlSmooth: e.PMA_PNL_SMOOTH || "1", checkMin: e.PMA_CHECK_MINUTES || "1",
         outLogPath: p.pm2_env.pm_out_log_path, errLogPath: p.pm2_env.pm_err_log_path,
     };
 }
@@ -2898,7 +2898,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
         coreSignal: coreSignalIn, bandHa: bandHaIn, coreEod: coreEodIn, coreAccount: coreAccountIn, flipCore: flipCoreIn,
         realizeRupees, lossAlertRupees, contractSymbol, longContract, shortContract,
-        baseTime, pnlBand, pnlSmooth, carry,
+        baseTime, pnlBand, pnlSmooth, checkMin, carry,
     } = req.body || {};
 
     const strategy = String(strategyIn || "DUAL").toUpperCase();
@@ -2967,6 +2967,8 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         if (!eod) return res.status(400).json({ error: "EodTime must be HH:MM (IST)" });
         if (eod.hour * 60 + eod.minute <= base.hour * 60 + base.minute) return res.status(400).json({ error: "BaseTime must be before EOD" });
         const pb = pnlBand === undefined || pnlBand === "" ? 0 : Number(pnlBand), ps = pnlSmooth === undefined || pnlSmooth === "" ? 1 : Number(pnlSmooth);
+        const cm = checkMin === undefined || checkMin === "" ? 1 : Number(checkMin);
+        if (!(Number.isInteger(cm) && cm >= 1 && cm <= 60)) return res.status(400).json({ error: "CheckMin must be a whole number 1-60" });
         if (!(pb >= 0)) return res.status(400).json({ error: "PnlBand must be >= 0" });
         if (!(Number.isInteger(ps) && ps >= 1)) return res.status(400).json({ error: "PnlSmooth must be a whole number >= 1" });
         const pmaEnv = {
@@ -2974,7 +2976,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
             PMA_LOTS_OVERRIDE: env.DH_LOTS_OVERRIDE, LIVE_ORDERS_OVERRIDE: env.LIVE_ORDERS_OVERRIDE,
             PMA_CONTRACT_OVERRIDE: env.DH_CONTRACT_OVERRIDE,   // always written (PM2 restart merges env)
             PMA_BASE_HOUR: String(base.hour), PMA_BASE_MINUTE: String(base.minute), PMA_EOD_HOUR: String(eod.hour), PMA_EOD_MINUTE: String(eod.minute),
-            PMA_PNL_BAND: String(pb), PMA_PNL_SMOOTH: String(ps), PMA_CARRY: String(carry !== false),   // always written (PM2 restart merges env)
+            PMA_PNL_BAND: String(pb), PMA_PNL_SMOOTH: String(ps), PMA_CHECK_MINUTES: String(cm), PMA_CARRY: String(carry !== false),   // always written (PM2 restart merges env)
         };
         if (lotMultOverride) pmaEnv.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
         try {
@@ -3094,6 +3096,7 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
             opts.carry = b.carry !== false;                // NRML bases held + MIS hedge is the standard mode
             opts.pnlBand = Math.max(0, Number(b.pnlBand) || 0);
             opts.pnlSmooth = Math.max(1, Math.floor(Number(b.pnlSmooth) || 1));
+            opts.checkMinutes = Math.min(60, Math.max(1, Math.floor(Number(b.checkMin) || 1)));
         } else if (strategy === "REALIZE") {
             opts.realizeRupees = Number(b.realizeRupees) || 3000;
             opts.lossAlertRupees = Number(b.lossAlertRupees) || 0;

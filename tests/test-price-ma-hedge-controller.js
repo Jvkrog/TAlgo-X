@@ -76,6 +76,18 @@ t("1 base legs entered once per day at the base time, never re-entered", async (
     assert.deepStrictEqual(orders, ["ENTER LONG_BASE MIS LONG (BASE)", "ENTER SHORT_BASE MIS SHORT (BASE)"]);
     legs.LONG_BASE.state.position = null; await c.tick(); assert.strictEqual(orders.length, 2);
 });
+t("P2b checkMinutes=5: only clock-aligned minutes (:00,:05,...) decide; other minutes never hedge", async () => {
+    const { c, orders, clk, legs, px } = pnlSetup({ checkMinutes: 5 }); clk.minutes = 0; await c.tick(); legs.LONG_BASE.state.entryPrice = 100; legs.SHORT_BASE.state.entryPrice = 100; orders.length = 0;
+    px.price = 99; for (const m of [1, 2, 3, 4]) { minute(clk, m); await c.tick(); }
+    assert.strictEqual(orders.length, 0, "minutes 1-4 are not check minutes");
+    minute(clk, 5); await c.tick();
+    assert.deepStrictEqual(orders, ["ENTER LONG_HEDGE NRML SHORT (BASE LOSS HEDGE)"]);
+    px.price = 101; for (const m of [6, 7, 8, 9]) { minute(clk, m); await c.tick(); }
+    assert.strictEqual(orders.length, 1, "hedge stays on until the next check minute");
+    minute(clk, 10); await c.tick();
+    assert.strictEqual(orders[1], "EXIT LONG_HEDGE (BASE BACK IN PROFIT)");
+});
+t("P2c checkMinutes must be 1-60", () => { assert.throws(() => make({ ctl: { checkMinutes: 0.5 } }).c || (() => { throw new Error("x"); })()); });
 t("P6 a rejected hedge entry leaves state clean and retries", async () => {
     const k = pnlSetup({}); k.failEnter.add("LONG_HEDGE"); await k.c.tick(); minute(k.clk, 1); k.px.price = 99; await k.c.tick();
     assert.strictEqual(k.legs.LONG_HEDGE.state.position, null); k.failEnter.clear(); await k.c.tick();

@@ -2726,6 +2726,9 @@ async function addHedgePair() {
     const carryInput = (await ask("  Core at EOD  [1] Carry overnight (NRML)  [2] Close at EOD (MIS) (default 1): ")).trim();
     const carryOvernight = carryInput !== "2";
 
+    const ckIn = (await ask("  Check hedge every N minutes (1 = every minute, 5 = at :00/:05/…; default 1): ")).trim();
+    const checkMin = ckIn ? Number(ckIn) : 1;
+    if (!Number.isInteger(checkMin) || checkMin < 1 || checkMin > 60) { console.log(c.yellow("  Invalid check interval")); await pauseForReview(); return; }
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
@@ -2982,7 +2985,7 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
     const bandIn = (await ask("  Loss band in points (0 = hedge as soon as base P&L < 0, default 0): ")).trim();
     const pnlBand = bandIn ? Number(bandIn) : 0;
     if (!Number.isFinite(pnlBand) || pnlBand < 0) { console.log(c.yellow("  Invalid loss band")); await pauseForReview(); return; }
-    const smIn = (await ask("  Smoothing: average of the last N once-a-minute P&L samples (default 1 = raw): ")).trim();
+    const smIn = (await ask("  Smoothing: average of the last N P&L samples (one per check) (default 1 = raw): ")).trim();
     const pnlSmooth = smIn ? Number(smIn) : 1;
     if (!Number.isInteger(pnlSmooth) || pnlSmooth < 1) { console.log(c.yellow("  Invalid smoothing")); await pauseForReview(); return; }
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
@@ -2998,7 +3001,7 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
         PMA_UNDERLYING: underlying, PMA_LONG_USER: longUser.name, PMA_SHORT_USER: shortUser.name, PMA_EXCHANGE_OVERRIDE: "MCX",
         PMA_LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), PMA_CONTRACT_OVERRIDE: contractSymbol || "",
         PMA_BASE_HOUR: String(baseHour), PMA_BASE_MINUTE: String(baseMinute), PMA_EOD_HOUR: String(eod.eodHour), PMA_EOD_MINUTE: String(eod.eodMinute),
-        PMA_PNL_BAND: String(pnlBand), PMA_PNL_SMOOTH: String(pnlSmooth), PMA_CARRY: String(carry),
+        PMA_PNL_BAND: String(pnlBand), PMA_PNL_SMOOTH: String(pnlSmooth), PMA_CHECK_MINUTES: String(checkMin), PMA_CARRY: String(carry),
     };
     if (lotMultOverride) env.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
     try {
@@ -3428,7 +3431,8 @@ async function backtestDualHedgeFlow() {
         opts.baseHour = bt.hour; opts.baseMinute = bt.minute;
         opts.carry = (await askChoice("Positions: C = carry overnight (NRML bases held constant, MIS hedge closed at EOD), D = day (MIS bases + NRML hedge, flat at EOD) [C/D, default C]", { C: "CARRY", D: "DAY" }, "CARRY")) === "CARRY";
         opts.pnlBand = await askNum("Loss band in points (0 = hedge when base P&L < 0, default 0)", 0, { positive: false });
-        opts.pnlSmooth = Math.max(1, Math.floor(await askNum("Smoothing: last N once-a-minute P&L samples (default 1 = raw)", 1)));
+        opts.pnlSmooth = Math.max(1, Math.floor(await askNum("Smoothing: last N P&L samples (one per check) (default 1 = raw)", 1)));
+        opts.checkMinutes = Math.min(60, Math.max(1, Math.floor(await askNum("Check hedge every N minutes (default 1)", 1))));
         console.log(c.dim("  Backtest checks P&L at each minute open; no brokerage/taxes. EOD is automatic."));
     } else if (strategy === "BIAS") {
         opts.longContract  = await pickLegContract(repo, underlying, "LONG ACCOUNT");

@@ -10,7 +10,7 @@
 // Each base is hedged against ITS OWN loss, evaluated once per IST minute at the latest price:
 //     base P&L (points, vs its entry) < -pnlBand  -> open that account's hedge
 //     base P&L > +pnlBand and its hedge is open   -> close the hedge; in between nothing changes.
-// The two accounts are independent, so both hedges can be open at once. pnlSmooth N averages the last N once-a-minute P&L samples
+// The two accounts are independent, so both hedges can be open at once. pnlSmooth N averages the last N P&L samples (one per check)
 // before the test (1 = the raw latest value). A failed/unconfirmed order leaves everything as it was and is retried within the minute.
 //
 // carry (the standard mode): the BASES are NRML (opened once, never closed by the engine, picked up again on every start) and the HEDGES
@@ -22,7 +22,7 @@
 // resolve true ONLY on a confirmed fill/flat (state is already updated by then); false leaves everything as it was.
 "use strict";
 
-function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxPriceAgeMs = 150 * 1000, carry = false, getPrice = () => null, pnlBand = 0, pnlSmooth = 1, log = () => {} }) {
+function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxPriceAgeMs = 150 * 1000, carry = false, getPrice = () => null, pnlBand = 0, pnlSmooth = 1, checkMinutes = 1, log = () => {} }) {
     const { LONG_BASE, SHORT_BASE, LONG_HEDGE, SHORT_HEDGE } = legs;
     if (!(LONG_BASE && SHORT_BASE && LONG_HEDGE && SHORT_HEDGE)) throw new Error("priceMaHedgeController: needs LONG_BASE, SHORT_BASE, LONG_HEDGE, SHORT_HEDGE");
     const baseMin = carry ? 0 : baseHour * 60 + baseMinute, eodMin = eodHour * 60 + eodMinute;
@@ -38,10 +38,13 @@ function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinut
 
     const hp = l => (l.context && l.context.product) || (carry ? "MIS" : "NRML");
     if (!(pnlBand >= 0)) throw new Error("priceMaHedgeController: pnlBand must be >= 0");
+    const chkN = Math.floor(Number(checkMinutes) || 1);
+    if (!(chkN >= 1 && chkN <= 60)) throw new Error("priceMaHedgeController: checkMinutes must be a whole number 1-60");
     const smoothN = Math.max(1, Math.floor(Number(pnlSmooth) || 1));
     let pnlSamples = { LONG_BASE: [], SHORT_BASE: [] }, lastEval = { today: null, min: -1 };
 
     async function pnlHedges(t, nowMin) {
+        if (nowMin % chkN !== 0) return "OK";                                         // checkMinutes N: only on clock-aligned minutes (:00, :05, … for 5)
         if (lastEval.today === t.today && lastEval.min === nowMin) return "OK";      // once per IST minute (retried within it only if an order was left pending)
         const q = getPrice();
         if (!q || !(q.price > 0) || t.nowMs - q.atMs > maxPriceAgeMs) { warnOnce(`pxstale:${t.today}:${nowMin}`, "[HEDGE_CONTROLLER] no fresh price — hedge check skipped"); return "OK"; }

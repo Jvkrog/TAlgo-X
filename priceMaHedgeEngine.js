@@ -21,7 +21,7 @@
 //   PMA_CARRY                     default TRUE (false = day mode: MIS bases + NRML hedge, all flat at EOD). true = bases are NRML and held constant (long in the LONG account, short in the SHORT account, never closed by the
 //                                 engine, recovered on each start); the hedge is MIS (a separate broker row — an NRML sell would just close the long) and is
 //                                 closed at EOD by the engine, before the broker would square it off (which costs more).
-//   PMA_PNL_BAND                  default 0 (points)   PMA_PNL_SMOOTH  default 1 (average of the last N once-a-minute P&L samples; 1 = raw)
+//   PMA_PNL_BAND                  default 0 (points)   PMA_CHECK_MINUTES default 1 (P&L check every N clock-aligned minutes: 5 = :00,:05,…)   PMA_PNL_SMOOTH  default 1 (average of the last N P&L samples (one per check); 1 = raw)
 //   PMA_STALE_SECONDS             default 150 (a price older than this never opens/closes a hedge)
 //   PMA_POLL_MS                   default 5000 (decision loop)
 //   LIVE_ORDERS_OVERRIDE          "true" | "false"
@@ -63,9 +63,10 @@ async function main() {
     if (LONG_USER.toUpperCase() === SHORT_USER.toUpperCase()) fail("PMA_LONG_USER and PMA_SHORT_USER must be two different accounts");
     const EXCHANGE = process.env.PMA_EXCHANGE_OVERRIDE || "MCX";
     const CARRY = String(process.env.PMA_CARRY || "true").toLowerCase() !== "false";
-    const PNL_BAND = envNum(process.env.PMA_PNL_BAND, 0), PNL_SMOOTH = envInt(process.env.PMA_PNL_SMOOTH, 1);
+    const PNL_BAND = envNum(process.env.PMA_PNL_BAND, 0), PNL_SMOOTH = envInt(process.env.PMA_PNL_SMOOTH, 1), CHECK_MIN = envInt(process.env.PMA_CHECK_MINUTES, 1);
     if (!(PNL_BAND >= 0)) fail("PMA_PNL_BAND must be >= 0");
     if (!(Number.isInteger(PNL_SMOOTH) && PNL_SMOOTH >= 1)) fail("PMA_PNL_SMOOTH must be a whole number >= 1");
+    if (!(Number.isInteger(CHECK_MIN) && CHECK_MIN >= 1 && CHECK_MIN <= 60)) fail("PMA_CHECK_MINUTES must be a whole number 1-60");
     const STALE_MS = envInt(process.env.PMA_STALE_SECONDS, 150) * 1000;
     const POLL_MS = Math.max(1000, envInt(process.env.PMA_POLL_MS, 5000));
     const baseHour = envInt(process.env.PMA_BASE_HOUR, 9), baseMinute = envInt(process.env.PMA_BASE_MINUTE, 15);
@@ -260,7 +261,7 @@ async function main() {
 
     // ── controller ───────────────────────────────────────────────────────────────────────
     const clock = () => { const now = new Date(Date.now()), p = istParts(now); return { today: todayIST(now), hours: p.hours, minutes: p.minutes, nowMs: now.getTime() }; };
-    const controller = createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxPriceAgeMs: STALE_MS, carry: CARRY, pnlBand: PNL_BAND, pnlSmooth: PNL_SMOOTH,
+    const controller = createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxPriceAgeMs: STALE_MS, carry: CARRY, pnlBand: PNL_BAND, pnlSmooth: PNL_SMOOTH, checkMinutes: CHECK_MIN,
         getPrice: () => (lastTick ? { price: lastTick.price, atMs: lastTick.at } : null), log: m => console.log(c.cyan(m)) });
 
     const stateFile = path.join(require("./data/dbDir").DB_DIR, `pma_${legs.LONG_BASE.context.underlying || UNDERLYING}_${longUser.name}_${shortUser.name}.json`.replace(/[^A-Za-z0-9_.-]/g, "_"));

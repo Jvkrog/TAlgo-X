@@ -893,7 +893,7 @@ async function runDualHedgeBacktest({
     takeProfit = 3000, maxLoss = 3000,
     slMode = "RUPEES", atrSlMult, atrTimeframe = "1h",   // DUAL only — see replayDualHedge
     gapCapture = false, gcHour = 23, gcMinute = 20, gcQuitHour = 23, gcQuitMinute = 25,
-    baseHour = 9, baseMinute = 15, pnlBand = 0, pnlSmooth = 1, carry = true,   // PRICE_MA (base-loss hedge) only
+    baseHour = 9, baseMinute = 15, pnlBand = 0, pnlSmooth = 1, checkMinutes = 1, carry = true,   // PRICE_MA (base-loss hedge) only
     slippagePoints = 0, from, to, kc, progress,
 }) {
     strategy = String(strategy).toUpperCase();
@@ -902,6 +902,8 @@ async function runDualHedgeBacktest({
     if (isPma) {
         carry = carry !== false;   // NRML bases held + MIS hedge is the standard mode
         pnlBand = Number(pnlBand) || 0; pnlSmooth = Number(pnlSmooth) || 1;
+        checkMinutes = Math.floor(Number(checkMinutes) || 1);
+        if (!(checkMinutes >= 1 && checkMinutes <= 60)) throw new Error("runDualHedgeBacktest: checkMinutes must be a whole number 1-60");
         if (!(pnlBand >= 0)) throw new Error("runDualHedgeBacktest: pnlBand must be >= 0");
         if (!(Number.isInteger(pnlSmooth) && pnlSmooth >= 1)) throw new Error("runDualHedgeBacktest: pnlSmooth must be a whole number >= 1");
         const e1 = defaultEodFor("1m", exchange);
@@ -995,16 +997,16 @@ async function runDualHedgeBacktest({
             if (splitContracts) throw new Error("runDualHedgeBacktest: PRICE_MA trades one contract in both accounts");
             if (!(eodHour * 60 + eodMinute > baseHour * 60 + baseMinute)) throw new Error(`runDualHedgeBacktest: EOD (${hhmm(eodHour, eodMinute)}) must be after the base entry time (${hhmm(baseHour, baseMinute)})`);
             anchorMs = fromMs; anchorNote = "none (no signal to warm up)";
-            console.log(c.dim(`  base-loss hedge: bases ${hhmm(baseHour, baseMinute)} IST (${carry ? "NRML, held" : "MIS"}), EOD ${hhmm(eodHour, eodMinute)}, band ${pnlBand} pts, smooth ${pnlSmooth}`));
+            console.log(c.dim(`  base-loss hedge: bases ${hhmm(baseHour, baseMinute)} IST (${carry ? "NRML, held" : "MIS"}), EOD ${hhmm(eodHour, eodMinute)}, band ${pnlBand} pts, smooth ${pnlSmooth}, check every ${checkMinutes} min`));
             candles = await fetchMinuteCandles({ kc, token, fromMs, toMs, progress });
             if (candles.length === 0) throw new Error(noCandles);
             res = await replayPriceMaHedge({
                 longCtx: longLeg.context, shortCtx: shortLeg.context, candles, tradeFromMs: fromMs,
-                baseHour, baseMinute, eodHour, eodMinute, pnlBand, pnlSmooth, carry,
+                baseHour, baseMinute, eodHour, eodMinute, pnlBand, pnlSmooth, checkMinutes, carry,
                 slippagePoints: Number(slippagePoints), progress,
             });
             params = {
-                strategy: "PRICE_MA", carry, pnlBand, pnlSmooth, signal: `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth})`, base: hhmm(baseHour, baseMinute), eod: hhmm(eodHour, eodMinute),
+                strategy: "PRICE_MA", carry, pnlBand, pnlSmooth, checkMinutes, signal: `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}, check ${checkMinutes}m)`, base: hhmm(baseHour, baseMinute), eod: hhmm(eodHour, eodMinute),
                 bandStep: null, rangeSize: null, takeProfit: null, maxLoss: null, gapCapture: null,
                 rangeStart: fmtIST(anchorMs), anchor: anchorNote, slippagePoints: Number(slippagePoints),
             };
