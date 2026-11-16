@@ -1360,6 +1360,8 @@ body {
   padding: 20px;
 }
 .tb-modal.open { display: flex; }
+/* Logs can be opened from inside another modal (e.g. Dual Hedge deployments) — keep it on top. */
+#tbLogsModal { z-index: 45; }
 .tb-modal-content {
   width: 100%;
   max-width: 520px;
