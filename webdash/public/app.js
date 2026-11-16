@@ -4843,7 +4843,7 @@ async function renderDualHedgeAddForm() {
     </div>
     <div id="dhPmaOnly" style="display:none">
       <div class="tb-form-row"><div class="tb-form-label">Base entry time IST (LONG NRML on the long account, SHORT NRML on the short account)</div><input type="time" id="dhPmaBase" value="09:15"></div>
-      <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (blank = default) \u2014 the MIS hedge is closed</div><input type="time" id="dhPmaEod"></div>
+      <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (default 23:15) \u2014 the MIS hedge is closed</div><input type="time" id="dhPmaEod" value="23:15"></div>
       <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dhPmaCarry" checked><span>Carry overnight: NRML bases held constant (long in the long account, short in the short account, never closed by the engine); the hedge is MIS and is closed at EOD. Unchecked = day mode (MIS bases + NRML hedge, all flat at EOD)</span></label></div>
       <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge as soon as base P&amp;L &lt; 0, close when &gt; 0)</div><input type="number" id="dhPmaBand" min="0" step="any" value="0"></div>
       <div class="tb-form-row"><div class="tb-form-label">Smoothing (average of last N once-a-minute P&amp;L samples; 1 = raw)</div><input type="number" id="dhPmaSmooth" min="1" step="1" value="1"></div>
@@ -5059,7 +5059,7 @@ async function renderDualHedgeBacktestForm() {
     </div>
     <div id="dbPma" style="display:none">
       <div class="tb-form-row"><div class="tb-form-label">Base entry time IST</div><input type="time" id="dbPmaBase" value="09:15"></div>
-      <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (blank = default)</div><input type="time" id="dbPmaEod"></div>
+      <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (default 23:15)</div><input type="time" id="dbPmaEod" value="23:15"></div>
       <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dbPmaCarry" checked><span>Carry overnight: NRML bases held constant (long in the long account, short in the short account, never closed by the engine); the hedge is MIS and is closed at EOD. Unchecked = day mode (MIS bases + NRML hedge, all flat at EOD)</span></label></div>
       <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge when base P&amp;L &lt; 0)</div><input type="number" id="dbPmaBand" min="0" step="any" value="0"></div>
       <div class="tb-form-row"><div class="tb-form-label">Smoothing (last N once-a-minute samples; 1 = raw)</div><input type="number" id="dbPmaSmooth" min="1" step="1" value="1"></div>
