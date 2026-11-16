@@ -189,8 +189,10 @@ ${tradeTable(list, id === "all" ? "Combined PnL" : "Running PnL")}
     const panes = pane("all", "Combined (LONG + SHORT, closed trades)", report.trades, report.metrics.combined, "#3ecf8e")
         + pane("long", "LONG account", longT, report.metrics.long, "#3ecf8e", `<div class="meta">Worst unrealized (MTM): <span class="neg">${fmtMoney(wu.LONG || 0)}</span></div>`)
         + pane("short", "SHORT account", shortT, report.metrics.short, "#c9a86a", `<div class="meta">Worst unrealized (MTM): <span class="neg">${fmtMoney(wu.SHORT || 0)}</span></div>`);
-    const tabs = `<div class="tabs"><button class="tab active" data-p="all">Combined</button><button class="tab" data-p="long">LONG account</button><button class="tab" data-p="short">SHORT account</button></div>`;
-    const tabJs = `<script>(function(){var t=document.querySelectorAll(".tab"),p=document.querySelectorAll(".pane");function show(id){t.forEach(function(b){b.classList.toggle("active",b.dataset.p===id)});p.forEach(function(e){e.style.display=e.id==="pane-"+id?"block":"none"})}t.forEach(function(b){b.addEventListener("click",function(){show(b.dataset.p)})});show("all")})();</script>`;
+    // CSS-only tabs (radio inputs + :checked): no script, so a Content-Security-Policy that blocks inline JS cannot break them.
+    const tabs = `<input type="radio" name="tab" id="tab-all" class="tabr" checked><input type="radio" name="tab" id="tab-long" class="tabr"><input type="radio" name="tab" id="tab-short" class="tabr">
+<div class="tabs"><label class="tab" for="tab-all">Combined</label><label class="tab" for="tab-long">LONG account</label><label class="tab" for="tab-short">SHORT account</label></div>`;
+    const tabJs = "";
     const p = report.params, s = report.stats;
     const gap = p.gapCapture ? `gap capture ${p.gapCapture.time}\u2192${p.gapCapture.quit}` : "no gap capture";
     const title = isPma
@@ -243,9 +245,11 @@ th{background:#161a22} td:first-child,th:first-child{text-align:left}
 .pos{color:#3ecf8e}.neg{color:#f0616d}
 .short-leg td{color:#c9a86a}
 .tabs{display:flex;gap:8px;margin-top:24px;border-bottom:1px solid #2a2e37}
-.tab{background:#161a22;color:#9aa0ab;border:1px solid #2a2e37;border-bottom:none;border-radius:8px 8px 0 0;padding:8px 18px;font-size:14px;cursor:pointer}
-.tab.active{background:#0b0d12;color:#e6e6e6;border-color:#3ecf8e}
+.tabr{position:absolute;opacity:0;pointer-events:none}
+.tab{background:#161a22;color:#9aa0ab;border:1px solid #2a2e37;border-bottom:none;border-radius:8px 8px 0 0;padding:8px 18px;font-size:14px;cursor:pointer;user-select:none}
+#tab-all:checked~.tabs label[for=tab-all],#tab-long:checked~.tabs label[for=tab-long],#tab-short:checked~.tabs label[for=tab-short]{background:#0b0d12;color:#e6e6e6;border-color:#3ecf8e}
 .pane{display:none}
+#tab-all:checked~#pane-all,#tab-long:checked~#pane-long,#tab-short:checked~#pane-short{display:block}
 .pane h2:first-child{margin-top:16px}
 .note{color:#9aa0ab;font-size:12px;margin-top:6px}
 </style></head><body>
