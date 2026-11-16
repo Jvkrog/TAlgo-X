@@ -177,9 +177,13 @@ async function main() {
     // ── prices ────────────────────────────────────────────────────────────────────────────────────
     let lastTick = null;   // { price, at }
     async function getLtp() {
-        if (lastTick && Date.now() - lastTick.at < 15000) return lastTick.price;
-        const d = await longKc.getLTP([legs.LONG_BASE.ltpKey]);
-        return d[legs.LONG_BASE.ltpKey]?.last_price ?? null;
+        if (lastTick && Date.now() - lastTick.at < 15000) return lastTick.price;           // websocket LTP (the normal source)
+        try {
+            const d = await longKc.getLTP([legs.LONG_BASE.ltpKey]);                          // REST fallback when no fresh tick yet
+            const px = d && d[legs.LONG_BASE.ltpKey] && d[legs.LONG_BASE.ltpKey].last_price;
+            if (px > 0) return px;
+        } catch (_) { /* fall through to the last known tick */ }
+        return lastTick ? lastTick.price : null;
     }
 
     // ── order placement with FILL CONFIRMATION ────────────────────────────────────────────────────
@@ -225,7 +229,13 @@ async function main() {
                 filled = r.filled; price = r.price;
                 tag("HEDGE_CONTROLLER", `${leg.key} FILLED ${filled} lot(s) @ ${price ?? "n/a"} OrderID=${id}`);
             }
-            if (price === null) price = (await getLtp().catch(() => null)) || 0;
+            if (!(price > 0)) price = (await getLtp().catch(() => null)) || null;
+            if (!(price > 0)) {
+                // No usable price: an entry at 0 would make every P&L check wrong. LIVE: the order is already filled, so keep the position and warn.
+                // PAPER: nothing was sent, so just wait for the first websocket tick and retry on the next controller tick.
+                if (!LIVE) { console.log(c.dim(`[${leg.context.tgPrefix}] no price yet (websocket not ticking) — ${leg.kind} entry waits`)); return false; }
+                notify(leg, `${leg.kind} ${leg.side} filled but NO price available — entry price recorded as 0, check the broker position`, true); price = 0;
+            }
             leg.state.position = leg.side; leg.state.entryPrice = price;
             leg.state.openTradeId = await leg.db.insertOpenTrade(leg.context.tgPrefix, leg.context.symbol, leg.side, leg.context.lots, price);
             leg.db.savePosition(leg.context.tgPrefix, leg.context.token, leg.context.symbol, leg.side, price, `PMA_${leg.kind}`);
