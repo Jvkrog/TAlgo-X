@@ -205,7 +205,7 @@ function createDpiTrendMeanrevStrategy({ context, engineConfig, state, db, candl
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
                 else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-                else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+                else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
                 else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
                 else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
                 const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -546,7 +546,7 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
                 else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-                else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+                else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
                 else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
                 else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
                 const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -609,7 +609,7 @@ function createDpiMeanrevStrategy({ context, engineConfig, state, db, candles, s
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
                 else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-                else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+                else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
                 else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
                 else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
                 const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -898,7 +898,7 @@ function createDpiSma5ExitStrategy({ context, engineConfig, state, db, candles, 
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
                 else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-                else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+                else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
                 else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
                 else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
                 const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -1139,7 +1139,7 @@ function createAlmaDualBandStrategy({ context, engineConfig, state, db, candles,
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
             else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -1405,7 +1405,7 @@ function createAlmaBandStrategy({ context, engineConfig, state, db, candles, slS
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
                 else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-                else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+                else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
                 else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
                 else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
                 const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -1653,7 +1653,7 @@ function createAlmaFastStrategy({ context, engineConfig, state, db, candles, slS
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
             else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -1981,7 +1981,7 @@ function createMaSlopeStrategy({ context, engineConfig, state, db, candles, slSt
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
             else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -2389,7 +2389,7 @@ function createMaSlopeScalpStrategy({ context, engineConfig, state, db, candles,
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
             else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -2751,7 +2751,7 @@ function createMaSlopePureStrategy({ context, engineConfig, state, db, candles, 
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
             else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -3017,7 +3017,7 @@ function createMaSlopeHmStrategy({ context, engineConfig, state, db, candles, sl
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
             else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -3242,7 +3242,7 @@ function createHilegaMilegaStrategy({ context, engineConfig, state, db, candles,
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
             else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -3413,7 +3413,7 @@ function createDsbGreyStrategy({ context, engineConfig, state, db, candles, slSt
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
         else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
         else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
         else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
         const blocked = doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked;
@@ -3639,7 +3639,7 @@ function createDualStChopStrategy({ context, engineConfig, state, db, candles, s
                 if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
                 else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
                 else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-                else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+                else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
                 else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
                 else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
                 const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -3881,7 +3881,7 @@ function createAdaptiveTrendStrategy({ context, engineConfig, state, db, candles
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
             else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
             else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
             const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -4157,7 +4157,7 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
         else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
         else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
         else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
         const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -4216,7 +4216,7 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
                 // untouched — this only ever skips the SIGNAL-driven
                 // reversal exit+re-entry pair, never a risk-driven one.
                 if (evaluateLongCandle(context, engineConfig, candles, state)) {
-                    console.log(`[REVERSAL_BLOCKED_LONG_CANDLE] currentPosition=LONG requestedDirection=SHORT remainingCooldown=${state.longCandleCooldown || 0}`);
+                    console.log(`[REVERSAL_BLOCKED_LONG_CANDLE] LONG->SHORT cooldown ${state.longCandleCooldown || 0}`);
                     return;
                 }
                 console.log(c.yellow(`[${context.tgPrefix}] LONG REVERSAL  close:${rawClose.toFixed(2)} < low:${state.bandLow.toFixed(2)}`));
@@ -4236,7 +4236,7 @@ function createDynamicBandStrategy({ context, engineConfig, state, db, candles, 
                 // See the LONG-side reversal branch above for why this
                 // check runs before doExit here too.
                 if (evaluateLongCandle(context, engineConfig, candles, state)) {
-                    console.log(`[REVERSAL_BLOCKED_LONG_CANDLE] currentPosition=SHORT requestedDirection=LONG remainingCooldown=${state.longCandleCooldown || 0}`);
+                    console.log(`[REVERSAL_BLOCKED_LONG_CANDLE] SHORT->LONG cooldown ${state.longCandleCooldown || 0}`);
                     return;
                 }
                 console.log(c.yellow(`[${context.tgPrefix}] SHORT REVERSAL  close:${rawClose.toFixed(2)} > high:${state.bandHigh.toFixed(2)}`));
@@ -4489,7 +4489,7 @@ function createDynamicMidColorStrategy({ context, engineConfig, state, db, candl
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
         else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
         else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
         else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
         const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -4922,7 +4922,7 @@ function createDynamicMidColorHLStrategy({ context, engineConfig, state, db, can
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
         else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
         else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
         else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
         const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -5311,7 +5311,7 @@ function createAlmaTriBandStrategy({ context, engineConfig, state, db, candles, 
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
         else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
         else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
         else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
         const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -5638,7 +5638,7 @@ function createAlmaProFastStrategy({ context, engineConfig, state, db, candles, 
             return false;
         }
         if (evaluateLongCandle(context, engineConfig, candles, state)) {
-            console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+            console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
             return false;
         }
         const ordered = await orders.enter(side);
@@ -5942,7 +5942,7 @@ function createAlmaProSlowStrategy({ context, engineConfig, state, db, candles, 
             if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
             else if (forcedChopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
             else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+            else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
             const ordered = (doubleBlocked || forcedChopBlocked || volumeBlocked || longCandleBlocked || dailyHaBlocked) ? null : await orders.enter(side);
             if (doubleBlocked || forcedChopBlocked || volumeBlocked || longCandleBlocked || dailyHaBlocked || (engineConfig.LIVE_ORDERS && ordered === null)) {
                 if (!doubleBlocked && !forcedChopBlocked && !volumeBlocked && !longCandleBlocked) console.log(c.yellow(`[${context.tgPrefix}] ${side} order failed — will retry next candle`));
@@ -6235,7 +6235,7 @@ function createVolumeDeltaCvdStrategy({ context, engineConfig, state, db, candle
         const volumeBlocked = isVolumeBlocked(context, engineConfig, candles);
         if (volumeBlocked) { console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`); return; }
         const longCandleBlocked = evaluateLongCandle(context, engineConfig, candles, state);
-        if (longCandleBlocked) { console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`); return; }
+        if (longCandleBlocked) { console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`); return; }
         // htfGate.js — universal, every strategy, see its header for the
         // exact condition (HTF trending but still inside its own ALMA band).
         const htfBlocked = await htf.isBlocked();
@@ -6426,7 +6426,7 @@ function createPureHaStrategy({ context, engineConfig, state, db, candles, slSto
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
         else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
         else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
         else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
         const ordered = (doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked) ? null : await orders.enter(side);
@@ -6851,7 +6851,7 @@ function createDailyHaBiasStrategy({ context, engineConfig, state, db, candles, 
         // happen.
         if (evaluateLongCandle(context, engineConfig, candles, state)) {
             reportBlocks(context, side, livePrice, { longCandle: true });
-            console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+            console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
             tg(`\u26a0 ${side} DAILY HA BIAS entry blocked — abnormal candle expansion filter active, no trade today`);
             return false;
         }
@@ -7079,7 +7079,7 @@ function createAlmaDsbStrategy({ context, engineConfig, state, db, candles, slSt
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
         else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
         else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
         else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
         const blocked = doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked;
@@ -7280,7 +7280,7 @@ function createDsbDualStrategy({ context, engineConfig, state, db, candles, slSt
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
         else if (chopBlocked) console.log(`[${context.tgPrefix}] entry blocked by Choppiness Index filter`);
         else if (volumeBlocked) console.log(`[${context.tgPrefix}] entry blocked — volume not above its SMA`);
-        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
         else if (htfBlocked) console.log(`[${context.tgPrefix}] entry blocked — higher timeframe trending but still inside its own ALMA band`);
         else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
         const blocked = doubleBlocked || chopBlocked || volumeBlocked || longCandleBlocked || htfBlocked || dailyHaBlocked;
@@ -7502,7 +7502,7 @@ function createVwapSdStrategy({ context, engineConfig, state, db, candles, slSto
         const dailyHaBlocked = await dailyHa.isBlocked(side);
         reportBlocks(context, side, candles.getLivePrice(), { double: doubleBlocked, longCandle: longCandleBlocked, dailyHa: dailyHaBlocked }, dailyHa);
         if (doubleBlocked) console.log(`[${context.tgPrefix}] entry blocked — double orders disabled (already traded ${state.tradesToday} time(s) today)`);
-        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] instrument=${context.symbol} direction=${side} remainingCooldown=${state.longCandleCooldown || 0}`);
+        else if (longCandleBlocked) console.log(`[ENTRY_BLOCKED_LONG_CANDLE] ${context.symbol} direction=${side} cooldown ${state.longCandleCooldown || 0}`);
         else if (dailyHaBlocked) console.log(`[${context.tgPrefix}] ${side} entry blocked — ${(dailyHa && dailyHa.lastBlockDetail) || "daily HA / entry-time gate"}`);
         const blocked = doubleBlocked || longCandleBlocked || dailyHaBlocked;
         const ordered = blocked ? null : await orders.enter(side);
