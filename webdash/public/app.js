@@ -386,7 +386,8 @@ function dualHedgeStrategyText(d) {
     return `realize & re-open \u00b7 closes a leg at +\u20b9${d.realizeRupees || 3000} then re-opens it (NRML)${d.lossAlertRupees ? ` \u00b7 loss alert -\u20b9${d.lossAlertRupees}` : ""} \u00b7 losing leg never closed`;
   }
   if (d.strategy === "PRICE_MA") {
-    return (d.carry !== false ? "NRML bases held \u00b7 MIS hedge \u00b7 " : "") + `base-loss hedge \u00b7 bases @${d.baseTime} (${d.carry ? "NRML" : "MIS"}) \u00b7 ${d.carry ? "MIS" : "NRML"} hedge while a base is under water${Number(d.pnlBand) > 0 ? ` (band ${d.pnlBand}pt)` : ""}${Number(d.pnlSmooth) > 1 ? ` \u00b7 smooth ${d.pnlSmooth}` : ""} \u00b7 ${d.carry ? `hedge flat at ${d.eodTime || "EOD"}, bases held` : `flat at ${d.eodTime || "EOD"}`}`;
+    const carry = d.carry !== false, extras = [Number(d.pnlBand) > 0 ? `band ${d.pnlBand}pt` : "", Number(d.pnlSmooth) > 1 ? `smooth ${d.pnlSmooth}` : ""].filter(Boolean);
+    return `Base-loss hedge \u00b7 ${carry ? "NRML bases held" : `MIS bases @${d.baseTime}`} \u00b7 ${carry ? "MIS" : "NRML"} hedge to ${d.eodTime || "EOD"}${extras.length ? ` \u00b7 ${extras.join(" \u00b7 ")}` : ""}`;
   }
   if (d.strategy === "BIAS") {
     const unwind = d.unwindMode === "EOD_ONLY" ? "held to EOD" : "unwinds when the band flips back";
@@ -411,7 +412,7 @@ function buildDualHedgeCard(d) {
       </div>
     </div>
     <div class="card-price-row">
-      <span class="card-price">LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot ${d.strategy === "PRICE_MA" ? (d.carry ? "each \u00b7 NRML base + MIS hedge" : "each \u00b7 MIS base + NRML hedge") : d.strategy === "BIAS" ? (d.coreEod === "CARRY" ? "each \u00b7 core carried" : "each \u00b7 flat at EOD") : "NRML each"}</span>
+      <span class="card-price">LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot ${d.strategy === "PRICE_MA" ? "each" : d.strategy === "BIAS" ? (d.coreEod === "CARRY" ? "each \u00b7 core carried" : "each \u00b7 flat at EOD") : "NRML each"}</span>
     </div>
     ${d.strategy === "PRICE_MA" ? `<div class="pnl-row">
       <div class="pnl-box"><span class="pnl-label">LONG base (${d.longUser})</span><span class="pnl-value flat" data-role="LONG_BASE-pnl">+0</span><span class="pnl-label" data-role="LONG_BASE-pos">flat</span></div>
