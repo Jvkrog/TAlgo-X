@@ -893,22 +893,17 @@ async function runDualHedgeBacktest({
     takeProfit = 3000, maxLoss = 3000,
     slMode = "RUPEES", atrSlMult, atrTimeframe = "1h",   // DUAL only — see replayDualHedge
     gapCapture = false, gcHour = 23, gcMinute = 20, gcQuitHour = 23, gcQuitMinute = 25,
-    baseHour = 9, baseMinute = 15, minSlope = 0, confirmMinutes = 1, maProxy = "ohlc4", hedgeMode = "SLOPE", pnlBand = 0, pnlSmooth = 1, carry = false,   // PRICE_MA only (hedgeMode SLOPE | PNL)
+    baseHour = 9, baseMinute = 15, pnlBand = 0, pnlSmooth = 1, carry = true,   // PRICE_MA (base-loss hedge) only
     slippagePoints = 0, from, to, kc, progress,
 }) {
     strategy = String(strategy).toUpperCase();
     if (strategy !== "DUAL" && strategy !== "BIAS" && strategy !== "REALIZE" && strategy !== "PRICE_MA") throw new Error(`runDualHedgeBacktest: strategy must be DUAL, BIAS, REALIZE or PRICE_MA (got ${strategy})`);
     const isPma = strategy === "PRICE_MA";
     if (isPma) {
-        minSlope = Number(minSlope) || 0; confirmMinutes = Number(confirmMinutes) || 1; maProxy = String(maProxy || "ohlc4").toLowerCase();
-        if (!(minSlope >= 0)) throw new Error("runDualHedgeBacktest: minSlope must be >= 0");
-        if (!(Number.isInteger(confirmMinutes) && confirmMinutes >= 1)) throw new Error("runDualHedgeBacktest: confirmMinutes must be a whole number >= 1");
-        carry = carry === true;
-        hedgeMode = String(hedgeMode || "SLOPE").toUpperCase(); pnlBand = Number(pnlBand) || 0; pnlSmooth = Number(pnlSmooth) || 1;
-        if (hedgeMode !== "SLOPE" && hedgeMode !== "PNL") throw new Error("runDualHedgeBacktest: hedgeMode must be SLOPE or PNL");
+        carry = carry !== false;   // NRML bases held + MIS hedge is the standard mode
+        pnlBand = Number(pnlBand) || 0; pnlSmooth = Number(pnlSmooth) || 1;
         if (!(pnlBand >= 0)) throw new Error("runDualHedgeBacktest: pnlBand must be >= 0");
         if (!(Number.isInteger(pnlSmooth) && pnlSmooth >= 1)) throw new Error("runDualHedgeBacktest: pnlSmooth must be a whole number >= 1");
-        if (!["ohlc4", "hl2", "close"].includes(maProxy)) throw new Error("runDualHedgeBacktest: maProxy must be ohlc4, hl2 or close");
         const e1 = defaultEodFor("1m", exchange);
         eodHour = eodHour ?? e1.eodHour; eodMinute = eodMinute ?? e1.eodMinute;
     }
@@ -996,21 +991,21 @@ async function runDualHedgeBacktest({
     setEmitSuppressed(true);   // in-process backtest must not flood a live webdash log (see eventBridge.js)
     try {
         if (isPma) {
-            // ─── PRICE_MA: 1-minute Price-MA signal (proxied from minute candles) + MIS bases + NRML hedge, flat at EOD.
+            // ─── PRICE_MA (base-loss hedge): bases at a set time, each hedged against its own loss, from minute candles.
             if (splitContracts) throw new Error("runDualHedgeBacktest: PRICE_MA trades one contract in both accounts");
             if (!(eodHour * 60 + eodMinute > baseHour * 60 + baseMinute)) throw new Error(`runDualHedgeBacktest: EOD (${hhmm(eodHour, eodMinute)}) must be after the base entry time (${hhmm(baseHour, baseMinute)})`);
-            anchorMs = fromMs; anchorNote = "none (the signal needs only the previous minute)";
-            console.log(c.dim(`  price-MA hedge: bases ${hhmm(baseHour, baseMinute)} IST (MIS), EOD ${hhmm(eodHour, eodMinute)}, minute average proxied by ${maProxy}${minSlope ? `, min slope ${minSlope}` : ""}${confirmMinutes > 1 ? `, ${confirmMinutes}-minute confirm` : ""}`));
+            anchorMs = fromMs; anchorNote = "none (no signal to warm up)";
+            console.log(c.dim(`  base-loss hedge: bases ${hhmm(baseHour, baseMinute)} IST (${carry ? "NRML, held" : "MIS"}), EOD ${hhmm(eodHour, eodMinute)}, band ${pnlBand} pts, smooth ${pnlSmooth}`));
             candles = await fetchMinuteCandles({ kc, token, fromMs, toMs, progress });
             if (candles.length === 0) throw new Error(noCandles);
             res = await replayPriceMaHedge({
                 longCtx: longLeg.context, shortCtx: shortLeg.context, candles, tradeFromMs: fromMs,
-                baseHour, baseMinute, eodHour, eodMinute, minSlope, confirmMinutes, maProxy, hedgeMode, pnlBand, pnlSmooth, carry,
+                baseHour, baseMinute, eodHour, eodMinute, pnlBand, pnlSmooth, carry,
                 slippagePoints: Number(slippagePoints), progress,
             });
             params = {
-                strategy: "PRICE_MA", carry, hedgeMode, pnlBand, pnlSmooth, signal: hedgeMode === "PNL" ? `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth})` : `1-minute Price MA (${maProxy} proxy)`, base: hhmm(baseHour, baseMinute), eod: hhmm(eodHour, eodMinute),
-                minSlope, confirmMinutes, maProxy, bandStep: null, rangeSize: null, takeProfit: null, maxLoss: null, gapCapture: null,
+                strategy: "PRICE_MA", carry, pnlBand, pnlSmooth, signal: `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth})`, base: hhmm(baseHour, baseMinute), eod: hhmm(eodHour, eodMinute),
+                bandStep: null, rangeSize: null, takeProfit: null, maxLoss: null, gapCapture: null,
                 rangeStart: fmtIST(anchorMs), anchor: anchorNote, slippagePoints: Number(slippagePoints),
             };
         } else if (isRealize) {
