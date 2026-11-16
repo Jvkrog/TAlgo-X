@@ -125,7 +125,8 @@ function evaluateLongCandle(context, engineConfig, candles, state) {
         state.longCandleLastRatio = range / atrVal;
         state.longCandleLastTime = candleKey;
         blocked = true;
-        console.log(`[LONG_CANDLE_BLOCK] instrument=${context.symbol} timeframe=${context.timeframe} candleTime=${candleKey} open=${latest.open} high=${latest.high} low=${latest.low} close=${latest.close} range=${range.toFixed(2)} atr=${atrVal.toFixed(2)} rangeAtrRatio=${(range / atrVal).toFixed(2)} threshold=${mult} cooldown=${cooldownLen}`);
+        const hhmm = (() => { const d = new Date(candleKey); return isNaN(d) ? String(candleKey) : d.toLocaleTimeString("en-IN", { hour12: false, hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }); })();
+        console.log(`[LONG_CANDLE_BLOCK] ${context.symbol} ${context.timeframe} ${hhmm}  range ${range.toFixed(2)} = ${(range / atrVal).toFixed(2)}x ATR (limit ${mult}x)  cooldown ${cooldownLen}`);
     } else {
         // Check the PRE-decrement value to decide whether THIS candle is
         // still blocked — cooldownLen=2 must mean 3 total blocked candles
@@ -146,7 +147,7 @@ function evaluateLongCandle(context, engineConfig, candles, state) {
     // when the counter happens to hit 0, which (per the comment above)
     // is still one candle before the actual release.
     if (!blocked && state.longCandleWasBlocked) {
-        console.log(`[LONG_CANDLE_FILTER_RELEASED] instrument=${context.symbol} timeframe=${context.timeframe}`);
+        console.log(`[LONG_CANDLE_FILTER_RELEASED] ${context.symbol} ${context.timeframe}`);
     }
     state.longCandleWasBlocked = blocked;
 

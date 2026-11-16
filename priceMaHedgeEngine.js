@@ -350,7 +350,7 @@ async function main() {
                     const where = l.state.position ? `${l.state.position} @${l.state.entryPrice.toFixed(2)}` : "flat";
                     lines.push(`   ${l.key.padEnd(11)} ${(l.user && l.user.name || "").padEnd(8)} ${where.padEnd(15)} ${l.state.position ? `${f(pts)} pts  ${f(u, 0)}` : "-"}${(l.state.pnl || 0) ? `   realized ${f(l.state.pnl, 0)}` : ""}`);
                 }
-                lines.push(`   ${"NET".padEnd(11)} ${"".padEnd(8)} ${"".padEnd(15)} unrealized ${f(totU, 0)}   realized ${f(totR, 0)}   total ${f(totU + totR, 0)}`);
+                lines.push(`   ${"NET".padEnd(11)} unreal ${f(totU, 0)} · real ${f(totR, 0)} · total ${f(totU + totR, 0)}`);
                 console.log(c.dim(lines.join("\n")));
                 if (px !== null) emitLegPnl(true);
             }
