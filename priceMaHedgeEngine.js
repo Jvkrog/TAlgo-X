@@ -282,6 +282,13 @@ async function main() {
             tag("RECOVERY", `controller state restored (hedge ${s.hedge ? s.hedge.account + " " + s.hedge.direction : "none"})`);
         }
     } catch { /* no / unreadable state file: start clean */ }
+    // The position records (DB + broker) are the truth: a saved "base entered today" mark for a base that is FLAT now is stale
+    // (e.g. state left by an earlier deployment, or a position that did not survive) — drop it so the base is placed again on start.
+    {
+        const st = controller.getState();
+        for (const l of [legs.LONG_BASE, legs.SHORT_BASE]) if (!l.state.position && st.baseEnteredOn[l.key]) { delete st.baseEnteredOn[l.key]; tag("RECOVERY", `${l.key}: stale "entered today" mark cleared (no position) — will be placed on start`); }
+        controller.restore(st);
+    }
     // A base that exists after recovery was already entered today.
     for (const l of [legs.LONG_BASE, legs.SHORT_BASE]) if (l.state.position) controller.markBaseEntered(l, today0);
 
