@@ -292,11 +292,23 @@ async function main() {
     // A base that exists after recovery was already entered today.
     for (const l of [legs.LONG_BASE, legs.SHORT_BASE]) if (l.state.position) controller.markBaseEntered(l, today0);
 
+    // Live P&L per leg for the WebDash card, streamed on websocket ticks (throttled to ~1/s). "session" = realized today + unrealized.
+    let lastEmit = 0;
+    function emitLegPnl(force) {
+        const now = Date.now();
+        if (!lastTick || (!force && now - lastEmit < 1000)) return;
+        lastEmit = now;
+        for (const l of L) {
+            let u = 0; try { u = l.state.position ? positions.unrealised(l.context, l.state, lastTick.price) : 0; } catch (_) { u = 0; }
+            emitEvent(l.context.tgPrefix, "LTP", { price: lastTick.price, uPnl: u, session: (l.state.pnl || 0) + u, position: l.state.position || null, entryPrice: l.state.position ? l.state.entryPrice : null });
+        }
+    }
     const ticker = new KiteTicker({ api_key: longUser.apiKey, access_token: longUser.accessToken });
     ticker.connect();
     ticker.on("connect", () => { ticker.subscribe([token]); ticker.setMode(ticker.modeLTP, [token]); tag("WS", "connected"); });
     ticker.on("ticks", ticks => {                       // ticks ONLY feed the last price — no order is placed here
         for (const t of ticks) if (t.instrument_token === token && t.last_price) { lastTick = { price: t.last_price, at: Date.now() }; }
+        emitLegPnl(false);
     });
     ticker.on("error", err => console.error(c.red(`WS  error: ${err && err.message ? err.message : err}`)));
     ticker.on("close", () => console.log(c.dim("WS  closed — price goes stale after " + STALE_MS / 1000 + "s; no hedge decision until fresh ticks arrive")));
@@ -330,7 +342,7 @@ async function main() {
                 const px = await getLtp().catch(() => null);
                 const pos = L.filter(l => l.state.position).map(l => `${l.key}:${l.state.position}@${l.state.entryPrice.toFixed(2)}`).join("  ") || "flat";
                 console.log(c.dim(`[PMA] ${new Date().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })}  price ${px === null ? "-" : px.toFixed(2)}  ${pos}`));
-                if (px !== null) for (const l of L) emitEvent(l.context.tgPrefix, "LTP", { price: px, uPnl: l.state.position ? positions.unrealised(l.context, l.state, px) : 0, session: l.state.pnl || 0, position: l.state.position || null });
+                if (px !== null) emitLegPnl(true);
             }
         } catch (err) { console.error(c.red(`PMA loop error: ${err.message}`)); }
     }

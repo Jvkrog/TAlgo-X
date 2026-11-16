@@ -19,6 +19,10 @@ t("start/restart choose the engine script by strategy (server + toolbox)", () =>
     assert.ok(web.includes("dhScript(dh)") && web.includes("script: dhScript(dep)"));
     assert.ok(cli.includes("dhScript(dh)") && cli.includes("dhScript(deployments.find"));
 });
+t("deployment card shows the 4 legs and updates from the per-leg LTP stream", () => {
+    for (const k of ["LONG_BASE", "LONG_HEDGE", "SHORT_BASE", "SHORT_HEDGE"]) assert.ok(ui.includes(`data-role="${k}-pnl"`) && ui.includes(`data-role="${k}-pos"`), k + " box");
+    assert.ok(/function updatePmaLeg/.test(ui) && /updatePmaLeg\(msg\)/.test(ui) && /_PMA_\(LONG_BASE/.test(ui), "LTP handler wired");
+});
 t("slope hedging is gone everywhere", () => {
     for (const [n, s] of [["server", web], ["toolbox", cli], ["ui", ui], ["engine", eng]]) assert.ok(!/PMA_MIN_SLOPE|PMA_CONFIRM_MINUTES|PMA_MODE|priceMaSignal|dhPmaMinSlope|dbPmaProxy/.test(s), n + " still mentions slope hedging");
     assert.ok(!fs.existsSync(path.join(root, "hedge/priceMaSignal.js")));

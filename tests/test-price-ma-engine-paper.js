@@ -13,9 +13,11 @@ const realExit = process.exit; process.exit = c => { exitCode = c; };
 class FakeKc { constructor() {} setAccessToken() {} async getLTP(keys) { return Object.fromEntries(keys.map(k => [k, { last_price: 300 }])); } async getPositions() { return { net: [] }; } async getInstruments() { return []; } }
 class FakeTicker { constructor() { tickerHandlers = {}; this.modeLTP = "ltp"; } on(e, f) { tickerHandlers[e] = f; } connect() { setTimeout(() => tickerHandlers.connect && tickerHandlers.connect(), 0); } subscribe(t) { TOKEN = t[0]; } setMode() {} }
 const users = [{ name: "AAA", apiKey: "k", accessToken: "t" }, { name: "BBB", apiKey: "k2", accessToken: "t2" }];
+const ltpEvents = [];
 const origLoad = Module._load;
 Module._load = function (req, parent, ...r) {
     if (req === "kiteconnect") return { KiteConnect: FakeKc, KiteTicker: FakeTicker };
+    if (/core\/eventBridge$/.test(req)) return { emitEvent: (e, ty, pl) => { if (ty === "LTP") ltpEvents.push({ e, ...pl }); }, setEmitSuppressed() {}, setCurrentCandle() {} };
     if (/hedge\/dualHedgeUsers$/.test(req)) return { listUsers: () => users };
     return origLoad.call(this, req, parent, ...r);
 };
@@ -37,7 +39,12 @@ let TOKEN = null;
         const open = () => out.filter(l => /HedgeStatus=ACTIVE/.test(l)).map(l => (l.match(/\] (\w+) HedgeStatus/) || [])[1]);
         assert.ok(out.some(l => /LONG_BASE.*HedgeStatus=ACTIVE.*BASE/.test(l)) && out.some(l => /SHORT_BASE.*HedgeStatus=ACTIVE.*BASE/.test(l)), "both MIS bases opened at the base time");
         assert.ok(out.some(l => /each base is hedged against its own loss/.test(l)), "base-loss hedge announced");
-        await minute(100); await wait(2500);                            // LONG base (entered ~300) is far under water -> its own SHORT NRML hedge
+        await minute(100); await wait(2500);
+        {   // live card feed: every leg streams LTP + uPnl + session on ticks
+            const base = ltpEvents.filter(x => /_PMA_LONG_BASE$/.test(x.e));
+            assert.ok(base.length >= 1 && ["LONG_BASE", "LONG_HEDGE", "SHORT_BASE", "SHORT_HEDGE"].every(k => ltpEvents.some(x => x.e.endsWith("_PMA_" + k))), "all four legs stream LTP events");
+            assert.ok(base[base.length - 1].position === "LONG" && base[base.length - 1].price > 0 && Number.isFinite(base[base.length - 1].uPnl) && Number.isFinite(base[base.length - 1].session), "LONG base event carries position, uPnl and session");
+        }                            // LONG base (entered ~300) is far under water -> its own SHORT NRML hedge
         assert.ok(out.some(l => /LONG_HEDGE HedgeStatus=ACTIVE SHORT NRML/.test(l)), "LONG base loss opened the SHORT NRML hedge in the LONG account");
         assert.ok(!out.some(l => /SHORT_HEDGE HedgeStatus=ACTIVE/.test(l)), "the SHORT base is in profit -> no hedge on that side");
         assert.ok(sig() && sig().hedges.length === 1 && sig().hedges[0].account === "LONG", "state file records the hedge");
