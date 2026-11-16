@@ -115,6 +115,23 @@ function tradePnlChart(trades, color) {
 </svg>`;
 }
 
+// Inline SVG: one account's MTM equity (realized + unrealized, incl. the open NRML base) from mtm.series.
+function acctEquityChart(series, key, color) {
+    if (!series || series.length < 2) return "";
+    const W = 1000, H = 220, padL = 64, padR = 12, padT = 12, padB = 24;
+    const vals = series.map(s => s[key]).concat([0]); const lo = Math.min(...vals), hi = Math.max(...vals), span = (hi - lo) || 1;
+    const x = i => padL + (i / (series.length - 1)) * (W - padL - padR), y = v => padT + (1 - (v - lo) / span) * (H - padT - padB);
+    return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="background:#161a22;border:1px solid #2a2e37;border-radius:8px">
+  <line x1="${padL}" x2="${W - padR}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" stroke="#3a3f4b" stroke-dasharray="4 4"/>
+  <polyline fill="none" stroke="${color}" stroke-width="1.6" points="${series.map((s, i) => `${x(i).toFixed(1)},${y(s[key]).toFixed(1)}`).join(" ")}"/>
+  <text x="6" y="${padT + 10}" fill="#9aa0ab" font-size="11">${fmtMoney(hi)}</text>
+  <text x="6" y="${H - padB}" fill="#9aa0ab" font-size="11">${fmtMoney(lo)}</text>
+  <text x="${padL}" y="${H - 6}" fill="#9aa0ab" font-size="11">${esc(String(series[0].t).slice(0, 10))}</text>
+  <text x="${W - padR}" y="${H - 6}" fill="#9aa0ab" font-size="11" text-anchor="end">${esc(String(series[series.length - 1].t).slice(0, 10))}</text>
+  <text x="${W - padR - 4}" y="${padT + 10}" fill="${color}" font-size="11" text-anchor="end">account equity (realized + unrealized, incl. open base)</text>
+</svg>`;
+}
+
 function renderDualHedgeHtml(report) {
     let running = 0;
     const isBias = report.params.strategy === "BIAS";
@@ -127,6 +144,7 @@ function renderDualHedgeHtml(report) {
         let running = 0;
         return list
         .filter(t => t.status === "CLOSED")
+        .sort((a, b) => (b.role === "BASE") - (a.role === "BASE"))   // held bases first
         .map(t => {
             const pnlClass = (t.pnl || 0) >= 0 ? "pos" : "neg";
             running += (t.pnl || 0);
@@ -141,7 +159,7 @@ function renderDualHedgeHtml(report) {
                 <td class="neg">${(t.mae || 0).toFixed(0)}</td>
                 <td>${t.flipped ? "yes" : "no"}</td>
                 <td class="${combinedClass}">${running.toFixed(2)}</td>
-                <td>${esc(t.exit_reason)}</td>
+                <td>${t.exit_reason === "BACKTEST_END" ? "HELD \u2192 marked at end" : esc(t.exit_reason)}</td>
             </tr>`;
         })
         .join("");
@@ -153,10 +171,16 @@ function renderDualHedgeHtml(report) {
     const longT = report.trades.filter(x => x.leg === "LONG"), shortT = report.trades.filter(x => x.leg === "SHORT");
     const byRole = list => { const c = closedOf(list), n = r => c.filter(x => x.role === r).length, sum = r => c.filter(x => x.role === r).reduce((a, x) => a + (x.pnl || 0), 0);
         return isBias || isPma ? `<div class="meta">${["BASE", "CORE", "HEDGE"].filter(r => n(r)).map(r => `${r} ${n(r)} trades, net ${fmtMoney(sum(r))}`).join(" \u00b7 ")}</div>` : ""; };
+    const baseBox = list => {
+        const b = closedOf(list).filter(x => x.role === "BASE"); if (!isPma || !b.length) return "";
+        return `<h2>Base position (NRML, from entry to the end of the backtest)</h2><table><thead><tr><th>Side</th><th>Entry (IST)</th><th>Entry</th><th>Marked at</th><th>End price</th><th>Base P&amp;L</th><th>Worst (MAE)</th></tr></thead><tbody>${b.map(x => `<tr><td>${x.side}</td><td>${fmtIst(x.entry_time)}</td><td>${(+x.entry_price).toFixed(2)}</td><td>${fmtIst(x.exit_time)}</td><td>${(+x.exit_price).toFixed(2)}</td><td class="${(x.pnl || 0) >= 0 ? "pos" : "neg"}">${fmtMoney(x.pnl || 0)}</td><td class="neg">${(x.mae || 0).toFixed(0)}</td></tr>`).join("")}</tbody></table>`;
+    };
     const pane = (id, label, list, m, color, extra) => `<div class="pane" id="pane-${id}">
 <h2>${label}</h2>
 ${extra || ""}${metricsCards(m)}
 ${byRole(list)}
+${baseBox(list)}
+${id !== "all" && report.mtm.series ? `<div style="margin-top:12px">${acctEquityChart(report.mtm.series, id, color)}</div>` : ""}
 <div style="margin-top:12px">${tradePnlChart(list, color)}</div>
 <h2>Trades (${m.trades})${id === "all" ? " \u2014 gold rows are the SHORT account" : ""}${isBias ? "; Role = CORE (daily-bias leg) or HEDGE" : ""}</h2>
 ${tradeTable(list, id === "all" ? "Combined PnL" : "Running PnL")}
