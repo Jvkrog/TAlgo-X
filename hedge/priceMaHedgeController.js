@@ -29,7 +29,8 @@
 function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxSignalAgeMs = 150 * 1000, carry = false, hedgeMode = "SLOPE", getPrice = () => null, pnlBand = 0, pnlSmooth = 1, log = () => {} }) {
     const { LONG_BASE, SHORT_BASE, LONG_HEDGE, SHORT_HEDGE } = legs;
     if (!(LONG_BASE && SHORT_BASE && LONG_HEDGE && SHORT_HEDGE)) throw new Error("priceMaHedgeController: needs LONG_BASE, SHORT_BASE, LONG_HEDGE, SHORT_HEDGE");
-    const baseMin = baseHour * 60 + baseMinute, eodMin = eodHour * 60 + eodMinute;
+    const baseMin = carry ? 0 : baseHour * 60 + baseMinute, eodMin = eodHour * 60 + eodMinute;
+    // carry: the NRML bases are placed as soon as the algo is turned on (the base time only applies to day mode).
     if (!(eodMin > baseMin)) throw new Error("priceMaHedgeController: EOD must be after the base-entry time");
     const bases = [LONG_BASE, SHORT_BASE], hedges = [LONG_HEDGE, SHORT_HEDGE];
     const all = [...hedges, ...bases];
