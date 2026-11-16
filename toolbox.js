@@ -4022,13 +4022,14 @@ function colorLogFor(filePath) {
     } catch { /* fall back to the plain file */ }
     return filePath;
 }
-function tailFile(filePath, n) {
-    filePath = colorLogFor(filePath);
+const stripAnsi = s => String(s).replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
+function tailFile(filePath, n, colored = true) {
+    if (colored) filePath = colorLogFor(filePath);
     if (!filePath || !fs.existsSync(filePath)) return [c.dim(`(no log file yet: ${filePath || "unknown path"})`)];
     try {
         const text  = fs.readFileSync(filePath, "utf8");
         const lines = text.split(/\r?\n/).filter(l => l.length > 0);
-        return lines.slice(-n);
+        return lines.slice(-n).map(l => colored ? l : stripAnsi(l));
     } catch (err) {
         return [c.red(`(failed to read log: ${err.message})`)];
     }
@@ -4043,20 +4044,24 @@ async function viewLogs(procs) {
     const p = procs[Number(pick) - 1];
     if (!p) { console.log(c.yellow("  Invalid selection")); return; }
 
+    const colIn = (await ask("  Coloured logs? [Y/n] (default y): ")).trim().toLowerCase();
+    if (colIn !== "" && colIn !== "y" && colIn !== "n") { console.log(c.yellow("  Enter y or n")); return; }
+    const colored = colIn !== "n";
+
     console.log();
     console.log(c.bold(`  ${p.name} — last ${N_LOG_LINES} lines (stdout)`));
     console.log(c.dim(`  ${p.outLogPath || "path unknown"}`));
     console.log();
-    tailFile(p.outLogPath, N_LOG_LINES).forEach(line => console.log(line));
+    tailFile(p.outLogPath, N_LOG_LINES, colored).forEach(line => console.log(line));
 
-    const errLines     = tailFile(p.errLogPath, N_LOG_LINES);
+    const errLines     = tailFile(p.errLogPath, N_LOG_LINES, colored);
     const hasRealErrors = p.errLogPath && fs.existsSync(p.errLogPath) && errLines.some(l => l.trim().length > 0);
     if (hasRealErrors) {
         console.log();
         console.log(c.red(`  ${p.name} — last ${N_LOG_LINES} lines (stderr)`));
         console.log(c.dim(`  ${p.errLogPath}`));
         console.log();
-        errLines.forEach(line => console.log(c.red(line)));
+        errLines.forEach(line => console.log(colored ? c.red(line) : line));
     }
 
     console.log();

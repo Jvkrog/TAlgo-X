@@ -387,7 +387,7 @@ function dualHedgeStrategyText(d) {
   }
   if (d.strategy === "PRICE_MA") {
     const carry = d.carry !== false, extras = [Number(d.pnlBand) > 0 ? `band ${d.pnlBand}pt` : "", Number(d.pnlSmooth) > 1 ? `smooth ${d.pnlSmooth}` : ""].filter(Boolean);
-    return `Base-loss hedge \u00b7 ${carry ? "NRML bases held" : `MIS bases @${d.baseTime}`} \u00b7 ${carry ? "MIS" : "NRML"} hedge to ${d.eodTime || "EOD"}${extras.length ? ` \u00b7 ${extras.join(" \u00b7 ")}` : ""}`;
+    return `Base-loss hedge \u00b7 ${carry ? `NRML bases hedged by MIS till ${d.eodTime || "EOD"}` : `MIS bases @${d.baseTime} hedged by NRML till ${d.eodTime || "EOD"}`}${extras.length ? ` \u00b7 ${extras.join(" \u00b7 ")}` : ""}`;
   }
   if (d.strategy === "BIAS") {
     const unwind = d.unwindMode === "EOD_ONLY" ? "held to EOD" : "unwinds when the band flips back";
