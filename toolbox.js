@@ -4038,19 +4038,22 @@ function tailFile(filePath, n, colored = true) {
 async function viewLogs(procs) {
     if (procs.length === 0) { console.log(c.yellow("  No instruments running")); return; }
 
-    procs.forEach((p, i) => console.log(`  ${String(i + 1).padStart(2)}. ${p.underlying}/${(STRATEGY_INFO[p.strategy] || { short: p.strategy }).short}`));
-    const pick = await ask("  Select instrument (blank to cancel): ");
-    if (!pick) return;
-    const p = procs[Number(pick) - 1];
-    if (!p) { console.log(c.yellow("  Invalid selection")); return; }
-
-    // The choice is remembered in ~/.talgo_logs_color: the default here, and what `pm2 logs` follows in a new terminal (talgo-shell.sh).
+    // The coloured/normal choice lives right here, next to the instrument list. It is remembered in ~/.talgo_logs_color: the
+    // default for this screen and what `pm2 logs` follows in a new terminal (talgo-shell.sh).
     const prefFile = path.join(os.homedir(), ".talgo_logs_color");
-    let savedPref = "y"; try { savedPref = fs.readFileSync(prefFile, "utf8").trim().toLowerCase() === "n" ? "n" : "y"; } catch { /* none saved yet */ }
-    const colIn = (await ask(`  Coloured logs? [y/n] (default ${savedPref}; also used by \`pm2 logs\` in new terminals): `)).trim().toLowerCase();
-    if (colIn !== "" && colIn !== "y" && colIn !== "n") { console.log(c.yellow("  Enter y or n")); return; }
-    const colored = (colIn || savedPref) !== "n";
-    try { fs.writeFileSync(prefFile, colored ? "y\n" : "n\n"); } catch (e) { console.log(c.dim(`  (could not save the choice: ${e.message})`)); }
+    let colored = true; try { colored = fs.readFileSync(prefFile, "utf8").trim().toLowerCase() !== "n"; } catch { /* none saved yet */ }
+    const savePref = () => { try { fs.writeFileSync(prefFile, colored ? "y\n" : "n\n"); } catch (e) { console.log(c.dim(`  (could not save the choice: ${e.message})`)); } };
+    let p = null;
+    for (;;) {
+        procs.forEach((q, i) => console.log(`  ${String(i + 1).padStart(2)}. ${q.underlying}/${(STRATEGY_INFO[q.strategy] || { short: q.strategy }).short}`));
+        console.log(c.dim(`  Coloured logs: ${colored ? "ON" : "OFF"}  (type C to switch; also used by pm2 logs in new terminals)`));
+        const pick = (await ask("  Select instrument (blank to cancel, C = coloured on/off): ")).trim();
+        if (!pick) return;
+        if (pick.toLowerCase() === "c") { colored = !colored; savePref(); console.log(c.green(`  Coloured logs ${colored ? "ON" : "OFF"}`)); continue; }
+        p = procs[Number(pick) - 1];
+        if (!p) { console.log(c.yellow("  Invalid selection")); return; }
+        break;
+    }
 
     console.log();
     console.log(c.bold(`  ${p.name} — last ${N_LOG_LINES} lines (stdout)`));
