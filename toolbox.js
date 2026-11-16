@@ -17,6 +17,7 @@
 const readline        = require("readline");
 const fs               = require("fs");
 const path             = require("path");
+const os               = require("os");
 const pm2              = require("pm2");
 const { KiteConnect }  = require("kiteconnect");
 const c                = require("./utils/c");
@@ -4044,9 +4045,13 @@ async function viewLogs(procs) {
     const p = procs[Number(pick) - 1];
     if (!p) { console.log(c.yellow("  Invalid selection")); return; }
 
-    const colIn = (await ask("  Coloured logs? [Y/n] (default y): ")).trim().toLowerCase();
+    // The choice is remembered in ~/.talgo_logs_color: the default here, and what `pm2 logs` follows in a new terminal (talgo-shell.sh).
+    const prefFile = path.join(os.homedir(), ".talgo_logs_color");
+    let savedPref = "y"; try { savedPref = fs.readFileSync(prefFile, "utf8").trim().toLowerCase() === "n" ? "n" : "y"; } catch { /* none saved yet */ }
+    const colIn = (await ask(`  Coloured logs? [y/n] (default ${savedPref}; also used by \`pm2 logs\` in new terminals): `)).trim().toLowerCase();
     if (colIn !== "" && colIn !== "y" && colIn !== "n") { console.log(c.yellow("  Enter y or n")); return; }
-    const colored = colIn !== "n";
+    const colored = (colIn || savedPref) !== "n";
+    try { fs.writeFileSync(prefFile, colored ? "y\n" : "n\n"); } catch (e) { console.log(c.dim(`  (could not save the choice: ${e.message})`)); }
 
     console.log();
     console.log(c.bold(`  ${p.name} — last ${N_LOG_LINES} lines (stdout)`));
