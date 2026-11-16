@@ -235,7 +235,7 @@ async function backtestFlow({ ask, pauseForReview, ensureCsvLoaded, pinStore, re
     const query = await ask("  search underlying (blank = show all): ");
     const matches = query ? all.filter(u => u.toLowerCase().includes(query.toLowerCase())) : all;
     if (matches.length === 0) { console.log(c.yellow("  no matches")); await pauseForReview(); return; }
-    if (matches.length > 30 && query === "") {
+    if (matches.length > 60 && query === "") {   // the whole MCX list (31) is shown as-is, same as picking from a short list
         console.log(c.yellow(`  ${all.length} underlyings total — type part of a name to narrow it down`));
         await pauseForReview();
         return;
