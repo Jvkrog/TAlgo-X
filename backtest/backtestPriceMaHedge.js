@@ -111,7 +111,8 @@ async function replayPriceMaHedge({
     let lastClose = candles[candles.length - 1].close;
     const realized = () => L.reduce((a, l) => a + l.state.pnl, 0);
     let peak = 0, maxDD = 0, trough = 0, ddAt = null;
-    const daily = [];
+    const daily = [], series = [];   // series: per-account MTM equity (realized + unrealized) sampled every 15 minutes
+    const acctEq = a => L.filter(l => l.account === a).reduce((s, l) => s + l.state.pnl + unreal(l), 0);
     let lastDay = null, prevCn = null, prevSignal = null;
     const total = candles.length;
 
@@ -151,6 +152,7 @@ async function replayPriceMaHedge({
             }
         }
         const eq = realized() + L.reduce((a, l) => a + unreal(l), 0);
+        if (i % 15 === 0 || !next || dayEnds) series.push({ t: cn.date.toISOString(), long: acctEq("LONG"), short: acctEq("SHORT"), equity: eq });
         if (eq > peak) peak = eq; if (peak - eq > maxDD) { maxDD = peak - eq; ddAt = cn.date; } if (eq < trough) trough = eq;
         if (!next || dayEnds) {
             const fmt = l => l.state.position ? `${l.key} ${l.state.position}@${l.state.entryPrice.toFixed(2)}` : null;
@@ -172,7 +174,7 @@ async function replayPriceMaHedge({
     const worst = acct => L.filter(l => l.account === acct).reduce((a, l) => a + l.worstUPnL, 0);
     return {
         longTrades, shortTrades, trades, stats,
-        mtm: { finalEquity: realized(), peak, trough, maxDrawdown: maxDD, maxDrawdownAt: ddAt ? ddAt.toISOString() : null, worstUnrealized: { LONG: worst("LONG"), SHORT: worst("SHORT") }, daily },
+        mtm: { finalEquity: realized(), peak, trough, maxDrawdown: maxDD, maxDrawdownAt: ddAt ? ddAt.toISOString() : null, worstUnrealized: { LONG: worst("LONG"), SHORT: worst("SHORT") }, daily, series },
         signalBars: stats.signalMinutes, signalKind: (carry ? "NRML bases held, MIS hedge closed at EOD \u00b7 " : "") + (isPnl ? `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}; decided once a minute at the minute open)` : `Price MA (1m ${maProxy} proxy of the tick average)`),
     };
 }

@@ -70,6 +70,13 @@ t("PNL mode: a wider band means fewer hedge cycles; smoothing and bad options va
     await run({ hedgeMode: "PNL", pnlSmooth: 5 });
     await assert.rejects(() => run({ hedgeMode: "PNL", pnlBand: -1 }));
 });
+t("carry report: per-account MTM series, base box (entry -> end of backtest) and tabs", async () => {
+    const r = await run({ carry: true, hedgeMode: "PNL" });
+    assert.ok(r.mtm.series.length > 10 && ["long", "short", "equity"].every(k => typeof r.mtm.series[0][k] === "number"), "series present");
+    const last = r.mtm.series[r.mtm.series.length - 1]; assert.ok(Math.abs(last.long + last.short - last.equity) < 1e-6, "accounts add up to total");
+    const html = renderDualHedgeHtml({ params: { strategy: "PRICE_MA", carry: true, hedgeMode: "PNL", base: "09:15", eod: "23:15", pnlBand: 0, pnlSmooth: 1, slippagePoints: 0, rangeStart: "x", anchor: "n" }, trades: r.trades, stats: r.stats, symbol: "X", longLots: 1, shortLots: 1, metrics: { long: cm(r.longTrades), short: cm(r.shortTrades), combined: cm(r.trades) }, mtm: r.mtm, range: { from: "a", to: "b" }, meta: { candles: 1, signalBars: 1, signalKind: "k" }, runAt: new Date().toISOString(), lotMult: 250 });
+    assert.ok(/Base position \(NRML, from entry to the end of the backtest\)/.test(html) && /HELD \u2192 marked at end|HELD → marked at end/.test(html) && /pane-long/.test(html) && /account equity/.test(html));
+});
 t("carry: NRML bases are entered once and held across days; the MIS hedge is flat at every EOD; all closed at the backtest end", async () => {
     const r = await run({ carry: true });
     const bases = r.trades.filter(x => x.role === "BASE"), hs = r.trades.filter(x => x.role === "HEDGE");
