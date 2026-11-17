@@ -16,6 +16,8 @@
 //   PMA_LOTS_OVERRIDE             default 1; PMA_LONG_LOTS_OVERRIDE / PMA_SHORT_LOTS_OVERRIDE per account
 //   PMA_LOTMULT_OVERRIDE          unless context.js already has one
 //   PMA_CONTRACT_OVERRIDE         optional exact tradingsymbol (else the current contract)
+//   PMA_HEDGE_CONTRACT            hedge contract: "" / SAME = the base contract (default), NEXT = the next expiry after the base (calendar-spread
+//                                 margin benefit), or an exact tradingsymbol. Hedge P&L is then on that contract's own price (basis risk).
 //   PMA_BASE_HOUR / PMA_BASE_MINUTE   base entry time IST, default 09:15
 //   PMA_EOD_HOUR / PMA_EOD_MINUTE     default context.js defaultEodFor("1m", exchange)
 //   PMA_CARRY                     default TRUE (false = day mode: MIS bases + NRML hedge, all flat at EOD). true = bases are NRML and held constant (long in the LONG account, short in the SHORT account, never closed by the
@@ -100,9 +102,9 @@ async function main() {
     const qtyOf = (rows, leg) => rows.filter(p => p.tradingsymbol === leg.context.symbol && p.exchange === leg.context.exchange && p.product === leg.product).reduce((a, p) => a + p.quantity, 0);
 
     // ── sub-legs ──────────────────────────────────────────────────────────────────────────────────
-    async function buildLeg(key, account, kind, side, user, kc) {
+    async function buildLeg(key, account, kind, side, user, kc, symbolOverride = process.env.PMA_CONTRACT_OVERRIDE || null) {
         const { context } = resolveDualHedgeLeg({ underlying: UNDERLYING, side: key, userName: user.name, exchange: EXCHANGE, csvRepo, pinStore,
-            lots: Number(process.env[`PMA_${account}_LOTS_OVERRIDE`]) || defaultLots, lotMultOverride, bandStepOverride: null, symbolOverride: process.env.PMA_CONTRACT_OVERRIDE || null });
+            lots: Number(process.env[`PMA_${account}_LOTS_OVERRIDE`]) || defaultLots, lotMultOverride, bandStepOverride: null, symbolOverride });
         context.tgPrefix = context.tgPrefix.replace("_DH_", "_PMA_");
         context.name = context.name.replace("Dual Hedge", "Price MA Hedge");
         context.tgLabel = `Price MA Hedge ${key} (${user.name})`;
@@ -148,21 +150,49 @@ async function main() {
     }
 
     if (LIVE) { brokerNet.LONG = await fetchNet(longKc); brokerNet.SHORT = await fetchNet(shortKc); }
+    const longBase = await buildLeg("LONG_BASE", "LONG", "BASE", "LONG", longUser, longKc);
+    // Hedge contract: SAME (default) | NEXT (next expiry after the base — a calendar spread, which can earn a margin benefit) | exact symbol.
+    let hedgeSymbol = null;
+    const hc = String(process.env.PMA_HEDGE_CONTRACT || "").trim().toUpperCase();
+    if (hc === "NEXT") {
+        const futs = csvRepo.findFuturesFor(longBase.context.underlying || UNDERLYING) || [];
+        const baseExp = longBase.context.expiry ? new Date(longBase.context.expiry).getTime() : null;
+        const nxt = futs.find(f => f.expiry && baseExp !== null && new Date(f.expiry).getTime() > baseExp);
+        if (!nxt) fail(`PMA_HEDGE_CONTRACT=NEXT: no listed ${UNDERLYING} future expires after ${longBase.context.symbol}`);
+        hedgeSymbol = nxt.symbol;
+    } else if (hc && hc !== "SAME") hedgeSymbol = hc;
+    if (hedgeSymbol === longBase.context.symbol) hedgeSymbol = null;
     const legs = {
-        LONG_BASE:   await buildLeg("LONG_BASE",   "LONG",  "BASE",  "LONG",  longUser,  longKc),
-        LONG_HEDGE:  await buildLeg("LONG_HEDGE",  "LONG",  "HEDGE", "SHORT", longUser,  longKc),
+        LONG_BASE:   longBase,
+        LONG_HEDGE:  await buildLeg("LONG_HEDGE",  "LONG",  "HEDGE", "SHORT", longUser,  longKc, hedgeSymbol || process.env.PMA_CONTRACT_OVERRIDE || null),
         SHORT_BASE:  await buildLeg("SHORT_BASE",  "SHORT", "BASE",  "SHORT", shortUser, shortKc),
-        SHORT_HEDGE: await buildLeg("SHORT_HEDGE", "SHORT", "HEDGE", "LONG",  shortUser, shortKc),
+        SHORT_HEDGE: await buildLeg("SHORT_HEDGE", "SHORT", "HEDGE", "LONG",  shortUser, shortKc, hedgeSymbol || process.env.PMA_CONTRACT_OVERRIDE || null),
     };
     const L = Object.values(legs);
     const token = legs.LONG_BASE.context.token;
-    for (const l of L) if (l.context.token !== token) fail(`legs resolved to different contracts (${l.context.symbol} vs ${legs.LONG_BASE.context.symbol}) — pin one contract`);
+    const hedgeToken = legs.LONG_HEDGE.context.token;
+    for (const l of [legs.SHORT_BASE]) if (l.context.token !== token) fail(`base legs resolved to different contracts (${l.context.symbol} vs ${legs.LONG_BASE.context.symbol}) — pin one contract`);
+    if (legs.SHORT_HEDGE.context.token !== hedgeToken) fail(`hedge legs resolved to different contracts (${legs.SHORT_HEDGE.context.symbol} vs ${legs.LONG_HEDGE.context.symbol})`);
+    const SPLIT = hedgeToken !== token;   // hedges on another contract (calendar spread): they need their own price feed
     console.log(c.bold(`BASE-LOSS HEDGE  ${legs.LONG_BASE.context.symbol}  LONG:${longUser.name} (${legs.LONG_BASE.context.lots} lot)  SHORT:${shortUser.name} (${legs.SHORT_BASE.context.lots} lot)  base ${hhmm(baseHour, baseMinute)}  EOD ${hhmm(eodHour, eodMinute)}  ${CARRY ? "NRML bases + MIS hedge" : "MIS bases + NRML hedge"}`));
     if (CARRY) console.log(c.bold("CARRY: bases are NRML and held constant (never closed by the engine, recovered on each start); hedges are MIS and are closed at EOD"));
-    console.log(c.bold(`HEDGE: each base is hedged against its own loss (band ${PNL_BAND} pts, smooth ${PNL_SMOOTH})`));
+    console.log(c.bold(`HEDGE: each base is hedged against its own loss (band ${PNL_BAND} pts, smooth ${PNL_SMOOTH})${SPLIT ? `  · hedge contract ${legs.LONG_HEDGE.context.symbol} (calendar spread vs ${legs.LONG_BASE.context.symbol})` : ""}`));
 
     // ── prices ────────────────────────────────────────────────────────────────────────────────────
-    let lastTick = null;   // { price, at }
+    let lastTick = null;   // { price, at } of the BASE contract
+    let hedgeTick = null;  // { price, at } of the hedge contract (only when it differs from the base)
+    const tickOf = leg => (SPLIT && leg.kind === "HEDGE") ? hedgeTick : lastTick;
+    // Price of the contract a given leg trades (websocket, then REST, then last known).
+    async function getLtpFor(leg) {
+        if (!(SPLIT && leg.kind === "HEDGE")) return getLtp();
+        if (hedgeTick && Date.now() - hedgeTick.at < 15000) return hedgeTick.price;
+        try {
+            const d = await leg.kc.getLTP([leg.ltpKey]);
+            const px = d && d[leg.ltpKey] && d[leg.ltpKey].last_price;
+            if (px > 0) return px;
+        } catch (_) { /* fall through */ }
+        return hedgeTick ? hedgeTick.price : null;
+    }
     async function getLtp() {
         if (lastTick && Date.now() - lastTick.at < 15000) return lastTick.price;           // websocket LTP (the normal source)
         try {
@@ -216,7 +246,7 @@ async function main() {
                 filled = r.filled; price = r.price;
                 tag("HEDGE_CONTROLLER", `${leg.key} FILLED ${filled} lot(s) @ ${price ?? "n/a"} OrderID=${id}`);
             }
-            if (!(price > 0)) price = (await getLtp().catch(() => null)) || null;
+            if (!(price > 0)) price = (await getLtpFor(leg).catch(() => null)) || null;
             if (!(price > 0)) {
                 // No usable price: an entry at 0 would make every P&L check wrong. LIVE: the order is already filled, so keep the position and warn.
                 // PAPER: nothing was sent, so just wait for the first websocket tick and retry on the next controller tick.
@@ -249,7 +279,7 @@ async function main() {
                 }
                 price = r.price;
             }
-            if (price === null) price = (await getLtp().catch(() => null)) ?? leg.state.entryPrice;
+            if (price === null) price = (await getLtpFor(leg).catch(() => null)) ?? leg.state.entryPrice;
             await positions.close(leg.context, leg.state, leg.db, leg.tg, price, why);
             leg.db.savePosition(leg.context.tgPrefix, leg.context.token, leg.context.symbol, null, 0);
             leg.context.lots = leg.configuredLots;
@@ -300,15 +330,16 @@ async function main() {
         if (!lastTick || (!force && now - lastEmit < 1000)) return;
         lastEmit = now;
         for (const l of L) {
-            let u = 0; try { u = l.state.position ? positions.unrealised(l.context, l.state, lastTick.price) : 0; } catch (_) { u = 0; }
-            emitEvent(l.context.tgPrefix, "LTP", { price: lastTick.price, uPnl: u, session: (l.state.pnl || 0) + u, position: l.state.position || null, entryPrice: l.state.position ? l.state.entryPrice : null });
+            const tk = tickOf(l) || lastTick;
+            let u = 0; try { u = l.state.position ? positions.unrealised(l.context, l.state, tk.price) : 0; } catch (_) { u = 0; }
+            emitEvent(l.context.tgPrefix, "LTP", { price: tk.price, uPnl: u, session: (l.state.pnl || 0) + u, position: l.state.position || null, entryPrice: l.state.position ? l.state.entryPrice : null });
         }
     }
     const ticker = new KiteTicker({ api_key: longUser.apiKey, access_token: longUser.accessToken });
     ticker.connect();
-    ticker.on("connect", () => { ticker.subscribe([token]); ticker.setMode(ticker.modeLTP, [token]); tag("WS", "connected"); });
+    ticker.on("connect", () => { const toks = SPLIT ? [token, hedgeToken] : [token]; ticker.subscribe(toks); ticker.setMode(ticker.modeLTP, toks); tag("WS", "connected"); });
     ticker.on("ticks", ticks => {                       // ticks ONLY feed the last price — no order is placed here
-        for (const t of ticks) if (t.instrument_token === token && t.last_price) { lastTick = { price: t.last_price, at: Date.now() }; }
+        for (const t of ticks) { if (!t.last_price) continue; if (t.instrument_token === token) lastTick = { price: t.last_price, at: Date.now() }; else if (SPLIT && t.instrument_token === hedgeToken) hedgeTick = { price: t.last_price, at: Date.now() }; }
         emitLegPnl(false);
     });
     ticker.on("error", err => console.error(c.red(`WS  error: ${err && err.message ? err.message : err}`)));
@@ -343,10 +374,13 @@ async function main() {
                 const px = await getLtp().catch(() => null);
                 const f = (v, d = 2) => (v >= 0 ? "+" : "") + v.toFixed(d);
                 const lines = [`[PMA] ${new Date().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })}  LTP ${px === null ? "-" : px.toFixed(2)}`];
+                const hpx = SPLIT ? await getLtpFor(legs.LONG_HEDGE).catch(() => null) : px;
+                if (SPLIT) lines[0] += `   hedge ${legs.LONG_HEDGE.context.symbol} ${hpx === null ? "-" : hpx.toFixed(2)}`;
                 let totU = 0, totR = 0;
                 for (const l of L) {
-                    const u = l.state.position && px !== null ? positions.unrealised(l.context, l.state, px) : 0;
-                    const pts = l.state.position && px !== null ? (l.state.position === "LONG" ? 1 : -1) * (px - l.state.entryPrice) : 0;
+                    const lp = l.kind === "HEDGE" ? hpx : px;
+                    const u = l.state.position && lp !== null ? positions.unrealised(l.context, l.state, lp) : 0;
+                    const pts = l.state.position && lp !== null ? (l.state.position === "LONG" ? 1 : -1) * (lp - l.state.entryPrice) : 0;
                     totU += u; totR += (l.state.pnl || 0);
                     const where = l.state.position ? `${l.state.position} @${l.state.entryPrice.toFixed(2)}` : "flat";
                     lines.push(`   ${l.key.padEnd(11)} ${(l.user && l.user.name || "").padEnd(8)} ${where.padEnd(15)} ${l.state.position ? `${f(pts)} pts  ${f(u, 0)}` : "-"}${(l.state.pnl || 0) ? `   realized ${f(l.state.pnl, 0)}` : ""}`);

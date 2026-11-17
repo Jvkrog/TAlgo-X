@@ -2729,6 +2729,9 @@ async function addHedgePair() {
     const ckIn = (await ask("  Check hedge every N minutes (1 = every minute, 5 = at :00/:05/…; default 1): ")).trim();
     const checkMin = ckIn ? Number(ckIn) : 1;
     if (!Number.isInteger(checkMin) || checkMin < 1 || checkMin > 60) { console.log(c.yellow("  Invalid check interval")); await pauseForReview(); return; }
+    const hcIn = (await ask("  Hedge contract: [S] same as base, [N] next month (calendar-spread margin benefit, adds basis risk) (default S): ")).trim().toUpperCase();
+    if (hcIn !== "" && hcIn !== "S" && hcIn !== "N") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
+    const hedgeContract = hcIn === "N" ? "NEXT" : "SAME";
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
@@ -3001,7 +3004,7 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
         PMA_UNDERLYING: underlying, PMA_LONG_USER: longUser.name, PMA_SHORT_USER: shortUser.name, PMA_EXCHANGE_OVERRIDE: "MCX",
         PMA_LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), PMA_CONTRACT_OVERRIDE: contractSymbol || "",
         PMA_BASE_HOUR: String(baseHour), PMA_BASE_MINUTE: String(baseMinute), PMA_EOD_HOUR: String(eod.eodHour), PMA_EOD_MINUTE: String(eod.eodMinute),
-        PMA_PNL_BAND: String(pnlBand), PMA_PNL_SMOOTH: String(pnlSmooth), PMA_CHECK_MINUTES: String(checkMin), PMA_CARRY: String(carry),
+        PMA_PNL_BAND: String(pnlBand), PMA_PNL_SMOOTH: String(pnlSmooth), PMA_CHECK_MINUTES: String(checkMin), PMA_HEDGE_CONTRACT: hedgeContract, PMA_CARRY: String(carry),
     };
     if (lotMultOverride) env.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
     try {
