@@ -3099,6 +3099,7 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
             opts.pnlBand = Math.max(0, Number(b.pnlBand) || 0);
             opts.pnlSmooth = Math.max(1, Math.floor(Number(b.pnlSmooth) || 1));
             opts.checkMinutes = Math.min(60, Math.max(1, Math.floor(Number(b.checkMin) || 1)));
+            { const hc = String(b.hedgeContract || "SAME").trim().toUpperCase(); if (hc !== "SAME" && hc !== "NEXT" && !/^[A-Z0-9]+$/.test(hc)) return res.status(400).json({ error: "HedgeContract must be SAME, NEXT or a tradingsymbol" }); opts.hedgeContract = hc; }
         } else if (strategy === "REALIZE") {
             opts.realizeRupees = Number(b.realizeRupees) || 3000;
             opts.lossAlertRupees = Number(b.lossAlertRupees) || 0;
