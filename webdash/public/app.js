@@ -5112,6 +5112,7 @@ async function renderDualHedgeBacktestForm() {
       <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge when base P&amp;L &lt; 0)</div><input type="number" id="dbPmaBand" min="0" step="any" value="0"></div>
       <div class="tb-form-row"><div class="tb-form-label">Smoothing (last N samples (one per check); 1 = raw)</div><input type="number" id="dbPmaSmooth" min="1" step="1" value="1"></div>
       <div class="tb-form-row"><div class="tb-form-label">Check hedge every N minutes (1 = every minute; 5 = at :00, :05 …)</div><input type="number" id="dbPmaCheck" min="1" max="60" step="1" value="1"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Hedge contract (Next month = the hedges trade the next expiry's own candles, so the spread/basis between the two months shows up in P&amp;L)</div><select id="dbPmaHedgeContract"><option value="SAME" selected>Same contract as the base</option><option value="NEXT">Next month</option></select></div>
     </div>
     <div id="dbDual">
       <div class="tb-form-row"><div class="tb-form-label">Signal</div><select id="dbSignal"><option value="RANGE" selected>Range bars + Dynamic Step Band (live engine)</option><option value="HA_DSB">Heikin-Ashi + Dynamic Step Band</option><option value="HA">Heikin-Ashi colour only</option></select></div>
@@ -5195,7 +5196,7 @@ async function renderDualHedgeBacktestForm() {
       realizeRupees: q("#dbRealizeRupees").value || undefined, lossAlertRupees: q("#dbLossAlert").value || undefined,
       gapCapture: q("#dbStrategy").value === "DUAL" && q("#dbGap").checked,
       gcEntry: "23:20", gcExit: "23:25",
-      baseTime: q("#dbPmaBase").value || "09:15", eodTime: q("#dbPmaEod").value || undefined, carry: q("#dbPmaCarry").checked, pnlBand: q("#dbPmaBand").value || 0, pnlSmooth: q("#dbPmaSmooth").value || 1, checkMin: q("#dbPmaCheck").value || 1,
+      baseTime: q("#dbPmaBase").value || "09:15", eodTime: q("#dbPmaEod").value || undefined, carry: q("#dbPmaCarry").checked, pnlBand: q("#dbPmaBand").value || 0, pnlSmooth: q("#dbPmaSmooth").value || 1, checkMin: q("#dbPmaCheck").value || 1, hedgeContract: q("#dbPmaHedgeContract").value,
           };
     const btn = q("#dbSubmit");
     btn.disabled = true; btn.textContent = "Running...";

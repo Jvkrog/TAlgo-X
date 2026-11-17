@@ -893,7 +893,7 @@ async function runDualHedgeBacktest({
     takeProfit = 3000, maxLoss = 3000,
     slMode = "RUPEES", atrSlMult, atrTimeframe = "1h",   // DUAL only — see replayDualHedge
     gapCapture = false, gcHour = 23, gcMinute = 20, gcQuitHour = 23, gcQuitMinute = 25,
-    baseHour = 9, baseMinute = 15, pnlBand = 0, pnlSmooth = 1, checkMinutes = 1, carry = true,   // PRICE_MA (base-loss hedge) only
+    baseHour = 9, baseMinute = 15, pnlBand = 0, pnlSmooth = 1, checkMinutes = 1, hedgeContract = "SAME", carry = true,   // PRICE_MA (base-loss hedge) only
     slippagePoints = 0, from, to, kc, progress,
 }) {
     strategy = String(strategy).toUpperCase();
@@ -1000,13 +1000,33 @@ async function runDualHedgeBacktest({
             console.log(c.dim(`  base-loss hedge: bases ${hhmm(baseHour, baseMinute)} IST (${carry ? "NRML, held" : "MIS"}), EOD ${hhmm(eodHour, eodMinute)}, band ${pnlBand} pts, smooth ${pnlSmooth}, check every ${checkMinutes} min`));
             candles = await fetchMinuteCandles({ kc, token, fromMs, toMs, progress });
             if (candles.length === 0) throw new Error(noCandles);
+            // Hedge contract: SAME | NEXT (first expiry after the base) | an exact tradingsymbol → hedges are priced on that contract's own candles.
+            let hedgeLongLeg = null, hedgeShortLeg = null, hedgeCandles = null;
+            const hcv = String(hedgeContract || "SAME").trim().toUpperCase();
+            if (hcv !== "SAME") {
+                let hs = hcv;
+                if (hcv === "NEXT") {
+                    const baseExp = longLeg.context.expiry ? new Date(longLeg.context.expiry).getTime() : null;
+                    const nxt = (csvRepo.findFuturesFor(longLeg.context.underlying) || []).find(f => f.expiry && baseExp !== null && new Date(f.expiry).getTime() > baseExp);
+                    if (!nxt) throw new Error(`runDualHedgeBacktest: no listed ${underlying} future expires after ${longLeg.context.symbol} — cannot hedge on the next month`);
+                    hs = nxt.symbol;
+                }
+                if (hs !== longLeg.context.symbol) {
+                    const mkH = (side, n) => resolveDualHedgeLeg({ underlying, side, userName: "BACKTEST", exchange, csvRepo, pinStore, lots: n, lotMultOverride, bandStepOverride, symbolOverride: hs });
+                    hedgeLongLeg = mkH("LONG", Number(longLots) || Number(lots) || 1); hedgeShortLeg = mkH("SHORT", Number(shortLots) || Number(lots) || 1);
+                    console.log(c.dim(`  hedges on ${hs} (calendar spread vs ${longLeg.context.symbol})`));
+                    hedgeCandles = await fetchMinuteCandles({ kc, token: hedgeLongLeg.context.token, fromMs, toMs, progress });
+                    if (hedgeCandles.length === 0) throw new Error(`runDualHedgeBacktest: no 1-minute candles for the hedge contract ${hs} in this range — Kite may not have history that far back for it`);
+                }
+            }
             res = await replayPriceMaHedge({
                 longCtx: longLeg.context, shortCtx: shortLeg.context, candles, tradeFromMs: fromMs,
+                hedgeLongCtx: hedgeLongLeg && hedgeLongLeg.context, hedgeShortCtx: hedgeShortLeg && hedgeShortLeg.context, hedgeCandles,
                 baseHour, baseMinute, eodHour, eodMinute, pnlBand, pnlSmooth, checkMinutes, carry,
                 slippagePoints: Number(slippagePoints), progress,
             });
             params = {
-                strategy: "PRICE_MA", carry, pnlBand, pnlSmooth, checkMinutes, signal: `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}, check ${checkMinutes}m)`, base: hhmm(baseHour, baseMinute), eod: hhmm(eodHour, eodMinute),
+                strategy: "PRICE_MA", carry, pnlBand, pnlSmooth, checkMinutes, hedgeSymbol: hedgeLongLeg ? hedgeLongLeg.context.symbol : null, baseSymbol: longLeg.context.symbol, signal: `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}, check ${checkMinutes}m)`, base: hhmm(baseHour, baseMinute), eod: hhmm(eodHour, eodMinute),
                 bandStep: null, rangeSize: null, takeProfit: null, maxLoss: null, gapCapture: null,
                 rangeStart: fmtIST(anchorMs), anchor: anchorNote, slippagePoints: Number(slippagePoints),
             };

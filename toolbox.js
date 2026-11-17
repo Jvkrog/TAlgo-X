@@ -3436,6 +3436,7 @@ async function backtestDualHedgeFlow() {
         opts.pnlBand = await askNum("Loss band in points (0 = hedge when base P&L < 0, default 0)", 0, { positive: false });
         opts.pnlSmooth = Math.max(1, Math.floor(await askNum("Smoothing: last N P&L samples (one per check) (default 1 = raw)", 1)));
         opts.checkMinutes = Math.min(60, Math.max(1, Math.floor(await askNum("Check hedge every N minutes (default 1)", 1))));
+        opts.hedgeContract = (await askChoice("Hedge contract: S = same as base, N = next month (calendar spread) [S/N, default S]", { S: "SAME", N: "NEXT" }, "SAME"));
         console.log(c.dim("  Backtest checks P&L at each minute open; no brokerage/taxes. EOD is automatic."));
     } else if (strategy === "BIAS") {
         opts.longContract  = await pickLegContract(repo, underlying, "LONG ACCOUNT");

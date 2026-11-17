@@ -34,6 +34,18 @@ t("no hedge or base before the base time; nothing opens after EOD", async () => 
     const r = await run({});
     for (const x of r.trades) { const mod = new Date(new Date(x.entry_time).getTime() + IST).getUTCHours() * 60 + new Date(new Date(x.entry_time).getTime() + IST).getUTCMinutes(); assert.ok(mod >= 9 * 60 + 15 && mod < 23 * 60 + 15, "entry within base..EOD: " + mod); }
 });
+t("hedge on another contract: hedges are priced on that contract's own candles (calendar spread)", async () => {
+    const hc = candles.map(x => ({ ...x, open: x.open - 20, high: x.high - 20, low: x.low - 20, close: x.close - 20 }));   // next month trades 20 below
+    const hctx = n => ({ ...ctx(n), symbol: "NATGASMINI26Y", token: 2 });
+    const r = await run({ hedgeLongCtx: hctx("LH"), hedgeShortCtx: hctx("SH"), hedgeCandles: hc });
+    const hedges = r.trades.filter(x => x.role === "HEDGE"), bases = r.trades.filter(x => x.role === "BASE");
+    assert.ok(hedges.length >= 2, "hedges were opened");
+    assert.ok(hedges.every(x => x.entry_price < 290), "hedge entries are on the next-month price (~280), not the base (~300)");
+    assert.ok(bases.every(x => x.entry_price > 290), "bases stay on the base contract");
+    assert.ok(/calendar spread/.test(r.signalKind));
+    const same = await run({});
+    assert.strictEqual(same.stats.baseEntries, r.stats.baseEntries, "base legs behave the same");
+});
 t("slippage hurts", async () => {
     const a = await run({}), b = await run({ slippagePoints: 0.5 });
     assert.ok(b.mtm.finalEquity < a.mtm.finalEquity, "slippage lowers P&L");

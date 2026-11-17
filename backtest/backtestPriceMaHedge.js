@@ -25,7 +25,7 @@ const minuteOfDay = ms => { const x = new Date(ms + IST_MS); return x.getUTCHour
 const sgn = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
 
 async function replayPriceMaHedge({
-    longCtx, shortCtx, candles, tradeFromMs,
+    longCtx, shortCtx, candles, tradeFromMs, hedgeLongCtx = null, hedgeShortCtx = null, hedgeCandles = null,   // hedge*Ctx/hedgeCandles: hedges on another contract (calendar spread)
     baseHour = 9, baseMinute = 15, eodHour = 23, eodMinute = 15,
     pnlBand = 0, pnlSmooth = 1, checkMinutes = 1, carry = false,
     slippagePoints = 0, progress, verbose = true,
@@ -43,9 +43,9 @@ async function replayPriceMaHedge({
     });
     const legs = {
         LONG_BASE:   mk("LONG_BASE",   "LONG",  "BASE",  "LONG",  longCtx),
-        LONG_HEDGE:  mk("LONG_HEDGE",  "LONG",  "HEDGE", "SHORT", longCtx),
+        LONG_HEDGE:  mk("LONG_HEDGE",  "LONG",  "HEDGE", "SHORT", hedgeLongCtx || longCtx),
         SHORT_BASE:  mk("SHORT_BASE",  "SHORT", "BASE",  "SHORT", shortCtx),
-        SHORT_HEDGE: mk("SHORT_HEDGE", "SHORT", "HEDGE", "LONG",  shortCtx),
+        SHORT_HEDGE: mk("SHORT_HEDGE", "SHORT", "HEDGE", "LONG",  hedgeShortCtx || shortCtx),
     };
     const L = Object.values(legs);
     const stats = {
@@ -54,9 +54,16 @@ async function replayPriceMaHedge({
         exits: { eod: 0, backtestEnd: 0 },
     };
 
+    const SPLIT = !!(hedgeCandles && hedgeLongCtx);
+    const hMap = new Map(SPLIT ? hedgeCandles.map(h => [h.date.getTime(), h]) : []);
+    let hCur = null;                            // latest hedge-contract candle at or before the current minute
     let execPx = candles[0].open;               // fill reference for the minute being processed
+    let hExec = null;                           // same, for the hedge contract
+    const refPx = leg => (SPLIT && leg.kind === "HEDGE") ? hExec : execPx;
     async function enter(leg, why) {
-        const px = leg.side === "LONG" ? execPx + slip : execPx - slip;
+        const rp = refPx(leg);
+        if (!(rp > 0)) { log(c.dim(`[${leg.ctx.tgPrefix}] no ${leg.ctx.symbol} price yet — hedge entry waits`)); return false; }
+        const px = leg.side === "LONG" ? rp + slip : rp - slip;
         leg.state.position = leg.side; leg.state.entryPrice = px;
         leg.state.openTradeId = await leg.ledger.insertOpenTrade(leg.ctx.tgPrefix, leg.ctx.symbol, leg.side, leg.ctx.lots, px);
         leg.ledger.savePosition(leg.ctx.tgPrefix, leg.ctx.token, leg.ctx.symbol, leg.side, px, `PMA_${leg.kind}`);
@@ -69,7 +76,7 @@ async function replayPriceMaHedge({
     async function exit(leg, why, { noSlip = false } = {}) {
         if (!leg.state.position) return true;
         const side = leg.state.position, adj = noSlip ? 0 : slip;
-        const px = side === "LONG" ? execPx - adj : execPx + adj;
+        const rp = refPx(leg), px = side === "LONG" ? rp - adj : rp + adj;
         const tradeId = leg.state.openTradeId, mae = leg.mae;
         log(`**${leg.kind} ${side} EXIT**`);
         await positions.close(leg.ctx, leg.state, leg.ledger, tg, px, why);
@@ -90,8 +97,8 @@ async function replayPriceMaHedge({
         carry, pnlBand, pnlSmooth, checkMinutes, getPrice: () => ({ price: execPx, atMs: nowMs }),   // the decision is taken at the minute's open
     });
 
-    const unreal = leg => leg.state.position ? positions.unrealised(leg.ctx, leg.state, lastClose) : 0;
-    let lastClose = candles[candles.length - 1].close;
+    let lastClose = candles[candles.length - 1].close, hLastClose = null;
+    const unreal = leg => leg.state.position ? positions.unrealised(leg.ctx, leg.state, (SPLIT && leg.kind === "HEDGE") ? (hLastClose ?? leg.state.entryPrice) : lastClose) : 0;
     const realized = () => L.reduce((a, l) => a + l.state.pnl, 0);
     let peak = 0, maxDD = 0, trough = 0, ddAt = null;
     const daily = [], series = [];   // series: per-account MTM equity (realized + unrealized) sampled every 15 minutes
@@ -103,6 +110,7 @@ async function replayPriceMaHedge({
         const cn = candles[i], ms = cn.date.getTime();
         if (ms < tradeFromMs) continue;
         clockBox.date = cn.date; nowMs = ms; execPx = cn.open; lastClose = cn.close;
+        if (SPLIT) { hCur = hMap.get(ms) || hCur; hExec = hCur ? hCur.open : null; hLastClose = hCur ? hCur.close : hLastClose; }
         const dayKey = dayKeyIST(cn.date);
         if (lastDay !== dayKey) { lastDay = dayKey; log(); log(`**STARTING** ${dayKey}`); }
 
@@ -112,13 +120,15 @@ async function replayPriceMaHedge({
         const next = candles[i + 1];
         const dayEnds = !!next && dayKeyIST(next.date) !== dayKey;
         if (dayEnds || !next) {   // data for the day ends before the EOD minute: close at this candle's close (hedge first)
-            execPx = cn.close;
+            execPx = cn.close; if (SPLIT && hCur) hExec = hCur.close;
             const open = L.filter(l => l.state.position && !(carry && l.kind === "BASE" && next)).sort((a, b) => (b.kind === "HEDGE") - (a.kind === "HEDGE"));
             if (open.length && next) { log("**EOD**"); for (const l of open) await exit(l, "EOD_FORCE"); }
         }
         for (const leg of L) {   // MAE / worst unrealized along the candle's path
             if (!leg.state.position) continue;
-            for (const px of [cn.open, cn.low, cn.high, cn.close]) {
+            const bar = (SPLIT && leg.kind === "HEDGE") ? hCur : cn;
+            if (!bar) continue;
+            for (const px of [bar.open, bar.low, bar.high, bar.close]) {
                 const u = positions.unrealised(leg.ctx, leg.state, px);
                 if (u < leg.mae) leg.mae = u; if (u < leg.worstUPnL) leg.worstUPnL = u;
             }
@@ -136,7 +146,7 @@ async function replayPriceMaHedge({
     }
     if (progress) progress(total, total);
 
-    execPx = lastClose;
+    execPx = lastClose; if (SPLIT && hLastClose) hExec = hLastClose;
     for (const leg of L.sort((a, b) => (b.kind === "HEDGE") - (a.kind === "HEDGE"))) if (leg.state.position) { stats.exits.backtestEnd++; await exit(leg, "BACKTEST_END", { noSlip: true }); }
 
     const tag = leg => leg.ledger.getAllTrades().filter(t => new Date(t.entry_time).getTime() >= tradeFromMs).map(t => ({ ...t, leg: leg.account, role: leg.kind }));
@@ -146,7 +156,7 @@ async function replayPriceMaHedge({
     return {
         longTrades, shortTrades, trades, stats,
         mtm: { finalEquity: realized(), peak, trough, maxDrawdown: maxDD, maxDrawdownAt: ddAt ? ddAt.toISOString() : null, worstUnrealized: { LONG: worst("LONG"), SHORT: worst("SHORT") }, daily, series },
-        signalBars: stats.signalMinutes, signalKind: (carry ? "NRML bases held, MIS hedge closed at EOD \u00b7 " : "") + `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}; decided every ${checkMinutes} min at the minute open)`,
+        signalBars: stats.signalMinutes, signalKind: (SPLIT ? `hedges on ${hedgeLongCtx.symbol} (calendar spread) \u00b7 ` : "") + (carry ? "NRML bases held, MIS hedge closed at EOD \u00b7 " : "") + `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}; decided every ${checkMinutes} min at the minute open)`,
     };
 }
 
