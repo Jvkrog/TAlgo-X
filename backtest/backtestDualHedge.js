@@ -133,7 +133,7 @@ const { toHA } = require("../indicators/indicators");
 const { fetchHistoricalCandles, fetchDailyCandles } = require("../data/historicalFetch");
 const { SL_MODES, ATR_TIMEFRAMES, atrLookup } = require("../hedge/dualHedgeAtr");
 const { createBandStepper } = require("../indicators/dynamicBandReader");
-const { defaultEodFor } = require("../core/context");
+const { defaultEodFor, getDefinition } = require("../core/context");
 const { createCsvRepository } = require("../data/csvRepository");
 const { createInstrumentSource } = require("../data/instrumentSource");
 const { createContractPinStore } = require("../data/contractPins");
@@ -1007,7 +1007,7 @@ async function runDualHedgeBacktest({
                 let hs = hcv;
                 if (hcv === "NEXT") {
                     const baseExp = longLeg.context.expiry ? new Date(longLeg.context.expiry).getTime() : null;
-                    const nxt = (csvRepo.findFuturesFor(longLeg.context.underlying) || []).find(f => f.expiry && baseExp !== null && new Date(f.expiry).getTime() > baseExp);
+                    const nxt = (csvRepo.findFuturesFor(longLeg.context.underlying || getDefinition(underlying, exchange).underlying) || []).find(f => f.expiry && baseExp !== null && new Date(f.expiry).getTime() > baseExp);
                     if (!nxt) throw new Error(`runDualHedgeBacktest: no listed ${underlying} future expires after ${longLeg.context.symbol} — cannot hedge on the next month`);
                     hs = nxt.symbol;
                 }
