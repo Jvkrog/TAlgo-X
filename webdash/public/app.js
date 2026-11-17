@@ -386,7 +386,7 @@ function dualHedgeStrategyText(d) {
     return `realize & re-open \u00b7 closes a leg at +\u20b9${d.realizeRupees || 3000} then re-opens it (NRML)${d.lossAlertRupees ? ` \u00b7 loss alert -\u20b9${d.lossAlertRupees}` : ""} \u00b7 losing leg never closed`;
   }
   if (d.strategy === "PRICE_MA") {
-    const carry = d.carry !== false, extras = [Number(d.pnlBand) > 0 ? `band ${d.pnlBand}pt` : "", Number(d.pnlSmooth) > 1 ? `smooth ${d.pnlSmooth}` : "", Number(d.checkMin) > 1 ? `check ${d.checkMin}m` : ""].filter(Boolean);
+    const carry = d.carry !== false, extras = [Number(d.pnlBand) > 0 ? `band ${d.pnlBand}pt` : "", Number(d.pnlSmooth) > 1 ? `smooth ${d.pnlSmooth}` : "", Number(d.checkMin) > 1 ? `check ${d.checkMin}m` : "", String(d.hedgeContract || "SAME").toUpperCase() !== "SAME" ? `hedge ${String(d.hedgeContract).toUpperCase() === "NEXT" ? "next month" : d.hedgeContract}` : ""].filter(Boolean);
     return `Base-loss hedge \u00b7 ${carry ? `NRML bases hedged by MIS till ${d.eodTime || "EOD"}` : `MIS bases @${d.baseTime} hedged by NRML till ${d.eodTime || "EOD"}`}${extras.length ? ` \u00b7 ${extras.join(" \u00b7 ")}` : ""}`;
   }
   if (d.strategy === "BIAS") {
@@ -495,7 +495,7 @@ function updatePmaLeg(msg) {
   if (!m) return false;
   const [, underlying, key] = m;
   pmaLegState.set(msg.engine, { uPnl: Number(msg.uPnl) || 0, session: Number(msg.session) || 0, position: msg.position || null, entryPrice: msg.entryPrice });
-  if (Number.isFinite(Number(msg.price))) pmaLastPrice.set(underlying, Number(msg.price));
+  if (Number.isFinite(Number(msg.price)) && /BASE$/.test(key)) pmaLastPrice.set(underlying, Number(msg.price));   // the LTP box is the base contract (a hedge on another expiry has its own price)
   paintPmaCards(underlying);
   return true;
 }
@@ -4893,6 +4893,7 @@ async function renderDualHedgeAddForm() {
       <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge as soon as base P&amp;L &lt; 0, close when &gt; 0)</div><input type="number" id="dhPmaBand" min="0" step="any" value="0"></div>
       <div class="tb-form-row"><div class="tb-form-label">Smoothing (average of last N P&amp;L samples (one per check); 1 = raw)</div><input type="number" id="dhPmaSmooth" min="1" step="1" value="1"></div>
       <div class="tb-form-row"><div class="tb-form-label">Check hedge every N minutes (1 = every minute; 5 = at :00, :05, :10 …)</div><input type="number" id="dhPmaCheck" min="1" max="60" step="1" value="1"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Hedge contract (NEXT = next-month future: calendar-spread margin benefit, but the hedge then carries basis risk)</div><select id="dhPmaHedgeContract"><option value="SAME" selected>Same contract as the base</option><option value="NEXT">Next month</option></select></div>
     </div>
     <div id="dhRealizeOnly" style="display:none">
       <div class="tb-form-row"><div class="tb-form-label">Realize when a leg's profit exceeds \u20b9 (default 3000) \u2014 the leg is closed, then the same side is opened again</div><input type="number" id="dhRealizeRupees" min="1" step="1" value="3000"></div>
@@ -5007,7 +5008,7 @@ async function renderDualHedgeAddForm() {
       gapCapture: tbDualHedgeBody.querySelector("#dhStrategy").value === "DUAL" && tbDualHedgeBody.querySelector("#dhGap").checked,
       gcEntry: "23:20", gcExit: "23:25",
       baseTime: tbDualHedgeBody.querySelector("#dhPmaBase").value || "09:15", eodTime: tbDualHedgeBody.querySelector("#dhPmaEod").value || undefined,
-      carry: tbDualHedgeBody.querySelector("#dhPmaCarry").checked, pnlBand: tbDualHedgeBody.querySelector("#dhPmaBand").value || 0, pnlSmooth: tbDualHedgeBody.querySelector("#dhPmaSmooth").value || 1, checkMin: tbDualHedgeBody.querySelector("#dhPmaCheck").value || 1,
+      carry: tbDualHedgeBody.querySelector("#dhPmaCarry").checked, pnlBand: tbDualHedgeBody.querySelector("#dhPmaBand").value || 0, pnlSmooth: tbDualHedgeBody.querySelector("#dhPmaSmooth").value || 1, checkMin: tbDualHedgeBody.querySelector("#dhPmaCheck").value || 1, hedgeContract: tbDualHedgeBody.querySelector("#dhPmaHedgeContract").value,
           };
     const btn = tbDualHedgeBody.querySelector("#dhAddSubmit");
     btn.disabled = true; btn.textContent = "Starting...";
