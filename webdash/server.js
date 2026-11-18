@@ -2507,6 +2507,10 @@ async function getHedgePairProcesses() {
             coreLots:        p.pm2_env.env?.CORE_LOTS_OVERRIDE || "1",
             hedgeLots:       p.pm2_env.env?.HEDGE_LOTS_OVERRIDE || "5",
             unwindMode:      p.pm2_env.env?.UNWIND_MODE_OVERRIDE || "HA_FLIP",
+            hedgeRule:       p.pm2_env.env?.HEDGE_RULE || "DSB",
+            checkMin:        p.pm2_env.env?.HEDGE_CHECK_MINUTES || "5",
+            coreSide:        p.pm2_env.env?.CORE_SIDE_OVERRIDE || "",
+            pnlBand:         p.pm2_env.env?.HEDGE_PNL_BAND || "0",
             carryOvernight:  p.pm2_env.env?.CORE_CARRY_OVERRIDE !== "false",
             live:            p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:        p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -2604,8 +2608,17 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
     const {
         coreUnderlying, hedgeUnderlying, coreLots, hedgeLots,
         coreLotMultOverride, hedgeLotMultOverride, unwindMode, carryOvernight, coreSymbol, hedgeSymbol,
-        live, confirmLive,
+        live, confirmLive, hedgeRule, checkMin, pnlBand, coreSide,
     } = req.body || {};
+    const rule = String(hedgeRule || "DSB").toUpperCase();
+    if (rule !== "DSB" && rule !== "BASE_LOSS") return res.status(400).json({ error: "HedgeRule must be DSB or BASE_LOSS" });
+    if (rule === "BASE_LOSS") {   // same instrument, one account: the hedge is the SAME contract as the core
+        const cm = checkMin === undefined || checkMin === "" ? 5 : Number(checkMin), pb = pnlBand === undefined || pnlBand === "" ? 0 : Number(pnlBand);
+        if (!(Number.isInteger(cm) && cm >= 1 && cm <= 60)) return res.status(400).json({ error: "CheckMin must be a whole number 1-60" });
+        if (!(pb >= 0)) return res.status(400).json({ error: "PnlBand must be >= 0" });
+        if (carryOvernight === false) return res.status(400).json({ error: "The base-loss rule needs an NRML core" });
+        if (!["LONG", "SHORT"].includes(String(coreSide || "").toUpperCase())) return res.status(400).json({ error: "CoreSide must be LONG or SHORT for the base-loss rule" });
+    }
 
     if (!coreUnderlying || !hedgeUnderlying) {
         return res.status(400).json({ error: "CoreUnderlying and hedgeUnderlying are both required" });
@@ -2626,10 +2639,12 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
         return res.status(400).json({ error: `HedgeLotMultOverride is required for ${hedgeUnderlying} (no context.js override on file)` });
     }
 
-    const name = `${getShortName(coreUnderlying)}${getShortName(hedgeUnderlying)}HedgePair`;
+    if (rule === "BASE_LOSS" && String(coreUnderlying).toUpperCase() !== String(hedgeUnderlying).toUpperCase()) return res.status(400).json({ error: "The base-loss rule hedges the SAME instrument: coreUnderlying and hedgeUnderlying must match" });
+    const name = `${getShortName(coreUnderlying)}${rule === "BASE_LOSS" ? "" : getShortName(hedgeUnderlying)}HedgePair`;
     const env = {
         CORE_UNDERLYING: coreUnderlying, HEDGE_UNDERLYING: hedgeUnderlying, EXCHANGE_OVERRIDE: "MCX",
-        CORE_LOTS_OVERRIDE: String(coreLots || 1), HEDGE_LOTS_OVERRIDE: String(hedgeLots || 5),
+        CORE_LOTS_OVERRIDE: String(coreLots || 1), HEDGE_LOTS_OVERRIDE: String(hedgeLots || (rule === "BASE_LOSS" ? (coreLots || 1) : 5)),
+        HEDGE_RULE: rule, ...(rule === "BASE_LOSS" ? { CORE_SIDE_OVERRIDE: String(coreSide).toUpperCase() } : {}), HEDGE_CHECK_MINUTES: String(rule === "BASE_LOSS" ? (Number(checkMin) || 5) : 5), HEDGE_PNL_BAND: String(rule === "BASE_LOSS" ? (Number(pnlBand) || 0) : 0),
         UNWIND_MODE_OVERRIDE: resolvedUnwindMode, CORE_CARRY_OVERRIDE: String(carryOvernight !== false), LIVE_ORDERS_OVERRIDE: String(!!live),
     };
     for (const [k, v, u] of [["CORE_SYMBOL_OVERRIDE", coreSymbol, coreUnderlying], ["HEDGE_SYMBOL_OVERRIDE", hedgeSymbol, hedgeUnderlying]]) {
@@ -2638,6 +2653,8 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
         if (!row || row.underlying !== getDefinition(u, "MCX").underlying) return res.status(400).json({ error: `Contract "${v}" is not a listed ${u} future` });
         env[k] = String(v);
     }
+    if (rule === "BASE_LOSS" && hedgeSymbol && coreSymbol && hedgeSymbol !== coreSymbol) return res.status(400).json({ error: "The base-loss rule hedges the SAME contract: leave the hedge contract blank or equal to the core's" });
+    if (rule === "BASE_LOSS") { if (coreSymbol) env.HEDGE_SYMBOL_OVERRIDE = String(coreSymbol); if (coreLotMultOverride) env.HEDGE_LOTMULT_OVERRIDE = String(coreLotMultOverride); }
     if (coreLotMultOverride)  env.CORE_LOTMULT_OVERRIDE  = String(coreLotMultOverride);
     if (hedgeLotMultOverride) env.HEDGE_LOTMULT_OVERRIDE = String(hedgeLotMultOverride);
 
