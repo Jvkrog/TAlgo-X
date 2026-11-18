@@ -421,8 +421,12 @@ function buildDualHedgeCard(d) {
       <div class="pnl-box"><span class="pnl-label">SHORT hedge (${d.shortUser})</span><span class="pnl-value flat" data-role="SHORT_HEDGE-pnl">+0</span><span class="pnl-label" data-role="SHORT_HEDGE-pos">flat</span></div>
     </div>
     <div class="pnl-row">
+      <div class="pnl-box"><span class="pnl-label">LONG acct unrealized (${d.longUser})</span><span class="pnl-value flat" data-role="LONG-acct-u">+0</span><span class="pnl-label" data-role="LONG-acct-net">net +0</span></div>
+      <div class="pnl-box"><span class="pnl-label">SHORT acct unrealized (${d.shortUser})</span><span class="pnl-value flat" data-role="SHORT-acct-u">+0</span><span class="pnl-label" data-role="SHORT-acct-net">net +0</span></div>
+    </div>
+    <div class="pnl-row">
       <div class="pnl-box"><span class="pnl-label">LTP</span><span class="pnl-value flat" data-role="pma-ltp">-</span></div>
-      <div class="pnl-box"><span class="pnl-label">Unrealized</span><span class="pnl-value flat" data-role="unrealized">+0</span></div>
+      <div class="pnl-box"><span class="pnl-label">Total unrealized</span><span class="pnl-value flat" data-role="unrealized">+0</span></div>
       <div class="pnl-box"><span class="pnl-label">Realized</span><span class="pnl-value flat" data-role="realized">+0</span></div>
       <div class="pnl-box"><span class="pnl-label">Net</span><span class="pnl-value flat" data-role="net">+0</span></div>
     </div>` : `    <div class="pnl-row">
@@ -502,10 +506,10 @@ function updatePmaLeg(msg) {
 function paintPmaCards(underlying) {
   dualHedges.filter(d => d.strategy === "PRICE_MA" && d.underlying === underlying).forEach(d => {
     const el = document.getElementById(`dh-${d.name}`); if (!el) return;
-    let u = 0, s = 0;
+    let u = 0, s = 0; const au = { LONG: 0, SHORT: 0 }, an = { LONG: 0, SHORT: 0 };   // per-account unrealized (base + hedge) and net (unrealized + realized)
     PMA_KEYS.forEach(k => {
       const st = pmaLegState.get(`${underlying}_PMA_${k}`) || { uPnl: 0, session: 0, position: null };
-      u += st.uPnl; s += st.session;
+      u += st.uPnl; s += st.session; au[k.split("_")[0]] += st.uPnl; an[k.split("_")[0]] += st.session;
       const pEl = el.querySelector(`[data-role="${k}-pnl"]`);
       if (pEl) { pEl.textContent = fmtSigned(st.session); pEl.className = `pnl-value ${cls(st.session)}`; }
       const posEl = el.querySelector(`[data-role="${k}-pos"]`);
@@ -513,6 +517,10 @@ function paintPmaCards(underlying) {
     });
     const set = (role, v) => { const e = el.querySelector(`[data-role="${role}"]`); if (e) { e.textContent = fmtSigned(v); e.className = `pnl-value ${cls(v)}`; } };
     set("unrealized", u); set("realized", s - u); set("net", s);
+    ["LONG", "SHORT"].forEach(a => {
+      set(`${a}-acct-u`, au[a]);
+      const n = el.querySelector(`[data-role="${a}-acct-net"]`); if (n) n.textContent = `net ${fmtSigned(an[a])}`;
+    });
     const l = el.querySelector('[data-role="pma-ltp"]'); const px = pmaLastPrice.get(underlying);
     if (l && px !== undefined) l.textContent = px.toFixed(2);
   });
