@@ -27,7 +27,7 @@ const sgn = n => (n < 0 ? "-" : "+") + Math.abs(n).toFixed(0);
 async function replayPriceMaHedge({
     longCtx, shortCtx, candles, tradeFromMs, hedgeLongCtx = null, hedgeShortCtx = null, hedgeCandles = null,   // hedge*Ctx/hedgeCandles: hedges on another contract (calendar spread)
     baseHour = 9, baseMinute = 15, eodHour = 23, eodMinute = 15,
-    pnlBand = 0, pnlSmooth = 1, checkMinutes = 1, getDailyBias = null, carry = false,
+    pnlBand = 0, pnlSmooth = 1, checkMinutes = 1, carry = false,
     slippagePoints = 0, progress, verbose = true,
 }) {
     if (!candles.length) throw new Error("replayPriceMaHedge: no candles");
@@ -54,7 +54,6 @@ async function replayPriceMaHedge({
         exits: { eod: 0, backtestEnd: 0 },
     };
 
-    const keepBases = carry && !getDailyBias;   // the daily-HA rule closes its NRML base at EOD too
     const SPLIT = !!(hedgeCandles && hedgeLongCtx);
     const hMap = new Map(SPLIT ? hedgeCandles.map(h => [h.date.getTime(), h]) : []);
     let hCur = null;                            // latest hedge-contract candle at or before the current minute
@@ -95,7 +94,7 @@ async function replayPriceMaHedge({
     const controller = createPriceMaHedgeController({
         legs, broker, clock: () => ({ today: dayKeyIST(new Date(nowMs)), hours: Math.floor(minuteOfDay(nowMs) / 60), minutes: minuteOfDay(nowMs) % 60, nowMs }),
         baseHour, baseMinute, eodHour, eodMinute, maxPriceAgeMs: 150 * 1000, log: m => log(c.dim(m)),
-        carry, pnlBand, pnlSmooth, checkMinutes, getDailyBias, getPrice: () => ({ price: execPx, atMs: nowMs }),   // the decision is taken at the minute's open
+        carry, pnlBand, pnlSmooth, checkMinutes, getPrice: () => ({ price: execPx, atMs: nowMs }),   // the decision is taken at the minute's open
     });
 
     let lastClose = candles[candles.length - 1].close, hLastClose = null;
@@ -122,7 +121,7 @@ async function replayPriceMaHedge({
         const dayEnds = !!next && dayKeyIST(next.date) !== dayKey;
         if (dayEnds || !next) {   // data for the day ends before the EOD minute: close at this candle's close (hedge first)
             execPx = cn.close; if (SPLIT && hCur) hExec = hCur.close;
-            const open = L.filter(l => l.state.position && !(keepBases && l.kind === "BASE" && next)).sort((a, b) => (b.kind === "HEDGE") - (a.kind === "HEDGE"));
+            const open = L.filter(l => l.state.position && !(carry && l.kind === "BASE" && next)).sort((a, b) => (b.kind === "HEDGE") - (a.kind === "HEDGE"));
             if (open.length && next) { log("**EOD**"); for (const l of open) await exit(l, "EOD_FORCE"); }
         }
         for (const leg of L) {   // MAE / worst unrealized along the candle's path
@@ -157,7 +156,7 @@ async function replayPriceMaHedge({
     return {
         longTrades, shortTrades, trades, stats,
         mtm: { finalEquity: realized(), peak, trough, maxDrawdown: maxDD, maxDrawdownAt: ddAt ? ddAt.toISOString() : null, worstUnrealized: { LONG: worst("LONG"), SHORT: worst("SHORT") }, daily, series },
-        signalBars: stats.signalMinutes, signalKind: (SPLIT ? `hedges on ${hedgeLongCtx.symbol} (calendar spread) \u00b7 ` : "") + (getDailyBias ? "daily HA colour: one NRML base + MIS hedge, all flat at EOD \u00b7 " : carry ? "NRML bases held, MIS hedge closed at EOD \u00b7 " : "") + `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}; decided every ${checkMinutes} min at the minute open)`,
+        signalBars: stats.signalMinutes, signalKind: (SPLIT ? `hedges on ${hedgeLongCtx.symbol} (calendar spread) \u00b7 ` : "") + (carry ? "NRML bases held, MIS hedge closed at EOD \u00b7 " : "") + `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}; decided every ${checkMinutes} min at the minute open)`,
     };
 }
 

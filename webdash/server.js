@@ -2742,7 +2742,7 @@ function pmaDeployment(p) {
         contractSymbol: e.PMA_CONTRACT_OVERRIDE || null,
         baseTime: hhmmPad(e.PMA_BASE_HOUR ?? 9, e.PMA_BASE_MINUTE ?? 15),
         eodTime: (e.PMA_EOD_HOUR !== undefined && e.PMA_EOD_HOUR !== "") ? hhmmPad(e.PMA_EOD_HOUR, e.PMA_EOD_MINUTE ?? 0) : null,
-        carry: String(e.PMA_CARRY).toLowerCase() !== "false", pnlBand: e.PMA_PNL_BAND || "0", pnlSmooth: e.PMA_PNL_SMOOTH || "1", checkMin: e.PMA_CHECK_MINUTES || "1", hedgeContract: e.PMA_HEDGE_CONTRACT || "SAME", baseRule: e.PMA_BASE_RULE || "BOTH",
+        carry: String(e.PMA_CARRY).toLowerCase() !== "false", pnlBand: e.PMA_PNL_BAND || "0", pnlSmooth: e.PMA_PNL_SMOOTH || "1", checkMin: e.PMA_CHECK_MINUTES || "1", hedgeContract: e.PMA_HEDGE_CONTRACT || "SAME",
         outLogPath: p.pm2_env.pm_out_log_path, errLogPath: p.pm2_env.pm_err_log_path,
     };
 }
@@ -2898,7 +2898,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
         coreSignal: coreSignalIn, bandHa: bandHaIn, coreEod: coreEodIn, coreAccount: coreAccountIn, flipCore: flipCoreIn,
         realizeRupees, lossAlertRupees, contractSymbol, longContract, shortContract,
-        baseTime, pnlBand, pnlSmooth, checkMin, hedgeContract, baseRule, carry,
+        baseTime, pnlBand, pnlSmooth, checkMin, hedgeContract, carry,
     } = req.body || {};
 
     const strategy = String(strategyIn || "DUAL").toUpperCase();
@@ -2969,9 +2969,6 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         const pb = pnlBand === undefined || pnlBand === "" ? 0 : Number(pnlBand), ps = pnlSmooth === undefined || pnlSmooth === "" ? 1 : Number(pnlSmooth);
         const hcRaw = String(hedgeContract || "SAME").trim().toUpperCase();
         if (hcRaw !== "SAME" && hcRaw !== "NEXT" && !/^[A-Z0-9]+$/.test(hcRaw)) return res.status(400).json({ error: "HedgeContract must be SAME, NEXT or a tradingsymbol" });
-        const baseRuleVal = String(baseRule || "BOTH").trim().toUpperCase();
-        if (baseRuleVal !== "BOTH" && baseRuleVal !== "HA_DAILY") return res.status(400).json({ error: "BaseRule must be BOTH or HA_DAILY" });
-        if (baseRuleVal === "HA_DAILY" && carry === false) return res.status(400).json({ error: "The daily HA rule needs carry (NRML base + MIS hedge)" });
         const hedgeContractVal = hcRaw;   // always written (PM2 restart merges env)
         const cm = checkMin === undefined || checkMin === "" ? 1 : Number(checkMin);
         if (!(Number.isInteger(cm) && cm >= 1 && cm <= 60)) return res.status(400).json({ error: "CheckMin must be a whole number 1-60" });
@@ -2982,7 +2979,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
             PMA_LOTS_OVERRIDE: env.DH_LOTS_OVERRIDE, LIVE_ORDERS_OVERRIDE: env.LIVE_ORDERS_OVERRIDE,
             PMA_CONTRACT_OVERRIDE: env.DH_CONTRACT_OVERRIDE,   // always written (PM2 restart merges env)
             PMA_BASE_HOUR: String(base.hour), PMA_BASE_MINUTE: String(base.minute), PMA_EOD_HOUR: String(eod.hour), PMA_EOD_MINUTE: String(eod.minute),
-            PMA_PNL_BAND: String(pb), PMA_PNL_SMOOTH: String(ps), PMA_CHECK_MINUTES: String(cm), PMA_HEDGE_CONTRACT: hedgeContractVal, PMA_BASE_RULE: baseRuleVal, PMA_CARRY: String(carry !== false),   // always written (PM2 restart merges env)
+            PMA_PNL_BAND: String(pb), PMA_PNL_SMOOTH: String(ps), PMA_CHECK_MINUTES: String(cm), PMA_HEDGE_CONTRACT: hedgeContractVal, PMA_CARRY: String(carry !== false),   // always written (PM2 restart merges env)
         };
         if (lotMultOverride) pmaEnv.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
         try {
@@ -3103,7 +3100,6 @@ app.post("/api/toolbox/dualhedge/backtest", async (req, res) => {
             opts.pnlBand = Math.max(0, Number(b.pnlBand) || 0);
             opts.pnlSmooth = Math.max(1, Math.floor(Number(b.pnlSmooth) || 1));
             opts.checkMinutes = Math.min(60, Math.max(1, Math.floor(Number(b.checkMin) || 1)));
-            { const br = String(b.baseRule || "BOTH").trim().toUpperCase(); if (br !== "BOTH" && br !== "HA_DAILY") return res.status(400).json({ error: "BaseRule must be BOTH or HA_DAILY" }); if (br === "HA_DAILY" && b.carry === false) return res.status(400).json({ error: "The daily HA rule needs carry (NRML base + MIS hedge)" }); opts.baseRule = br; }
             { const hc = String(b.hedgeContract || "SAME").trim().toUpperCase(); if (hc !== "SAME" && hc !== "NEXT" && !/^[A-Z0-9]+$/.test(hc)) return res.status(400).json({ error: "HedgeContract must be SAME, NEXT or a tradingsymbol" }); opts.hedgeContract = hc; }
         } else if (strategy === "REALIZE") {
             opts.realizeRupees = Number(b.realizeRupees) || 3000;

@@ -18,26 +18,21 @@
 // the broker's square-off, which would cost more); from EOD on there are no entries (EOD_DONE). carry=false is the day mode: MIS bases +
 // NRML hedges, everything flattened at EOD (hedges first).
 //
-// getDailyBias (optional — the "daily Heikin-Ashi colour" base rule): async (today) => "LONG" | "SHORT" | null (null = no read yet, wait and retry).
-// When given, only ONE base is taken per day — LONG_BASE (NRML, LONG account) on a green daily HA candle, SHORT_BASE (NRML, SHORT account) on a red one — from the
-// base-entry time on, hedged by an opposite MIS in the SAME account by the usual base-P&L rule, and at EOD the hedge AND the NRML base are both closed (hedge first).
-//
 // A leg is { key, account, kind, side, blocked, state:{position, entryPrice}, context }. broker.enter(leg, why) / broker.exit(leg, why)
 // resolve true ONLY on a confirmed fill/flat (state is already updated by then); false leaves everything as it was.
 "use strict";
 
-function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxPriceAgeMs = 150 * 1000, carry = false, getPrice = () => null, pnlBand = 0, pnlSmooth = 1, checkMinutes = 1, getDailyBias = null, log = () => {} }) {
+function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxPriceAgeMs = 150 * 1000, carry = false, getPrice = () => null, pnlBand = 0, pnlSmooth = 1, checkMinutes = 1, log = () => {} }) {
     const { LONG_BASE, SHORT_BASE, LONG_HEDGE, SHORT_HEDGE } = legs;
     if (!(LONG_BASE && SHORT_BASE && LONG_HEDGE && SHORT_HEDGE)) throw new Error("priceMaHedgeController: needs LONG_BASE, SHORT_BASE, LONG_HEDGE, SHORT_HEDGE");
-    const ha = typeof getDailyBias === "function";
-    const baseMin = (carry && !ha) ? 0 : baseHour * 60 + baseMinute, eodMin = eodHour * 60 + eodMinute;
+    const baseMin = carry ? 0 : baseHour * 60 + baseMinute, eodMin = eodHour * 60 + eodMinute;
     // carry: the NRML bases are placed as soon as the algo is turned on (the base time only applies to day mode).
     if (!(eodMin > baseMin)) throw new Error("priceMaHedgeController: EOD must be after the base-entry time");
     const bases = [LONG_BASE, SHORT_BASE], hedges = [LONG_HEDGE, SHORT_HEDGE];
     const all = [...hedges, ...bases];
 
         let baseEnteredOn = {};                 // legKey -> IST date its base was taken (a base is taken ONCE per day)
-    let busy = false, bias = null, biasDay = null;
+    let busy = false;
     const warned = new Set();
     const warnOnce = (k, m) => { if (!warned.has(k)) { warned.add(k); log(m); } };
 
@@ -78,7 +73,7 @@ function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinut
     }
 
     async function eod() {
-        if (carry && !ha) {                                   // only the MIS hedge is flattened; the NRML bases stay (the daily-HA rule closes its base too)
+        if (carry) {                                          // only the MIS hedge is flattened; the NRML bases stay
             for (const leg of hedges) if (leg.state.position) await exitLeg(leg, "EOD");
             return hedges.every(l => !l.state.position) ? "EOD_DONE" : "EOD_PENDING";
         }
@@ -96,18 +91,8 @@ function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinut
             if (nowMin >= eodMin) return await eod();
             if (nowMin < baseMin) return "WAITING";
 
-            // 1) base positions, once per day (daily-HA rule: only the base on the colour's side)
-            let wantSide = null;
-            if (ha) {
-                if (biasDay !== t.today) {
-                    const b = await getDailyBias(t.today);
-                    if (b === "LONG" || b === "SHORT") { bias = b; biasDay = t.today; log(`[HEDGE_CONTROLLER] daily HA colour -> ${b === "LONG" ? "green" : "red"}: ${b} NRML base today`); }
-                    else { warnOnce(`nobias:${t.today}`, "[HEDGE_CONTROLLER] no daily Heikin-Ashi colour yet — waiting"); return "WAITING"; }
-                }
-                wantSide = bias;
-            }
+            // 1) base positions, once per day
             for (const leg of bases) {
-                if (wantSide && leg.side !== wantSide) continue;
                 if (leg.blocked) { warnOnce(`blk:${leg.key}`, `[HEDGE_CONTROLLER] ${leg.key} is BLOCKED (${leg.blockedReason || "see boot log"}) — not entered`); continue; }
                 if (leg.state.position || baseEnteredOn[leg.key] === t.today) continue;
                 const ok = await broker.enter(leg, "BASE");

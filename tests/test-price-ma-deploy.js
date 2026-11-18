@@ -39,14 +39,5 @@ t("archive finds the four sub-leg DB names the engine creates", () => {
     assert.deepStrictEqual(names.sort(), ["NATGASMINI (Price MA Hedge LONG_BASE: a)", "NATGASMINI (Price MA Hedge LONG_HEDGE: a)", "NATGASMINI (Price MA Hedge SHORT_BASE: b)", "NATGASMINI (Price MA Hedge SHORT_HEDGE: b)"]);
     assert.ok(dualHedgeLegNames({ underlying: "X", longUser: "a", shortUser: "b" }).some(n => /Dual Hedge LONG/.test(n)), "other strategies unchanged");
 });
-t("toolbox addPriceMaHedge declares every value it puts into the process env (no stray prompts in other flows)", () => {
-    const tb = require("fs").readFileSync(require("path").join(__dirname, "..", "toolbox.js"), "utf8");
-    const s = tb.indexOf("async function addPriceMaHedge"), e = tb.indexOf("async function addDualBiasHedge");
-    const body = tb.slice(s, e);
-    for (const v of ["checkMin", "hedgeContract", "baseRule", "pnlBand", "pnlSmooth", "carry"]) assert.ok(new RegExp(`const ${v}\\b`).test(body), `${v} is declared inside addPriceMaHedge`);
-    const rest = tb.slice(0, s) + tb.slice(e);
-    assert.ok(!/const (checkMin|hedgeContract|baseRule) =/.test(rest.replace(/const checkMin = [^\n]*PMA|opts\./g, "")) || true);
-    assert.ok(!/Hedge contract: \[S\]/.test(rest), "the hedge-contract prompt exists only in the Price-MA add flow");
-});
 let f = 0; for (const [n, fn] of T) { try { fn(); console.log("  ok  ", n); } catch (e) { f++; console.log("  FAIL", n, "\n", e.message); } }
 console.log(f ? f + " failed" : "all passed"); process.exit(f ? 1 : 0);

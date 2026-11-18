@@ -20,8 +20,6 @@
 //                                 margin benefit), or an exact tradingsymbol. Hedge P&L is then on that contract's own price (basis risk).
 //   PMA_BASE_HOUR / PMA_BASE_MINUTE   base entry time IST, default 09:15
 //   PMA_EOD_HOUR / PMA_EOD_MINUTE     default context.js defaultEodFor("1m", exchange)
-//   PMA_BASE_RULE                 BOTH (default: both NRML bases at start) | HA_DAILY (ONE NRML base by the last completed DAILY Heikin-Ashi colour: green = LONG account long,
-//                                 red = SHORT account short; closed at EOD together with its MIS hedge). Use PMA_CHECK_MINUTES=5 for the 5-minute P&L check.
 //   PMA_CARRY                     default TRUE (false = day mode: MIS bases + NRML hedge, all flat at EOD). true = bases are NRML and held constant (long in the LONG account, short in the SHORT account, never closed by the
 //                                 engine, recovered on each start); the hedge is MIS (a separate broker row — an NRML sell would just close the long) and is
 //                                 closed at EOD by the engine, before the broker would square it off (which costs more).
@@ -67,9 +65,6 @@ async function main() {
     if (LONG_USER.toUpperCase() === SHORT_USER.toUpperCase()) fail("PMA_LONG_USER and PMA_SHORT_USER must be two different accounts");
     const EXCHANGE = process.env.PMA_EXCHANGE_OVERRIDE || "MCX";
     const CARRY = String(process.env.PMA_CARRY || "true").toLowerCase() !== "false";
-    const BASE_RULE = String(process.env.PMA_BASE_RULE || "BOTH").trim().toUpperCase();
-    if (BASE_RULE !== "BOTH" && BASE_RULE !== "HA_DAILY") fail("PMA_BASE_RULE must be BOTH or HA_DAILY");
-    if (BASE_RULE === "HA_DAILY" && !CARRY) fail("PMA_BASE_RULE=HA_DAILY needs PMA_CARRY=true (NRML base + MIS hedge)");
     const PNL_BAND = envNum(process.env.PMA_PNL_BAND, 0), PNL_SMOOTH = envInt(process.env.PMA_PNL_SMOOTH, 1), CHECK_MIN = envInt(process.env.PMA_CHECK_MINUTES, 1);
     if (!(PNL_BAND >= 0)) fail("PMA_PNL_BAND must be >= 0");
     if (!(Number.isInteger(PNL_SMOOTH) && PNL_SMOOTH >= 1)) fail("PMA_PNL_SMOOTH must be a whole number >= 1");
@@ -179,7 +174,7 @@ async function main() {
     for (const l of [legs.SHORT_BASE]) if (l.context.token !== token) fail(`base legs resolved to different contracts (${l.context.symbol} vs ${legs.LONG_BASE.context.symbol}) — pin one contract`);
     if (legs.SHORT_HEDGE.context.token !== hedgeToken) fail(`hedge legs resolved to different contracts (${legs.SHORT_HEDGE.context.symbol} vs ${legs.LONG_HEDGE.context.symbol})`);
     const SPLIT = hedgeToken !== token;   // hedges on another contract (calendar spread): they need their own price feed
-    console.log(c.bold(`BASE-LOSS HEDGE  ${legs.LONG_BASE.context.symbol}  LONG:${longUser.name} (${legs.LONG_BASE.context.lots} lot)  SHORT:${shortUser.name} (${legs.SHORT_BASE.context.lots} lot)  base ${hhmm(baseHour, baseMinute)}  EOD ${hhmm(eodHour, eodMinute)}  ${CARRY ? "NRML bases + MIS hedge" : "MIS bases + NRML hedge"}${BASE_RULE === "HA_DAILY" ? "  · BASE RULE daily Heikin-Ashi colour (one NRML base, closed at EOD)" : ""}`));
+    console.log(c.bold(`BASE-LOSS HEDGE  ${legs.LONG_BASE.context.symbol}  LONG:${longUser.name} (${legs.LONG_BASE.context.lots} lot)  SHORT:${shortUser.name} (${legs.SHORT_BASE.context.lots} lot)  base ${hhmm(baseHour, baseMinute)}  EOD ${hhmm(eodHour, eodMinute)}  ${CARRY ? "NRML bases + MIS hedge" : "MIS bases + NRML hedge"}`));
     if (CARRY) console.log(c.bold("CARRY: bases are NRML and held constant (never closed by the engine, recovered on each start); hedges are MIS and are closed at EOD"));
     console.log(c.bold(`HEDGE: each base is hedged against its own loss (band ${PNL_BAND} pts, smooth ${PNL_SMOOTH})${SPLIT ? `  · hedge contract ${legs.LONG_HEDGE.context.symbol} (calendar spread vs ${legs.LONG_BASE.context.symbol})` : ""}`));
 
@@ -294,21 +289,9 @@ async function main() {
         },
     };
 
-    // Daily Heikin-Ashi colour of the LAST COMPLETED daily candle (same reader hedgePairEngine uses) -> which NRML base to hold today.
-    const haReader = BASE_RULE === "HA_DAILY" ? require("./indicators/haCandleReader").createHaCandleReader({ token, timeframe: "1d", engineConfig, label: "PMA" }) : null;
-    let biasTry = 0;
-    async function dailyBias() {
-        if (Date.now() - biasTry < 60 * 1000) return null;          // a failed read is retried at most once a minute
-        biasTry = Date.now();
-        const r = await haReader.getLatest().catch(() => null);
-        if (!r || !r.color) return null;                            // no data / doji -> no read
-        return r.color === "green" ? "LONG" : "SHORT";
-    }
-
     // ── controller ───────────────────────────────────────────────────────────────────────
     const clock = () => { const now = new Date(Date.now()), p = istParts(now); return { today: todayIST(now), hours: p.hours, minutes: p.minutes, nowMs: now.getTime() }; };
     const controller = createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinute, eodHour, eodMinute, maxPriceAgeMs: STALE_MS, carry: CARRY, pnlBand: PNL_BAND, pnlSmooth: PNL_SMOOTH, checkMinutes: CHECK_MIN,
-        getDailyBias: BASE_RULE === "HA_DAILY" ? dailyBias : null,
         getPrice: () => (lastTick ? { price: lastTick.price, atMs: lastTick.at } : null), log: m => console.log(c.cyan(m)) });
 
     const stateFile = path.join(require("./data/dbDir").DB_DIR, `pma_${legs.LONG_BASE.context.underlying || UNDERLYING}_${longUser.name}_${shortUser.name}.json`.replace(/[^A-Za-z0-9_.-]/g, "_"));
@@ -370,8 +353,8 @@ async function main() {
 
     async function eodReportAndExit() {
         let total = 0; const lines = [];
-        for (const l of L) { const r = await l.db.getRealizedPnlToday(l.context.tgPrefix).catch(() => 0); total += r; lines.push(`${l.key.padEnd(11)} (${l.user.name}) realized ${positions.pnlStr(r)} | ${l.state.position ? l.state.position + (CARRY && BASE_RULE !== "HA_DAILY" && l.kind === "BASE" ? " held overnight @ " + l.state.entryPrice : " still OPEN") : "flat"}`); }
-        const report = `Price MA Hedge EOD${CARRY && BASE_RULE !== "HA_DAILY" ? " — NRML bases held, MIS hedge closed" : ""} (${LIVE ? "LIVE" : "PAPER"}) — ${todayIST()}\n${lines.join("\n")}\ntotal ${positions.pnlStr(total)}`;
+        for (const l of L) { const r = await l.db.getRealizedPnlToday(l.context.tgPrefix).catch(() => 0); total += r; lines.push(`${l.key.padEnd(11)} (${l.user.name}) realized ${positions.pnlStr(r)} | ${l.state.position ? l.state.position + (CARRY && l.kind === "BASE" ? " held overnight @ " + l.state.entryPrice : " still OPEN") : "flat"}`); }
+        const report = `Price MA Hedge EOD${CARRY ? " — NRML bases held, MIS hedge closed" : ""} (${LIVE ? "LIVE" : "PAPER"}) — ${todayIST()}\n${lines.join("\n")}\ntotal ${positions.pnlStr(total)}`;
         console.log(c.bold(report.replace(/\n/g, "   ")));
         await legs.LONG_BASE.tg(report);
         console.log(c.bold("*** NORMAL SHUTDOWN ***"));
