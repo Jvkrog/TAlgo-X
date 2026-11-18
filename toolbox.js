@@ -2726,12 +2726,6 @@ async function addHedgePair() {
     const carryInput = (await ask("  Core at EOD  [1] Carry overnight (NRML)  [2] Close at EOD (MIS) (default 1): ")).trim();
     const carryOvernight = carryInput !== "2";
 
-    const ckIn = (await ask("  Check hedge every N minutes (1 = every minute, 5 = at :00/:05/…; default 1): ")).trim();
-    const checkMin = ckIn ? Number(ckIn) : 1;
-    if (!Number.isInteger(checkMin) || checkMin < 1 || checkMin > 60) { console.log(c.yellow("  Invalid check interval")); await pauseForReview(); return; }
-    const hcIn = (await ask("  Hedge contract: [S] same as base, [N] next month (calendar-spread margin benefit, adds basis risk) (default S): ")).trim().toUpperCase();
-    if (hcIn !== "" && hcIn !== "S" && hcIn !== "N") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
-    const hedgeContract = hcIn === "N" ? "NEXT" : "SAME";
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
@@ -2991,6 +2985,12 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
     const smIn = (await ask("  Smoothing: average of the last N P&L samples (one per check) (default 1 = raw): ")).trim();
     const pnlSmooth = smIn ? Number(smIn) : 1;
     if (!Number.isInteger(pnlSmooth) || pnlSmooth < 1) { console.log(c.yellow("  Invalid smoothing")); await pauseForReview(); return; }
+    const ckIn = (await ask("  Check hedge every N minutes (1 = every minute, 5 = at :00/:05/…; default 1): ")).trim();
+    const checkMin = ckIn ? Number(ckIn) : 1;
+    if (!Number.isInteger(checkMin) || checkMin < 1 || checkMin > 60) { console.log(c.yellow("  Invalid check interval")); await pauseForReview(); return; }
+    const hcIn = (await ask("  Hedge contract: [S] same as base, [N] next month (calendar-spread margin benefit, adds basis risk) (default S): ")).trim().toUpperCase();
+    if (hcIn !== "" && hcIn !== "S" && hcIn !== "N") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
+    const hedgeContract = hcIn === "N" ? "NEXT" : "SAME";
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
