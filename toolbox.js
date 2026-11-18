@@ -2726,12 +2726,6 @@ async function addHedgePair() {
     const carryInput = (await ask("  Core at EOD  [1] Carry overnight (NRML)  [2] Close at EOD (MIS) (default 1): ")).trim();
     const carryOvernight = carryInput !== "2";
 
-    const ckIn = (await ask("  Check hedge every N minutes (1 = every minute, 5 = at :00/:05/…; default 1): ")).trim();
-    const checkMin = ckIn ? Number(ckIn) : 1;
-    if (!Number.isInteger(checkMin) || checkMin < 1 || checkMin > 60) { console.log(c.yellow("  Invalid check interval")); await pauseForReview(); return; }
-    const hcIn = (await ask("  Hedge contract: [S] same as base, [N] next month (calendar-spread margin benefit, adds basis risk) (default S): ")).trim().toUpperCase();
-    if (hcIn !== "" && hcIn !== "S" && hcIn !== "N") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
-    const hedgeContract = hcIn === "N" ? "NEXT" : "SAME";
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
@@ -2990,6 +2984,16 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
     const smIn = (await ask("  Smoothing: average of the last N P&L samples (one per check) (default 1 = raw): ")).trim();
     const pnlSmooth = smIn ? Number(smIn) : 1;
     if (!Number.isInteger(pnlSmooth) || pnlSmooth < 1) { console.log(c.yellow("  Invalid smoothing")); await pauseForReview(); return; }
+    const brIn = (await ask("  Base entry: [B] both NRML bases at start (held), [H] daily Heikin-Ashi colour — ONE NRML base (green = LONG acct, red = SHORT acct), closed at EOD with its MIS hedge (default B): ")).trim().toUpperCase();
+    if (brIn !== "" && brIn !== "B" && brIn !== "H") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
+    const baseRule = brIn === "H" ? "HA_DAILY" : "BOTH";
+    const ckIn = (await ask(`  Check hedge every N minutes (1 = every minute, 5 = at :00/:05/…; default ${baseRule === "HA_DAILY" ? 5 : 1}): `)).trim();
+    const checkMin = ckIn ? Number(ckIn) : (baseRule === "HA_DAILY" ? 5 : 1);
+    if (!Number.isInteger(checkMin) || checkMin < 1 || checkMin > 60) { console.log(c.yellow("  Invalid check interval")); await pauseForReview(); return; }
+    const hcIn = (await ask("  Hedge contract: [S] same as base, [N] next month (calendar-spread margin benefit, adds basis risk) (default S): ")).trim().toUpperCase();
+    if (hcIn !== "" && hcIn !== "S" && hcIn !== "N") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
+    const hedgeContract = hcIn === "N" ? "NEXT" : "SAME";
+    if (baseRule === "HA_DAILY" && !carry) { console.log(c.yellow("  The daily HA rule needs carry (NRML base + MIS hedge) — choose [C]")); await pauseForReview(); return; }
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
@@ -3003,7 +3007,7 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
         PMA_UNDERLYING: underlying, PMA_LONG_USER: longUser.name, PMA_SHORT_USER: shortUser.name, PMA_EXCHANGE_OVERRIDE: "MCX",
         PMA_LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), PMA_CONTRACT_OVERRIDE: contractSymbol || "",
         PMA_BASE_HOUR: String(baseHour), PMA_BASE_MINUTE: String(baseMinute), PMA_EOD_HOUR: String(eod.eodHour), PMA_EOD_MINUTE: String(eod.eodMinute),
-        PMA_PNL_BAND: String(pnlBand), PMA_PNL_SMOOTH: String(pnlSmooth), PMA_CHECK_MINUTES: String(checkMin), PMA_HEDGE_CONTRACT: hedgeContract, PMA_CARRY: String(carry),
+        PMA_PNL_BAND: String(pnlBand), PMA_PNL_SMOOTH: String(pnlSmooth), PMA_CHECK_MINUTES: String(checkMin), PMA_HEDGE_CONTRACT: hedgeContract, PMA_BASE_RULE: baseRule, PMA_CARRY: String(carry),
     };
     if (lotMultOverride) env.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
     try {
@@ -3432,6 +3436,7 @@ async function backtestDualHedgeFlow() {
         const bt = await askTime("Base entry time IST (LONG NRML + SHORT NRML)", 9, 15);
         opts.baseHour = bt.hour; opts.baseMinute = bt.minute;
         opts.carry = (await askChoice("Positions: C = carry overnight (NRML bases held constant, MIS hedge closed at EOD), D = day (MIS bases + NRML hedge, flat at EOD) [C/D, default C]", { C: "CARRY", D: "DAY" }, "CARRY")) === "CARRY";
+        opts.baseRule = (await askChoice("Base entry: B = both NRML bases at start, H = daily Heikin-Ashi colour (one NRML base, closed at EOD) [B/H, default B]", { B: "BOTH", H: "HA_DAILY" }, "BOTH"));
         opts.pnlBand = await askNum("Loss band in points (0 = hedge when base P&L < 0, default 0)", 0, { positive: false });
         opts.pnlSmooth = Math.max(1, Math.floor(await askNum("Smoothing: last N P&L samples (one per check) (default 1 = raw)", 1)));
         opts.checkMinutes = Math.min(60, Math.max(1, Math.floor(await askNum("Check hedge every N minutes (default 1)", 1))));

@@ -893,7 +893,7 @@ async function runDualHedgeBacktest({
     takeProfit = 3000, maxLoss = 3000,
     slMode = "RUPEES", atrSlMult, atrTimeframe = "1h",   // DUAL only — see replayDualHedge
     gapCapture = false, gcHour = 23, gcMinute = 20, gcQuitHour = 23, gcQuitMinute = 25,
-    baseHour = 9, baseMinute = 15, pnlBand = 0, pnlSmooth = 1, checkMinutes = 1, hedgeContract = "SAME", carry = true,
+    baseHour = 9, baseMinute = 15, pnlBand = 0, pnlSmooth = 1, checkMinutes = 1, hedgeContract = "SAME", baseRule = "BOTH", carry = true,
     slippagePoints = 0, from, to, kc, progress,
 }) {
     strategy = String(strategy).toUpperCase();
@@ -1018,14 +1018,27 @@ async function runDualHedgeBacktest({
                     if (hedgeCandles.length === 0) throw new Error(`runDualHedgeBacktest: no 1-minute candles for the hedge contract ${hs} in this range — Kite may not have history that far back for it`);
                 }
             }
+            // Base rule HA_DAILY: one NRML base per day by the colour of the LAST COMPLETED daily Heikin-Ashi candle (no look-ahead: bars dated before that day).
+            baseRule = String(baseRule || "BOTH").toUpperCase();
+            if (baseRule !== "BOTH" && baseRule !== "HA_DAILY") throw new Error('runDualHedgeBacktest: baseRule must be BOTH or HA_DAILY');
+            if (baseRule === "HA_DAILY" && !carry) throw new Error('runDualHedgeBacktest: the daily HA rule needs carry (NRML base + MIS hedge)');
+            let getDailyBias = null;
+            if (baseRule === "HA_DAILY") {
+                const raw = await fetchDailyCandles({ kc, token, from: new Date(fromMs - 120 * 86400000), to: new Date(toMs) });
+                if (!raw || raw.length < 3) throw new Error("runDualHedgeBacktest: not enough daily candles for the Heikin-Ashi colour");
+                const IST = 5.5 * 3600 * 1000, dk = d => new Date(new Date(d).getTime() + IST).toISOString().slice(0, 10);
+                const ha = require("../indicators/indicators").toHAAlways(raw.map(b => ({ ...b }))).map((h, i) => ({ day: dk(raw[i].date), color: h.close > h.open ? "LONG" : h.close < h.open ? "SHORT" : null }));
+                getDailyBias = async today => { let r = null; for (const h of ha) { if (h.day < today) { if (h.color) r = h.color; } else break; } return r; };
+            }
             res = await replayPriceMaHedge({
+                getDailyBias,
                 longCtx: longLeg.context, shortCtx: shortLeg.context, candles, tradeFromMs: fromMs,
                 hedgeLongCtx: hedgeLongLeg && hedgeLongLeg.context, hedgeShortCtx: hedgeShortLeg && hedgeShortLeg.context, hedgeCandles,
                 baseHour, baseMinute, eodHour, eodMinute, pnlBand, pnlSmooth, checkMinutes, carry,
                 slippagePoints: Number(slippagePoints), progress,
             });
             params = {
-                strategy: "PRICE_MA", carry, pnlBand, pnlSmooth, checkMinutes, hedgeSymbol: hedgeLongLeg ? hedgeLongLeg.context.symbol : null, baseSymbol: longLeg.context.symbol, signal: `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}, check ${checkMinutes}m)`, base: hhmm(baseHour, baseMinute), eod: hhmm(eodHour, eodMinute),
+                strategy: "PRICE_MA", baseRule, carry, pnlBand, pnlSmooth, checkMinutes, hedgeSymbol: hedgeLongLeg ? hedgeLongLeg.context.symbol : null, baseSymbol: longLeg.context.symbol, signal: `Base-loss hedge (band ${pnlBand} pts, smooth ${pnlSmooth}, check ${checkMinutes}m)`, base: hhmm(baseHour, baseMinute), eod: hhmm(eodHour, eodMinute),
                 bandStep: null, rangeSize: null, takeProfit: null, maxLoss: null, gapCapture: null,
                 rangeStart: fmtIST(anchorMs), anchor: anchorNote, slippagePoints: Number(slippagePoints),
             };
