@@ -68,6 +68,12 @@
 //                            same reasoning as engine.js's).
 //   HEDGE_LOTMULT_OVERRIDE   same as above, for the hedge leg
 //   UNWIND_MODE_OVERRIDE     "HA_FLIP" (default) | "EOD_ONLY"
+//   HEDGE_RULE               "DSB" (default: the 1h Dynamic Band hedge above) | "BASE_LOSS" — SAME instrument, ONE account: the core is an NRML position taken the
+//                            moment the algo is turned on, on the colour of the last completed DAILY Heikin-Ashi candle (green LONG / red SHORT); the hedge is an
+//                            opposite MIS position (HEDGE_UNDERLYING = CORE_UNDERLYING, hedge lots default = core lots) opened when the core's P&L (points vs entry)
+//                            is below -HEDGE_PNL_BAND at a check and closed when it is above +band; checks run every HEDGE_CHECK_MINUTES (default 5) on
+//                            clock-aligned minutes. At EOD the hedge AND the NRML core are closed (hedge first). Logs a status block every check.
+//   HEDGE_CHECK_MINUTES / HEDGE_PNL_BAND   BASE_LOSS only (defaults 5 / 0)
 //   HEDGE_PAIR_POLL_MS       default 60000
 //   LIVE_ORDERS_OVERRIDE     "true" | "false" — same per-process override
 //                            convention as engine.js; unset = engineConfig's
@@ -110,6 +116,16 @@ if (UNWIND_MODE !== "HA_FLIP" && UNWIND_MODE !== "EOD_ONLY") {
     process.exit(1);
 }
 
+const HEDGE_RULE = String(process.env.HEDGE_RULE || "DSB").toUpperCase();
+if (HEDGE_RULE !== "DSB" && HEDGE_RULE !== "BASE_LOSS") { console.error(c.red(`HEDGE_RULE "${HEDGE_RULE}" invalid (known: DSB, BASE_LOSS) — refusing to boot.`)); process.exit(1); }
+const BL = HEDGE_RULE === "BASE_LOSS";
+const CHECK_MIN = Number(process.env.HEDGE_CHECK_MINUTES || 5), PNL_BAND = Number(process.env.HEDGE_PNL_BAND || 0);
+if (BL && !(Number.isInteger(CHECK_MIN) && CHECK_MIN >= 1 && CHECK_MIN <= 60)) { console.error(c.red("HEDGE_CHECK_MINUTES must be a whole number 1-60 — refusing to boot.")); process.exit(1); }
+if (BL && !(PNL_BAND >= 0)) { console.error(c.red("HEDGE_PNL_BAND must be >= 0 — refusing to boot.")); process.exit(1); }
+const CORE_SIDE = String(process.env.CORE_SIDE_OVERRIDE || "").toUpperCase();
+if (BL && CORE_SIDE !== "LONG" && CORE_SIDE !== "SHORT") { console.error(c.red("HEDGE_RULE=BASE_LOSS needs CORE_SIDE_OVERRIDE=LONG|SHORT (manual core side) — refusing to boot.")); process.exit(1); }
+if (BL && !CARRY) { console.error(c.red("HEDGE_RULE=BASE_LOSS needs CORE_CARRY_OVERRIDE=true (NRML core + MIS hedge) — refusing to boot.")); process.exit(1); }
+
 function todayIST() {
     return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
 }
@@ -148,7 +164,7 @@ async function main() {
     // resume any same-day position from a crash restart. Same shape as
     // engine.js's own boot sequence + strategies.js's initSignals(),
     // scoped to ONE leg at a time (called twice, once per instrument).
-    async function buildLeg(underlying, legLabel, { lots, lotMultOverride, symbolOverride = null }) {
+    async function buildLeg(underlying, legLabel, { lots, lotMultOverride, symbolOverride = null, carry = CARRY }) {
         // Contract/context resolution is shared with backtestHedgePair.js
         // via hedgePairContext.js — see that file's header for why. Throws
         // on a missing lotMult instead of returning an error code; caught
@@ -157,7 +173,7 @@ async function main() {
         let context, source;
         try {
             ({ context, source } = resolveHedgePairLeg({
-                underlying, legLabel, exchange: EXCHANGE_OVERRIDE, csvRepo, pinStore, lots, lotMultOverride, carryOvernight: CARRY, symbolOverride,
+                underlying, legLabel, exchange: EXCHANGE_OVERRIDE, csvRepo, pinStore, lots, lotMultOverride, carryOvernight: carry, symbolOverride, hedgeRule: HEDGE_RULE,
             }));
         } catch (err) {
             process.exit(1); // hedgePairContext.js already logged the specific fix
@@ -197,22 +213,28 @@ async function main() {
         symbolOverride: process.env.CORE_SYMBOL_OVERRIDE || null,
     });
     const hedge = await buildLeg(HEDGE_UNDERLYING, "HEDGE", {
-        lots: Number(process.env.HEDGE_LOTS_OVERRIDE) || 5,
+        lots: Number(process.env.HEDGE_LOTS_OVERRIDE) || (BL ? (Number(process.env.CORE_LOTS_OVERRIDE) || 1) : 5),
+        carry: BL ? false : CARRY,   // BASE_LOSS: the hedge is MIS (a separate broker row from the NRML core on the same contract)
         lotMultOverride: process.env.HEDGE_LOTMULT_OVERRIDE ? Number(process.env.HEDGE_LOTMULT_OVERRIDE) : null,
         symbolOverride: process.env.HEDGE_SYMBOL_OVERRIDE || null,
     });
 
+    if (BL && core.context.token === hedge.context.token && CORE_UNDERLYING !== HEDGE_UNDERLYING) { console.error(c.red("core and hedge resolved to the same contract from different underlyings — refusing to boot.")); process.exit(1); }
+    if (BL) {
+        console.log(c.bold(`HEDGE PAIR (base-loss, manual side)  ${core.context.symbol}  core NRML ${CORE_SIDE} ${core.context.lots} lot, MIS hedge ${hedge.context.lots} lot when core P&L < ${PNL_BAND ? "-" + PNL_BAND + " pts" : "0"}, checked every ${CHECK_MIN} min  ·  both closed at EOD  ·  one account`));
+        console.log();
+    } else
     console.log(c.bold(`HEDGE PAIR  core:${core.context.symbol} (side from daily DSB, ${core.context.lots} lot, ${CARRY ? "NRML, carried overnight" : "MIS, closed at EOD"})  hedge:${hedge.context.symbol} (${hedge.context.lots} lots, unwind:${UNWIND_MODE})`));
     console.log();
 
     // Both signal readers key off the CORE instrument's own token — the
     // hedge leg has no signal of its own (see file header).
-    const hourlyReader = createHaCandleReader({ token: core.context.token, timeframe: "1h", engineConfig, label: core.context.tgPrefix });
+    const hourlyReader = BL ? null : createHaCandleReader({ token: core.context.token, timeframe: "1h", engineConfig, label: core.context.tgPrefix });
     // Confirmation filter for checkHedge() — see dynamicBandReader.js's own
     // header for why raw 1h HA color alone is too noisy on its own.
     // Daily DSB on daily Heikin-Ashi candles — decides the core's side (once, at entry).
-    const dailyBandReader = createDynamicBandReader({ token: core.context.token, timeframe: "1d", bandStep: core.context.bandStep, engineConfig, label: core.context.tgPrefix, ha: true });
-    const bandReader   = createDynamicBandReader({ token: core.context.token, timeframe: "1h", bandStep: core.context.bandStep, engineConfig, label: core.context.tgPrefix, ha: true });
+    const dailyBandReader = BL ? null : createDynamicBandReader({ token: core.context.token, timeframe: "1d", bandStep: core.context.bandStep, engineConfig, label: core.context.tgPrefix, ha: true });
+    const bandReader   = BL ? null : createDynamicBandReader({ token: core.context.token, timeframe: "1h", bandStep: core.context.bandStep, engineConfig, label: core.context.tgPrefix, ha: true });
 
     // Read-only client for LTP lookups at our own entry/exit bookkeeping
     // moments — see file header ("NO LIVE WEBSOCKET TICKER").
@@ -284,7 +306,7 @@ async function main() {
     // 9:15, the general market-open constant every other strategy uses;
     // hardcoded here so changing it doesn't touch anything else). Also
     // matches backtestHedgePair.js's same hardcoded 10:00, for parity.
-    const CORE_ENTRY_HOUR = 10, CORE_ENTRY_MINUTE = 0;
+    const CORE_ENTRY_HOUR = BL ? 0 : 10, CORE_ENTRY_MINUTE = 0;   // BASE_LOSS: no entry-time gate — the core goes in as soon as the algo is turned on
     async function checkCoreEntry() {
         const { hours, minutes } = istParts();
         const pastOpen = hours > CORE_ENTRY_HOUR ||
@@ -295,19 +317,53 @@ async function main() {
         if (coreDecidedForDate === today) return; // already decided — "no flipping" for the rest of today
         if (core.state.position) { coreDecidedForDate = today; return; } // resumed from a crash-restart — already decided, don't re-enter
 
-        const daily = await dailyBandReader.getLatest();
+        const daily = BL ? { color: CORE_SIDE === "LONG" ? "green" : "red" } : await dailyBandReader.getLatest();
         if (!daily || !daily.color) return; // no read yet — retry next poll
         // Locks in for today the moment we act — a failed entry means no
         // core position today, not a retry loop.
         coreDecidedForDate = today;
         const side = daily.color === "green" ? "LONG" : "SHORT";
-        await enterLeg(core, side, `daily DSB ${daily.color}`);
+        await enterLeg(core, side, BL ? `manual ${CORE_SIDE}` : `daily DSB ${daily.color}`);
     }
 
     // ─── HEDGE: driven by the 1h HA Dynamic Step Band on the CORE instrument.
     // Opens when the band flips against the core; closes when it comes back
     // in the core's favour (per UNWIND_MODE).
+    // BASE_LOSS rule: hedge the core against ITS OWN loss. Evaluated once per clock-aligned CHECK_MIN slot (a skipped poll still catches the next slot).
+    let lastSlot = null;
+    async function checkBaseLoss() {
+        if (!core.state.position) return;
+        const { hours, minutes } = istParts(), slot = `${todayIST()}:${Math.floor((hours * 60 + minutes) / CHECK_MIN)}`;
+        if (slot === lastSlot) return;
+        const px = await getLtp(core.ltpKey).catch(() => null);
+        if (!(px > 0)) { console.error(c.red("[HEDGE_PAIR] no price — base-loss check skipped, retrying next poll")); return; }
+        const dir = core.state.position === "LONG" ? 1 : -1, pts = dir * (px - core.state.entryPrice);
+        let ok = true;
+        if (pts < -PNL_BAND && !hedge.state.position) {
+            console.log(c.cyan(`[HEDGE_PAIR] core ${core.state.position} P&L=${pts.toFixed(2)}pts -> OPEN ${core.state.position === "LONG" ? "SHORT" : "LONG"} MIS hedge`));
+            ok = await enterLeg(hedge, core.state.position === "LONG" ? "SHORT" : "LONG", `core P&L ${pts.toFixed(2)} pts below 0`);
+        } else if (pts > PNL_BAND && hedge.state.position) {
+            console.log(c.cyan(`[HEDGE_PAIR] core ${core.state.position} P&L=${pts.toFixed(2)}pts -> CLOSE hedge`));
+            ok = await exitLeg(hedge, "core back in profit");
+        }
+        if (ok) { lastSlot = slot; await logStatus(px); }   // a failed order is retried on the next poll; a status block is printed once per check
+    }
+    async function logStatus(px) {
+        const f = (v, d = 0) => (v >= 0 ? "+" : "") + v.toFixed(d), L = [];
+        L.push(`[PAIR] ${new Date().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })}  ${core.context.symbol}  LTP ${px.toFixed(2)}   manual core ${CORE_SIDE}`);
+        let u = 0;
+        for (const leg of [core, hedge]) {
+            const lu = leg.state.position ? positions.unrealised(leg.context, leg.state, px) : 0; u += lu;
+            const pts = leg.state.position ? (leg.state.position === "LONG" ? 1 : -1) * (px - leg.state.entryPrice) : 0;
+            L.push(`   ${leg.label.padEnd(6)} ${(leg.context.product || (leg === core ? "NRML" : "MIS")).padEnd(4)} ${leg.state.position ? `${leg.state.position} @${leg.state.entryPrice.toFixed(2)}`.padEnd(16) + `${f(pts, 2)} pts  ${f(lu)}` : "flat"}`);
+        }
+        const r = (core.state.pnl || 0) + (hedge.state.pnl || 0);
+        L.push(`   NET    unreal ${f(u)} \u00b7 real ${f(r)} \u00b7 total ${f(u + r)}`);
+        console.log(c.dim(L.join("\n")));
+    }
+
     async function checkHedge() {
+        if (BL) return checkBaseLoss();
         if (!core.state.position) return; // nothing to hedge
         const band = await bandReader.getLatest();
         if (!band || !band.color) return; // no read yet (cold start / fetch error) = no action
@@ -340,7 +396,7 @@ async function main() {
         console.log(c.bold("**EOD**"));
         console.log(c.dim(`EOD  hedge pair  ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false })}`));
         // MIS mode: close both legs (hedge first) — retried every tick until flat.
-        if (!CARRY) {
+        if (!CARRY || BL) {   // BASE_LOSS: the NRML core is closed at EOD too
             if (hedge.state.position) await exitLeg(hedge, "EOD_FORCE");
             if (core.state.position)  await exitLeg(core,  "EOD_FORCE");
             if (core.state.position || hedge.state.position) { console.error(c.red("EOD did not fully flatten — will retry next tick")); return; }
@@ -364,7 +420,7 @@ async function main() {
             lines.push(`${leg.label.toLowerCase()} ${leg.context.symbol}: realized ${positions.pnlStr(realized)} | ${open}`);
         }
         lines.push(`total (incl. unrealised): ${positions.pnlStr(total)}`);
-        if (CARRY && core.state.position) lines.push("Core carried overnight (NRML). Restart the engine before the next open.");
+        if (CARRY && !BL && core.state.position) lines.push("Core carried overnight (NRML). Restart the engine before the next open.");
         const report = lines.join("\n");
         console.log(c.bold(report.replace(/\n/g, "   ")));
         console.log();
@@ -386,6 +442,7 @@ async function main() {
     let lastHourlyLoggedTs = null;
     let lastLoggedDayKey = null;
     async function logHourlyPnl() {
+        if (BL) return;
         const hourly = await hourlyReader.getLatest();
         if (!hourly) return;
         const key = hourly.date.getTime();
@@ -467,9 +524,7 @@ async function main() {
         }
     }
 
-    hourlyReader.prewarm();
-    dailyBandReader.prewarm();
-    bandReader.prewarm();
+    if (!BL) { hourlyReader.prewarm(); dailyBandReader.prewarm(); bandReader.prewarm(); }
     await tick();
     setInterval(tick, POLL_MS);
 }

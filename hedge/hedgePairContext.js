@@ -19,7 +19,7 @@ const { getDefinition, buildContext } = require("../core/context");
 
 // legLabel: "CORE" | "HEDGE" — only used for tgPrefix/name suffixing and
 // error messages, not for any logic branch.
-function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore, lots, lotMultOverride, carryOvernight = true, symbolOverride = null }) {
+function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore, lots, lotMultOverride, carryOvernight = true, symbolOverride = null, hedgeRule = "DSB" }) {
     const { resolveCurrent } = require("../data/instrumentResolution"); // lazy — avoids a require cycle risk if this file is ever required from instrumentResolution's own dependency chain
     const def = getDefinition(underlying, exchange);
     let contract, source;
@@ -46,7 +46,9 @@ function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore
     // candle alone (no Dynamic Band involved in that decision at all);
     // HEDGE fires off the hourly HA candle CONFIRMED by the Dynamic Band
     // (see dynamicBandReader.js / hedgePairEngine.js's checkHedge()).
-    context.tgLabel = legLabel === "CORE"
+    context.tgLabel = hedgeRule === "BASE_LOSS"
+        ? (legLabel === "CORE" ? "Hedge Pair Core (Manual side, NRML)" : "Hedge Pair Hedge (Base-loss, MIS)")
+        : legLabel === "CORE"
         ? "Hedge Pair Core (Configured Side)"
         : "Hedge Pair Hedge (1h HA Dynamic Band)";
     context.lots      = lots;
@@ -80,7 +82,7 @@ function resolveHedgePairLeg({ underlying, legLabel, exchange, csvRepo, pinStore
     // tgLabel's comment above: context.strategy/timeframe here are
     // borrowed defaults, not this engine's actual cadence).
     context.eodHour   = 23;
-    context.eodMinute = 0;
+    context.eodMinute = hedgeRule === "BASE_LOSS" ? 15 : 0;   // BASE_LOSS: 23:15 — the MIS hedge is flat before the broker's own square-off, which would cost more
 
     // Same refuse-to-boot guard as engine.js/hedgePairEngine.js — no
     // fallback to the broker's own lot_size field (a contract COUNT, not

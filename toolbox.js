@@ -2628,6 +2628,10 @@ async function getHedgePairProcesses() {
             coreLots:        p.pm2_env.env?.CORE_LOTS_OVERRIDE || "1",
             hedgeLots:       p.pm2_env.env?.HEDGE_LOTS_OVERRIDE || "5",
             unwindMode:      p.pm2_env.env?.UNWIND_MODE_OVERRIDE || "HA_FLIP",
+            hedgeRule:       p.pm2_env.env?.HEDGE_RULE || "DSB",
+            checkMin:        p.pm2_env.env?.HEDGE_CHECK_MINUTES || "5",
+            coreSide:        p.pm2_env.env?.CORE_SIDE_OVERRIDE || "",
+            pnlBand:         p.pm2_env.env?.HEDGE_PNL_BAND || "0",
             carryOvernight:  p.pm2_env.env?.CORE_CARRY_OVERRIDE !== "false",
             live:            p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:        p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -2669,7 +2673,65 @@ async function pickLegContract(repo, underlying, legLabel) {
     return n === 0 ? null : list[n - 1].symbol;
 }
 
+// Hedge pair, "base-loss" rule: ONE instrument, ONE account — an NRML core taken the moment the algo is turned on on the side YOU pick (Long/Short,
+// no HA bias), hedged by an opposite MIS position (same contract, same lots) when the core's P&L is below 0 (checked every N
+// minutes); the hedge and the core are both closed at EOD (23:15).
+async function addHedgePairBaseLoss() {
+    console.log(c.dim("  Same instrument, one account: NRML core on the side you pick (LONG / SHORT, manual — no HA bias), taken as soon as the algo is turned on."));
+    console.log(c.dim("  Hedge: opposite MIS position (same contract, same lots) when the core's P&L < 0 at a check; closed when it is > 0. Core + hedge both closed at EOD."));
+    console.log();
+    const repo = await ensureCsvLoaded();
+    const underlying = await pickUnderlying(repo.listUnderlyings(), "INSTRUMENT");
+    if (!underlying) { await pauseForReview(); return; }
+    const def = getDefinition(underlying, "MCX");
+    let lotMultOverride = null;
+    if (def.lotMult === null) {
+        const input = (await ask(`  Lot multiplier for ${underlying} — price move x this = PnL per lot (required): `)).trim();
+        lotMultOverride = Number(input);
+        if (!Number.isFinite(lotMultOverride) || lotMultOverride <= 0) { console.log(c.yellow("  Required: a positive number")); await pauseForReview(); return; }
+    }
+    const contract = await pickLegContract(repo, underlying, "CORE + HEDGE (same contract)");
+    const sideIn = (await ask("  Core position [L] Long  [S] Short: ")).trim().toUpperCase();
+    if (sideIn !== "L" && sideIn !== "S") { console.log(c.yellow("  Pick L or S")); await pauseForReview(); return; }
+    const coreSide = sideIn === "L" ? "LONG" : "SHORT";
+    const lotsIn = (await ask("  Lots (core and hedge, default 1): ")).trim();
+    const lots = lotsIn ? Number(lotsIn) : 1;
+    if (!Number.isFinite(lots) || lots <= 0) { console.log(c.yellow("  Invalid lots value")); await pauseForReview(); return; }
+    const ckIn = (await ask("  Check core P&L every N minutes (default 5; at :00, :05, … IST): ")).trim();
+    const checkMin = ckIn ? Number(ckIn) : 5;
+    if (!Number.isInteger(checkMin) || checkMin < 1 || checkMin > 60) { console.log(c.yellow("  Invalid check interval")); await pauseForReview(); return; }
+    const bandIn = (await ask("  Loss band in points (0 = hedge as soon as core P&L < 0, default 0): ")).trim();
+    const pnlBand = bandIn ? Number(bandIn) : 0;
+    if (!Number.isFinite(pnlBand) || pnlBand < 0) { console.log(c.yellow("  Invalid loss band")); await pauseForReview(); return; }
+    const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
+    let isLive = modeInput === "L";
+    if (isLive) {
+        const confirmLive = (await ask(c.red('  This will place REAL orders (NRML core + MIS hedge). type "LIVE" to confirm: '))).trim();
+        if (confirmLive !== "LIVE") { console.log(c.dim("  Not confirmed — starting in paper mode instead")); isLive = false; }
+    }
+    const name = `${getShortName(underlying)}HedgePair`;
+    const env = {
+        CORE_UNDERLYING: underlying, HEDGE_UNDERLYING: underlying, EXCHANGE_OVERRIDE: "MCX",
+        CORE_LOTS_OVERRIDE: String(lots), HEDGE_LOTS_OVERRIDE: String(lots), UNWIND_MODE_OVERRIDE: "HA_FLIP", CORE_CARRY_OVERRIDE: "true",
+        HEDGE_RULE: "BASE_LOSS", CORE_SIDE_OVERRIDE: coreSide, HEDGE_CHECK_MINUTES: String(checkMin), HEDGE_PNL_BAND: String(pnlBand), LIVE_ORDERS_OVERRIDE: String(isLive),
+    };
+    if (contract) { env.CORE_SYMBOL_OVERRIDE = contract; env.HEDGE_SYMBOL_OVERRIDE = contract; }
+    if (lotMultOverride) { env.CORE_LOTMULT_OVERRIDE = String(lotMultOverride); env.HEDGE_LOTMULT_OVERRIDE = String(lotMultOverride); }
+    try {
+        await pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name, cwd: __dirname, env });
+        console.log(c.green(`  Started ${name} (${underlying}, ${coreSide} NRML core, base-loss hedge, check ${checkMin}m, ${isLive ? "LIVE" : "PAPER"})`));
+    } catch (err) {
+        console.log(c.red(`  Failed to start: ${err.message}`));
+    }
+    await pauseForReview();
+}
+
 async function addHedgePair() {
+    console.log(c.dim("  [1] Core + hedge on a full-size/mini pair — core by the daily DSB, hedge by the 1h HA DSB (existing)"));
+    console.log(c.dim("  [2] Base-loss hedge — ONE instrument, ONE account: NRML core (Long/Short you pick) + opposite MIS hedge when its P&L < 0"));
+    const stratIn = (await ask("  Strategy (default 1): ")).trim();
+    if (stratIn === "2") return addHedgePairBaseLoss();
+    if (stratIn !== "" && stratIn !== "1") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
     console.log(c.dim("  Core: full-size contract, ONE position, side from the daily DSB, NRML carry or MIS close-at-EOD (you choose)"));
     console.log(c.dim("  Hedge: mini contract, opens when the 1h HA DSB flips against the core, closes when it flips back"));
     console.log();
