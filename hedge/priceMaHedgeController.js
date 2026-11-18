@@ -20,7 +20,7 @@
 //
 // getDailyBias (optional — the "daily Heikin-Ashi colour" base rule): async (today) => "LONG" | "SHORT" | null (null = no read yet, wait and retry).
 // When given, only ONE base is taken per day — LONG_BASE (NRML, LONG account) on a green daily HA candle, SHORT_BASE (NRML, SHORT account) on a red one — from the
-// moment the algo is turned on, hedged by an opposite MIS in the SAME account by the usual base-P&L rule, and at EOD the hedge AND the NRML base are both closed (hedge first).
+// base-entry time on, hedged by an opposite MIS in the SAME account by the usual base-P&L rule, and at EOD the hedge AND the NRML base are both closed (hedge first).
 //
 // A leg is { key, account, kind, side, blocked, state:{position, entryPrice}, context }. broker.enter(leg, why) / broker.exit(leg, why)
 // resolve true ONLY on a confirmed fill/flat (state is already updated by then); false leaves everything as it was.
@@ -30,7 +30,7 @@ function createPriceMaHedgeController({ legs, broker, clock, baseHour, baseMinut
     const { LONG_BASE, SHORT_BASE, LONG_HEDGE, SHORT_HEDGE } = legs;
     if (!(LONG_BASE && SHORT_BASE && LONG_HEDGE && SHORT_HEDGE)) throw new Error("priceMaHedgeController: needs LONG_BASE, SHORT_BASE, LONG_HEDGE, SHORT_HEDGE");
     const ha = typeof getDailyBias === "function";
-    const baseMin = carry ? 0 : baseHour * 60 + baseMinute, eodMin = eodHour * 60 + eodMinute;
+    const baseMin = (carry && !ha) ? 0 : baseHour * 60 + baseMinute, eodMin = eodHour * 60 + eodMinute;
     // carry: the NRML bases are placed as soon as the algo is turned on (the base time only applies to day mode).
     if (!(eodMin > baseMin)) throw new Error("priceMaHedgeController: EOD must be after the base-entry time");
     const bases = [LONG_BASE, SHORT_BASE], hedges = [LONG_HEDGE, SHORT_HEDGE];

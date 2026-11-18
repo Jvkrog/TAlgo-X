@@ -104,10 +104,6 @@ t("HA3 no colour yet (doji / no data): waits, places nothing, then enters once a
     k.b.v = "LONG"; minute(k.clk, 1); await k.c.tick(); assert.deepStrictEqual(k.orders, ["ENTER LONG_BASE MIS LONG (BASE)"]);
     const n = k.b.n; minute(k.clk, 2); await k.c.tick(); assert.strictEqual(k.b.n, n, "colour is read once per day once known");
 });
-t("HA5 entry happens the moment the algo is turned on, whatever the time of day (base time is not waited for)", async () => {
-    const k = haSetup("LONG"); k.clk.hours = 17; k.clk.minutes = 24;   // deployed at 17:24, long after the 09:15 base time
-    await k.c.tick(); assert.deepStrictEqual(k.orders, ["ENTER LONG_BASE MIS LONG (BASE)"]);
-});
 t("HA4 a new IST day re-reads the colour (green yesterday, red today -> the SHORT base)", async () => {
     const k = haSetup("LONG"); k.clk.minutes = 0; await k.c.tick();
     k.clk.hours = 23; k.clk.minutes = 20; await k.c.tick();                       // EOD flat
