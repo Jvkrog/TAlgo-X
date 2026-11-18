@@ -417,12 +417,18 @@ function buildDualHedgeCard(d) {
     ${d.strategy === "PRICE_MA" ? `<div class="pnl-row">
       <div class="pnl-box"><span class="pnl-label">LONG base (${d.longUser})</span><span class="pnl-value flat" data-role="LONG_BASE-pnl">+0</span><span class="pnl-label" data-role="LONG_BASE-pos">flat</span></div>
       <div class="pnl-box"><span class="pnl-label">LONG hedge (${d.longUser})</span><span class="pnl-value flat" data-role="LONG_HEDGE-pnl">+0</span><span class="pnl-label" data-role="LONG_HEDGE-pos">flat</span></div>
+    </div>
+    <div class="pnl-row">
+      <div class="pnl-box"><span class="pnl-label">LONG unrealized</span><span class="pnl-value flat" data-role="LONG-acct-u">+0</span></div>
+      <div class="pnl-box"><span class="pnl-label">LONG realized</span><span class="pnl-value flat" data-role="LONG-acct-r">+0</span></div>
+    </div>
+    <div class="pnl-row">
       <div class="pnl-box"><span class="pnl-label">SHORT base (${d.shortUser})</span><span class="pnl-value flat" data-role="SHORT_BASE-pnl">+0</span><span class="pnl-label" data-role="SHORT_BASE-pos">flat</span></div>
       <div class="pnl-box"><span class="pnl-label">SHORT hedge (${d.shortUser})</span><span class="pnl-value flat" data-role="SHORT_HEDGE-pnl">+0</span><span class="pnl-label" data-role="SHORT_HEDGE-pos">flat</span></div>
     </div>
     <div class="pnl-row">
-      <div class="pnl-box"><span class="pnl-label">LONG acct unrealized (${d.longUser})</span><span class="pnl-value flat" data-role="LONG-acct-u">+0</span><span class="pnl-label" data-role="LONG-acct-net">net +0</span></div>
-      <div class="pnl-box"><span class="pnl-label">SHORT acct unrealized (${d.shortUser})</span><span class="pnl-value flat" data-role="SHORT-acct-u">+0</span><span class="pnl-label" data-role="SHORT-acct-net">net +0</span></div>
+      <div class="pnl-box"><span class="pnl-label">SHORT unrealized</span><span class="pnl-value flat" data-role="SHORT-acct-u">+0</span></div>
+      <div class="pnl-box"><span class="pnl-label">SHORT realized</span><span class="pnl-value flat" data-role="SHORT-acct-r">+0</span></div>
     </div>
     <div class="pnl-row">
       <div class="pnl-box"><span class="pnl-label">LTP</span><span class="pnl-value flat" data-role="pma-ltp">-</span></div>
@@ -517,10 +523,7 @@ function paintPmaCards(underlying) {
     });
     const set = (role, v) => { const e = el.querySelector(`[data-role="${role}"]`); if (e) { e.textContent = fmtSigned(v); e.className = `pnl-value ${cls(v)}`; } };
     set("unrealized", u); set("realized", s - u); set("net", s);
-    ["LONG", "SHORT"].forEach(a => {
-      set(`${a}-acct-u`, au[a]);
-      const n = el.querySelector(`[data-role="${a}-acct-net"]`); if (n) n.textContent = `net ${fmtSigned(an[a])}`;
-    });
+    ["LONG", "SHORT"].forEach(a => { set(`${a}-acct-u`, au[a]); set(`${a}-acct-r`, an[a] - au[a]); });
     const l = el.querySelector('[data-role="pma-ltp"]'); const px = pmaLastPrice.get(underlying);
     if (l && px !== undefined) l.textContent = px.toFixed(2);
   });
