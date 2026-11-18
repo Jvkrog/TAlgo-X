@@ -296,12 +296,13 @@ async function main() {
 
     // Daily Heikin-Ashi colour of the LAST COMPLETED daily candle (same reader hedgePairEngine uses) -> which NRML base to hold today.
     const haReader = BASE_RULE === "HA_DAILY" ? require("./indicators/haCandleReader").createHaCandleReader({ token, timeframe: "1d", engineConfig, label: "PMA" }) : null;
-    let biasTry = 0;
+    let biasTry = 0, lastBias = null;
     async function dailyBias() {
         if (Date.now() - biasTry < 60 * 1000) return null;          // a failed read is retried at most once a minute
         biasTry = Date.now();
         const r = await haReader.getLatest().catch(() => null);
         if (!r || !r.color) return null;                            // no data / doji -> no read
+        lastBias = r.color === "green" ? "green -> LONG base" : "red -> SHORT base";
         return r.color === "green" ? "LONG" : "SHORT";
     }
 
@@ -379,18 +380,21 @@ async function main() {
         setTimeout(() => process.exit(0), 2000);
     }
 
-    let finished = false, lastBeat = 0;
+    let finished = false, lastBeat = 0, lastBeatKey = null;
     async function loop() {
         if (finished) return;
         try {
             const r = await controller.tick();
             if (r === "EOD_DONE") { finished = true; await eodReportAndExit(); return; }
             if (r === "EOD_PENDING") console.error(c.red("EOD flatten incomplete — retrying next poll"));
-            if (Date.now() - lastBeat >= 5 * 60 * 1000) {
-                lastBeat = Date.now();
+            // heartbeat: once at start, then on every clock-aligned 5th minute (:00, :05, … IST) — the same minutes the 5-minute hedge check runs on
+            const hp = istParts(new Date()), beatKey = `${todayIST(new Date())} ${hp.hours}:${hp.minutes}`;
+            if ((lastBeat === 0 || hp.minutes % 5 === 0) && lastBeatKey !== beatKey) {
+                lastBeat = Date.now(); lastBeatKey = beatKey;
                 const px = await getLtp().catch(() => null);
                 const f = (v, d = 2) => (v >= 0 ? "+" : "") + v.toFixed(d);
                 const lines = [`[PMA] ${new Date().toLocaleTimeString("en-IN", { hour12: false, timeZone: "Asia/Kolkata" })}  LTP ${px === null ? "-" : px.toFixed(2)}`];
+                if (BASE_RULE === "HA_DAILY") lines[0] += `   daily HA: ${lastBias || "waiting for a colour"}`;
                 const hpx = SPLIT ? await getLtpFor(legs.LONG_HEDGE).catch(() => null) : px;
                 if (SPLIT) lines[0] += `   hedge ${legs.LONG_HEDGE.context.symbol} ${hpx === null ? "-" : hpx.toFixed(2)}`;
                 let totU = 0, totR = 0;
