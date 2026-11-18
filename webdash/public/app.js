@@ -387,7 +387,6 @@ function dualHedgeStrategyText(d) {
   }
   if (d.strategy === "PRICE_MA") {
     const carry = d.carry !== false, extras = [Number(d.pnlBand) > 0 ? `band ${d.pnlBand}pt` : "", Number(d.pnlSmooth) > 1 ? `smooth ${d.pnlSmooth}` : "", Number(d.checkMin) > 1 ? `check ${d.checkMin}m` : "", String(d.hedgeContract || "SAME").toUpperCase() !== "SAME" ? `hedge ${String(d.hedgeContract).toUpperCase() === "NEXT" ? "next month" : d.hedgeContract}` : ""].filter(Boolean);
-    if (String(d.baseRule || "BOTH").toUpperCase() === "HA_DAILY") return `Daily HA \u00b7 NRML base by daily HA colour, MIS hedge when base P&L < 0 \u00b7 flat at ${d.eodTime || "EOD"}${extras.length ? ` \u00b7 ${extras.join(" \u00b7 ")}` : ""}`;
     return `Base-loss hedge \u00b7 ${carry ? `NRML bases hedged by MIS till ${d.eodTime || "EOD"}` : `MIS bases @${d.baseTime} hedged by NRML till ${d.eodTime || "EOD"}`}${extras.length ? ` \u00b7 ${extras.join(" \u00b7 ")}` : ""}`;
   }
   if (d.strategy === "BIAS") {
@@ -4905,7 +4904,6 @@ async function renderDualHedgeAddForm() {
       <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge as soon as base P&amp;L &lt; 0, close when &gt; 0)</div><input type="number" id="dhPmaBand" min="0" step="any" value="0"></div>
       <div class="tb-form-row"><div class="tb-form-label">Smoothing (average of last N P&amp;L samples (one per check); 1 = raw)</div><input type="number" id="dhPmaSmooth" min="1" step="1" value="1"></div>
       <div class="tb-form-row"><div class="tb-form-label">Check hedge every N minutes (1 = every minute; 5 = at :00, :05, :10 …)</div><input type="number" id="dhPmaCheck" min="1" max="60" step="1" value="1"></div>
-      <div class="tb-form-row"><div class="tb-form-label">Base entry (Daily HA = ONE NRML base by the last daily Heikin-Ashi colour: green = LONG account long, red = SHORT account short; closed at EOD with its MIS hedge. Use check = 5)</div><select id="dhPmaBaseRule"><option value="BOTH" selected>Both bases at start (held)</option><option value="HA_DAILY">Daily HA colour (NRML base, closed at EOD)</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Hedge contract (NEXT = next-month future: calendar-spread margin benefit, but the hedge then carries basis risk)</div><select id="dhPmaHedgeContract"><option value="SAME" selected>Same contract as the base</option><option value="NEXT">Next month</option></select></div>
     </div>
     <div id="dhRealizeOnly" style="display:none">
@@ -5021,7 +5019,7 @@ async function renderDualHedgeAddForm() {
       gapCapture: tbDualHedgeBody.querySelector("#dhStrategy").value === "DUAL" && tbDualHedgeBody.querySelector("#dhGap").checked,
       gcEntry: "23:20", gcExit: "23:25",
       baseTime: tbDualHedgeBody.querySelector("#dhPmaBase").value || "09:15", eodTime: tbDualHedgeBody.querySelector("#dhPmaEod").value || undefined,
-      carry: tbDualHedgeBody.querySelector("#dhPmaCarry").checked, pnlBand: tbDualHedgeBody.querySelector("#dhPmaBand").value || 0, pnlSmooth: tbDualHedgeBody.querySelector("#dhPmaSmooth").value || 1, checkMin: tbDualHedgeBody.querySelector("#dhPmaCheck").value || 1, hedgeContract: tbDualHedgeBody.querySelector("#dhPmaHedgeContract").value, baseRule: tbDualHedgeBody.querySelector("#dhPmaBaseRule").value,
+      carry: tbDualHedgeBody.querySelector("#dhPmaCarry").checked, pnlBand: tbDualHedgeBody.querySelector("#dhPmaBand").value || 0, pnlSmooth: tbDualHedgeBody.querySelector("#dhPmaSmooth").value || 1, checkMin: tbDualHedgeBody.querySelector("#dhPmaCheck").value || 1, hedgeContract: tbDualHedgeBody.querySelector("#dhPmaHedgeContract").value,
           };
     const btn = tbDualHedgeBody.querySelector("#dhAddSubmit");
     btn.disabled = true; btn.textContent = "Starting...";
@@ -5124,7 +5122,6 @@ async function renderDualHedgeBacktestForm() {
       <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge when base P&amp;L &lt; 0)</div><input type="number" id="dbPmaBand" min="0" step="any" value="0"></div>
       <div class="tb-form-row"><div class="tb-form-label">Smoothing (last N samples (one per check); 1 = raw)</div><input type="number" id="dbPmaSmooth" min="1" step="1" value="1"></div>
       <div class="tb-form-row"><div class="tb-form-label">Check hedge every N minutes (1 = every minute; 5 = at :00, :05 …)</div><input type="number" id="dbPmaCheck" min="1" max="60" step="1" value="1"></div>
-      <div class="tb-form-row"><div class="tb-form-label">Base entry (Daily HA = ONE NRML base by the last daily Heikin-Ashi colour: green = LONG account long, red = SHORT account short; closed at EOD with its MIS hedge. Use check = 5)</div><select id="dbPmaBaseRule"><option value="BOTH" selected>Both bases at start (held)</option><option value="HA_DAILY">Daily HA colour (NRML base, closed at EOD)</option></select></div>
       <div class="tb-form-row"><div class="tb-form-label">Hedge contract (Next month = the hedges trade the next expiry's own candles, so the spread/basis between the two months shows up in P&amp;L)</div><select id="dbPmaHedgeContract"><option value="SAME" selected>Same contract as the base</option><option value="NEXT">Next month</option></select></div>
     </div>
     <div id="dbDual">
@@ -5209,7 +5206,7 @@ async function renderDualHedgeBacktestForm() {
       realizeRupees: q("#dbRealizeRupees").value || undefined, lossAlertRupees: q("#dbLossAlert").value || undefined,
       gapCapture: q("#dbStrategy").value === "DUAL" && q("#dbGap").checked,
       gcEntry: "23:20", gcExit: "23:25",
-      baseTime: q("#dbPmaBase").value || "09:15", eodTime: q("#dbPmaEod").value || undefined, carry: q("#dbPmaCarry").checked, pnlBand: q("#dbPmaBand").value || 0, pnlSmooth: q("#dbPmaSmooth").value || 1, checkMin: q("#dbPmaCheck").value || 1, hedgeContract: q("#dbPmaHedgeContract").value, baseRule: q("#dbPmaBaseRule").value,
+      baseTime: q("#dbPmaBase").value || "09:15", eodTime: q("#dbPmaEod").value || undefined, carry: q("#dbPmaCarry").checked, pnlBand: q("#dbPmaBand").value || 0, pnlSmooth: q("#dbPmaSmooth").value || 1, checkMin: q("#dbPmaCheck").value || 1, hedgeContract: q("#dbPmaHedgeContract").value,
           };
     const btn = q("#dbSubmit");
     btn.disabled = true; btn.textContent = "Running...";
@@ -5477,11 +5474,3 @@ async function loadRiskObs() {
     body.innerHTML = cards.join("");
   } catch (err) { body.innerHTML = `<div class="ro-warn" style="margin:12px 16px">Could not load Risk Observer data: ${escHtml(err.message)}</div>`; }
 }
-
-document.addEventListener("change", e => {
-  const id = e.target && e.target.id;
-  if (id !== "dhPmaBaseRule" && id !== "dbPmaBaseRule") return;
-  const pre = id.slice(0, 2), ha = e.target.value === "HA_DAILY";
-  const ck = document.getElementById(`${pre}PmaCheck`); if (ck && (ck.value === "1" || ck.value === "5")) ck.value = ha ? "5" : "1";
-  const cy = document.getElementById(`${pre}PmaCarry`); if (ha && cy) cy.checked = true;
-});
