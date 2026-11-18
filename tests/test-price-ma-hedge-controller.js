@@ -76,6 +76,40 @@ t("1 base legs entered once per day at the base time, never re-entered", async (
     assert.deepStrictEqual(orders, ["ENTER LONG_BASE MIS LONG (BASE)", "ENTER SHORT_BASE MIS SHORT (BASE)"]);
     legs.LONG_BASE.state.position = null; await c.tick(); assert.strictEqual(orders.length, 2);
 });
+// ---- daily Heikin-Ashi base rule: ONE NRML base by colour, closed at EOD with its hedge; P&L checked every N minutes ----
+function haSetup(bias, extra) { const b = { v: bias, n: 0 }; const k = make({ ctl: { carry: true, checkMinutes: 5, getDailyBias: async () => { b.n++; return b.v; }, ...(extra || {}) } }); k.b = b; return k; }
+t("HA1 green daily candle: only the LONG account takes an NRML base; losing -> MIS short hedge on the 5-min check; profit -> off; EOD closes hedge + base", async () => {
+    const { c, orders, clk, legs, px } = haSetup("LONG"); clk.minutes = 0;
+    await c.tick(); assert.deepStrictEqual(orders, ["ENTER LONG_BASE MIS LONG (BASE)"], "only the LONG base (the fake labels every base MIS)");
+    assert.ok(!legs.SHORT_BASE.state.position, "no SHORT base on a green day");
+    px.price = 99; for (const m of [1, 2, 3, 4]) { minute(clk, m); await c.tick(); }
+    assert.strictEqual(orders.length, 1, "minutes 1-4: no check");
+    minute(clk, 5); await c.tick(); assert.strictEqual(orders[1], "ENTER LONG_HEDGE NRML SHORT (BASE LOSS HEDGE)", "5th minute: base < 0 -> hedge");
+    px.price = 101; for (const m of [6, 7, 8, 9]) { minute(clk, m); await c.tick(); } assert.strictEqual(orders.length, 2, "hedge stays until the next check");
+    minute(clk, 10); await c.tick(); assert.strictEqual(orders[2], "EXIT LONG_HEDGE (BASE BACK IN PROFIT)");
+    px.price = 99; minute(clk, 15); await c.tick(); assert.strictEqual(orders[3], "ENTER LONG_HEDGE NRML SHORT (BASE LOSS HEDGE)", "loses again -> hedge again");
+    clk.hours = 23; clk.minutes = 20; clk.nowMs += 3600000; px.atMs = undefined; const r = await c.tick();
+    assert.strictEqual(r, "EOD_DONE"); assert.deepStrictEqual(orders.slice(4), ["EXIT LONG_HEDGE (EOD)", "EXIT LONG_BASE (EOD)"], "hedge first, then the NRML base");
+    assert.ok(!legs.LONG_BASE.state.position && !legs.LONG_HEDGE.state.position);
+});
+t("HA2 red daily candle: only the SHORT account takes the base; the LONG account stays idle", async () => {
+    const { c, orders, clk, legs, px } = haSetup("SHORT"); clk.minutes = 0;
+    await c.tick(); assert.deepStrictEqual(orders, ["ENTER SHORT_BASE MIS SHORT (BASE)"]);
+    px.price = 101; minute(clk, 5); await c.tick(); assert.strictEqual(orders[1], "ENTER SHORT_HEDGE NRML LONG (BASE LOSS HEDGE)");
+    assert.ok(!legs.LONG_BASE.state.position && !legs.LONG_HEDGE.state.position, "LONG account never trades");
+});
+t("HA3 no colour yet (doji / no data): waits, places nothing, then enters once a colour arrives", async () => {
+    const k = haSetup(null); k.clk.minutes = 0;
+    assert.strictEqual(await k.c.tick(), "WAITING"); assert.strictEqual(k.orders.length, 0);
+    k.b.v = "LONG"; minute(k.clk, 1); await k.c.tick(); assert.deepStrictEqual(k.orders, ["ENTER LONG_BASE MIS LONG (BASE)"]);
+    const n = k.b.n; minute(k.clk, 2); await k.c.tick(); assert.strictEqual(k.b.n, n, "colour is read once per day once known");
+});
+t("HA4 a new IST day re-reads the colour (green yesterday, red today -> the SHORT base)", async () => {
+    const k = haSetup("LONG"); k.clk.minutes = 0; await k.c.tick();
+    k.clk.hours = 23; k.clk.minutes = 20; await k.c.tick();                       // EOD flat
+    k.clk.today = "2026-11-13"; k.clk.hours = 10; k.clk.minutes = 0; k.clk.nowMs += 86400000; k.b.v = "SHORT"; k.orders.length = 0;
+    await k.c.tick(); assert.deepStrictEqual(k.orders, ["ENTER SHORT_BASE MIS SHORT (BASE)"]);
+});
 t("P2b checkMinutes=5: only clock-aligned minutes (:00,:05,...) decide; other minutes never hedge", async () => {
     const { c, orders, clk, legs, px } = pnlSetup({ checkMinutes: 5 }); clk.minutes = 0; await c.tick(); legs.LONG_BASE.state.entryPrice = 100; legs.SHORT_BASE.state.entryPrice = 100; orders.length = 0;
     px.price = 99; for (const m of [1, 2, 3, 4]) { minute(clk, m); await c.tick(); }

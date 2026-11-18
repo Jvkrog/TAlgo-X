@@ -34,6 +34,15 @@ t("no hedge or base before the base time; nothing opens after EOD", async () => 
     const r = await run({});
     for (const x of r.trades) { const mod = new Date(new Date(x.entry_time).getTime() + IST).getUTCHours() * 60 + new Date(new Date(x.entry_time).getTime() + IST).getUTCMinutes(); assert.ok(mod >= 9 * 60 + 15 && mod < 23 * 60 + 15, "entry within base..EOD: " + mod); }
 });
+t("daily HA rule: one NRML base per day on the colour's side, flat every EOD, 5-minute checks", async () => {
+    const r = await run({ carry: true, checkMinutes: 5, getDailyBias: async () => "LONG" });
+    const bases = r.trades.filter(x => x.role === "BASE");
+    assert.ok(bases.length >= 1 && bases.every(x => x.leg === "LONG"), "only the LONG account trades a base");
+    assert.ok(r.trades.every(x => x.exit_time), "everything is closed (bases closed at EOD, not carried)");
+    assert.ok(/daily HA colour/.test(r.signalKind));
+    const red = await run({ carry: true, checkMinutes: 5, getDailyBias: async () => "SHORT" });
+    assert.ok(red.trades.filter(x => x.role === "BASE").every(x => x.leg === "SHORT"), "red day -> SHORT account base");
+});
 t("hedge on another contract: hedges are priced on that contract's own candles (calendar spread)", async () => {
     const hc = candles.map(x => ({ ...x, open: x.open - 20, high: x.high - 20, low: x.low - 20, close: x.close - 20 }));   // next month trades 20 below
     const hctx = n => ({ ...ctx(n), symbol: "NATGASMINI26Y", token: 2 });
