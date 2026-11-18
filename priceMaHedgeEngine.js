@@ -377,14 +377,17 @@ async function main() {
                 const hpx = SPLIT ? await getLtpFor(legs.LONG_HEDGE).catch(() => null) : px;
                 if (SPLIT) lines[0] += `   hedge ${legs.LONG_HEDGE.context.symbol} ${hpx === null ? "-" : hpx.toFixed(2)}`;
                 let totU = 0, totR = 0;
+                const acct = { LONG: { u: 0, r: 0, name: "" }, SHORT: { u: 0, r: 0, name: "" } };
                 for (const l of L) {
                     const lp = l.kind === "HEDGE" ? hpx : px;
                     const u = l.state.position && lp !== null ? positions.unrealised(l.context, l.state, lp) : 0;
                     const pts = l.state.position && lp !== null ? (l.state.position === "LONG" ? 1 : -1) * (lp - l.state.entryPrice) : 0;
                     totU += u; totR += (l.state.pnl || 0);
+                    acct[l.account].u += u; acct[l.account].r += (l.state.pnl || 0); acct[l.account].name = (l.user && l.user.name) || "";
                     const where = l.state.position ? `${l.state.position} @${l.state.entryPrice.toFixed(2)}` : "flat";
                     lines.push(`   ${l.key.padEnd(11)} ${(l.user && l.user.name || "").padEnd(8)} ${where.padEnd(15)} ${l.state.position ? `${f(pts)} pts  ${f(u, 0)}` : "-"}${(l.state.pnl || 0) ? `   realized ${f(l.state.pnl, 0)}` : ""}`);
                 }
+                for (const a of ["LONG", "SHORT"]) lines.push(`   ${(a + " ACCT").padEnd(11)} ${acct[a].name.padEnd(8)} unreal ${f(acct[a].u, 0)} · real ${f(acct[a].r, 0)} · total ${f(acct[a].u + acct[a].r, 0)}`);
                 lines.push(`   ${"NET".padEnd(11)} unreal ${f(totU, 0)} · real ${f(totR, 0)} · total ${f(totU + totR, 0)}`);
                 console.log(c.dim(lines.join("\n")));
                 if (px !== null) emitLegPnl(true);
