@@ -1051,6 +1051,9 @@ function handleEvent(msg) {
     sessionPnlByUnderlying.set(msg.proc || msg.engine, msg.session);
     updateTotalPnl();
 
+    // Hedge-pair legs (…_CORE / …_HEDGE): the tick only feeds the card above — it is not a log line (one row per tick per leg buried the real events).
+    if (/_(CORE|HEDGE)$/.test(String(msg.engine || "")) && !/_PMA_/.test(String(msg.engine || ""))) return;
+
     const pnlCls = hasDirectionColor
       ? (msg.color === "green" ? "pos" : msg.color === "red" ? "neg" : "flat")
       : (msg.position ? cls(msg.uPnl) : "flat");
