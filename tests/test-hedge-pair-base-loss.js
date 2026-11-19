@@ -29,9 +29,7 @@ const count = re => out.filter(l => re.test(l)).length;
         assert.ok(out.some(l => /base-loss, manual side/.test(l)), "banner");
         assert.ok(out.some(l => /LONG NRML/.test(l) || /NRML.*LONG|LONG.*NRML/.test(l)), "core LONG NRML taken at deploy");
         assert.ok(!out.some(l => /OPEN SHORT MIS hedge/.test(l)), "no hedge while core flat of loss");
-        fakeNow += 5 * 60000; price = 310; await wait(800);   // 1st check positive: let it be
-        assert.ok(!out.some(l => /OPEN SHORT MIS hedge/.test(l)), "positive first check -> no hedge");
-        fakeNow += 5 * 60000; price = 290; await wait(800);   // 2nd check negative: sign change -> hedge
+        fakeNow += 5 * 60000; price = 290; await wait(800);   // core 300 -> 290 = loss
         assert.ok(out.some(l => /OPEN SHORT MIS hedge/.test(l)), "loss at the 5-min check -> opposite hedge");
         fakeNow += 5 * 60000; price = 310; await wait(800);
         assert.ok(out.some(l => /CLOSE hedge/.test(l)), "profit -> hedge closed");

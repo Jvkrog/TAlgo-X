@@ -7,13 +7,13 @@ const ctx = tg => ({ tgPrefix: tg, symbol: "X", token: 1, lots: 1, lotMult: 100,
 const ist = (d, h, m) => new Date(Date.UTC(2026, 10, d, h, m) - 5.5 * 3600e3);
 const mk = (d, h, m, o) => ({ date: ist(d, h, m), open: o, high: o, low: o, close: o });
 (async () => {
-    const bars = [mk(12, 9, 0, 100), mk(12, 9, 5, 102), mk(12, 9, 10, 95), mk(12, 9, 15, 95), mk(12, 9, 20, 105), mk(12, 23, 15, 110), mk(13, 9, 0, 110), mk(13, 9, 5, 111), mk(13, 23, 15, 112)];
+    const bars = [mk(12, 9, 0, 100), mk(12, 9, 5, 100), mk(12, 9, 10, 95), mk(12, 9, 15, 95), mk(12, 9, 20, 105), mk(12, 23, 15, 110), mk(13, 9, 0, 110), mk(13, 9, 5, 111), mk(13, 23, 15, 112)];
     const r = await simulateBaseLoss({ bars, coreCtx: ctx("C_CORE"), hedgeCtx: ctx("C_HEDGE"), side: "LONG", checkMin: 5, from: bars[0].date });
     assert.strictEqual(r.coreTrades.length, 2, "one core per day");
     assert.strictEqual(r.hedgeTrades.length, 1, "one hedge (loss at 09:10, closed at profit 09:20)");
     assert.ok(r.coreTrades.every(t => t.exit_time), "core flat each EOD");
     const s = await simulateBaseLoss({ bars, coreCtx: ctx("C_CORE"), hedgeCtx: ctx("C_HEDGE"), side: "SHORT", checkMin: 5, from: bars[0].date });
-    assert.strictEqual(s.hedgeTrades.length, 1, "SHORT core: 102 negative first (no hedge), 95 positive, 105 negative = sign change -> hedge held to EOD; day2 first check negative -> nothing");
+    assert.strictEqual(s.hedgeTrades.length, 2, "SHORT core: day1 105>100 loss -> hedge held to EOD; day2 111>110 loss -> hedge");
     // full runner with a fake Kite (contract resolution + fetch + report)
     process.env.TALGO_DB_DIR = require("fs").mkdtempSync(require("path").join(require("os").tmpdir(), "hpblbt-"));
     const { runHedgePairBaseLossBacktest } = require("../backtest/backtestHedgePairBaseLoss");

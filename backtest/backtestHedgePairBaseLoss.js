@@ -1,7 +1,7 @@
 // backtestHedgePairBaseLoss.js — backtest of the hedge-pair "base-loss" rule (hedgePairEngine.js HEDGE_RULE=BASE_LOSS): ONE instrument, ONE account.
 //   - NRML core on the side YOU pick (LONG/SHORT, manual), taken at the first bar of every day (the live engine is deployed/restarted daily).
 //   - Every checkMin minutes (clock-aligned, default 5): core P&L < -band  -> open the opposite MIS hedge (same contract, same lots);
-//     core P&L > +band -> close the hedge — but only on a SIGN CHANGE vs the previous check (positive->negative hedges, negative->positive closes; anti flip-flop). Evaluated at the open of the first 5m bar in each slot (== the live poll's LTP at slot start).
+//     core P&L > +band -> close the hedge. Evaluated at the open of the first 5m bar in each slot (== the live poll's LTP at slot start).
 //   - EOD (23:15 IST, or the day's last bar if the market closed earlier): hedge closed first, then the core.
 // Separate file from backtestHedgePair.js on purpose (that one is the two-instrument DSB strategy). Reuses the same contract resolver
 // (hedgePairContext.js), ledger, positions.close() and metrics/report shape.
@@ -48,12 +48,12 @@ async function simulateBaseLoss({ bars, coreCtx, hedgeCtx, side, checkMin = 5, p
         await positions.close(ctx, st, led, tg, price, reason);
         led.savePosition(ctx.tgPrefix, ctx.token, ctx.symbol, null, 0);
     }
-    let curDay = null, lastSlot = null, eodDone = false, prevSign = null;
+    let curDay = null, lastSlot = null, eodDone = false;
     for (let i = 0; i < bars.length; i++) {
         const bar = bars[i]; clockBox.date = bar.date;
         if (bar.date < from) continue;
         const day = dayKeyIST(bar.date), mod = minOfDay(bar.date);
-        if (day !== curDay) { curDay = day; lastSlot = null; eodDone = false; prevSign = null; log(""); log(`**STARTING** ${day}`); }
+        if (day !== curDay) { curDay = day; lastSlot = null; eodDone = false; log(""); log(`**STARTING** ${day}`); }
         if (eodDone) continue;
         const lastBarOfDay = i === bars.length - 1 || dayKeyIST(bars[i + 1].date) !== day;
         const isEod = mod >= EOD_MIN_OF_DAY || lastBarOfDay;
@@ -74,12 +74,9 @@ async function simulateBaseLoss({ bars, coreCtx, hedgeCtx, side, checkMin = 5, p
         if (slot === lastSlot) continue;
         lastSlot = slot;
         const px = bar.open, pts = dir * (px - coreState.entryPrice);
-        // acts only when the sign of core P&L changed since the previous check (anti flip-flop; same rule as the live engine)
-        const sign = pts > pnlBand ? 1 : pts < -pnlBand ? -1 : 0, before = prevSign !== null ? prevSign : (hedgeState.position ? -1 : null);
-        if (sign !== 0) prevSign = sign;
-        if (sign === -1 && before === 1 && !hedgeState.position) {
+        if (pts < -pnlBand && !hedgeState.position) {
             await enter(hedgeCtx, hedgeState, hedgeLedger, side === "LONG" ? "SHORT" : "LONG", px, "HEDGE", `core P&L ${pts.toFixed(2)} pts below 0`);
-        } else if (sign === 1 && before === -1 && hedgeState.position) {
+        } else if (pts > pnlBand && hedgeState.position) {
             await exit(hedgeCtx, hedgeState, hedgeLedger, px, "HEDGE", "core back in profit");
         }
     }
