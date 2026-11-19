@@ -286,6 +286,19 @@ function createDb(context) {
         });
     }
 
+    // Realized P&L of an engine's CLOSED trades from `sinceDate` (YYYY-MM-DD, inclusive) onwards — used by the Price-MA engine so the card's realized
+    // boxes keep a hedge's profit after the day rolls over (a carried base can live for several days).
+    function getRealizedPnlSince(engine, sinceDate) {
+        return new Promise(resolve => {
+            db.get(
+                `SELECT COALESCE(SUM(pnl), 0) AS total FROM trades
+                 WHERE engine = ? AND status = 'CLOSED' AND trade_date >= ?`,
+                [engine, sinceDate],
+                (err, row) => resolve(err ? 0 : row.total)
+            );
+        });
+    }
+
     // Mirrors getRealizedPnlToday exactly (COUNT instead of SUM, same
     // trade_date filter) — counts every trade opened today regardless of
     // whether it's still OPEN or already CLOSED, since an entry counts
@@ -434,7 +447,7 @@ function createDb(context) {
 
     return {
         initDB, savePosition, loadPosition, saveRegime, loadRegime, clearAllPositions,
-        saveRiskState, loadRiskState, insertOpenTrade, closeTrade, updateTradeEntry, getOpenTrade, getRealizedPnlToday, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince, countWinningTradesSince, countScalpTpSince, setEntryContext, logRiskEvent,
+        saveRiskState, loadRiskState, insertOpenTrade, closeTrade, updateTradeEntry, getOpenTrade, getRealizedPnlToday, getRealizedPnlSince, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince, countWinningTradesSince, countScalpTpSince, setEntryContext, logRiskEvent,
     };
 }
 

@@ -175,6 +175,20 @@ async function main() {
         SHORT_HEDGE: await buildLeg("SHORT_HEDGE", "SHORT", "HEDGE", "LONG",  shortUser, shortKc, hedgeSymbol || process.env.PMA_CONTRACT_OVERRIDE || null),
     };
     const L = Object.values(legs);
+    // Realized for the WebDash card keeps a hedge's profit after the day rolls over: counted from the day the oldest still-carried base was taken
+    // (nothing carried -> just today, as before).
+    {
+        let since = null;
+        for (const l of [legs.LONG_BASE, legs.SHORT_BASE]) {
+            if (!l.state.position) continue;
+            const ot = await l.db.getOpenTrade(l.context.tgPrefix).catch(() => null);
+            const d = ot && ot.trade_date; if (d && (!since || d < since)) since = d;
+        }
+        if (since && typeof legs.LONG_BASE.db.getRealizedPnlSince === "function") {
+            for (const l of L) l.state.pnl = await l.db.getRealizedPnlSince(l.context.tgPrefix, since).catch(() => l.state.pnl);
+            tag("RECOVERY", `realized P&L counted since the carried base's day (${since})`);
+        }
+    }
     const token = legs.LONG_BASE.context.token;
     const hedgeToken = legs.LONG_HEDGE.context.token;
     for (const l of [legs.SHORT_BASE]) if (l.context.token !== token) fail(`base legs resolved to different contracts (${l.context.symbol} vs ${legs.LONG_BASE.context.symbol}) — pin one contract`);
