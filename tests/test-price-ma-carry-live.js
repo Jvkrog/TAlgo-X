@@ -26,7 +26,7 @@ if (!STAGE) {
 // ---------------- child ----------------
 const Module = require("module");
 process.env.TALGO_DB_DIR = process.env.PMA_TEST_DIR; process.env.INSTRUMENT_CSV_PATH = path.join(__dirname, "..", "MCX.csv");
-Object.assign(process.env, { PMA_UNDERLYING: "NATGASMINI", PMA_LONG_USER: "AAA", PMA_SHORT_USER: "BBB", PMA_LOTMULT_OVERRIDE: "250", PMA_BASE_HOUR: "0", PMA_BASE_MINUTE: "0", PMA_EOD_HOUR: "23", PMA_EOD_MINUTE: "50", PMA_POLL_MS: "1000", PMA_CONTRACT_OVERRIDE: "NATGASMINI26JULFUT", LIVE_ORDERS_OVERRIDE: "true", PMA_CARRY: "true" });
+Object.assign(process.env, { PMA_UNDERLYING: "NATGASMINI", PMA_LONG_USER: "AAA", PMA_SHORT_USER: "BBB", PMA_LOTMULT_OVERRIDE: "250", PMA_ALLOW_EARLY_BASE: "true", PMA_BASE_HOUR: "0", PMA_BASE_MINUTE: "0", PMA_EOD_HOUR: "23", PMA_EOD_MINUTE: "50", PMA_POLL_MS: "1000", PMA_CONTRACT_OVERRIDE: "NATGASMINI26JULFUT", LIVE_ORDERS_OVERRIDE: "true", PMA_CARRY: "true" });
 let fakeNow = Date.UTC(2026, 10, STAGE === "1" ? 12 : 12 + Number(STAGE) - 1, 6, 0, 0); Date.now = () => fakeNow;   // each stage is a new trading day
 const bf = process.env.PMA_TEST_BROKER, rdB = () => JSON.parse(fs.readFileSync(bf, "utf8")), wrB = o => fs.writeFileSync(bf, JSON.stringify(o));
 let handlers = {}, TOKEN = null; const orderBook = {};

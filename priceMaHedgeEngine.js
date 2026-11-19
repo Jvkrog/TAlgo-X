@@ -71,7 +71,13 @@ async function main() {
     if (!(Number.isInteger(CHECK_MIN) && CHECK_MIN >= 1 && CHECK_MIN <= 60)) fail("PMA_CHECK_MINUTES must be a whole number 1-60");
     const STALE_MS = envInt(process.env.PMA_STALE_SECONDS, 150) * 1000;
     const POLL_MS = Math.max(1000, envInt(process.env.PMA_POLL_MS, 5000));
-    const baseHour = envInt(process.env.PMA_BASE_HOUR, 9), baseMinute = envInt(process.env.PMA_BASE_MINUTE, 15);
+    // Day-trading floor: no base (NRML/MIS) entry before 09:15 IST, whatever base time was deployed with — an order sent pre-market is converted to an AMO and rejected.
+    // PMA_ALLOW_EARLY_BASE=true lifts the floor (tests only).
+    let baseHour = envInt(process.env.PMA_BASE_HOUR, 9), baseMinute = envInt(process.env.PMA_BASE_MINUTE, 15);
+    if (String(process.env.PMA_ALLOW_EARLY_BASE || "").toLowerCase() !== "true" && baseHour * 60 + baseMinute < 9 * 60 + 15) {
+        console.log(c.yellow(`[PMA] base time ${hhmm(baseHour, baseMinute)} is before market hours — bases will wait until 09:15 IST`));
+        baseHour = 9; baseMinute = 15;
+    }
     const eodDef = defaultEodFor("1m", EXCHANGE);
     const eodHour = envInt(process.env.PMA_EOD_HOUR, eodDef.eodHour), eodMinute = envInt(process.env.PMA_EOD_MINUTE, eodDef.eodMinute);
     if (!(eodHour * 60 + eodMinute > baseHour * 60 + baseMinute)) fail(`EOD ${hhmm(eodHour, eodMinute)} must be after the base entry time ${hhmm(baseHour, baseMinute)}`);
