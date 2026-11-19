@@ -324,7 +324,7 @@ async function main() {
     // 9:15, the general market-open constant every other strategy uses;
     // hardcoded here so changing it doesn't touch anything else). Also
     // matches backtestHedgePair.js's same hardcoded 10:00, for parity.
-    const CORE_ENTRY_HOUR = BL ? 0 : 10, CORE_ENTRY_MINUTE = 0;   // BASE_LOSS: no entry-time gate — the core goes in as soon as the algo is turned on
+    const CORE_ENTRY_HOUR = BL ? 9 : 10, CORE_ENTRY_MINUTE = BL ? 15 : 0;   // BASE_LOSS: day-trading rule — no entry before 09:15 IST; if turned on earlier it waits, then enters at 09:15 on the first fresh tick
     async function checkCoreEntry() {
         const { hours, minutes } = istParts();
         const pastOpen = hours > CORE_ENTRY_HOUR ||

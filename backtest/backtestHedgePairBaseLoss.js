@@ -1,5 +1,5 @@
 // backtestHedgePairBaseLoss.js — backtest of the hedge-pair "base-loss" rule (hedgePairEngine.js HEDGE_RULE=BASE_LOSS): ONE instrument, ONE account.
-//   - NRML core on the side YOU pick (LONG/SHORT, manual), taken at the first bar of every day (the live engine is deployed/restarted daily).
+//   - NRML core on the side YOU pick (LONG/SHORT, manual), taken at the first bar from 09:15 IST of every day (the live engine is deployed/restarted daily).
 //   - Every checkMin minutes (clock-aligned, default 5): core P&L < -band  -> open the opposite MIS hedge (same contract, same lots);
 //     core P&L > +band -> close the hedge. Evaluated at the open of the first 5m bar in each slot (== the live poll's LTP at slot start).
 //   - EOD (23:15 IST, or the day's last bar if the market closed earlier): hedge closed first, then the core.
@@ -65,6 +65,7 @@ async function simulateBaseLoss({ bars, coreCtx, hedgeCtx, side, checkMin = 5, p
             coreState.pnl = 0; coreState.trades = 0; hedgeState.pnl = 0; hedgeState.trades = 0;
             eodDone = true; continue;
         }
+        if (!coreState.position && mod < 9 * 60 + 15) continue;   // day trading: no entry before 09:15 IST
         if (!coreState.position) {   // deployed: the core goes in at the first bar of the day
             await enter(coreCtx, coreState, coreLedger, side, bar.open, "CORE", `manual ${side}`);
             lastSlot = Math.floor(mod / checkMin);

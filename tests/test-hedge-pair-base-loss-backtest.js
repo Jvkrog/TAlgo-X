@@ -7,9 +7,10 @@ const ctx = tg => ({ tgPrefix: tg, symbol: "X", token: 1, lots: 1, lotMult: 100,
 const ist = (d, h, m) => new Date(Date.UTC(2026, 10, d, h, m) - 5.5 * 3600e3);
 const mk = (d, h, m, o) => ({ date: ist(d, h, m), open: o, high: o, low: o, close: o });
 (async () => {
-    const bars = [mk(12, 9, 0, 100), mk(12, 9, 5, 100), mk(12, 9, 10, 95), mk(12, 9, 15, 95), mk(12, 9, 20, 105), mk(12, 23, 15, 110), mk(13, 9, 0, 110), mk(13, 9, 5, 111), mk(13, 23, 15, 112)];
+    const bars = [mk(12, 9, 0, 50), mk(12, 9, 15, 100), mk(12, 9, 20, 95), mk(12, 9, 25, 95), mk(12, 9, 30, 105), mk(12, 23, 15, 110), mk(13, 9, 15, 110), mk(13, 9, 20, 111), mk(13, 23, 15, 112)];
     const r = await simulateBaseLoss({ bars, coreCtx: ctx("C_CORE"), hedgeCtx: ctx("C_HEDGE"), side: "LONG", checkMin: 5, from: bars[0].date });
     assert.strictEqual(r.coreTrades.length, 2, "one core per day");
+    assert.strictEqual(r.coreTrades[0].entry_price, 100, "09:00 bar ignored: no entry before 09:15");
     assert.strictEqual(r.hedgeTrades.length, 1, "one hedge (loss at 09:10, closed at profit 09:20)");
     assert.ok(r.coreTrades.every(t => t.exit_time), "core flat each EOD");
     const s = await simulateBaseLoss({ bars, coreCtx: ctx("C_CORE"), hedgeCtx: ctx("C_HEDGE"), side: "SHORT", checkMin: 5, from: bars[0].date });

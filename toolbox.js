@@ -2678,7 +2678,7 @@ async function pickLegContract(repo, underlying, legLabel) {
 // no HA bias), hedged by an opposite MIS position (same contract, same lots) when the core's P&L is below 0 (checked every N
 // minutes); the hedge and the core are both closed at EOD (23:15).
 async function addHedgePairBaseLoss() {
-    console.log(c.dim("  Same instrument, one account: NRML core on the side you pick (LONG / SHORT, manual — no HA bias), taken as soon as the algo is turned on."));
+    console.log(c.dim("  Same instrument, one account: NRML core on the side you pick (LONG / SHORT, manual — no HA bias), taken once the algo is on and it is 09:15 IST or later (day trading: nothing before 09:15)."));
     console.log(c.dim("  Hedge: opposite MIS position (same contract, same lots) when the core's P&L < 0 at a check; closed when it is > 0. Core + hedge both closed at EOD."));
     console.log();
     const repo = await ensureCsvLoaded();
