@@ -4,7 +4,7 @@
 const assert = require("assert"), fs = require("fs"), os = require("os"), path = require("path"), Module = require("module");
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hpbl-"));
 process.env.TALGO_DB_DIR = dir; process.env.INSTRUMENT_CSV_PATH = path.join(__dirname, "..", "MCX.csv");
-Object.assign(process.env, { CORE_UNDERLYING: "NATGASMINI", HEDGE_UNDERLYING: "NATGASMINI", CORE_LOTS_OVERRIDE: "1", HEDGE_LOTS_OVERRIDE: "1", CORE_LOTMULT_OVERRIDE: "250", HEDGE_LOTMULT_OVERRIDE: "250", CORE_CARRY_OVERRIDE: "true", CORE_SYMBOL_OVERRIDE: "NATGASMINI26OCTFUT", HEDGE_SYMBOL_OVERRIDE: "NATGASMINI26OCTFUT", HEDGE_RULE: "BASE_LOSS", CORE_SIDE_OVERRIDE: "LONG", HEDGE_CHECK_MINUTES: "5", HEDGE_PNL_BAND: "0", HEDGE_PAIR_POLL_MS: "200", LIVE_ORDERS_OVERRIDE: "false", UNWIND_MODE_OVERRIDE: "HA_FLIP" });
+Object.assign(process.env, { CORE_UNDERLYING: "NATGASMINI", HEDGE_UNDERLYING: "NATGASMINI", CORE_LOTS_OVERRIDE: "1", HEDGE_LOTS_OVERRIDE: "1", CORE_LOTMULT_OVERRIDE: "250", HEDGE_LOTMULT_OVERRIDE: "250", CORE_CARRY_OVERRIDE: "true", CORE_SYMBOL_OVERRIDE: "NATGASMINI26OCTFUT", HEDGE_SYMBOL_OVERRIDE: "NATGASMINI26OCTFUT", HEDGE_RULE: "BASE_LOSS", CORE_SIDE_OVERRIDE: "LONG", HEDGE_CHECK_MINUTES: "5", HEDGE_PNL_BAND: "0", LIVE_ORDERS_OVERRIDE: "false", UNWIND_MODE_OVERRIDE: "HA_FLIP" });
 let fakeNow = Date.UTC(2026, 10, 12, 6, 0, 0);   // 11:30 IST
 const RealDate = Date;
 global.Date = class extends RealDate { constructor(...a) { if (a.length === 0) super(fakeNow); else super(...a); } static now() { return fakeNow; } };
@@ -29,12 +29,12 @@ const count = re => out.filter(l => re.test(l)).length;
         assert.ok(out.some(l => /base-loss, manual side/.test(l)), "banner");
         assert.ok(out.some(l => /LONG NRML/.test(l) || /NRML.*LONG|LONG.*NRML/.test(l)), "core LONG NRML taken at deploy");
         assert.ok(!out.some(l => /OPEN SHORT MIS hedge/.test(l)), "no hedge while core flat of loss");
-        fakeNow += 5 * 60000; price = 290; await wait(800);   // core 300 -> 290 = loss
+        fakeNow += 5 * 60000; price = 290; await wait(1600);   // core 300 -> 290 = loss
         assert.ok(out.some(l => /OPEN SHORT MIS hedge/.test(l)), "loss at the 5-min check -> opposite hedge");
-        fakeNow += 5 * 60000; price = 310; await wait(800);
+        fakeNow += 5 * 60000; price = 310; await wait(1600);
         assert.ok(out.some(l => /CLOSE hedge/.test(l)), "profit -> hedge closed");
         assert.ok(out.some(l => /NET\s+unreal/.test(l)), "status block logged");
-        fakeNow = Date.UTC(2026, 10, 12, 17, 50, 0); await wait(800);   // 23:20 IST
+        fakeNow = Date.UTC(2026, 10, 12, 17, 50, 0); await wait(1600);   // 23:20 IST
         assert.ok(out.some(l => /\*\*EOD\*\*/.test(l)), "EOD runs");
     assert.ok(!out.some(l => /REST getLTP/.test(l)), "no REST price used");
     } finally { Module._load = origLoad; }

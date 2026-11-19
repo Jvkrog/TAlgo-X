@@ -107,7 +107,7 @@ const { emitEvent } = require("./core/eventBridge"); // web dashboard live log/t
 const { createHaCandleReader } = require("./indicators/haCandleReader");
 const { createDynamicBandReader } = require("./indicators/dynamicBandReader");
 
-const POLL_MS = Number(process.env.HEDGE_PAIR_POLL_MS) || (HEDGE_RULE === "BASE_LOSS" ? 1000 : 60 * 1000);   // BASE_LOSS: 1s poll over websocket ticks so a check lands right at its clock slot
+const POLL_MS = Number(process.env.HEDGE_PAIR_POLL_MS) || (String(process.env.HEDGE_RULE || "").toUpperCase() === "BASE_LOSS" ? 1000 : 60 * 1000);   // BASE_LOSS: 1s poll over websocket ticks so a check lands right at its clock slot
 // CORE_CARRY_OVERRIDE: "true" (default) = NRML, core carried overnight; "false" = MIS, core (and hedge) closed at EOD.
 const CARRY = process.env.CORE_CARRY_OVERRIDE !== "false";
 const UNWIND_MODE = (process.env.UNWIND_MODE_OVERRIDE || "HA_FLIP").toUpperCase();
