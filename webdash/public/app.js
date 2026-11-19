@@ -4572,7 +4572,7 @@ async function renderHpBaseLossForm() {
   const [opts, lm] = await Promise.all([hpContractOptions(u), fetch(`/api/toolbox/hedgepairs/lotmult/${encodeURIComponent(u)}`).then(r => r.json()).catch(() => ({}))]);
   tbHedgePairsBody.innerHTML = `
     <button class="tb-back-link" id="hpBack">‹ back</button>
-    <div class="tb-form-hint" style="margin:8px 0"><b>${u}</b> — one account. <b>Core</b>: NRML, on the side you pick below (no HA bias), placed as soon as the algo is turned on. <b>Hedge</b>: opposite MIS on the SAME contract and lots when the core's P&amp;L is below 0 at a check; closed when it is above 0. Core and hedge are both closed at EOD (23:15).</div>
+    <div class="tb-form-hint" style="margin:8px 0"><b>${u}</b> — one account. <b>Core</b>: NRML, on the side you pick below (no HA bias), placed as soon as the algo is turned on. <b>Hedge</b>: opposite MIS on the SAME contract and lots when the core's P&amp;L turns from positive to negative between two checks (sign change, so it does not flip-flop); closed when it turns back to positive. Core and hedge are both closed at EOD (23:15).</div>
     <div class="tb-form-row"><div class="tb-form-label">Contract (core and hedge)</div><select id="blSym">${opts}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">Core position (NRML)</div><select id="blSide"><option value="LONG">Long</option><option value="SHORT">Short</option></select></div>
     <div class="tb-form-row"><div class="tb-form-label">Lots (core and hedge)</div><input type="number" id="blLots" min="1" step="1" value="1"></div>
@@ -4607,7 +4607,7 @@ async function renderHpBaseLossBacktestForm() {
   const B = tbHedgePairsBody;
   B.innerHTML = `
     <button class="tb-back-link" id="bbBack">\u2039 back</button>
-    <div class="tb-form-hint" style="margin:8px 0">Backtest \u2014 <b>${escHtml(u)}</b>, one account. NRML core on the side you pick, re-taken at the first bar of every day; opposite MIS hedge (same contract/lots) when core P&amp;L &lt; 0 at a check, closed when &gt; 0; both closed at EOD (23:15). Replayed on 5-minute bars.</div>
+    <div class="tb-form-hint" style="margin:8px 0">Backtest \u2014 <b>${escHtml(u)}</b>, one account. NRML core on the side you pick, re-taken at the first bar of every day; opposite MIS hedge (same contract/lots) when core P&amp;L turns positive\u2192negative between checks, closed on negative\u2192positive; both closed at EOD (23:15). Replayed on 5-minute bars.</div>
     <div class="tb-form-row"><div class="tb-form-label">Contract</div><select id="bbSym">${opts}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">Core position (NRML)</div><select id="bbSide"><option value="LONG">Long</option><option value="SHORT">Short</option></select></div>
     <div class="tb-form-row"><div class="tb-form-label">Lots (core and hedge)</div><input type="number" id="bbLots" min="1" step="1" value="1"></div>
