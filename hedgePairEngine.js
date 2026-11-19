@@ -74,7 +74,7 @@
 //                            is below -HEDGE_PNL_BAND at a check and closed when it is above +band; checks run every HEDGE_CHECK_MINUTES (default 5) on
 //                            clock-aligned minutes. At EOD the hedge AND the NRML core are closed (hedge first). Logs a status block every check.
 //   HEDGE_CHECK_MINUTES / HEDGE_PNL_BAND   BASE_LOSS only (defaults 5 / 0)
-//   HEDGE_PAIR_POLL_MS       default 60000
+//   HEDGE_PAIR_POLL_MS       default 60000 (BASE_LOSS: 1000 — prices come only from the websocket there, never REST getLTP)
 //   LIVE_ORDERS_OVERRIDE     "true" | "false" — same per-process override
 //                            convention as engine.js; unset = engineConfig's
 //                            own default (paper/false)
@@ -90,7 +90,7 @@
 require("./utils/plainLog").install();   // PM2 .log files plain; coloured copy goes to a -color.log sidecar for the dashboard / toolbox
 
 
-const { KiteConnect } = require("kiteconnect");
+const { KiteConnect, KiteTicker } = require("kiteconnect");
 const engineConfig = require("./core/engineConfig");
 const c = require("./utils/c");
 const { istParts } = require("./utils/istTime");
@@ -107,7 +107,7 @@ const { emitEvent } = require("./core/eventBridge"); // web dashboard live log/t
 const { createHaCandleReader } = require("./indicators/haCandleReader");
 const { createDynamicBandReader } = require("./indicators/dynamicBandReader");
 
-const POLL_MS = Number(process.env.HEDGE_PAIR_POLL_MS) || 60 * 1000;
+const POLL_MS = Number(process.env.HEDGE_PAIR_POLL_MS) || (HEDGE_RULE === "BASE_LOSS" ? 1000 : 60 * 1000);   // BASE_LOSS: 1s poll over websocket ticks so a check lands right at its clock slot
 // CORE_CARRY_OVERRIDE: "true" (default) = NRML, core carried overnight; "false" = MIS, core (and hedge) closed at EOD.
 const CARRY = process.env.CORE_CARRY_OVERRIDE !== "false";
 const UNWIND_MODE = (process.env.UNWIND_MODE_OVERRIDE || "HA_FLIP").toUpperCase();
@@ -240,7 +240,25 @@ async function main() {
     // moments — see file header ("NO LIVE WEBSOCKET TICKER").
     const kcForLtp = new KiteConnect({ api_key: engineConfig.API_KEY });
     kcForLtp.setAccessToken(ACCESS_TOKEN);
+    // BASE_LOSS: every price (entry fill, checks, status, EOD) comes from the WEBSOCKET ticker only — never REST. A price older than WS_STALE_MS
+    // counts as "no price": the check is skipped / the core entry waits until fresh ticks arrive (orders themselves are still placed via REST).
+    const WS_STALE_MS = 15000, wsTicks = new Map();   // instrument token -> { price, at }
+    if (BL) {
+        const tokens = [...new Set([core.context.token, hedge.context.token])];
+        const ticker = new KiteTicker({ api_key: engineConfig.API_KEY, access_token: ACCESS_TOKEN });
+        ticker.on("connect", () => { ticker.subscribe(tokens); ticker.setMode(ticker.modeLTP, tokens); console.log(c.dim("[WS] connected")); });
+        ticker.on("ticks", ticks => { for (const t of ticks) if (t.last_price) wsTicks.set(t.instrument_token, { price: t.last_price, at: Date.now() }); });
+        ticker.on("error", err => console.error(c.red(`[WS] error: ${err && err.message ? err.message : err}`)));
+        ticker.on("close", () => console.log(c.dim(`[WS] closed — no price decisions until fresh ticks arrive (stale after ${WS_STALE_MS / 1000}s)`)));
+        ticker.on("reconnect", n => console.log(c.dim(`[WS] reconnect #${n}`)));
+        ticker.connect();
+    }
     async function getLtp(ltpKey) {
+        if (BL) {
+            const leg = [core, hedge].find(l => l.ltpKey === ltpKey);
+            const t = leg && wsTicks.get(leg.context.token);
+            return t && Date.now() - t.at < WS_STALE_MS ? t.price : null;
+        }
         const data = await kcForLtp.getLTP([ltpKey]);
         return data[ltpKey]?.last_price ?? null;
     }
@@ -317,6 +335,7 @@ async function main() {
         if (coreDecidedForDate === today) return; // already decided — "no flipping" for the rest of today
         if (core.state.position) { coreDecidedForDate = today; return; } // resumed from a crash-restart — already decided, don't re-enter
 
+        if (BL && !(await getLtp(core.ltpKey))) return;   // websocket not delivering yet — wait for the first fresh tick before taking the core
         const daily = BL ? { color: CORE_SIDE === "LONG" ? "green" : "red" } : await dailyBandReader.getLatest();
         if (!daily || !daily.color) return; // no read yet — retry next poll
         // Locks in for today the moment we act — a failed entry means no
@@ -336,7 +355,7 @@ async function main() {
         const { hours, minutes } = istParts(), slot = `${todayIST()}:${Math.floor((hours * 60 + minutes) / CHECK_MIN)}`;
         if (slot === lastSlot) return;
         const px = await getLtp(core.ltpKey).catch(() => null);
-        if (!(px > 0)) { console.error(c.red("[HEDGE_PAIR] no price — base-loss check skipped, retrying next poll")); return; }
+        if (!(px > 0)) { console.error(c.red("[HEDGE_PAIR] no fresh websocket tick — base-loss check skipped, retrying next poll")); return; }
         const dir = core.state.position === "LONG" ? 1 : -1, pts = dir * (px - core.state.entryPrice);
         let ok = true;
         if (pts < -PNL_BAND && !hedge.state.position) {

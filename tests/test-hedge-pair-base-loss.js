@@ -9,10 +9,11 @@ let fakeNow = Date.UTC(2026, 10, 12, 6, 0, 0);   // 11:30 IST
 const RealDate = Date;
 global.Date = class extends RealDate { constructor(...a) { if (a.length === 0) super(fakeNow); else super(...a); } static now() { return fakeNow; } };
 let price = 300, exitCode = null; const realExit = process.exit; process.exit = c => { exitCode = c; };
-class FakeKc { setAccessToken() {} async getLTP(keys) { return Object.fromEntries(keys.map(k => [k, { last_price: price }])); } async getPositions() { return { net: [] }; } async getInstruments() { return []; } }
+let TH = {}, TOK = [];
+class FakeKc { setAccessToken() {} async getLTP() { throw new Error("REST getLTP must not be used in BASE_LOSS"); } async getPositions() { return { net: [] }; } async getInstruments() { return []; } }
 const origLoad = Module._load;
 Module._load = function (req, parent, ...r) {
-    if (req === "kiteconnect") return { KiteConnect: FakeKc, KiteTicker: class { on() {} connect() {} subscribe() {} setMode() {} } };
+    if (req === "kiteconnect") return { KiteConnect: FakeKc, KiteTicker: class { constructor() { TH = {}; } on(e, f) { TH[e] = f; } connect() { setTimeout(() => TH.connect && TH.connect(), 0); } subscribe(t) { TOK = t; } setMode() {} } };
     if (/core\/eventBridge$/.test(req)) return { emitEvent() {}, setEmitSuppressed() {}, setCurrentCandle() {} };
     return origLoad.call(this, req, parent, ...r);
 };
@@ -21,6 +22,8 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 const count = re => out.filter(l => re.test(l)).length;
 (async () => {
     try {
+        const feed = () => TH.ticks && TOK.length && TH.ticks(TOK.map(t => ({ instrument_token: t, last_price: price })));
+        const iv = setInterval(feed, 100);
         require("../hedgePairEngine");
         await wait(1500);
         assert.ok(out.some(l => /base-loss, manual side/.test(l)), "banner");
@@ -33,5 +36,6 @@ const count = re => out.filter(l => re.test(l)).length;
         assert.ok(out.some(l => /NET\s+unreal/.test(l)), "status block logged");
         fakeNow = Date.UTC(2026, 10, 12, 17, 50, 0); await wait(800);   // 23:20 IST
         assert.ok(out.some(l => /\*\*EOD\*\*/.test(l)), "EOD runs");
+    assert.ok(!out.some(l => /REST getLTP/.test(l)), "no REST price used");
     } finally { Module._load = origLoad; }
 })().then(() => { console.log = rl; if (process.env.HP_DEBUG) rl(out.join("\n")); rl("hedge-pair base-loss smoke passed"); realExit(0); }).catch(e => { console.log = rl; rl(out.slice(-40).join("\n")); rl(e.stack); realExit(1); });
