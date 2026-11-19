@@ -2676,7 +2676,7 @@ async function pickLegContract(repo, underlying, legLabel) {
 
 async function addHedgePairBaseLoss() {
     console.log(c.dim("  Same instrument, one account: NRML core on the side you pick (LONG / SHORT, manual — no HA bias), taken as soon as the algo is turned on."));
-    console.log(c.dim("  Hedge: opposite MIS position (same contract, same lots) when the core's P&L changes sign positive -> negative between 5-min checks; closed on negative -> positive. Core + hedge both closed at EOD."));
+    console.log(c.dim("  Hedge: opposite MIS position (same contract, same lots) when the core's P&L < 0 at a check; closed when it is > 0. Core + hedge both closed at EOD."));
     console.log();
     const repo = await ensureCsvLoaded();
     const underlying = await pickUnderlying(repo.listUnderlyings(), "INSTRUMENT");
