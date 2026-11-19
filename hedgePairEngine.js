@@ -277,7 +277,11 @@ async function main() {
             leg.tg(`⚠ [${leg.context.tgPrefix}] ${side} entry FAILED (${reason})`);
             return false;
         }
-        const price = (await getLtp(leg.ltpKey).catch(() => null)) || 0;
+        // Price = the ACTUAL broker fill (average price of the completed order), so P&L / entry reference match what was really traded; the websocket LTP
+        // is only the fallback (paper mode, or no fill price within the timeout).
+        const fill = engineConfig.LIVE_ORDERS ? await leg.orders.fillPriceFor(orderId).catch(() => null) : null;
+        if (engineConfig.LIVE_ORDERS && !fill) console.error(c.yellow(`[${leg.context.tgPrefix}] no fill price for order ${orderId} yet — using LTP as the entry price`));
+        const price = fill || (await getLtp(leg.ltpKey).catch(() => null)) || 0;
         leg.state.position    = side;
         leg.state.entryPrice  = price;
         leg.state.openTradeId = await leg.db.insertOpenTrade(leg.context.tgPrefix, leg.context.symbol, side, leg.context.lots, price);
@@ -310,7 +314,8 @@ async function main() {
             leg.tg(`⚠ [${leg.context.tgPrefix}] ${side} exit FAILED (${reason}) — position left open, verify manually. MIS auto square-off (if applicable) is the only backstop.`);
             return false;
         }
-        const price = (await getLtp(leg.ltpKey).catch(() => null)) ?? leg.state.entryPrice;
+        const fill = engineConfig.LIVE_ORDERS ? await leg.orders.fillPriceFor(orderId).catch(() => null) : null;   // actual broker fill; LTP only as fallback
+        const price = fill || (await getLtp(leg.ltpKey).catch(() => null)) || leg.state.entryPrice;
         // Same reasoning as the entry tag above.
         console.log(c.bold(`**${leg.label} EXIT**`));
         await positions.close(leg.context, leg.state, leg.db, leg.tg, price, reason);
