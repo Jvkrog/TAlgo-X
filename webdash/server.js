@@ -51,6 +51,7 @@ const { runBacktest } = require("../backtest/backtestRun");
 const { runDualHedgeBacktest } = require("../backtest/backtestDualHedge");
 const { SL_MODES: DH_SL_MODES, ATR_TIMEFRAMES: DH_ATR_TIMEFRAMES } = require("../hedge/dualHedgeAtr");
 const { runHedgePairBacktest } = require("../backtest/backtestHedgePair");
+const { runHedgePairBaseLossBacktest } = require("../backtest/backtestHedgePairBaseLoss");
 const { runLinkedPairBacktest } = require("../backtest/backtestLinkedPair");
 const { STRATEGY_PARAMS } = require("../backtest/backtestFlow");
 const { setEmitSuppressed } = require("../core/eventBridge");
@@ -2561,6 +2562,37 @@ app.get("/api/toolbox/hedgepairs/lotmult/:underlying", (req, res) => {
 app.post("/api/toolbox/hedgepairs/backtest", async (req, res) => {
     const b = req.body || {};
     try {
+        if (String(b.hedgeRule || "DSB").toUpperCase() === "BASE_LOSS") {   // manual-side base-loss rule: one instrument (backtestHedgePairBaseLoss.js)
+            const u = b.coreUnderlying;
+            if (!u) return res.status(400).json({ error: "CoreUnderlying is required" });
+            const side = String(b.coreSide || "").toUpperCase();
+            if (side !== "LONG" && side !== "SHORT") return res.status(400).json({ error: "CoreSide must be LONG or SHORT" });
+            const cm = b.checkMin === undefined || b.checkMin === "" ? 5 : Number(b.checkMin), pb = b.pnlBand === undefined || b.pnlBand === "" ? 0 : Number(b.pnlBand);
+            if (!(Number.isInteger(cm) && cm >= 1 && cm <= 60)) return res.status(400).json({ error: "CheckMin must be a whole number 1-60" });
+            if (!(pb >= 0)) return res.status(400).json({ error: "PnlBand must be >= 0" });
+            const from = new Date(b.from), to = new Date(b.to);
+            if (isNaN(from) || isNaN(to)) return res.status(400).json({ error: "From and to must be YYYY-MM-DD" });
+            if (to < from) return res.status(400).json({ error: "To must not be before from" });
+            if (b.coreLots !== undefined && b.coreLots !== "" && !(Number(b.coreLots) > 0)) return res.status(400).json({ error: "coreLots must be a positive number" });
+            if (getDefinition(u, "MCX").lotMult === null && !(Number(b.coreLotMultOverride) > 0)) return res.status(400).json({ error: `Lot multiplier is required for ${u} (no context.js override on file)` });
+            const kc = ensureDualHedgeBacktestKite();
+            setEmitSuppressed(true);
+            let out, lines;
+            try {
+                ({ result: out, lines } = await withCapturedConsole(() => runHedgePairBaseLossBacktest({
+                    underlying: u, exchange: "MCX", side, lots: Number(b.coreLots) || 1,
+                    lotMultOverride: b.coreLotMultOverride ? Number(b.coreLotMultOverride) : null,
+                    symbol: b.coreSymbol || null, checkMin: cm, pnlBand: pb, from, to, kc,
+                })));
+            } finally { setEmitSuppressed(false); }
+            const { report, paths } = out;
+            return res.json({
+                ok: true, unwindMode: report.unwindMode, core: report.core, hedge: report.hedge, summary: report.metrics,
+                reportUrl: `/api/toolbox/backtest/reports/${path.basename(paths.htmlPath)}`,
+                jsonUrl: `/api/toolbox/backtest/reports/${path.basename(paths.jsonPath)}`,
+                logLines: lines.slice(-5000),
+            });
+        }
         const { coreUnderlying, hedgeUnderlying } = b;
         if (!coreUnderlying || !hedgeUnderlying) return res.status(400).json({ error: "CoreUnderlying and hedgeUnderlying are required" });
         if (coreUnderlying === hedgeUnderlying) return res.status(400).json({ error: "Core and hedge must be different underlyings" });

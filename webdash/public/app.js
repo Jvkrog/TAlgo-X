@@ -4188,7 +4188,7 @@ async function loadHedgePairsList() {
     ]);
     const linkedLegs = (Array.isArray(allInst) ? allInst : []).filter(i => i.hedgeGroup);
 
-    let html = `<div style="display:flex;gap:8px;margin-bottom:10px"><button class="tb-cli-action" id="hpAddBtn">+ Add hedge pair</button><button class="tb-cli-action" id="hpBaseLossBtn">+ Base-loss hedge (one instrument)</button><button class="tb-cli-action" id="hpBacktestBtn">Backtest</button><button class="tb-cli-action" id="hpLinkAddBtn">+ Linked pair</button><button class="tb-cli-action" id="hpLinkBtBtn">Backtest linked</button></div>`;
+    let html = `<div style="display:flex;gap:8px;margin-bottom:10px"><button class="tb-cli-action" id="hpAddBtn">+ Add hedge pair</button><button class="tb-cli-action" id="hpBaseLossBtn">+ Base-loss hedge (one instrument)</button><button class="tb-cli-action" id="hpBaseLossBtBtn">Backtest base-loss</button><button class="tb-cli-action" id="hpBacktestBtn">Backtest</button><button class="tb-cli-action" id="hpLinkAddBtn">+ Linked pair</button><button class="tb-cli-action" id="hpLinkBtBtn">Backtest linked</button></div>`;
 
     if (linkedLegs.length) {
       html += `<div class="tb-form-hint" style="margin:6px 0">Linked hedge pairs \u2014 two engines (Dual DSB + Daily or Weekly HA Bias) that drop their stops while they point in opposite directions.</div>`;
@@ -4230,6 +4230,7 @@ async function loadHedgePairsList() {
     tbHedgePairsBody.querySelector("#hpAddBtn").addEventListener("click", () => { hpAddState = { mode: "deploy" }; renderHedgePairAddCorePicker(); });
     tbHedgePairsBody.querySelector("#hpBacktestBtn").addEventListener("click", () => { hpAddState = { mode: "backtest" }; renderHedgePairAddCorePicker(); });
     tbHedgePairsBody.querySelector("#hpBaseLossBtn").addEventListener("click", startHpBaseLoss);
+    tbHedgePairsBody.querySelector("#hpBaseLossBtBtn").addEventListener("click", () => startHpBaseLoss("backtest"));
     // Linked pair: pick leg A's mini contract, then leg B's (same contract = one MIS + one NRML), then the linked form.
     const startLinked = mode => {
       hpAddState = { mode, linked: true };
@@ -4301,7 +4302,7 @@ function renderHedgePairSearchStep(label, onPick) {
   `;
   tbHedgePairsBody.querySelector("#hpBack").addEventListener("click", () => {
     if (hpAddState.linked) { hpAddState = null; loadHedgePairsList(); }
-    else if (hpAddState.rule === "BASE_LOSS" && hpAddState.core) { startHpBaseLoss(); }
+    else if (hpAddState.rule === "BASE_LOSS" && hpAddState.core) { startHpBaseLoss(hpAddState.mode); }
     else if (hpAddState.core) { hpAddState = { mode: hpAddState.mode }; renderHedgePairAddCorePicker(); }
     else { hpAddState = null; loadHedgePairsList(); }
   });
@@ -4565,9 +4566,9 @@ async function renderHedgePairAddForm() {
 
 // ── Hedge pair, "base-loss" rule: ONE instrument, ONE account. NRML core on the side you pick (Long/Short, manual), taken as soon as the
 // algo is turned on; opposite MIS hedge (same contract, same lots) when the core's P&L < 0 at a check (every N min); both closed at EOD (23:15).
-function startHpBaseLoss() {
-  hpAddState = { mode: "deploy", rule: "BASE_LOSS" };
-  renderHedgePairSearchStep("instrument — one account: NRML core (Long/Short you pick) + MIS hedge on the same contract when the core's P&amp;L &lt; 0", u => { hpAddState.core = u; hpAddState.hedge = u; renderHpBaseLossForm(); });
+function startHpBaseLoss(mode) {
+  hpAddState = { mode: mode === "backtest" ? "backtest" : "deploy", rule: "BASE_LOSS" };
+  renderHedgePairSearchStep("instrument — one account: NRML core (Long/Short you pick) + MIS hedge on the same contract when the core's P&amp;L &lt; 0", u => { hpAddState.core = u; hpAddState.hedge = u; (hpAddState.mode === "backtest" ? renderHpBaseLossBacktestForm : renderHpBaseLossForm)(); });
 }
 async function renderHpBaseLossForm() {
   const u = hpAddState.core;
@@ -4585,7 +4586,7 @@ async function renderHpBaseLossForm() {
     <div id="blErrBox"></div>
     <button class="tb-submit-btn" id="blSubmit">Start base-loss hedge pair</button>`;
   const q = s => tbHedgePairsBody.querySelector(s);
-  q("#hpBack").addEventListener("click", startHpBaseLoss);
+  q("#hpBack").addEventListener("click", () => startHpBaseLoss());
   q("#blSubmit").addEventListener("click", async () => {
     const errBox = q("#blErrBox"), live = q("#blLive").checked; let confirmLive;
     if (live) { confirmLive = prompt('This starts REAL orders (NRML core + MIS hedge). Type "LIVE" to confirm:'); if (confirmLive !== "LIVE") { errBox.innerHTML = `<div class="tb-err-box">Not confirmed — not started</div>`; return; } }
@@ -4599,6 +4600,56 @@ async function renderHpBaseLossForm() {
       if (!res.ok) { errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Failed to start")}</div>`; btn.disabled = false; btn.textContent = "Start base-loss hedge pair"; return; }
       hpAddState = null; loadHedgePairsList();
     } catch (err) { errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`; btn.disabled = false; btn.textContent = "Start base-loss hedge pair"; }
+  });
+}
+
+// Backtest of the base-loss rule — POST /api/toolbox/hedgepairs/backtest with hedgeRule "BASE_LOSS" (backtestHedgePairBaseLoss.js, 5m bars).
+async function renderHpBaseLossBacktestForm() {
+  const u = hpAddState.core;
+  const [opts, lm] = await Promise.all([hpContractOptions(u), fetch(`/api/toolbox/hedgepairs/lotmult/${encodeURIComponent(u)}`).then(r => r.json()).catch(() => ({}))]);
+  const today = new Date().toISOString().slice(0, 10);
+  const B = tbHedgePairsBody;
+  B.innerHTML = `
+    <button class="tb-back-link" id="bbBack">\u2039 back</button>
+    <div class="tb-form-hint" style="margin:8px 0">Backtest \u2014 <b>${escHtml(u)}</b>, one account. NRML core on the side you pick, re-taken at the first bar of every day; opposite MIS hedge (same contract/lots) when core P&amp;L &lt; 0 at a check, closed when &gt; 0; both closed at EOD (23:15). Replayed on 5-minute bars.</div>
+    <div class="tb-form-row"><div class="tb-form-label">Contract</div><select id="bbSym">${opts}</select></div>
+    <div class="tb-form-row"><div class="tb-form-label">Core position (NRML)</div><select id="bbSide"><option value="LONG">Long</option><option value="SHORT">Short</option></select></div>
+    <div class="tb-form-row"><div class="tb-form-label">Lots (core and hedge)</div><input type="number" id="bbLots" min="1" step="1" value="1"></div>
+    <div class="tb-form-row" style="display:${lm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">Lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span></div><input type="number" id="bbLotMult" min="1" step="any"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Check core P&amp;L every N minutes</div><input type="number" id="bbCheck" min="1" max="60" step="1" value="5"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge when core P&amp;L &lt; 0)</div><input type="number" id="bbBand" min="0" step="any" value="0"></div>
+    <div class="tb-form-row"><div class="tb-form-label">From</div><input type="date" id="bbFrom"></div>
+    <div class="tb-form-row"><div class="tb-form-label">To</div><input type="date" id="bbTo" value="${today}"></div>
+    <div id="bbErrBox"></div>
+    <button class="tb-submit-btn" id="bbSubmit">Run backtest</button>
+    <div id="bbResult"></div>`;
+  const q = id => B.querySelector(id);
+  q("#bbBack").addEventListener("click", () => startHpBaseLoss("backtest"));
+  q("#bbSubmit").addEventListener("click", async () => {
+    q("#bbErrBox").innerHTML = ""; q("#bbResult").innerHTML = "";
+    if (!q("#bbFrom").value || !q("#bbTo").value) { q("#bbErrBox").innerHTML = `<div class="tb-err-box">Pick a from and to date</div>`; return; }
+    const btn = q("#bbSubmit"); btn.disabled = true; btn.textContent = "Running...";
+    try {
+      const res = await fetch("/api/toolbox/hedgepairs/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        hedgeRule: "BASE_LOSS", coreUnderlying: u, coreSide: q("#bbSide").value, coreSymbol: q("#bbSym").value || undefined, coreLots: q("#bbLots").value || 1,
+        coreLotMultOverride: q("#bbLotMult") ? (q("#bbLotMult").value || undefined) : undefined, checkMin: q("#bbCheck").value || 5, pnlBand: q("#bbBand").value || 0,
+        from: q("#bbFrom").value, to: q("#bbTo").value,
+      }) });
+      const data = await res.json();
+      if (!res.ok) q("#bbErrBox").innerHTML = `<div class="tb-err-box">${escHtml(data.error || "backtest failed")}</div>`;
+      else {
+        const m = data.summary || {};
+        const row = (l, x) => x ? `<tr><td>${l}</td><td>${x.trades}</td><td>${(x.winRate * 100).toFixed(1)}%</td><td>${Number(x.netPnL).toFixed(2)}</td></tr>` : "";
+        q("#bbResult").innerHTML = `
+          <table class="tb-table" style="width:100%;margin-top:10px"><tr><th></th><th>Trades</th><th>Win</th><th>Net \u20b9</th></tr>
+          ${row("Combined", m.combined)}${row("Core (NRML) " + escHtml(data.core?.symbol || ""), m.core)}${row("Hedge (MIS)", m.hedge)}</table>
+          <div style="margin:8px 0"><a href="${data.reportUrl}" target="_blank">Open report</a> \u00b7 <a href="${data.jsonUrl}" target="_blank">JSON</a> \u00b7 <a href="#" id="bbLogToggle">Show log</a></div>
+          <pre id="bbLogBody" style="display:none;max-height:300px;overflow:auto">${escHtml((data.logLines || []).join("\n"))}</pre>`;
+        const t = q("#bbLogToggle"), lb = q("#bbLogBody");
+        t.addEventListener("click", e => { e.preventDefault(); const o = lb.style.display === "none"; lb.style.display = o ? "" : "none"; t.textContent = o ? "Hide log" : "Show log"; });
+      }
+    } catch (err) { q("#bbErrBox").innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`; }
+    btn.disabled = false; btn.textContent = "Run backtest";
   });
 }
 

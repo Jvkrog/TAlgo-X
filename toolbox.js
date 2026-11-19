@@ -45,6 +45,7 @@ const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("./data/historicalF
 const { adx } = require("./indicators/indicators");
 const { backtestFlow } = require("./backtest/backtestFlow");
 const { runHedgePairBacktest } = require("./backtest/backtestHedgePair");
+const { runHedgePairBaseLossBacktest } = require("./backtest/backtestHedgePairBaseLoss");
 const { runDualHedgeBacktest } = require("./backtest/backtestDualHedge");
 const { playBootAnimation, renderStaticBanner, animateBoxUpward } = require("./utils/bootAnimation");
 
@@ -2831,7 +2832,49 @@ async function hedgePairActionByNumber(pairs, verb, fn) {
     await pauseForReview();
 }
 
+async function backtestHedgePairBaseLossFlow() {
+    console.log();
+    console.log(c.bold("  Backtest — Hedge Pair, base-loss (one instrument)"));
+    console.log(c.dim("  NRML core on the side you pick, re-taken every day; opposite MIS hedge when core P&L < 0 at a check, closed when > 0; both closed at EOD (23:15). 5-minute bars."));
+    const repo = await ensureCsvLoaded();
+    const underlying = await pickUnderlying(repo.listUnderlyings(), "INSTRUMENT");
+    if (!underlying) { await pauseForReview(); return; }
+    const sideIn = (await ask("  Core position [L] Long  [S] Short: ")).trim().toUpperCase();
+    if (sideIn !== "L" && sideIn !== "S") { console.log(c.yellow("  Pick L or S")); await pauseForReview(); return; }
+    let lotMultOverride = null;
+    if (getDefinition(underlying, "MCX").lotMult === null) {
+        lotMultOverride = Number((await ask(`  Lot multiplier for ${underlying} (required): `)).trim());
+        if (!Number.isFinite(lotMultOverride) || lotMultOverride <= 0) { console.log(c.yellow("  Required: a positive number")); await pauseForReview(); return; }
+    }
+    const symbol = await pickLegContract(repo, underlying, "CORE + HEDGE (same contract)");
+    const lotsIn = (await ask("  Lots (default 1): ")).trim(); const lots = lotsIn ? Number(lotsIn) : 1;
+    const ckIn = (await ask("  Check every N minutes (default 5): ")).trim(); const checkMin = ckIn ? Number(ckIn) : 5;
+    const bandIn = (await ask("  Loss band in points (default 0): ")).trim(); const pnlBand = bandIn ? Number(bandIn) : 0;
+    const from = new Date(await ask("  From (YYYY-MM-DD): ")), to = new Date(await ask("  To   (YYYY-MM-DD): "));
+    if (isNaN(from.getTime()) || isNaN(to.getTime())) { console.log(c.yellow("  Invalid date — use YYYY-MM-DD")); await pauseForReview(); return; }
+    if (!Number.isFinite(lots) || lots <= 0 || !Number.isInteger(checkMin) || checkMin < 1 || checkMin > 60 || !Number.isFinite(pnlBand) || pnlBand < 0) { console.log(c.yellow("  Invalid lots / check interval / band")); await pauseForReview(); return; }
+    const kc = new KiteConnect({ api_key: engineConfig.API_KEY });
+    kc.setAccessToken(engineConfig.getAccessToken());
+    console.log(c.dim("  Fetching historical data + running replay..."));
+    try {
+        const { report, paths } = await runHedgePairBaseLossBacktest({ underlying, exchange: "MCX", side: sideIn === "L" ? "LONG" : "SHORT", lots, lotMultOverride, symbol, checkMin, pnlBand, from, to, kc, log: () => {} });
+        console.log(c.bold(`  Combined: ${report.metrics.combined.trades} trades, ${(report.metrics.combined.winRate * 100).toFixed(1)}% win rate, net ${report.metrics.combined.netPnL.toFixed(2)}`));
+        console.log(c.dim(`    Core  (${report.core.symbol}):  ${report.metrics.core.trades} trades, net ${report.metrics.core.netPnL.toFixed(2)}`));
+        console.log(c.dim(`    Hedge (${report.hedge.symbol}): ${report.metrics.hedge.trades} trades, net ${report.metrics.hedge.netPnL.toFixed(2)}`));
+        console.log(c.dim(`  Report: ${paths.htmlPath}`));
+        console.log(c.dim(`  Json:   ${paths.jsonPath}`));
+    } catch (err) {
+        console.log(c.red(`  Backtest failed: ${err.message}`));
+    }
+    await pauseForReview();
+}
+
 async function backtestHedgePairFlow() {
+    console.log(c.dim("  [1] Core + hedge on a full-size/mini pair (daily DSB core, 1h HA DSB hedge)"));
+    console.log(c.dim("  [2] Base-loss hedge — ONE instrument: NRML core (Long/Short you pick) + opposite MIS hedge when its P&L < 0"));
+    const stratIn = (await ask("  Strategy (default 1): ")).trim();
+    if (stratIn === "2") return backtestHedgePairBaseLossFlow();
+    if (stratIn !== "" && stratIn !== "1") { console.log(c.yellow("  Invalid choice")); await pauseForReview(); return; }
     console.log();
     console.log(c.bold("  Backtest — Hedge Pair"));
     console.log(c.dim("  Core: full-size contract, ONE position, side from the daily DSB, NRML carry or MIS close-at-EOD (you choose)"));
