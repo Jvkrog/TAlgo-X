@@ -340,10 +340,17 @@ async function main() {
         if (!daily || !daily.color) return; // no read yet — retry next poll
         // Locks in for today the moment we act — a failed entry means no
         // core position today, not a retry loop.
-        coreDecidedForDate = today;
         const side = daily.color === "green" ? "LONG" : "SHORT";
-        await enterLeg(core, side, BL ? `manual ${CORE_SIDE}` : `daily DSB ${daily.color}`);
+        if (!BL) { coreDecidedForDate = today; await enterLeg(core, side, `daily DSB ${daily.color}`); return; }
+        // BASE_LOSS: once the core is placed OK it is decided for the day (never re-entered). A FAILED order is retried (30s apart, max 5 tries) instead of
+        // being dropped for the whole day.
+        if (Date.now() < nextCoreTryAt) return;
+        coreTries++;
+        if (await enterLeg(core, side, `manual ${CORE_SIDE}`)) { coreDecidedForDate = today; return; }
+        if (coreTries >= 5) { coreDecidedForDate = today; core.tg(`⚠ [${core.context.tgPrefix}] core entry failed ${coreTries}x — giving up for today`); }
+        else nextCoreTryAt = Date.now() + 30000;
     }
+    let coreTries = 0, nextCoreTryAt = 0;
 
     // ─── HEDGE: driven by the 1h HA Dynamic Step Band on the CORE instrument.
     // Opens when the band flips against the core; closes when it comes back
@@ -510,8 +517,17 @@ async function main() {
     // before (see checkEod()'s SHUTDOWN comment and marketDataHealth.js —
     // same class of "is this actually still running" confusion, different
     // engine).
+    const lastTickEmit = new Map();
     async function emitLivePnl() {
         for (const leg of [core, hedge]) {
+            if (BL) {   // websocket only: a TICK event goes out only when a NEW tick arrived for this leg — nothing is looped without a tick
+                const t = wsTicks.get(leg.context.token);
+                if (!t || t.at <= (lastTickEmit.get(leg.label) || 0) || Date.now() - t.at > WS_STALE_MS) continue;
+                lastTickEmit.set(leg.label, t.at);
+                const uPnl = leg.state.position ? positions.unrealised(leg.context, leg.state, t.price) : 0;
+                emitEvent(leg.context.tgPrefix, "TICK", { price: t.price, uPnl, session: (leg.state.pnl || 0) + uPnl, position: leg.state.position, entryPrice: leg.state.entryPrice || null });
+                continue;
+            }
             // Fetched every cycle regardless of position — msg.price feeds
             // the log line's price column (undefined there reads as "NaN",
             // worse than one extra LTP call), and a flat leg still showing
