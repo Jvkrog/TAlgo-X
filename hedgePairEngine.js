@@ -349,7 +349,7 @@ async function main() {
     // Opens when the band flips against the core; closes when it comes back
     // in the core's favour (per UNWIND_MODE).
     // BASE_LOSS rule: hedge the core against ITS OWN loss. Evaluated once per clock-aligned CHECK_MIN slot (a skipped poll still catches the next slot).
-    let lastSlot = null;
+    let lastSlot = null, prevSign = null;
     async function checkBaseLoss() {
         if (!core.state.position) return;
         const { hours, minutes } = istParts(), slot = `${todayIST()}:${Math.floor((hours * 60 + minutes) / CHECK_MIN)}`;
@@ -358,10 +358,15 @@ async function main() {
         if (!(px > 0)) { console.error(c.red("[HEDGE_PAIR] no fresh websocket tick — base-loss check skipped, retrying next poll")); return; }
         const dir = core.state.position === "LONG" ? 1 : -1, pts = dir * (px - core.state.entryPrice);
         let ok = true;
-        if (pts < -PNL_BAND && !hedge.state.position) {
+        // Anti flip-flop: act only when the SIGN of the core's P&L changed since the previous check (positive -> negative opens the hedge, negative -> positive
+        // closes it). A first check that is already negative does nothing until the core has been positive once; after a restart with a hedge already on, the
+        // previous sign is taken as negative. Within the +-band the sign is 0: nothing happens and the previous sign is kept.
+        const sign = pts > PNL_BAND ? 1 : pts < -PNL_BAND ? -1 : 0, before = prevSign !== null ? prevSign : (hedge.state.position ? -1 : null);
+        if (sign !== 0) prevSign = sign;
+        if (sign === -1 && before === 1 && !hedge.state.position) {
             console.log(c.cyan(`[HEDGE_PAIR] core ${core.state.position} P&L=${pts.toFixed(2)}pts -> OPEN ${core.state.position === "LONG" ? "SHORT" : "LONG"} MIS hedge`));
             ok = await enterLeg(hedge, core.state.position === "LONG" ? "SHORT" : "LONG", `core P&L ${pts.toFixed(2)} pts below 0`);
-        } else if (pts > PNL_BAND && hedge.state.position) {
+        } else if (sign === 1 && before === -1 && hedge.state.position) {
             console.log(c.cyan(`[HEDGE_PAIR] core ${core.state.position} P&L=${pts.toFixed(2)}pts -> CLOSE hedge`));
             ok = await exitLeg(hedge, "core back in profit");
         }
