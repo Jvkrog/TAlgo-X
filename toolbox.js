@@ -2679,7 +2679,7 @@ async function pickLegContract(repo, underlying, legLabel) {
 // minutes); the hedge and the core are both closed at EOD (23:15).
 async function addHedgePairBaseLoss() {
     console.log(c.dim("  Same instrument, one account: NRML core on the side you pick (LONG / SHORT, manual — no HA bias), taken once the algo is on and it is 09:15 IST or later (day trading: nothing before 09:15)."));
-    console.log(c.dim("  Hedge: opposite MIS position (same contract, same lots) when the core's P&L < 0 at a check; closed when it is > 0. Core + hedge both closed at EOD."));
+    console.log(c.dim("  Hedge: opposite MIS position (same contract, same lots) when the core's P&L < 0 at a check; closed when it is > 0. Core + hedge both closed at EOD (optionally the core is carried overnight)."));
     console.log();
     const repo = await ensureCsvLoaded();
     const underlying = await pickUnderlying(repo.listUnderlyings(), "INSTRUMENT");
@@ -2704,6 +2704,7 @@ async function addHedgePairBaseLoss() {
     const bandIn = (await ask("  Loss band in points (0 = hedge as soon as core P&L < 0, default 0): ")).trim();
     const pnlBand = bandIn ? Number(bandIn) : 0;
     if (!Number.isFinite(pnlBand) || pnlBand < 0) { console.log(c.yellow("  Invalid loss band")); await pauseForReview(); return; }
+    const holdCore = (await ask("  Carry the NRML core overnight? only the MIS hedge closes at EOD [y/N]: ")).trim().toLowerCase() === "y";
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
     if (isLive) {
@@ -2715,6 +2716,7 @@ async function addHedgePairBaseLoss() {
         CORE_UNDERLYING: underlying, HEDGE_UNDERLYING: underlying, EXCHANGE_OVERRIDE: "MCX",
         CORE_LOTS_OVERRIDE: String(lots), HEDGE_LOTS_OVERRIDE: String(lots), UNWIND_MODE_OVERRIDE: "HA_FLIP", CORE_CARRY_OVERRIDE: "true",
         HEDGE_RULE: "BASE_LOSS", CORE_SIDE_OVERRIDE: coreSide, HEDGE_CHECK_MINUTES: String(checkMin), HEDGE_PNL_BAND: String(pnlBand), LIVE_ORDERS_OVERRIDE: String(isLive),
+        ...(holdCore ? { HEDGE_CORE_HOLD_OVERNIGHT: "true" } : {}),
     };
     if (contract) { env.CORE_SYMBOL_OVERRIDE = contract; env.HEDGE_SYMBOL_OVERRIDE = contract; }
     if (lotMultOverride) { env.CORE_LOTMULT_OVERRIDE = String(lotMultOverride); env.HEDGE_LOTMULT_OVERRIDE = String(lotMultOverride); }
@@ -2850,6 +2852,7 @@ async function backtestHedgePairBaseLossFlow() {
     const lotsIn = (await ask("  Lots (default 1): ")).trim(); const lots = lotsIn ? Number(lotsIn) : 1;
     const ckIn = (await ask("  Check every N minutes (default 5): ")).trim(); const checkMin = ckIn ? Number(ckIn) : 5;
     const bandIn = (await ask("  Loss band in points (default 0): ")).trim(); const pnlBand = bandIn ? Number(bandIn) : 0;
+    const holdCore = (await ask("  Carry the NRML core overnight (only the hedge closes at EOD)? [y/N]: ")).trim().toLowerCase() === "y";
     const from = new Date(await ask("  From (YYYY-MM-DD): ")), to = new Date(await ask("  To   (YYYY-MM-DD): "));
     if (isNaN(from.getTime()) || isNaN(to.getTime())) { console.log(c.yellow("  Invalid date — use YYYY-MM-DD")); await pauseForReview(); return; }
     if (!Number.isFinite(lots) || lots <= 0 || !Number.isInteger(checkMin) || checkMin < 1 || checkMin > 60 || !Number.isFinite(pnlBand) || pnlBand < 0) { console.log(c.yellow("  Invalid lots / check interval / band")); await pauseForReview(); return; }
@@ -2857,7 +2860,7 @@ async function backtestHedgePairBaseLossFlow() {
     kc.setAccessToken(engineConfig.getAccessToken());
     console.log(c.dim("  Fetching historical data + running replay..."));
     try {
-        const { report, paths } = await runHedgePairBaseLossBacktest({ underlying, exchange: "MCX", side: sideIn === "L" ? "LONG" : "SHORT", lots, lotMultOverride, symbol, checkMin, pnlBand, from, to, kc, log: () => {} });
+        const { report, paths } = await runHedgePairBaseLossBacktest({ underlying, exchange: "MCX", side: sideIn === "L" ? "LONG" : "SHORT", lots, lotMultOverride, symbol, checkMin, pnlBand, holdCore, from, to, kc, log: () => {} });
         console.log(c.bold(`  Combined: ${report.metrics.combined.trades} trades, ${(report.metrics.combined.winRate * 100).toFixed(1)}% win rate, net ${report.metrics.combined.netPnL.toFixed(2)}`));
         console.log(c.dim(`    Core  (${report.core.symbol}):  ${report.metrics.core.trades} trades, net ${report.metrics.core.netPnL.toFixed(2)}`));
         console.log(c.dim(`    Hedge (${report.hedge.symbol}): ${report.metrics.hedge.trades} trades, net ${report.metrics.hedge.netPnL.toFixed(2)}`));

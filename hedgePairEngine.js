@@ -124,6 +124,7 @@ if (BL && !(Number.isInteger(CHECK_MIN) && CHECK_MIN >= 1 && CHECK_MIN <= 60)) {
 if (BL && !(PNL_BAND >= 0)) { console.error(c.red("HEDGE_PNL_BAND must be >= 0 — refusing to boot.")); process.exit(1); }
 const CORE_SIDE = String(process.env.CORE_SIDE_OVERRIDE || "").toUpperCase();
 if (BL && CORE_SIDE !== "LONG" && CORE_SIDE !== "SHORT") { console.error(c.red("HEDGE_RULE=BASE_LOSS needs CORE_SIDE_OVERRIDE=LONG|SHORT (manual core side) — refusing to boot.")); process.exit(1); }
+const HOLD_CORE = BL && String(process.env.HEDGE_CORE_HOLD_OVERNIGHT || "").toLowerCase() === "true";   // BASE_LOSS option: at EOD only the MIS hedge is closed; the NRML core is carried to the next day
 if (BL && !CARRY) { console.error(c.red("HEDGE_RULE=BASE_LOSS needs CORE_CARRY_OVERRIDE=true (NRML core + MIS hedge) — refusing to boot.")); process.exit(1); }
 
 function todayIST() {
@@ -221,7 +222,7 @@ async function main() {
 
     if (BL && core.context.token === hedge.context.token && CORE_UNDERLYING !== HEDGE_UNDERLYING) { console.error(c.red("core and hedge resolved to the same contract from different underlyings — refusing to boot.")); process.exit(1); }
     if (BL) {
-        console.log(c.bold(`HEDGE PAIR (base-loss, manual side)  ${core.context.symbol}  core NRML ${CORE_SIDE} ${core.context.lots} lot, MIS hedge ${hedge.context.lots} lot when core P&L < ${PNL_BAND ? "-" + PNL_BAND + " pts" : "0"}, checked every ${CHECK_MIN} min  ·  both closed at EOD  ·  one account`));
+        console.log(c.bold(`HEDGE PAIR (base-loss, manual side)  ${core.context.symbol}  core NRML ${CORE_SIDE} ${core.context.lots} lot, MIS hedge ${hedge.context.lots} lot when core P&L < ${PNL_BAND ? "-" + PNL_BAND + " pts" : "0"}, checked every ${CHECK_MIN} min  ·  ${HOLD_CORE ? "hedge closed at EOD, core carried overnight" : "both closed at EOD"}  ·  one account`));
         console.log();
     } else
     console.log(c.bold(`HEDGE PAIR  core:${core.context.symbol} (side from daily DSB, ${core.context.lots} lot, ${CARRY ? "NRML, carried overnight" : "MIS, closed at EOD"})  hedge:${hedge.context.symbol} (${hedge.context.lots} lots, unwind:${UNWIND_MODE})`));
@@ -364,7 +365,9 @@ async function main() {
     let lastSlot = null;
     async function checkBaseLoss() {
         if (!core.state.position) return;
-        const { hours, minutes } = istParts(), slot = `${todayIST()}:${Math.floor((hours * 60 + minutes) / CHECK_MIN)}`;
+        const { hours, minutes } = istParts();
+        if (hours * 60 + minutes < 9 * 60 + 15) return;   // a carried core resumes before the open: no MIS hedge until 09:15 IST
+        const slot = `${todayIST()}:${Math.floor((hours * 60 + minutes) / CHECK_MIN)}`;
         if (slot === lastSlot) return;
         const px = await getLtp(core.ltpKey).catch(() => null);
         if (!(px > 0)) { console.error(c.red("[HEDGE_PAIR] no fresh websocket tick — base-loss check skipped, retrying next poll")); return; }
@@ -427,11 +430,11 @@ async function main() {
         console.log(c.bold("**EOD**"));
         console.log(c.dim(`EOD  hedge pair  ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", hour12: false })}`));
         // MIS mode: close both legs (hedge first) — retried every tick until flat.
-        if (!CARRY || BL) {   // BASE_LOSS: the NRML core is closed at EOD too
+        if (!CARRY || (BL && !HOLD_CORE)) {   // BASE_LOSS: the NRML core is closed at EOD too (unless HEDGE_CORE_HOLD_OVERNIGHT)
             if (hedge.state.position) await exitLeg(hedge, "EOD_FORCE");
             if (core.state.position)  await exitLeg(core,  "EOD_FORCE");
             if (core.state.position || hedge.state.position) { console.error(c.red("EOD did not fully flatten — will retry next tick")); return; }
-        } else if (hedge.state.position && UNWIND_MODE === "EOD_ONLY") {
+        } else if (hedge.state.position && (UNWIND_MODE === "EOD_ONLY" || BL)) {
             const ok = await exitLeg(hedge, "EOD_FORCE");
             if (!ok) { console.error(c.red("EOD hedge close failed — will retry next tick")); return; }
         }
@@ -451,7 +454,7 @@ async function main() {
             lines.push(`${leg.label.toLowerCase()} ${leg.context.symbol}: realized ${positions.pnlStr(realized)} | ${open}`);
         }
         lines.push(`total (incl. unrealised): ${positions.pnlStr(total)}`);
-        if (CARRY && !BL && core.state.position) lines.push("Core carried overnight (NRML). Restart the engine before the next open.");
+        if (CARRY && (!BL || HOLD_CORE) && core.state.position) lines.push("Core carried overnight (NRML). Restart the engine before the next open.");
         const report = lines.join("\n");
         console.log(c.bold(report.replace(/\n/g, "   ")));
         console.log();

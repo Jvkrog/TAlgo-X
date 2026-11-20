@@ -5,6 +5,7 @@ const assert = require("assert"), fs = require("fs"), os = require("os"), path =
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hpbl-"));
 process.env.TALGO_DB_DIR = dir; process.env.INSTRUMENT_CSV_PATH = path.join(__dirname, "..", "MCX.csv");
 Object.assign(process.env, { CORE_UNDERLYING: "NATGASMINI", HEDGE_UNDERLYING: "NATGASMINI", CORE_LOTS_OVERRIDE: "1", HEDGE_LOTS_OVERRIDE: "1", CORE_LOTMULT_OVERRIDE: "250", HEDGE_LOTMULT_OVERRIDE: "250", CORE_CARRY_OVERRIDE: "true", CORE_SYMBOL_OVERRIDE: "NATGASMINI26OCTFUT", HEDGE_SYMBOL_OVERRIDE: "NATGASMINI26OCTFUT", HEDGE_RULE: "BASE_LOSS", CORE_SIDE_OVERRIDE: "LONG", HEDGE_CHECK_MINUTES: "5", HEDGE_PNL_BAND: "0", LIVE_ORDERS_OVERRIDE: process.env.HP_LIVE ? "true" : "false", UNWIND_MODE_OVERRIDE: "HA_FLIP" });
+if (process.env.HP_HOLD) process.env.HEDGE_CORE_HOLD_OVERNIGHT = "true";   // HP_HOLD=1: core carried overnight
 let fakeNow = Date.UTC(2026, 10, 12, 6, 0, 0);   // 11:30 IST
 const RealDate = Date;
 global.Date = class extends RealDate { constructor(...a) { if (a.length === 0) super(fakeNow); else super(...a); } static now() { return fakeNow; } };
@@ -45,6 +46,11 @@ const count = re => out.filter(l => re.test(l)).length;
         setInterval(feed, 100);
         fakeNow = Date.UTC(2026, 10, 12, 17, 50, 0); await wait(1600);   // 23:20 IST
         assert.ok(out.some(l => /\*\*EOD\*\*/.test(l)), "EOD runs");
+        if (process.env.HP_HOLD) {
+            assert.ok(out.some(l => /core .*LONG still OPEN/i.test(l) || /core .*still OPEN/i.test(l)), "hold mode: core left open at EOD");
+            assert.ok(!out.some(l => /\*\*CORE EXIT\*\*/.test(l)), "hold mode: core never closed");
+            assert.ok(out.some(l => /Core carried overnight/.test(l)), "carry note in the EOD report");
+        } else assert.ok(out.some(l => /\*\*CORE EXIT\*\*/.test(l)), "default: core closed at EOD");
     assert.ok(!out.some(l => /REST getLTP/.test(l)), "no REST price used");
     } finally { Module._load = origLoad; }
 })().then(() => { console.log = rl; if (process.env.HP_DEBUG) rl(out.join("\n")); rl("hedge-pair base-loss smoke passed"); realExit(0); }).catch(e => { console.log = rl; rl(out.slice(-40).join("\n")); rl(e.stack); realExit(1); });

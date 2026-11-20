@@ -2,6 +2,7 @@
 //   - NRML core on the side YOU pick (LONG/SHORT, manual), taken at the first bar from 09:15 IST of every day (the live engine is deployed/restarted daily).
 //   - Every checkMin minutes (clock-aligned, default 5): core P&L < -band  -> open the opposite MIS hedge (same contract, same lots);
 //     core P&L > +band -> close the hedge. Evaluated at the open of the first 5m bar in each slot (== the live poll's LTP at slot start).
+//   - holdCore (optional): the core is NOT closed at EOD but carried to the next day (only the MIS hedge is closed); it is re-taken only if flat.
 //   - EOD (23:15 IST, or the day's last bar if the market closed earlier): hedge closed first, then the core.
 // Separate file from backtestHedgePair.js on purpose (that one is the two-instrument DSB strategy). Reuses the same contract resolver
 // (hedgePairContext.js), ledger, positions.close() and metrics/report shape.
@@ -25,7 +26,7 @@ const dayKeyIST = d => istOf(d).toISOString().split("T")[0];
 const minOfDay = d => { const i = istOf(d); return i.getUTCHours() * 60 + i.getUTCMinutes(); };
 
 // Pure simulation over already-fetched 5m candles ({date, open, high, low, close}); exported for tests.
-async function simulateBaseLoss({ bars, coreCtx, hedgeCtx, side, checkMin = 5, pnlBand = 0, from, log = () => {} }) {
+async function simulateBaseLoss({ bars, coreCtx, hedgeCtx, side, checkMin = 5, pnlBand = 0, holdCore = false, from, log = () => {} }) {
     side = String(side || "").toUpperCase();
     if (side !== "LONG" && side !== "SHORT") throw new Error('side must be "LONG" or "SHORT"');
     if (!(Number.isInteger(checkMin) && checkMin >= 1 && checkMin <= 60)) throw new Error("checkMin must be a whole number 1-60");
@@ -61,11 +62,11 @@ async function simulateBaseLoss({ bars, coreCtx, hedgeCtx, side, checkMin = 5, p
             const px = mod >= EOD_MIN_OF_DAY ? bar.open : bar.close;
             if (coreState.position || hedgeState.position) log("**EOD**");
             await exit(hedgeCtx, hedgeState, hedgeLedger, px, "HEDGE", "EOD_FORCE");
-            await exit(coreCtx, coreState, coreLedger, px, "CORE", "EOD_FORCE");
+            if (!holdCore) await exit(coreCtx, coreState, coreLedger, px, "CORE", "EOD_FORCE");   // holdCore: the NRML core is carried to the next day
             coreState.pnl = 0; coreState.trades = 0; hedgeState.pnl = 0; hedgeState.trades = 0;
             eodDone = true; continue;
         }
-        if (!coreState.position && mod < 9 * 60 + 15) continue;   // day trading: no entry before 09:15 IST
+        if (mod < 9 * 60 + 15) continue;   // day trading: no entry and no hedge before 09:15 IST
         if (!coreState.position) {   // deployed: the core goes in at the first bar of the day
             await enter(coreCtx, coreState, coreLedger, side, bar.open, "CORE", `manual ${side}`);
             lastSlot = Math.floor(mod / checkMin);
@@ -92,7 +93,7 @@ async function simulateBaseLoss({ bars, coreCtx, hedgeCtx, side, checkMin = 5, p
 
 // runHedgePairBaseLossBacktest({ underlying, exchange, side, lots, lotMultOverride, symbol, checkMin, pnlBand, from, to, kc, progress })
 async function runHedgePairBaseLossBacktest({
-    underlying, exchange = "MCX", side, lots = 1, lotMultOverride, symbol = null, checkMin = 5, pnlBand = 0, from, to, kc, log = console.log,
+    underlying, exchange = "MCX", side, lots = 1, lotMultOverride, symbol = null, checkMin = 5, pnlBand = 0, holdCore = false, from, to, kc, log = console.log,
 }) {
     const csvFilePath = exchange === "NSE" ? engineConfig.NSE_INSTRUMENT_CSV_PATH : engineConfig.INSTRUMENT_CSV_PATH;
     const csvRepo = createCsvRepository({ fetchRows: createInstrumentSource({ filePath: csvFilePath, kc, exchange }).fetchRows });
@@ -102,14 +103,14 @@ async function runHedgePairBaseLossBacktest({
     const core = mk("CORE"), hedge = mk("HEDGE");
     const bars = await fetchHistoricalCandles({ kc, token: core.context.token, timeframe: "5m", from, to });
     if (!bars.length) throw new Error("runHedgePairBaseLossBacktest: no 5m candles returned for this range — check the dates and market holidays");
-    const r = await simulateBaseLoss({ bars, coreCtx: core.context, hedgeCtx: hedge.context, side, checkMin, pnlBand, from, log });
+    const r = await simulateBaseLoss({ bars, coreCtx: core.context, hedgeCtx: hedge.context, side, checkMin, pnlBand, holdCore, from, log });
     const inRange = t => new Date(t.entry_time) >= from;
     const coreTrades = r.coreTrades.filter(inRange), hedgeTrades = r.hedgeTrades.filter(inRange), combined = r.combined.filter(inRange);
     const metrics = { core: computeMetrics(coreTrades), hedge: computeMetrics(hedgeTrades), combined: computeMetrics(combined) };
     const report = buildHedgePairReport({
         core: { underlying, symbol: core.context.symbol, lots: core.context.lots, lotMult: core.context.lotMult },
         hedge: { underlying, symbol: hedge.context.symbol, lots: hedge.context.lots, lotMult: hedge.context.lotMult },
-        unwindMode: `BASE_LOSS ${side} every ${checkMin}m band ${pnlBand}`, carryOvernight: false, range: { from, to }, runAt: new Date(), metrics, trades: combined,
+        unwindMode: `BASE_LOSS ${side} every ${checkMin}m band ${pnlBand}${holdCore ? " core carried overnight" : ""}`, carryOvernight: !!holdCore, range: { from, to }, runAt: new Date(), metrics, trades: combined,
     });
     return { report, paths: saveHedgePairReport(report) };
 }

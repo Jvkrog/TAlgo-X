@@ -15,6 +15,10 @@ const mk = (d, h, m, o) => ({ date: ist(d, h, m), open: o, high: o, low: o, clos
     assert.ok(r.coreTrades.every(t => t.exit_time), "core flat each EOD");
     const s = await simulateBaseLoss({ bars, coreCtx: ctx("C_CORE"), hedgeCtx: ctx("C_HEDGE"), side: "SHORT", checkMin: 5, from: bars[0].date });
     assert.strictEqual(s.hedgeTrades.length, 2, "SHORT core: day1 105>100 loss -> hedge held to EOD; day2 111>110 loss -> hedge");
+    const h = await simulateBaseLoss({ bars, coreCtx: ctx("C_CORE"), hedgeCtx: ctx("C_HEDGE"), side: "LONG", checkMin: 5, holdCore: true, from: bars[0].date });
+    assert.strictEqual(h.coreTrades.length, 1, "holdCore: ONE continuing core across both days (not re-taken)");
+    assert.strictEqual(h.coreTrades[0].entry_price, 100); assert.strictEqual(h.coreTrades[0].exit_price, 112, "core closed only at the end of the data");
+    assert.strictEqual(h.hedgeTrades.length, 1, "hedge still closed by profit/EOD");
     // full runner with a fake Kite (contract resolution + fetch + report)
     process.env.TALGO_DB_DIR = require("fs").mkdtempSync(require("path").join(require("os").tmpdir(), "hpblbt-"));
     const { runHedgePairBaseLossBacktest } = require("../backtest/backtestHedgePairBaseLoss");
