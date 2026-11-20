@@ -4582,6 +4582,7 @@ async function renderHpBaseLossForm() {
     <div class="tb-form-row" style="display:${lm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">Lot multiplier — REQUIRED <span class="req-star" title="required">*</span>, no context.js override on file for ${u}. Real contract multiplier, not broker lot_size.</div><input type="number" id="blLotMult" min="1" step="any"></div>
     <div class="tb-form-row"><div class="tb-form-label">Check core P&amp;L every N minutes (5 = at :00, :05, :10 … IST)</div><input type="number" id="blCheck" min="1" max="60" step="1" value="5"></div>
     <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge when core P&amp;L &lt; 0)</div><input type="number" id="blBand" min="0" step="any" value="0"></div>
+    <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="blHold"><span>Carry the NRML core overnight — at EOD only the MIS hedge is closed (restart the engine each morning; the core resumes)</span></label></div>
     <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="blLive"><span>Go LIVE (real orders: NRML core + MIS hedge) — unchecked = paper</span></label></div>
     <div id="blErrBox"></div>
     <button class="tb-submit-btn" id="blSubmit">Start base-loss hedge pair</button>`;
@@ -4592,7 +4593,7 @@ async function renderHpBaseLossForm() {
     if (live) { confirmLive = prompt('This starts REAL orders (NRML core + MIS hedge). Type "LIVE" to confirm:'); if (confirmLive !== "LIVE") { errBox.innerHTML = `<div class="tb-err-box">Not confirmed — not started</div>`; return; } }
     const lots = q("#blLots").value || 1, sym = q("#blSym").value || undefined, lmv = q("#blLotMult") ? (q("#blLotMult").value || undefined) : undefined;
     const body = { coreUnderlying: u, hedgeUnderlying: u, coreLots: lots, hedgeLots: lots, coreSymbol: sym, hedgeSymbol: sym, coreLotMultOverride: lmv, hedgeLotMultOverride: lmv,
-      carryOvernight: true, hedgeRule: "BASE_LOSS", coreSide: q("#blSide").value, checkMin: q("#blCheck").value || 5, pnlBand: q("#blBand").value || 0, live, confirmLive };
+      carryOvernight: true, hedgeRule: "BASE_LOSS", coreSide: q("#blSide").value, checkMin: q("#blCheck").value || 5, pnlBand: q("#blBand").value || 0, holdCore: q("#blHold").checked, live, confirmLive };
     const btn = q("#blSubmit"); btn.disabled = true; btn.textContent = "Starting...";
     try {
       const res = await fetch("/api/toolbox/hedgepairs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -4617,6 +4618,7 @@ async function renderHpBaseLossBacktestForm() {
     <div class="tb-form-row" style="display:${lm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">Lot multiplier \u2014 REQUIRED <span class="req-star" title="required">*</span></div><input type="number" id="bbLotMult" min="1" step="any"></div>
     <div class="tb-form-row"><div class="tb-form-label">Check core P&amp;L every N minutes</div><input type="number" id="bbCheck" min="1" max="60" step="1" value="5"></div>
     <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge when core P&amp;L &lt; 0)</div><input type="number" id="bbBand" min="0" step="any" value="0"></div>
+    <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="bbHold"><span>Carry the NRML core overnight (only the MIS hedge closes at EOD)</span></label></div>
     <div class="tb-form-row"><div class="tb-form-label">From</div><input type="date" id="bbFrom"></div>
     <div class="tb-form-row"><div class="tb-form-label">To</div><input type="date" id="bbTo" value="${today}"></div>
     <div id="bbErrBox"></div>
@@ -4631,7 +4633,7 @@ async function renderHpBaseLossBacktestForm() {
     try {
       const res = await fetch("/api/toolbox/hedgepairs/backtest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
         hedgeRule: "BASE_LOSS", coreUnderlying: u, coreSide: q("#bbSide").value, coreSymbol: q("#bbSym").value || undefined, coreLots: q("#bbLots").value || 1,
-        coreLotMultOverride: q("#bbLotMult") ? (q("#bbLotMult").value || undefined) : undefined, checkMin: q("#bbCheck").value || 5, pnlBand: q("#bbBand").value || 0,
+        coreLotMultOverride: q("#bbLotMult") ? (q("#bbLotMult").value || undefined) : undefined, checkMin: q("#bbCheck").value || 5, pnlBand: q("#bbBand").value || 0, holdCore: q("#bbHold").checked,
         from: q("#bbFrom").value, to: q("#bbTo").value,
       }) });
       const data = await res.json();

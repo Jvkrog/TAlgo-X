@@ -2582,7 +2582,7 @@ app.post("/api/toolbox/hedgepairs/backtest", async (req, res) => {
                 ({ result: out, lines } = await withCapturedConsole(() => runHedgePairBaseLossBacktest({
                     underlying: u, exchange: "MCX", side, lots: Number(b.coreLots) || 1,
                     lotMultOverride: b.coreLotMultOverride ? Number(b.coreLotMultOverride) : null,
-                    symbol: b.coreSymbol || null, checkMin: cm, pnlBand: pb, from, to, kc,
+                    symbol: b.coreSymbol || null, checkMin: cm, pnlBand: pb, holdCore: b.holdCore === true, from, to, kc,
                 })));
             } finally { setEmitSuppressed(false); }
             const { report, paths } = out;
@@ -2640,7 +2640,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
     const {
         coreUnderlying, hedgeUnderlying, coreLots, hedgeLots,
         coreLotMultOverride, hedgeLotMultOverride, unwindMode, carryOvernight, coreSymbol, hedgeSymbol,
-        live, confirmLive, hedgeRule, checkMin, pnlBand, coreSide,
+        live, confirmLive, hedgeRule, checkMin, pnlBand, coreSide, holdCore,
     } = req.body || {};
     const rule = String(hedgeRule || "DSB").toUpperCase();
     if (rule !== "DSB" && rule !== "BASE_LOSS") return res.status(400).json({ error: "HedgeRule must be DSB or BASE_LOSS" });
@@ -2676,7 +2676,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
     const env = {
         CORE_UNDERLYING: coreUnderlying, HEDGE_UNDERLYING: hedgeUnderlying, EXCHANGE_OVERRIDE: "MCX",
         CORE_LOTS_OVERRIDE: String(coreLots || 1), HEDGE_LOTS_OVERRIDE: String(hedgeLots || (rule === "BASE_LOSS" ? (coreLots || 1) : 5)),
-        HEDGE_RULE: rule, ...(rule === "BASE_LOSS" ? { CORE_SIDE_OVERRIDE: String(coreSide).toUpperCase() } : {}), HEDGE_CHECK_MINUTES: String(rule === "BASE_LOSS" ? (Number(checkMin) || 5) : 5), HEDGE_PNL_BAND: String(rule === "BASE_LOSS" ? (Number(pnlBand) || 0) : 0),
+        HEDGE_RULE: rule, ...(rule === "BASE_LOSS" ? { CORE_SIDE_OVERRIDE: String(coreSide).toUpperCase() } : {}), HEDGE_CHECK_MINUTES: String(rule === "BASE_LOSS" ? (Number(checkMin) || 5) : 5), HEDGE_PNL_BAND: String(rule === "BASE_LOSS" ? (Number(pnlBand) || 0) : 0), ...(rule === "BASE_LOSS" && holdCore === true ? { HEDGE_CORE_HOLD_OVERNIGHT: "true" } : {}),
         UNWIND_MODE_OVERRIDE: resolvedUnwindMode, CORE_CARRY_OVERRIDE: String(carryOvernight !== false), LIVE_ORDERS_OVERRIDE: String(!!live),
     };
     for (const [k, v, u] of [["CORE_SYMBOL_OVERRIDE", coreSymbol, coreUnderlying], ["HEDGE_SYMBOL_OVERRIDE", hedgeSymbol, hedgeUnderlying]]) {
