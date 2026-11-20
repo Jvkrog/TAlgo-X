@@ -2786,7 +2786,7 @@ function pmaDeployment(p) {
         script: "priceMaHedgeEngine.js", strategy: "PRICE_MA", name: p.name,
         underlying: e.PMA_UNDERLYING, longUser: e.PMA_LONG_USER, shortUser: e.PMA_SHORT_USER,
         status: p.pm2_env.status, uptime: p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
-        lots: e.PMA_LOTS_OVERRIDE || "1", live: e.LIVE_ORDERS_OVERRIDE === "true", exchange: e.PMA_EXCHANGE_OVERRIDE || "MCX",
+        lots: e.PMA_LOTS_OVERRIDE || "1", lotMult: e.PMA_LOTMULT_OVERRIDE || "", live: e.LIVE_ORDERS_OVERRIDE === "true", exchange: e.PMA_EXCHANGE_OVERRIDE || "MCX",
         contractSymbol: e.PMA_CONTRACT_OVERRIDE || null,
         baseTime: hhmmPad(e.PMA_BASE_HOUR ?? 9, e.PMA_BASE_MINUTE ?? 15),
         eodTime: (e.PMA_EOD_HOUR !== undefined && e.PMA_EOD_HOUR !== "") ? hhmmPad(e.PMA_EOD_HOUR, e.PMA_EOD_MINUTE ?? 0) : null,
@@ -2810,6 +2810,7 @@ async function getDualHedgeProcesses() {
             status:     p.pm2_env.status,
             uptime:     p.pm2_env.status === "online" ? Date.now() - p.pm2_env.pm_uptime : null,
             lots:       p.pm2_env.env?.DH_LOTS_OVERRIDE || "1",
+            lotMult:    p.pm2_env.env?.DH_LOTMULT_OVERRIDE || "",
             maxLoss:    p.pm2_env.env?.DH_MAX_LOSS_RUPEES_OVERRIDE || "3000",
             slMode:     (p.pm2_env.env?.DH_SL_MODE || "RUPEES").toUpperCase(),
             atrSlMult:  p.pm2_env.env?.DH_ATR_SL_MULT_OVERRIDE || String(engineConfig.ATR_SL_MULT),
@@ -2946,7 +2947,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
         coreSignal: coreSignalIn, bandHa: bandHaIn, coreEod: coreEodIn, coreAccount: coreAccountIn, flipCore: flipCoreIn,
         realizeRupees, lossAlertRupees, contractSymbol, longContract, shortContract,
-        baseTime, pnlBand, pnlSmooth, checkMin, hedgeContract, carry,
+        baseTime, pnlBand, pnlSmooth, checkMin, hedgeContract, carry, editName,
     } = req.body || {};
 
     const strategy = String(strategyIn || "DUAL").toUpperCase();
@@ -2992,6 +2993,14 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     const name = strategy === "PRICE_MA" ? `${getShortName(underlying)}PriceMA` : strategy === "BIAS" ? `${getShortName(underlying)}DualBias` : strategy === "REALIZE" ? `${getShortName(underlying)}DualRealize` : `${getShortName(underlying)}DualHedge`;
     const conflict = await findAccountConflict(underlying, [longUser, shortUser], name);
     if (conflict) return res.status(409).json({ error: conflict });
+    // EDIT: same deployment, new settings. Underlying + strategy (so the name) can't change. The old process is deleted WITHOUT archiving its leg databases (so a
+    // carried base / open hedge is recovered on boot) and started again with the new env — only when the user saves, never on its own.
+    if (editName) {
+        if (editName !== name) return res.status(400).json({ error: `Underlying and strategy can't be changed in an edit (this deployment is ${editName}) — remove it and add a new one instead` });
+        let existing = []; try { existing = await getDualHedgeProcesses(); } catch { /* checked below */ }
+        if (!existing.some(x => x.name === editName)) return res.status(404).json({ error: `${editName} not found` });
+    }
+    const launch = async o => { if (editName) await pm2Delete(name).catch(() => {}); return pm2Start(o); };
 
     const env = {
         DH_UNDERLYING: underlying, DH_LONG_USER: dualHedgeUsers.sanitizeName(longUser), DH_SHORT_USER: dualHedgeUsers.sanitizeName(shortUser),
@@ -3031,7 +3040,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         };
         if (lotMultOverride) pmaEnv.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
         try {
-            await pm2Start({ ...PM2_BASE_OPTS, script: "priceMaHedgeEngine.js", name, cwd: ROOT, env: pmaEnv });
+            await launch({ ...PM2_BASE_OPTS, script: "priceMaHedgeEngine.js", name, cwd: ROOT, env: pmaEnv });
             return res.json({ ok: true, name });
         } catch (err) {
             return res.status(500).json({ error: err.message });
@@ -3094,7 +3103,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
     }
 
     try {
-        await pm2Start({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: ROOT, env });
+        await launch({ ...PM2_BASE_OPTS, script: "dualHedgeEngine.js", name, cwd: ROOT, env });
         res.json({ ok: true, name });
     } catch (err) {
         res.status(500).json({ error: err.message });

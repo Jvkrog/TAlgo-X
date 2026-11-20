@@ -4698,6 +4698,7 @@ async function loadDualHedgeList() {
               <div class="tb-watch-inst">${d.name}</div>
               <div class="tb-watch-meta">${d.underlying} \u00b7 LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot \u00b7 ${dualHedgeStrategyText(d)} \u00b7 ${modeTag} \u00b7 [${d.status}]</div>
             </div>
+            <button class="tb-cli-action" data-dh-edit="${d.name}" style="padding:4px 8px;font-size:11px">Edit</button>
             <button class="tb-cli-action" data-dh-backtest="${d.name}" style="padding:4px 8px;font-size:11px">Backtest</button>
             <button class="tb-cli-action" data-dh-logs="${d.name}" style="padding:4px 8px;font-size:11px">Logs</button>
             <button class="tb-cli-action" data-dh-toggle="${d.name}" data-dh-status="${d.status}" style="padding:4px 8px;font-size:11px">${d.status === "online" ? "stop" : "start"}</button>
@@ -4729,6 +4730,15 @@ async function loadDualHedgeList() {
         if (!confirm(`Remove ${btn.dataset.dhRemove}? This stops and deletes the PM2 process.`)) return;
         await fetch(`/api/toolbox/dualhedge/${encodeURIComponent(btn.dataset.dhRemove)}`, { method: "DELETE" });
         loadDualHedgeList();
+      });
+    });
+    // Per-deployment Edit: the add form prefilled with the deployment's settings; saving re-deploys it under the same name (the engine restarts, carried positions are recovered).
+    tbDualHedgeBody.querySelectorAll("[data-dh-edit]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const d = deployments.find(x => x.name === btn.dataset.dhEdit);
+        if (!d) return;
+        dhAddState = { mode: "edit", underlying: d.underlying, edit: d };
+        renderDualHedgeAddForm();
       });
     });
     // Per-deployment Backtest: opens the backtest form for that deployment's instrument, prefilled with its settings.
@@ -4943,6 +4953,7 @@ function renderDualHedgeAddUnderlyingPicker() {
 }
 
 function dhSubmitLabel() {
+  if (dhAddState && dhAddState.mode === "edit") return "Save changes & restart";
   const st = tbDualHedgeBody.querySelector("#dhStrategy").value;
   return st === "BIAS" ? "Start bias hedge" : st === "REALIZE" ? "Start realize & re-open" : st === "PRICE_MA" ? "Start base-loss hedge" : "Start dual hedge";
 }
@@ -5032,7 +5043,8 @@ async function renderDualHedgeAddForm() {
     <button class="tb-submit-btn" id="dhAddSubmit">Start dual hedge</button>
   `;
 
-  tbDualHedgeBody.querySelector("#dhBack").addEventListener("click", renderDualHedgeAddUnderlyingPicker);
+  const dhEdit = dhAddState && dhAddState.mode === "edit" ? dhAddState.edit : null;
+  tbDualHedgeBody.querySelector("#dhBack").addEventListener("click", () => { if (dhEdit) { dhAddState = null; loadDualHedgeList(); } else renderDualHedgeAddUnderlyingPicker(); });
   const dhHints = {
     DUAL: "LONG account enters LONG only, SHORT account enters SHORT only \u2014 both carry overnight, SL only arms after that leg's own first adverse flip.",
     REALIZE: "LONG on the long account + SHORT on the short account, NRML. When a leg's profit passes the set value it is closed (realized) and the same position is opened again for overnight carry. The losing leg is left alone \u2014 add funds to that account yourself (optional Telegram alert).",
@@ -5066,6 +5078,27 @@ async function renderDualHedgeAddForm() {
   };
   tbDualHedgeBody.querySelector("#dhSlMode").addEventListener("change", dhSyncSl);
   dhSyncSl();
+  if (dhEdit) {   // EDIT: prefill every field from the running deployment; strategy / underlying stay fixed
+    const Q = id => tbDualHedgeBody.querySelector(id);
+    const set = (id, v) => { const el = Q(id); if (el && v !== undefined && v !== null && v !== "") el.value = v; };
+    set("#dhStrategy", dhEdit.strategy); Q("#dhStrategy").disabled = true; dhSyncStrategy();
+    set("#dhLongUser", dhEdit.longUser); set("#dhShortUser", dhEdit.shortUser); set("#dhLots", dhEdit.lots); set("#dhLotMult", dhEdit.lotMult);
+    set("#dhContract", dhEdit.contractSymbol); set("#dhLongContract", dhEdit.longContract); set("#dhShortContract", dhEdit.shortContract);
+    set("#dhSlMode", dhEdit.slMode); dhSyncSl(); set("#dhAtrMult", dhEdit.slMode === "ATR" ? dhEdit.atrSlMult : ""); set("#dhAtrTf", dhEdit.atrTimeframe);
+    set("#dhMaxLoss", dhEdit.maxLoss); set("#dhTakeProfit", dhEdit.takeProfit); set("#dhRangeSize", dhEdit.rangeSize); set("#dhBandStep", dhEdit.bandStep); set("#dhBandStep2", dhEdit.bandStep2);
+    set("#dhRealizeRupees", dhEdit.realizeRupees); set("#dhLossAlert", dhEdit.lossAlertRupees);
+    set("#dhCoreAcct", dhEdit.coreAccount); set("#dhFlip", dhEdit.flipCore === undefined ? "" : String(dhEdit.flipCore)); set("#dhCoreSignal", dhEdit.coreSignal);
+    set("#dhBandHa", dhEdit.bandHa === undefined ? "" : String(dhEdit.bandHa)); set("#dhCoreEod", dhEdit.coreEod); set("#dhUnwind", dhEdit.unwindMode); set("#dhBandTf", dhEdit.bandTimeframe); set("#dhEntryTime", dhEdit.entryTime);
+    Q("#dhGap").checked = !!dhEdit.gapCapture; Q("#dhLive").checked = !!dhEdit.live;
+    if (dhEdit.strategy === "PRICE_MA") {
+      set("#dhPmaBase", dhEdit.baseTime); set("#dhPmaEod", dhEdit.eodTime); set("#dhPmaBand", dhEdit.pnlBand); set("#dhPmaSmooth", dhEdit.pnlSmooth); set("#dhPmaCheck", dhEdit.checkMin);
+      Q("#dhPmaCarry").checked = dhEdit.carry !== false;
+      const hc = Q("#dhPmaHedgeContract");
+      if (dhEdit.hedgeContract && ![...hc.options].some(o => o.value === dhEdit.hedgeContract)) hc.insertAdjacentHTML("beforeend", `<option value="${escHtml(dhEdit.hedgeContract)}">${escHtml(dhEdit.hedgeContract)}</option>`);
+      set("#dhPmaHedgeContract", dhEdit.hedgeContract);
+    }
+    Q(".tb-form-hint").insertAdjacentHTML("beforeend", ` \u00b7 editing <b>${escHtml(dhEdit.name)}</b> \u2014 saving restarts this engine with the new settings (carried positions are recovered)`);
+  }
 
   tbDualHedgeBody.querySelector("#dhAddSubmit").addEventListener("click", async () => {
     const errBox = tbDualHedgeBody.querySelector("#dhAddErrBox");
@@ -5081,6 +5114,7 @@ async function renderDualHedgeAddForm() {
       confirmLive = prompt('This starts REAL orders on BOTH accounts. Type "LIVE" to confirm:');
       if (confirmLive !== "LIVE") { errBox.innerHTML = `<div class="tb-err-box">Not confirmed \u2014 not started</div>`; return; }
     }
+    if (dhEdit && !confirm(`Save changes to ${dhEdit.name}? This restarts the engine with the new settings.`)) return;
     const body = {
       underlying: dhAddState.underlying, longUser, shortUser,
       lots: tbDualHedgeBody.querySelector("#dhLots").value || 1,
@@ -5096,7 +5130,7 @@ async function renderDualHedgeAddForm() {
       contractSymbol: tbDualHedgeBody.querySelector("#dhStrategy").value !== "BIAS" ? (tbDualHedgeBody.querySelector("#dhContract").value || undefined) : undefined,
       longContract: tbDualHedgeBody.querySelector("#dhStrategy").value === "BIAS" ? (tbDualHedgeBody.querySelector("#dhLongContract").value || undefined) : undefined,
       shortContract: tbDualHedgeBody.querySelector("#dhStrategy").value === "BIAS" ? (tbDualHedgeBody.querySelector("#dhShortContract").value || undefined) : undefined,
-      live, confirmLive,
+      live, confirmLive, editName: dhEdit ? dhEdit.name : undefined,
       strategy: tbDualHedgeBody.querySelector("#dhStrategy").value,
       unwindMode: tbDualHedgeBody.querySelector("#dhUnwind").value,
       bandTimeframe: tbDualHedgeBody.querySelector("#dhBandTf").value,
@@ -5277,6 +5311,12 @@ async function renderDualHedgeBacktestForm() {
     set("#dbRealizeRupees", pf.realizeRupees); set("#dbLossAlert", pf.lossAlertRupees);
     set("#dbCoreAcct", pf.coreAccount); set("#dbFlip", pf.flipCore === undefined ? "" : String(pf.flipCore)); set("#dbCoreSignal", pf.coreSignal); set("#dbBandHa", pf.bandHa === undefined ? "" : String(pf.bandHa)); set("#dbCoreEod", pf.coreEod); set("#dbUnwind", pf.unwindMode); set("#dbBandTf", pf.bandTimeframe); set("#dbEntryTime", pf.entryTime);
     q("#dbGap").checked = !!pf.gapCapture;
+    set("#dbLotMult", pf.lotMult); set("#dbBandStep", pf.bandStep);
+    if (pf.strategy === "PRICE_MA") {
+      set("#dbPmaBase", pf.baseTime); set("#dbPmaEod", pf.eodTime); set("#dbPmaBand", pf.pnlBand); set("#dbPmaSmooth", pf.pnlSmooth); set("#dbPmaCheck", pf.checkMin);
+      q("#dbPmaCarry").checked = pf.carry !== false;
+      if (pf.hedgeContract === "SAME" || pf.hedgeContract === "NEXT") set("#dbPmaHedgeContract", pf.hedgeContract);
+    }
     const hint = tbDualHedgeBody.querySelector(".tb-form-hint");
     if (hint) hint.insertAdjacentHTML("beforeend", ` \u00b7 prefilled from <b>${escHtml(pf.name)}</b>`);
   }
