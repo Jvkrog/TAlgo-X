@@ -1677,6 +1677,9 @@ body.chart-page .depth-panel { height: auto; }
 @media (max-width: 700px) { .ro-ev { grid-template-columns: 1fr; gap: 0; } }
 
 /* ── light mode (theme.js sets data-theme) ───────────────────────────── */
+/* Declare the scheme the page itself renders, so browser "force dark pages" (Opera, Chrome flags) leaves our own light theme alone. */
+:root { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="light"] .scanlines { display: none; }
 :root[data-theme="light"] .tb-modal { background: rgba(0,0,0,0.35); }
 :root[data-theme="light"] .tb-modal-content { box-shadow: 0 30px 80px rgba(0,0,0,0.25); }
