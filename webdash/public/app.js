@@ -5441,7 +5441,7 @@ function aiEsc(v) { return String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp
 const AI_GREEN = "var(--green, #3ddc84)", AI_RED = "var(--red, #ff5c5c)", AI_AMBER = "var(--amber, #f5b942)", AI_CYAN = "var(--cyan, #5cd6ff)";
 // Escapes the text, then colours signed numbers (green +, red -) and a few verdict words so a review can be skimmed.
 function aiTxt(v) {
-  return aiEsc(v).replace(/(?<![\w.])([+-]\d[\d,]*\.?\d*)|\b(offset(?:ting)?|protect(?:ed|ion)|froze|limited|timely|promptly|gain(?:ed|s)?|profit(?:able)?|clean|exemplary|efficient)\b|\b(loss(?:es)?|losing|late|flip-?flop(?:ping)?|whipsaw|drawdown|unhedged|exposed|exposure|problem|costly)\b|\b(EOD(?:_FORCE)?|forced|scheduled|carried|overnight)\b/gi,
+  return aiEsc(v).replace(/(?<![\w.])([+-]\d+(?:,\d{3})*(?:\.\d+)?)|\b(offset(?:ting)?|protect(?:ed|ion)|froze|limited|timely|promptly|gain(?:ed|s)?|profit(?:able)?|clean|exemplary|efficient)\b|\b(loss(?:es)?|losing|late|flip-?flop(?:ping)?|whipsaw|drawdown|unhedged|exposed|exposure|problem|costly)\b|\b(EOD(?:_FORCE)?|forced|scheduled|carried|overnight)\b/gi,
     (m, num, good, bad, note) => `<span style="color:${num ? (num[0] === "-" ? AI_RED : AI_GREEN) : good ? AI_GREEN : bad ? AI_RED : AI_AMBER}">${m}</span>`);
 }
 const AI_GOOD_TAGS = new Set(["good_entry", "clean_win", "normal_stop_out", "hedge_timely", "hedge_protected_loss", "clean_cycle"]);
