@@ -38,7 +38,7 @@ async function close(context, state, db, tg, price, reason, entryOverride = null
     await db.closeTrade(state.openTradeId, price, pnl, reason, {
         peakPnl: peak, troughPnl: trough,
         ctx: {
-            strategy: context.strategy, timeframe: context.timeframe, candleType: context.candleType || null,
+            strategy: context.dbNoStrategy ? (context.tradeStrategy || "HEDGE_LEG") : context.strategy, timeframe: context.timeframe,   // hedge legs borrow buildContext()'s default strategy: label them by what they really are candleType: context.candleType || null,
             lots: context.lots, lotMult: context.lotMult,
             atrSlMult: context.atrSlMult ?? null, hardSlRupees: context.hardSlRupees ?? null,
         },

@@ -34,6 +34,7 @@ function resolveDualHedgeLeg({ underlying, side, userName, exchange, csvRepo, pi
     context.tgLabel  = `Dual Hedge ${side} (${userName})`;
     // db.js: name the state file after the hedge leg, not the default strategy buildContext() fills in
     context.dbNoStrategy = true;
+    context.tradeStrategy = "DUAL_HEDGE";   // label on closed trades / AI review (context.strategy is only a borrowed default here)
     context.candleType   = "RANGE";   // the shared band reader runs on range bars
     context.lots     = lots;
     if (lotMultOverride) context.lotMult = lotMultOverride;
