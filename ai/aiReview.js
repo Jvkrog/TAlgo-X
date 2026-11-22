@@ -308,6 +308,11 @@ function buildPairFacts(g, h, b, sibs, sameDayPrior) {
     } else if (b) {
         f.window = null; f.windowNote = "hedge is on a different contract than the base (calendar hedge) — base P&L over the hedge window cannot be computed from journals";
     }
+    // The hedge's EOD close is mechanical (avoid the broker's costlier square-off). When the base is still open it carries on UNHEDGED overnight and the next
+    // session re-evaluates it from scratch — the EOD close is not the end of the trade and says nothing about the base's outcome.
+    const eodClose = /EOD/i.test(String(h.exit_reason || ""));
+    f.hedgeExitKind = eodClose && b && b.status === "OPEN" ? "EOD_BASE_CARRIED" : eodClose ? "EOD" : "SIGNAL";
+    if (f.hedgeExitKind === "EOD_BASE_CARRIED" && f.window) f.baseStillOpenAfterHedgeClosePoints = f.window.baseP_LAtHedgeClosePoints;
     f.dayContext = { hedgeCyclesBeforeThisToday: sameDayPrior.length, hedgePnlBeforeToday: Math.round(sameDayPrior.reduce((a, r) => a + (r.pnl || 0), 0)),
         consecutiveLosingHedgesBefore: (() => { let n = 0; for (let i = sameDayPrior.length - 1; i >= 0 && sameDayPrior[i].pnl < 0; i--) n++; return n; })() };
     if (sibs.length) f.oppositeAccountHedgesOverlapping = sibs.map(x => ({ account: x.account, side: x.side, pnlRupees: Math.round(x.pnl), entryTimeIst: fmtIst(x.entry_time), exitTimeIst: fmtIst(x.exit_time) }));
@@ -356,7 +361,7 @@ async function listPairs(limit = 40) {
     return res;
 }
 
-const PAIR_TAGS = ["hedge_timely", "hedge_late", "hedge_protected_loss", "hedge_gave_back", "whipsaw_cycle", "flipflop_hedging", "forced_eod_close", "basis_risk", "clean_cycle", "hedge_closed_too_early"];
+const PAIR_TAGS = ["hedge_timely", "hedge_late", "hedge_protected_loss", "hedge_gave_back", "whipsaw_cycle", "flipflop_hedging", "forced_eod_close", "basis_risk", "clean_cycle", "hedge_closed_too_early", "unhedged_overnight"];
 const PAIR_SYSTEM_PROMPT = `You review ONE hedge cycle from an algorithmic futures trading engine (MCX commodities): a closed HEDGE trade together with the BASE (or CORE) position it was hedging. You are given verified facts computed by the system. All times are IST (Asia/Kolkata). Do not recompute or contradict the numbers; never invent prices, indicator values or market context. Anything you cannot judge goes ONLY in "limitations".
 The strategies (rules, not opinions):
 - Price-MA base-loss hedge (pairType "Price-MA base-loss hedge"): each account holds a constant base (LONG account long, SHORT account short, NRML, usually carried over many days and never closed by the engine). Every N minutes the engine checks the base's own P&L versus its entry price: base P&L below -band points -> open an OPPOSITE hedge (MIS) on the same account; base P&L back above +band -> close the hedge. At the EOD time the hedge is closed (before the broker's own square-off, which costs more); the base stays. The hedge may be on the next-expiry contract ("sameContract": false) which adds basis risk.
@@ -365,7 +370,7 @@ A hedge is NOT meant to make money on its own: it is insurance that limits the b
 How to read the facts:
 - window.baseP_LAtHedgeOpenPoints: the base's P&L (points) when the hedge opened; negative = the trigger. baseP_LAtHedgeClosePoints: when it closed. baseMoveDuringHedgeRupees = what the base gained/lost while the hedge was on; hedgePnlRupees = the hedge's result; pairNetDuringHedgeRupees = their sum (negative = the cycle cost money overall, near zero = the hedge froze the loss as intended). hedgeOffsetOfBaseLossPct = share of the base's loss during the window that the hedge made back.
 - A hedge that loses while the base gains is the expected cost of insurance (whipsaw) — only call it a problem if the day shows repeated cycles (dayContext.hedgeCyclesBeforeThisToday, consecutiveLosingHedgesBefore) = flip-flop.
-- exitReason EOD_FORCE = scheduled end-of-day close (a rule, not a market signal).
+- exitReason EOD / EOD_FORCE = scheduled end-of-day close (a rule, not a market signal). hedgeExitKind "EOD_BASE_CARRIED" means the hedge was closed at EOD while the base stays OPEN (carried overnight): there is NO end of the cycle at EOD — the base carries on unhedged (baseStillOpenAfterHedgeClosePoints is where it stands; negative = overnight exposure to a base that is still losing) and the next session starts a fresh check. Do not describe that close as "locking in" a result or as the end of the trade; judge only whether the hedge did its job while it was on, and mention the unhedged overnight exposure when the base is still negative (tag unhedged_overnight).
 - oppositeAccountHedgesOverlapping: the other account's hedges open in the same window (the two accounts' bases are opposite, so one base is losing while the other gains).
 - peakPnl/troughPnl are the hedge's own observed unrealised extremes; null = data gap.
 Grade the HEDGING DECISIONS and rule adherence: A = the hedge did its job (limited the base's loss, opened/closed in a timely way); B = acceptable with some inefficiency; C = a clear problem visible in the facts (late, flip-flopping, closed far too early, costly whipsaw). With thin evidence prefer B and explain.

@@ -5438,17 +5438,28 @@ initAuth();
 
 // ── TALGO-AI trade review tab ────────────────────────────────────────────
 function aiEsc(v) { return String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+const AI_GREEN = "var(--green, #3ddc84)", AI_RED = "var(--red, #ff5c5c)", AI_AMBER = "var(--amber, #f5b942)", AI_CYAN = "var(--cyan, #5cd6ff)";
+// Escapes the text, then colours signed numbers (green +, red -) and a few verdict words so a review can be skimmed.
+function aiTxt(v) {
+  return aiEsc(v).replace(/(?<![\w.])([+-]\d[\d,]*\.?\d*)|\b(offset(?:ting)?|protect(?:ed|ion)|froze|limited|timely|promptly|gain(?:ed|s)?|profit(?:able)?|clean|exemplary|efficient)\b|\b(loss(?:es)?|losing|late|flip-?flop(?:ping)?|whipsaw|drawdown|unhedged|exposed|exposure|problem|costly)\b|\b(EOD(?:_FORCE)?|forced|scheduled|carried|overnight)\b/gi,
+    (m, num, good, bad, note) => `<span style="color:${num ? (num[0] === "-" ? AI_RED : AI_GREEN) : good ? AI_GREEN : bad ? AI_RED : AI_AMBER}">${m}</span>`);
+}
+const AI_GOOD_TAGS = new Set(["good_entry", "clean_win", "normal_stop_out", "hedge_timely", "hedge_protected_loss", "clean_cycle"]);
+const AI_BAD_TAGS = new Set(["late_entry", "chop_entry", "against_band_context", "revenge_trade", "overtrading", "gave_back_profit", "reversal_whipsaw", "hedge_late", "hedge_gave_back", "whipsaw_cycle", "flipflop_hedging", "hedge_closed_too_early", "unhedged_overnight"]);
 function aiReviewHtml(r, pair) {
-  const list = arr => arr.length ? `<ul style="margin:4px 0 0 18px;padding:0">${arr.map(x => `<li>${aiEsc(x)}</li>`).join("")}</ul>` : "";
+  const list = arr => arr.length ? `<ul style="margin:4px 0 0 18px;padding:0">${arr.map(x => `<li>${aiTxt(x)}</li>`).join("")}</ul>` : "";
+  const lab = (t, c = AI_CYAN) => `<b style="color:${c}">${t}</b>`;
+  const gradeCol = { A: AI_GREEN, B: AI_AMBER, C: AI_RED }[r.grade] || "inherit";
+  const tagCol = t => AI_GOOD_TAGS.has(t) ? AI_GREEN : AI_BAD_TAGS.has(t) ? AI_RED : AI_AMBER;
   return `<div class="tb-form-hint" style="margin-top:8px;border-top:1px solid rgba(var(--overlay-rgb),.1);padding-top:8px">
-    <div><button type="button" class="btn btn-ghost ai-close" style="float:right;padding:2px 10px">Close ✕</button><b>AI commentary</b> — grade <b>${aiEsc(r.grade)}</b> (decision quality, not profit)</div>
-    <div style="margin-top:4px"><b>${pair ? "Hedge entry" : "Entry"}:</b> ${aiEsc(r.entry_assessment)}</div>
-    ${r.trade_behaviour ? `<div><b>${pair ? "Pair" : "Behaviour"}:</b> ${aiEsc(r.trade_behaviour)}</div>` : ""}
-    <div><b>${pair ? "Hedge exit" : "Exit"}:</b> ${aiEsc(r.exit_assessment)}</div>
-    ${(r.evidence || []).length ? `<div style="margin-top:4px"><b>Evidence</b>${list(r.evidence)}</div>` : ""}
-    ${(r.limitations || []).length ? `<div style="margin-top:4px"><b>Limitations</b>${list(r.limitations)}</div>` : ""}
-    ${(r.tags && r.tags.length) ? `<div style="margin-top:4px">${r.tags.map(t => `<span class="mode-pill">${aiEsc(t.replace(/_/g, " "))}</span>`).join(" ")}</div>` : ""}
-    <div style="margin-top:4px"><b>Takeaway:</b> ${aiEsc(r.takeaway)}</div></div>`;
+    <div><button type="button" class="btn btn-ghost ai-close" style="float:right;padding:2px 10px">Close ✕</button>${lab("AI commentary")} — grade <b style="color:${gradeCol};font-size:1.15em">${aiEsc(r.grade)}</b> (decision quality, not profit)</div>
+    <div style="margin-top:4px">${lab(pair ? "Hedge entry:" : "Entry:")} ${aiTxt(r.entry_assessment)}</div>
+    ${r.trade_behaviour ? `<div>${lab(pair ? "Pair:" : "Behaviour:")} ${aiTxt(r.trade_behaviour)}</div>` : ""}
+    <div>${lab(pair ? "Hedge exit:" : "Exit:")} ${aiTxt(r.exit_assessment)}</div>
+    ${(r.evidence || []).length ? `<div style="margin-top:4px">${lab("Evidence")}${list(r.evidence)}</div>` : ""}
+    ${(r.limitations || []).length ? `<div style="margin-top:4px">${lab("Limitations", AI_AMBER)}${list(r.limitations)}</div>` : ""}
+    ${(r.tags && r.tags.length) ? `<div style="margin-top:4px">${r.tags.map(t => `<span class="mode-pill" style="color:${tagCol(t)};border-color:${tagCol(t)}">${aiEsc(t.replace(/_/g, " "))}</span>`).join(" ")}</div>` : ""}
+    <div style="margin-top:4px">${lab("Takeaway:", gradeCol)} ${aiTxt(r.takeaway)}</div></div>`;
 }
 let aiSummaryDays = 7;   // default window
 function aiTable(title, rows, cols) {
@@ -5514,8 +5525,8 @@ async function loadAiPairs() {
     const when = h.exitTimeIst || "";
     return `<div class="toolbox-row" style="display:block;padding:10px 16px" data-i="${i}">
       <div><b>${aiEsc(f.pairType)}</b> · ${aiEsc(f.account)} · <span style="color:${col(h.pnlRupees)}">hedge ${sg(h.pnlRupees)}</span>${w ? ` · pair net <span style="color:${col(w.pairNetDuringHedgeRupees)}">${sg(w.pairNetDuringHedgeRupees)}</span>` : ""}</div>
-      ${b ? `<div class="tb-form-hint">Base ${aiEsc(b.side)} ${aiEsc(b.contract)} @${aiEsc(b.entryPrice)}${b.daysHeldWhenHedgeOpened ? ` (carried ${b.daysHeldWhenHedgeOpened}d)` : ""}${w ? ` · base ${sg(w.baseP_LAtHedgeOpenPoints)} pts at hedge open → ${sg(w.baseP_LAtHedgeClosePoints)} at close` : ""}</div>` : `<div class="tb-form-hint">Base trade not found in its journal</div>`}
-      <div class="tb-form-hint">Hedge ${aiEsc(h.side)} ${aiEsc(h.contract)} ${aiEsc(h.entryPrice)} → ${aiEsc(h.exitPrice)} (${sg(h.points)} pts) · ${h.durationMinutes ?? "?"} min · exit: ${aiEsc(h.exitReason || "")} · ${aiEsc(when)}${w && w.hedgeOffsetOfBaseLossPct != null ? ` · offset ${w.hedgeOffsetOfBaseLossPct}% of base loss` : ""}${f.dayContext && f.dayContext.hedgeCyclesBeforeThisToday ? ` · cycle #${f.dayContext.hedgeCyclesBeforeThisToday + 1} today` : ""}</div>
+      ${b ? `<div class="tb-form-hint">Base ${aiEsc(b.side)} ${aiEsc(b.contract)} @${aiEsc(b.entryPrice)}${b.daysHeldWhenHedgeOpened ? ` (carried ${b.daysHeldWhenHedgeOpened}d)` : ""}${w ? ` · base <span style="color:${col(w.baseP_LAtHedgeOpenPoints)}">${sg(w.baseP_LAtHedgeOpenPoints)}</span> pts at hedge open → <span style="color:${col(w.baseP_LAtHedgeClosePoints)}">${sg(w.baseP_LAtHedgeClosePoints)}</span> at close` : ""}</div>` : `<div class="tb-form-hint">Base trade not found in its journal</div>`}
+      <div class="tb-form-hint">Hedge ${aiEsc(h.side)} ${aiEsc(h.contract)} ${aiEsc(h.entryPrice)} → ${aiEsc(h.exitPrice)} (${sg(h.points)} pts) · ${h.durationMinutes ?? "?"} min · exit: ${aiEsc(h.exitReason || "")}${f.hedgeExitKind === "EOD_BASE_CARRIED" ? ` <span style="color:var(--amber, #f5b942)">(hedge closed at EOD — base still open, unhedged overnight)</span>` : ""} · ${aiEsc(when)}${w && w.hedgeOffsetOfBaseLossPct != null ? ` · offset ${w.hedgeOffsetOfBaseLossPct}% of base loss` : ""}${f.dayContext && f.dayContext.hedgeCyclesBeforeThisToday ? ` · cycle #${f.dayContext.hedgeCyclesBeforeThisToday + 1} today` : ""}</div>
       <div class="ai-review-slot">${t.review ? aiReviewHtml(t.review, true) : ""}</div>
       ${t.reviewError ? `<div class="tb-form-hint" style="color:var(--red,#ff5c5c)">Last review failed: ${aiEsc(t.reviewError)}</div>` : ""}
       <button class="btn btn-ghost ai-review-btn" style="margin-top:6px">${t.review ? "Re-run review" : "Review this pair"}</button>
