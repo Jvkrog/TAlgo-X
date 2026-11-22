@@ -992,6 +992,10 @@ body {
 .btn-mode { color: var(--cyan); }
 .btn-danger { color: var(--red); }
 
+/* AI Review panes: each row keeps its full height (a flex column with a max-height used to squash rows into each other) and reads as its own card */
+.ai-pane { margin: 14px 16px 0; width: auto; }
+.ai-list { max-height: 60vh; }
+.ai-list > .toolbox-row { flex-shrink: 0; margin: 6px 0; border: 1px solid rgba(var(--overlay-rgb), .12); border-radius: 6px; }
 .toolbox-list {
   display: flex;
   flex-direction: column;

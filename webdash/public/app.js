@@ -5505,15 +5505,17 @@ async function loadAiPairs() {
   if (!box) return;
   let data;
   try { data = await (await fetch("/api/ai/pairs")).json(); } catch { box.innerHTML = ""; return; }
-  if (data.error || !data.pairs.length) { box.innerHTML = ""; return; }
+  const pane = document.getElementById("aiPairsPane");
+  if (data.error || !data.pairs.length) { box.innerHTML = ""; if (pane) pane.style.display = "none"; return; }
+  if (pane) pane.style.display = "";
   const sg = v => (v >= 0 ? "+" : "") + v, col = v => v >= 0 ? "var(--green, #3ddc84)" : "var(--red, #ff5c5c)";
-  box.innerHTML = `<div class="tb-form-hint" style="padding:10px 16px 0"><b>Hedge pairs</b> — each hedge cycle reviewed together with the base it was hedging</div>` + data.pairs.map((t, i) => {
+  box.innerHTML = data.pairs.map((t, i) => {
     const f = t.facts, h = f.hedge, b = f.base, w = f.window;
     const when = h.exitTimeIst || "";
     return `<div class="toolbox-row" style="display:block;padding:10px 16px" data-i="${i}">
       <div><b>${aiEsc(f.pairType)}</b> · ${aiEsc(f.account)} · <span style="color:${col(h.pnlRupees)}">hedge ${sg(h.pnlRupees)}</span>${w ? ` · pair net <span style="color:${col(w.pairNetDuringHedgeRupees)}">${sg(w.pairNetDuringHedgeRupees)}</span>` : ""}</div>
       ${b ? `<div class="tb-form-hint">Base ${aiEsc(b.side)} ${aiEsc(b.contract)} @${aiEsc(b.entryPrice)}${b.daysHeldWhenHedgeOpened ? ` (carried ${b.daysHeldWhenHedgeOpened}d)` : ""}${w ? ` · base ${sg(w.baseP_LAtHedgeOpenPoints)} pts at hedge open → ${sg(w.baseP_LAtHedgeClosePoints)} at close` : ""}</div>` : `<div class="tb-form-hint">Base trade not found in its journal</div>`}
-      <div class="tb-form-hint">Hedge ${aiEsc(h.side)} ${aiEsc(h.contract)} ${aiEsc(h.entryPrice)} → ${aiEsc(h.exitPrice)} (${sg(h.points)} pts) · ${h.durationMinutes ?? "?"} min · exit: ${aiEsc(h.exitReason || "")} · ${aiEsc(when)} IST${w && w.hedgeOffsetOfBaseLossPct != null ? ` · offset ${w.hedgeOffsetOfBaseLossPct}% of base loss` : ""}${f.dayContext && f.dayContext.hedgeCyclesBeforeThisToday ? ` · cycle #${f.dayContext.hedgeCyclesBeforeThisToday + 1} today` : ""}</div>
+      <div class="tb-form-hint">Hedge ${aiEsc(h.side)} ${aiEsc(h.contract)} ${aiEsc(h.entryPrice)} → ${aiEsc(h.exitPrice)} (${sg(h.points)} pts) · ${h.durationMinutes ?? "?"} min · exit: ${aiEsc(h.exitReason || "")} · ${aiEsc(when)}${w && w.hedgeOffsetOfBaseLossPct != null ? ` · offset ${w.hedgeOffsetOfBaseLossPct}% of base loss` : ""}${f.dayContext && f.dayContext.hedgeCyclesBeforeThisToday ? ` · cycle #${f.dayContext.hedgeCyclesBeforeThisToday + 1} today` : ""}</div>
       <div class="ai-review-slot">${t.review ? aiReviewHtml(t.review, true) : ""}</div>
       ${t.reviewError ? `<div class="tb-form-hint" style="color:var(--red,#ff5c5c)">Last review failed: ${aiEsc(t.reviewError)}</div>` : ""}
       <button class="btn btn-ghost ai-review-btn" style="margin-top:6px">${t.review ? "Re-run review" : "Review this pair"}</button>

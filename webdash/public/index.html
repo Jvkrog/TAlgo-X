@@ -255,8 +255,16 @@
     <div class="tb-form-hint" style="padding:8px 16px 0">Closed trades from each instrument's journal. Figures are computed by the system; the AI only comments on them. It never affects trading.</div>
     <div id="aiStatus" class="tb-form-hint" style="padding:4px 16px 0"></div>
     <div id="aiSummaryBox" style="padding:8px 16px 0"></div>
-    <div class="toolbox-list" id="aiPairs"></div>
-    <div class="toolbox-list" id="aiList"></div>
+    <section class="panel ai-pane" id="aiPairsPane" style="display:none">
+      <div class="panel-head"><span class="panel-title">┌─ HEDGE PAIRS ─┐</span></div>
+      <div class="tb-form-hint" style="padding:6px 16px 0">Price-MA and hedge-pair cycles: each closed hedge trade reviewed together with the base / core it was hedging.</div>
+      <div class="toolbox-list ai-list" id="aiPairs"></div>
+    </section>
+    <section class="panel ai-pane" id="aiTradesPane">
+      <div class="panel-head"><span class="panel-title">┌─ TRADES ─┐</span></div>
+      <div class="tb-form-hint" style="padding:6px 16px 0">Single-instrument strategy trades (hedge legs are in Hedge pairs above).</div>
+      <div class="toolbox-list ai-list" id="aiList"></div>
+    </section>
   </section>
 </main>
 
