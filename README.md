@@ -19,7 +19,7 @@ TAlgo-X is a Node.js trading platform for strategy execution, market-data handli
 The `talgox` command provides operator workflows for engine/instrument management, strategy and runtime configuration, credentials, backtesting, paper/live modes, PM2 controls, and diagnostics.
 
 ### WebDash
-The WebDash is an operator interface for monitoring and controlling running engines. It includes engine cards, position/P&L visibility, logs streamed from the runtime, configuration and credential workflows, market-state/watchlist views, hedge-pair and dual-hedge controls, backtesting screens, and AI trade-review tools.
+The WebDash is an operator interface for monitoring and controlling running engines. It includes engine cards, position/P&L visibility, logs streamed from the runtime, configuration and credential workflows, market-state/watchlist views, hedge-pair and dual-hedge controls (deploy, **edit in place**, manage, per-deployment backtest that prefills the deployed settings), backtesting screens, a light/dark theme, and AI trade-review tools.
 
 The runtime-to-dashboard event bridge is deliberately best-effort: dashboard connectivity is for observability and must not be required for strategy execution or order placement.
 
@@ -27,6 +27,7 @@ The runtime-to-dashboard event bridge is deliberately best-effort: dashboard con
 The standalone chart page (`webdash/public/chart.html`) can be opened in a separate tab/window for a second-monitor workflow. It displays historical candles alongside live price updates and supports:
 - Raw candles, Heikin-Ashi, and Range Bars.
 - Instrument-specific chart overlays where supported by the strategy.
+- A **Chart** button on dual-hedge and hedge-pair cards. A hedge pair opens its core instrument, with amber/cyan arrows at every core/hedge fill taken from its journals and entry-price lines while the core or hedge is open; the live price streams in from the core leg.
 - A configurable Range Bar size.
 - A market-depth/order-book panel with bid/ask prices and quantities, spread, displayed depth totals, volume, and open interest where provided by the feed.
 - Live order-book updates streamed through the dashboard WebSocket; REST is used as a fallback when the stream is unavailable/stale.
@@ -38,16 +39,20 @@ The order book represents displayed liquidity, not guaranteed support/resistance
 A separate scanner/profiling path builds a market profile containing trend, volatility, participation, structure, and confidence fields. It maintains a watchlist independently of which instruments currently have engines running. Profiles and structure-state transitions are stored in a separate SQLite database; the client returns an UNKNOWN/unavailable profile when data is missing, stale, or errors, rather than treating stale data as current. This is a contextual/observability layer, not a replacement for the execution engine.
 
 ### Hedge workflows
-- **Hedge pairs:** paired core/hedge processes with WebDash controls and backtesting support.
-- **Dual hedge:** a dedicated process for two separately configured Kite accounts, with one LONG-only leg and one SHORT-only leg driven by a shared Dynamic Step Band signal. Per-leg order placement uses that leg's own broker client. Optional gap-capture behavior is configured separately. Review the relevant engine/context files and runtime configuration before using this workflow live.
+Several hedge runtimes exist, each with its own lifecycle and risk semantics — do not assume their settings or exits are interchangeable.
 
-These workflows have different lifecycle and risk semantics from a single strategy engine; do not assume their settings or exits are interchangeable.
+- **Hedge pair, band-following (two instruments):** paired core/hedge processes driven by daily/hourly Dynamic Step Bands, with WebDash controls and backtesting.
+- **Dual hedge (two accounts, one instrument):** a dedicated process for two separately configured Kite accounts — one LONG-only, one SHORT-only. Variants: *band-following* (shared Dynamic Step Band signal; flipped legs exit on take-profit/stop-loss; NRML, carried), *bias* (daily Heikin-Ashi core in one account, band-driven hedge in the other) and *realize* (profit-lock: a winning leg is closed and re-opened at once, the loser is never closed by the engine). Per-leg order placement uses that leg's own broker client. Optional gap-capture behavior is configured separately.
+
+Review the relevant engine/context files and runtime configuration before using any of these live. A Kite static-IP rule applies to API orders: one IP can serve only the account holder and immediate family under one developer account, so two-account strategies need to be reviewed against that rule for your setup.
 
 ### Backtesting
 The backtesting tools fetch historical broker candles and replay supported strategy/candle configurations. Reports include trade and performance metrics and can be inspected from the CLI/WebDash. Results depend on the data window, assumptions, costs/slippage settings, and whether the simulation accurately represents live execution. Validate changes in backtests and paper mode before considering live deployment.
 
 ### AI-assisted trade review (TAlgo-AI)
 - Reviews closed trades using facts computed deterministically from SQLite trade journals.
+- **Hedge pairs:** hedge legs are reviewed as pairs, not lone trades — each closed hedge trade together with the position it was hedging. Two-account strategies also show the opposite account's position and a combined net; dual-hedge trades are reviewed as cross-account pairs. The prompts grade decision quality, not profit.
+- The WebDash review tab separates **Hedge pairs** and **Trades** into their own panes, with colour-coded commentary.
 - Uses Gemini to interpret trade evidence and produce schema-validated review output.
 - Aggregates trade history into summaries by instrument, exit reason, side, entry time, and other available metrics; can narrate aggregate summaries and saved backtest reports.
 - Caches reviews/summaries to avoid repeatedly requesting the same analysis.
@@ -94,17 +99,18 @@ The repository is intentionally split by responsibility. The exact tree evolves,
 
 | Path | Responsibility |
 |---|---|
-| `engine.js`, `hedgePairEngine.js`, `dualHedgeEngine.js`, `dualBiasHedgeEngine.js`, `gapCaptureEngine.js`, `scannerService.js` | PM2 process entry points (kept at the repo root) |
+| `engine.js`, `hedgePairEngine.js`, `priceMaHedgeEngine.js`, `dualHedgeEngine.js`, `dualBiasHedgeEngine.js`, `gapCaptureEngine.js`, `scannerService.js` | PM2 process entry points (kept at the repo root) |
 | `toolbox.js`, `logs.js` | Interactive CLI toolbox and coloured log viewer |
 | `core/` | Runtime: `engineConfig`, `context`, `state`, `orders`, `positions`, `sl`, `target`, `candleBuilder`, `candlePoll`, `lifecycle`, `price`, `preload`, `eventBridge` |
 | `strategies/` | `strategies.js`, `signals.js`, custom-strategy runtime/DB, condition evaluator, VWAP / weekly-HA / scalp helpers |
 | `gates/` | Entry gates: chop, volume, double-order, long-candle, HTF, daily HA, entry-time, losing-switch, block report |
 | `indicators/` | Indicator engine/catalog, range bars/feed, HA and band readers, candle types, chart overlay |
-| `backtest/` | Backtest runner, flow, ledger, report, metrics and the hedge / dual-hedge backtests (run CLIs as `node backtest/backtestHedgePairCli.js`) |
-| `hedge/` | Hedge-pair / dual-hedge contexts, link, ATR, users and the dual-bias controller |
+| `backtest/` | Backtest runner, flow, ledger, report, metrics and the hedge-pair and dual-hedge backtests (run CLIs as `node backtest/backtestHedgePairCli.js`) |
+| `hedge/` | Hedge-pair / dual-hedge contexts, link, ATR, users, and the dual-bias controller |
 | `scanner/` | Market feed, profiler, state store/client, watchlist, pipeline, NIFTY universe |
 | `data/` | `db`, `dbDir`, CSV loaders, historical fetch, instrument/contract resolution, pins, roll policies |
-| `ai/` | Observer-only AI review and aggregate narration |
+| `ai/` | Observer-only AI review (single trades and hedge pairs) and aggregate narration |
+| `scripts/` | One-off maintenance scripts (e.g. `relabel-hedge-trades.js`, dry run by default) |
 | `utils/` | Colour, IST time, plain log, Telegram, boot animation, `.env` helper |
 | `tests/` | Test scripts, run from the repo root as `node tests/test-xyz.js` (`L=$PWD node tests/test-parity.js`) |
 | `riskObserver/` | Risk Observer (unchanged layout) |
@@ -170,6 +176,13 @@ Do not use a chart display, market-state profile, or AI narration as the sole ba
 
 ## Operational notes
 
+- Hedge engines place real orders only in LIVE mode; PAPER mode simulates fills with the same flow. Restarting or deploying engines is always an operator action.
+- **Coloured logs on every login (one-time setup per server)**, from the repository folder:
+  ```bash
+  echo "source $(pwd)/talgo-shell.sh" >> ~/.bashrc                          # makes `pm2 logs` the coloured viewer
+  echo 'case $- in *i*) [ -z "$TMUX" ] && pm2 logs ;; esac' >> ~/.bashrc   # optional: show the logs automatically when you SSH in
+  ```
+  Open a new terminal afterwards. Ctrl+C leaves the log view and gives you the prompt; the second line only runs for interactive logins (not scripts or `scp`) and skips tmux. Remove that line from `~/.bashrc` to stop the auto-start. A second server needs the same setup on that server.
 - Use `pm2 list` to inspect managed processes, `npm run logs` for coloured live logs, or `source talgo-shell.sh` from ~/.bashrc so plain `pm2 logs` shows them (`npm run logs -- zinc` to filter, `-n 40` for more history; `pm2 logs` shows the same logs without colour because PM2's .log files are kept plain), and the CLI/WebDash controls to manage engines.
 - Each engine's trade/position journal is separate from the Market State Engine's database; this is an intentional failure boundary.
 - The WebDash event bridge is optional for engine operation. A dashboard outage should not be interpreted as proof that an engine stopped; inspect PM2 and broker state.
