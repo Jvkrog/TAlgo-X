@@ -41,6 +41,10 @@ const all = (db, sql, p = []) => new Promise((res, rej) => db.all(sql, p, (e, r)
 function journalFiles() {
     try { return fs.readdirSync(DB_DIR).filter(f => f.endsWith(".db") && f !== "ai_reviews.db"); } catch { return []; }
 }
+const PMA_FILE = /^(.+?)_price_ma_hedge_(long|short)_(base|hedge)_(.+)_(raw|ha|range)\.db$/;
+const PAIR_FILE = /^(.+)_(core|hedge)_(raw|ha|range)\.db$/;
+const isPairLegJournal = f => PMA_FILE.test(f) || PAIR_FILE.test(f);
+const singleJournalFiles = () => journalFiles().filter(f => !isPairLegJournal(f));
 
 function openRo(file) {
     return new Promise(resolve => {
@@ -51,7 +55,7 @@ function openRo(file) {
 // Newest CLOSED trades across every instrument journal, with cached review state attached.
 async function listTrades(limit = 60) {
     const out = [];
-    for (const file of journalFiles()) {
+    for (const file of singleJournalFiles()) {
         const db = await openRo(file);
         if (!db) continue;
         try {
@@ -78,7 +82,7 @@ async function listTrades(limit = 60) {
 }
 
 async function getTrade(journal, id) {
-    if (!journalFiles().includes(journal)) return null;
+    if (!singleJournalFiles().includes(journal)) return null;
     const db = await openRo(journal);
     if (!db) return null;
     try {
@@ -215,7 +219,7 @@ const str = (v, max = 600) => typeof v === "string" && v.trim() ? v.trim().slice
 const strList = v => Array.isArray(v) ? v.map(x => str(x, 300)).filter(Boolean).slice(0, 8) : null;
 
 // Strict validation: anything off-schema is rejected, never patched up.
-function validateReview(text) {
+function validateReview(text, allowedTags = TAGS) {
     let j;
     try { j = JSON.parse(String(text).trim().replace(/^```json\s*/i, "").replace(/```$/, "")); }
     catch { throw new Error("AI reply was not valid JSON"); }
@@ -223,7 +227,7 @@ function validateReview(text) {
         grade: GRADES.includes(j.grade) ? j.grade : null,
         entry_assessment: str(j.entry_assessment), trade_behaviour: str(j.trade_behaviour) || "", exit_assessment: str(j.exit_assessment),
         evidence: strList(j.evidence) || [], limitations: strList(j.limitations) || [], takeaway: str(j.takeaway, 300),
-        tags: Array.isArray(j.tags) ? [...new Set(j.tags.filter(x => TAGS.includes(x)))].slice(0, 4) : [],
+        tags: Array.isArray(j.tags) ? [...new Set(j.tags.filter(x => allowedTags.includes(x)))].slice(0, 4) : [],
     };
     const bad = Object.entries(r).filter(([, v]) => v === null).map(([k]) => k);
     if (bad.length) throw new Error("AI reply failed validation: " + bad.join(", "));
@@ -252,4 +256,143 @@ async function reviewTrade(journal, id, force = false) {
     }
 }
 
-module.exports = { listTrades, reviewTrade, buildFacts, validateReview, callGemini, journalFiles, openRo, all, cache, run, TAGS, MODEL };
+
+function pairGroups() {
+    const files = journalFiles(), groups = [];
+    for (const f of files) {
+        const m = f.match(PMA_FILE);
+        if (m && m[3] === "hedge") {
+            const base = files.find(x => { const k = x.match(PMA_FILE); return k && k[1] === m[1] && k[2] === m[2] && k[3] === "base" && k[4] === m[4]; });
+            if (base) groups.push({ kind: "PRICE_MA_HEDGE", instrument: m[1], account: m[2].toUpperCase(), user: m[4].toUpperCase(), baseJournal: base, hedgeJournal: f });
+        }
+    }
+    const cores = files.filter(f => PAIR_FILE.test(f) && f.match(PAIR_FILE)[2] === "core" && !PMA_FILE.test(f));
+    const hedges = files.filter(f => PAIR_FILE.test(f) && f.match(PAIR_FILE)[2] === "hedge" && !PMA_FILE.test(f));
+    for (const core of cores) {
+        const pre = core.match(PAIR_FILE)[1];
+        let hedge = hedges.find(h => h.match(PAIR_FILE)[1] === pre);
+        if (!hedge && cores.length === 1 && hedges.length === 1) hedge = hedges[0];   // two-instrument pair: names differ, only one pair on this server
+        if (hedge) groups.push({ kind: "HEDGE_PAIR", instrument: pre, account: null, user: null, baseJournal: core, hedgeJournal: hedge });
+    }
+    return groups;
+}
+
+const dayDiff = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
+function buildPairFacts(g, h, b, sibs, sameDayPrior) {
+    let hctx = {}; try { hctx = h.ctx ? JSON.parse(h.ctx) : {}; } catch { /* none */ }
+    const hDir = h.side === "LONG" ? 1 : -1, bDir = b ? (b.side === "LONG" ? 1 : -1) : null;
+    const hPts = (h.exit_price - h.entry_price) * hDir;
+    const perPoint = (Number(hctx.lotMult) * Number(hctx.lots)) || (Math.abs(hPts) > 1e-9 ? Math.abs(h.pnl / hPts) : null);
+    const durMin = h.entry_time && h.exit_time ? Math.round((new Date(h.exit_time) - new Date(h.entry_time)) / 60000) : null;
+    const sameContract = !!b && b.instrument === h.instrument;
+    const f = {
+        pairType: g.kind === "PRICE_MA_HEDGE" ? "Price-MA base-loss hedge" : "Hedge pair (core + hedge)",
+        account: g.account ? `${g.account} account (${g.user})` : "single account",
+        base: b ? { role: g.kind === "PRICE_MA_HEDGE" ? "base" : "core", side: b.side, contract: b.instrument, lots: b.qty, entryPrice: b.entry_price, entryTimeIst: fmtIst(b.entry_time),
+            statusNow: b.status, daysHeldWhenHedgeOpened: dayDiff(b.trade_date, h.trade_date), exitPrice: b.exit_price ?? null, exitReason: b.exit_reason ?? null } : null,
+        hedge: { side: h.side, contract: h.instrument, lots: h.qty, entryPrice: h.entry_price, exitPrice: h.exit_price, entryTimeIst: fmtIst(h.entry_time), exitTimeIst: fmtIst(h.exit_time),
+            durationMinutes: durMin, pnlRupees: Math.round(h.pnl * 100) / 100, points: Math.round(hPts * 100) / 100, exitReason: h.exit_reason,
+            peakPnl: Number.isFinite(h.peak_pnl) ? Math.round(h.peak_pnl) : null, troughPnl: Number.isFinite(h.trough_pnl) ? Math.round(h.trough_pnl) : null },
+        sameContract,
+    };
+    if (b && sameContract && perPoint) {
+        const bPerPoint = perPoint * (b.qty / (h.qty || 1));
+        const openPts = bDir * (h.entry_price - b.entry_price), closePts = bDir * (h.exit_price - b.entry_price);
+        const baseMove = bDir * (h.exit_price - h.entry_price) * bPerPoint;
+        f.window = {
+            baseP_LAtHedgeOpenPoints: Math.round(openPts * 100) / 100, baseP_LAtHedgeClosePoints: Math.round(closePts * 100) / 100,
+            baseMoveDuringHedgeRupees: Math.round(baseMove), hedgePnlRupees: Math.round(h.pnl),
+            pairNetDuringHedgeRupees: Math.round(h.pnl + baseMove),
+            hedgeOffsetOfBaseLossPct: baseMove < 0 && h.pnl > 0 ? Math.min(100, Math.round(h.pnl / -baseMove * 100)) : null,
+        };
+    } else if (b) {
+        f.window = null; f.windowNote = "hedge is on a different contract than the base (calendar hedge) — base P&L over the hedge window cannot be computed from journals";
+    }
+    f.dayContext = { hedgeCyclesBeforeThisToday: sameDayPrior.length, hedgePnlBeforeToday: Math.round(sameDayPrior.reduce((a, r) => a + (r.pnl || 0), 0)),
+        consecutiveLosingHedgesBefore: (() => { let n = 0; for (let i = sameDayPrior.length - 1; i >= 0 && sameDayPrior[i].pnl < 0; i--) n++; return n; })() };
+    if (sibs.length) f.oppositeAccountHedgesOverlapping = sibs.map(x => ({ account: x.account, side: x.side, pnlRupees: Math.round(x.pnl), entryTimeIst: fmtIst(x.entry_time), exitTimeIst: fmtIst(x.exit_time) }));
+    return f;
+}
+
+async function loadPair(g, hedgeId) {
+    const hdb = await openRo(g.hedgeJournal), bdb = await openRo(g.baseJournal);
+    if (!hdb || !bdb) { if (hdb) hdb.close(); if (bdb) bdb.close(); return null; }
+    try {
+        const h = (await all(hdb, `SELECT * FROM trades WHERE id = ? AND status = 'CLOSED'`, [hedgeId]))[0];
+        if (!h) return null;
+        const bases = await all(bdb, `SELECT * FROM trades WHERE entry_time <= ? ORDER BY entry_time DESC LIMIT 5`, [h.entry_time]);
+        const b = bases.find(x => x.status === "OPEN" || (x.exit_time && x.exit_time >= h.entry_time)) || null;
+        const sameDayPrior = (await all(hdb, `SELECT id, pnl FROM trades WHERE status = 'CLOSED' AND trade_date = ? AND id < ? ORDER BY id`, [h.trade_date, h.id]));
+        const sibs = [];
+        for (const o of pairGroups().filter(x => x.kind === g.kind && x.instrument === g.instrument && x.account !== g.account && g.kind === "PRICE_MA_HEDGE")) {
+            const odb = await openRo(o.hedgeJournal); if (!odb) continue;
+            try { for (const r of await all(odb, `SELECT * FROM trades WHERE status = 'CLOSED' AND entry_time <= ? AND exit_time >= ?`, [h.exit_time, h.entry_time])) sibs.push({ ...r, account: o.account }); } catch { /* no table */ }
+            odb.close();
+        }
+        return { h, b, facts: buildPairFacts(g, h, b, sibs, sameDayPrior) };
+    } catch { return null; } finally { hdb.close(); bdb.close(); }
+}
+
+async function listPairs(limit = 40) {
+    const out = [];
+    for (const g of pairGroups()) {
+        const hdb = await openRo(g.hedgeJournal); if (!hdb) continue;
+        let rows = [];
+        try { rows = await all(hdb, `SELECT id, exit_time FROM trades WHERE status = 'CLOSED' ORDER BY id DESC LIMIT ?`, [limit]); } catch { /* no table */ }
+        hdb.close();
+        for (const r of rows) out.push({ g, id: r.id, exit_time: r.exit_time });
+    }
+    out.sort((a, b) => String(b.exit_time || "").localeCompare(String(a.exit_time || "")));
+    const reviews = await all(cache(), `SELECT journal, trade_id, status, review, error, created_at FROM ai_reviews WHERE journal LIKE 'PAIR:%'`);
+    const byKey = new Map(reviews.map(r => [`${r.journal}#${r.trade_id}`, r]));
+    const res = [];
+    for (const x of out.slice(0, limit)) {
+        const p = await loadPair(x.g, x.id); if (!p) continue;
+        const rv = byKey.get(`PAIR:${x.g.hedgeJournal}#${x.id}`);
+        res.push({ journal: x.g.hedgeJournal, id: x.id, facts: p.facts, exitTime: p.h.exit_time,
+            review: rv && rv.status === "OK" && !isStale(rv.review) ? JSON.parse(rv.review) : null,
+            reviewError: rv && rv.status === "FAILED" ? rv.error : null, failedAt: rv && rv.status === "FAILED" ? rv.created_at : null });
+    }
+    return res;
+}
+
+const PAIR_TAGS = ["hedge_timely", "hedge_late", "hedge_protected_loss", "hedge_gave_back", "whipsaw_cycle", "flipflop_hedging", "forced_eod_close", "basis_risk", "clean_cycle", "hedge_closed_too_early"];
+const PAIR_SYSTEM_PROMPT = `You review ONE hedge cycle from an algorithmic futures trading engine (MCX commodities): a closed HEDGE trade together with the BASE (or CORE) position it was hedging. You are given verified facts computed by the system. All times are IST (Asia/Kolkata). Do not recompute or contradict the numbers; never invent prices, indicator values or market context. Anything you cannot judge goes ONLY in "limitations".
+The strategies (rules, not opinions):
+- Price-MA base-loss hedge (pairType "Price-MA base-loss hedge"): each account holds a constant base (LONG account long, SHORT account short, NRML, usually carried over many days and never closed by the engine). Every N minutes the engine checks the base's own P&L versus its entry price: base P&L below -band points -> open an OPPOSITE hedge (MIS) on the same account; base P&L back above +band -> close the hedge. At the EOD time the hedge is closed (before the broker's own square-off, which costs more); the base stays. The hedge may be on the next-expiry contract ("sameContract": false) which adds basis risk.
+- Hedge pair (core + hedge, one account): an NRML core and an opposite MIS hedge opened by the engine's own rule (base-loss: core P&L below the band; or a daily/hourly band flip against the core) and closed when the rule releases it or at EOD.
+A hedge is NOT meant to make money on its own: it is insurance that limits the base's loss while it is on. Judge the PAIR, not the hedge's P&L alone.
+How to read the facts:
+- window.baseP_LAtHedgeOpenPoints: the base's P&L (points) when the hedge opened; negative = the trigger. baseP_LAtHedgeClosePoints: when it closed. baseMoveDuringHedgeRupees = what the base gained/lost while the hedge was on; hedgePnlRupees = the hedge's result; pairNetDuringHedgeRupees = their sum (negative = the cycle cost money overall, near zero = the hedge froze the loss as intended). hedgeOffsetOfBaseLossPct = share of the base's loss during the window that the hedge made back.
+- A hedge that loses while the base gains is the expected cost of insurance (whipsaw) — only call it a problem if the day shows repeated cycles (dayContext.hedgeCyclesBeforeThisToday, consecutiveLosingHedgesBefore) = flip-flop.
+- exitReason EOD_FORCE = scheduled end-of-day close (a rule, not a market signal).
+- oppositeAccountHedgesOverlapping: the other account's hedges open in the same window (the two accounts' bases are opposite, so one base is losing while the other gains).
+- peakPnl/troughPnl are the hedge's own observed unrealised extremes; null = data gap.
+Grade the HEDGING DECISIONS and rule adherence: A = the hedge did its job (limited the base's loss, opened/closed in a timely way); B = acceptable with some inefficiency; C = a clear problem visible in the facts (late, flip-flopping, closed far too early, costly whipsaw). With thin evidence prefer B and explain.
+Field meaning (the JSON keys are fixed): "entry_assessment" = hedge entry timing relative to the base's loss; "trade_behaviour" = how base and hedge behaved together (pair net); "exit_assessment" = hedge exit.
+"tags": pick 0-4 that clearly apply from this list only: ${PAIR_TAGS.join(", ")}.
+Reply with ONLY this JSON:
+{"grade":"A|B|C","entry_assessment":"1-2 sentences","trade_behaviour":"1-2 sentences","exit_assessment":"1-2 sentences","evidence":["fact -> conclusion"],"limitations":["what could not be judged"],"tags":["..."],"takeaway":"one line"}`;
+
+async function reviewPair(hedgeJournal, id, force = false) {
+    const g = pairGroups().find(x => x.hedgeJournal === hedgeJournal);
+    const p = g ? await loadPair(g, id) : null;
+    if (!p) throw Object.assign(new Error("closed hedge trade not found"), { status: 404 });
+    const db = cache(), key = `PAIR:${hedgeJournal}`;
+    if (!force) {
+        const hit = (await all(db, `SELECT review FROM ai_reviews WHERE journal = ? AND trade_id = ? AND status = 'OK'`, [key, id]))[0];
+        if (hit && !isStale(hit.review)) return JSON.parse(hit.review);
+    }
+    try {
+        const call = async () => validateReview(await callGemini(p.facts, { systemPrompt: PAIR_SYSTEM_PROMPT, label: "Verified hedge-cycle facts:" }), PAIR_TAGS);
+        let review;
+        try { review = await call(); } catch (e) { if (!/validation|valid JSON/.test(e.message)) throw e; review = await call(); }
+        await run(db, `INSERT OR REPLACE INTO ai_reviews (journal, trade_id, status, review, model) VALUES (?, ?, 'OK', ?, ?)`, [key, id, JSON.stringify(review), MODEL]);
+        return review;
+    } catch (e) {
+        await run(db, `INSERT OR REPLACE INTO ai_reviews (journal, trade_id, status, error, model) VALUES (?, ?, 'FAILED', ?, ?)`, [key, id, e.message, MODEL]).catch(() => {});
+        throw e;
+    }
+}
+
+module.exports = { listTrades, reviewTrade, listPairs, reviewPair, buildPairFacts, pairGroups, PAIR_TAGS, buildFacts, validateReview, callGemini, journalFiles, openRo, all, cache, run, TAGS, MODEL };

@@ -5438,13 +5438,13 @@ initAuth();
 
 // ── TALGO-AI trade review tab ────────────────────────────────────────────
 function aiEsc(v) { return String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
-function aiReviewHtml(r) {
+function aiReviewHtml(r, pair) {
   const list = arr => arr.length ? `<ul style="margin:4px 0 0 18px;padding:0">${arr.map(x => `<li>${aiEsc(x)}</li>`).join("")}</ul>` : "";
   return `<div class="tb-form-hint" style="margin-top:8px;border-top:1px solid rgba(var(--overlay-rgb),.1);padding-top:8px">
     <div><button type="button" class="btn btn-ghost ai-close" style="float:right;padding:2px 10px">Close ✕</button><b>AI commentary</b> — grade <b>${aiEsc(r.grade)}</b> (decision quality, not profit)</div>
-    <div style="margin-top:4px"><b>Entry:</b> ${aiEsc(r.entry_assessment)}</div>
-    ${r.trade_behaviour ? `<div><b>Behaviour:</b> ${aiEsc(r.trade_behaviour)}</div>` : ""}
-    <div><b>Exit:</b> ${aiEsc(r.exit_assessment)}</div>
+    <div style="margin-top:4px"><b>${pair ? "Hedge entry" : "Entry"}:</b> ${aiEsc(r.entry_assessment)}</div>
+    ${r.trade_behaviour ? `<div><b>${pair ? "Pair" : "Behaviour"}:</b> ${aiEsc(r.trade_behaviour)}</div>` : ""}
+    <div><b>${pair ? "Hedge exit" : "Exit"}:</b> ${aiEsc(r.exit_assessment)}</div>
     ${(r.evidence || []).length ? `<div style="margin-top:4px"><b>Evidence</b>${list(r.evidence)}</div>` : ""}
     ${(r.limitations || []).length ? `<div style="margin-top:4px"><b>Limitations</b>${list(r.limitations)}</div>` : ""}
     ${(r.tags && r.tags.length) ? `<div style="margin-top:4px">${r.tags.map(t => `<span class="mode-pill">${aiEsc(t.replace(/_/g, " "))}</span>`).join(" ")}</div>` : ""}
@@ -5500,8 +5500,46 @@ async function loadAiSummary(days) {
     nb.disabled = false; nb.textContent = label;
   });
 }
+async function loadAiPairs() {
+  const box = document.getElementById("aiPairs");
+  if (!box) return;
+  let data;
+  try { data = await (await fetch("/api/ai/pairs")).json(); } catch { box.innerHTML = ""; return; }
+  if (data.error || !data.pairs.length) { box.innerHTML = ""; return; }
+  const sg = v => (v >= 0 ? "+" : "") + v, col = v => v >= 0 ? "var(--green, #3ddc84)" : "var(--red, #ff5c5c)";
+  box.innerHTML = `<div class="tb-form-hint" style="padding:10px 16px 0"><b>Hedge pairs</b> — each hedge cycle reviewed together with the base it was hedging</div>` + data.pairs.map((t, i) => {
+    const f = t.facts, h = f.hedge, b = f.base, w = f.window;
+    const when = h.exitTimeIst || "";
+    return `<div class="toolbox-row" style="display:block;padding:10px 16px" data-i="${i}">
+      <div><b>${aiEsc(f.pairType)}</b> · ${aiEsc(f.account)} · <span style="color:${col(h.pnlRupees)}">hedge ${sg(h.pnlRupees)}</span>${w ? ` · pair net <span style="color:${col(w.pairNetDuringHedgeRupees)}">${sg(w.pairNetDuringHedgeRupees)}</span>` : ""}</div>
+      ${b ? `<div class="tb-form-hint">Base ${aiEsc(b.side)} ${aiEsc(b.contract)} @${aiEsc(b.entryPrice)}${b.daysHeldWhenHedgeOpened ? ` (carried ${b.daysHeldWhenHedgeOpened}d)` : ""}${w ? ` · base ${sg(w.baseP_LAtHedgeOpenPoints)} pts at hedge open → ${sg(w.baseP_LAtHedgeClosePoints)} at close` : ""}</div>` : `<div class="tb-form-hint">Base trade not found in its journal</div>`}
+      <div class="tb-form-hint">Hedge ${aiEsc(h.side)} ${aiEsc(h.contract)} ${aiEsc(h.entryPrice)} → ${aiEsc(h.exitPrice)} (${sg(h.points)} pts) · ${h.durationMinutes ?? "?"} min · exit: ${aiEsc(h.exitReason || "")} · ${aiEsc(when)} IST${w && w.hedgeOffsetOfBaseLossPct != null ? ` · offset ${w.hedgeOffsetOfBaseLossPct}% of base loss` : ""}${f.dayContext && f.dayContext.hedgeCyclesBeforeThisToday ? ` · cycle #${f.dayContext.hedgeCyclesBeforeThisToday + 1} today` : ""}</div>
+      <div class="ai-review-slot">${t.review ? aiReviewHtml(t.review, true) : ""}</div>
+      ${t.reviewError ? `<div class="tb-form-hint" style="color:var(--red,#ff5c5c)">Last review failed: ${aiEsc(t.reviewError)}</div>` : ""}
+      <button class="btn btn-ghost ai-review-btn" style="margin-top:6px">${t.review ? "Re-run review" : "Review this pair"}</button>
+    </div>`;
+  }).join("");
+  box.querySelectorAll(".toolbox-row").forEach(row => {
+    const t = data.pairs[Number(row.dataset.i)], btn = row.querySelector(".ai-review-btn"), slot = row.querySelector(".ai-review-slot");
+    slot.addEventListener("click", e => {
+      if (e.target.closest(".ai-close")) slot.innerHTML = t.review ? `<button type="button" class="btn btn-ghost ai-show" style="margin-top:6px">Show review</button>` : "";
+      else if (e.target.closest(".ai-show") && t.review) slot.innerHTML = aiReviewHtml(t.review, true);
+    });
+    btn.addEventListener("click", async () => {
+      btn.disabled = true; const label = btn.textContent; btn.textContent = "Reviewing...";
+      try {
+        const res = await fetch("/api/ai/review-pair", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ journal: t.journal, id: t.id, force: !!t.review }) });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out.error || "Review failed");
+        t.review = out.review; slot.innerHTML = aiReviewHtml(out.review, true); btn.textContent = "Re-run review";
+      } catch (err) { slot.innerHTML = `<div class="tb-err-box">${aiEsc(err.message)}</div>`; btn.textContent = label; }
+      btn.disabled = false;
+    });
+  });
+}
 async function loadAiTrades() {
   const box = document.getElementById("aiList");
+  loadAiPairs();
   box.innerHTML = `<div class="tb-form-hint" style="padding:12px 16px">Loading...</div>`;
   let data;
   try { data = await (await fetch("/api/ai/trades")).json(); }

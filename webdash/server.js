@@ -2305,6 +2305,17 @@ app.get("/api/ai/trades", async (req, res) => {
         res.json({ keySet: geminiKeyFromEnvFile(), trades });
     } catch (err) { res.status(500).json({ error: err.message }); }
 });
+app.get("/api/ai/pairs", async (req, res) => {
+    try { res.json({ keySet: geminiKeyFromEnvFile(), pairs: await aiReview.listPairs(Math.min(Number(req.query.limit) || 40, 120)) }); }
+    catch (err) { res.status(500).json({ error: err.message }); }
+});
+app.post("/api/ai/review-pair", async (req, res) => {
+    const { journal, id, force } = req.body || {};
+    if (typeof journal !== "string" || !Number.isInteger(Number(id))) return res.status(400).json({ error: "Journal and id required" });
+    if (!geminiKeyFromEnvFile()) return res.status(400).json({ error: "Gemini API key not set — add GEMINI_API_KEY in Settings" });
+    try { res.json({ review: await aiReview.reviewPair(journal, Number(id), !!force) }); }
+    catch (err) { res.status(err.status || 502).json({ error: err.message }); }
+});
 app.post("/api/ai/review", async (req, res) => {
     const { journal, id, force } = req.body || {};
     if (typeof journal !== "string" || !Number.isInteger(Number(id))) return res.status(400).json({ error: "Journal and id required" });
@@ -2358,6 +2369,13 @@ async function aiAutoTick() {
         }).slice(0, 3);
         for (const t of todo) {
             try { await aiReview.reviewTrade(t.journal, t.id, false); aiAuto.reviewed++; aiAuto.lastError = null; }
+            catch (err) { aiAuto.lastError = err.message; }
+            await new Promise(r => setTimeout(r, 1500));
+        }
+        // hedge pairs: same rule (closed in the last 24 h, no review yet, max 2 per cycle, failures not retried here)
+        const pairTodo = (await aiReview.listPairs(30)).filter(p => !p.review && !p.reviewError && p.exitTime && new Date(p.exitTime).getTime() >= cutoff).slice(0, 2);
+        for (const p of pairTodo) {
+            try { await aiReview.reviewPair(p.journal, p.id, false); aiAuto.reviewed++; aiAuto.lastError = null; }
             catch (err) { aiAuto.lastError = err.message; }
             await new Promise(r => setTimeout(r, 1500));
         }
