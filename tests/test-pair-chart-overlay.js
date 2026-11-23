@@ -16,7 +16,8 @@ const mk = (f, rows) => new Promise(r => { const d = new sqlite3.Database(path.j
     assert.ok(m.every(x => x.t % 300000 === t0 % 300000), "markers snapped to 5m bar starts");
     assert.ok(m.some(x => /^CORE L @338.6/.test(x.text) && x.dir === 1), "core long entry arrow up");
     assert.ok(m.some(x => /^HEDGE X @335.6 \(\+425\)/.test(x.text) && x.dir === 1), "closed SHORT hedge exit = buy arrow");
-    assert.strictEqual(ov.lines.length, 2, "open core + open hedge entry lines");
+    assert.strictEqual(ov.lines.length, 3, "one entry-price line per trade: core (open), hedge (closed), hedge (open)");
+    const closed = ov.lines.find(l => /hedge entry SHORT @337.3$/.test(l.name)); assert.ok(closed && closed.points[1][0] < ov.lines.find(l => /core/.test(l.name)).points[1][0], "closed hedge line ends at its exit bar, the open core runs to now");
     assert.ok(ov.lines.every(l => l.width === 1 && l.points.length === 2));
     const none = await pairChartOverlay({ underlying: "ZZZ" }, bars, t0);
     assert.ok(none.note || none.markers, "unknown underlying doesn't throw");

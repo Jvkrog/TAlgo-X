@@ -18,14 +18,18 @@ async function pairChartOverlay(p, tfBars, fromTs) {
             db.close();
             for (const r of rows) {
                 const inT = Date.parse(r.entry_time), outT = r.exit_time ? Date.parse(r.exit_time) : null, long = r.side === "LONG";
-                if (r.status === "OPEN" && Number.isFinite(inT)) lines.push({ name: `${role.toLowerCase()} entry ${r.side} @${r.entry_price}`, color, width: 1, points: [[Math.max(snap(Math.max(inT, fromTs)) ?? firstT, firstT), r.entry_price], [lastT, r.entry_price]] });
+                // Entry-price line for EVERY trade in the window: from the entry bar to the exit bar (or to now while it is still open).
+                if (Number.isFinite(inT) && (outT === null || outT >= fromTs) && lines.length < 120) {
+                    const a = snap(Math.max(inT, firstT)) ?? firstT, z = outT === null ? lastT : (snap(outT) ?? lastT);
+                    if (z > a) lines.push({ name: `${role.toLowerCase()} entry ${r.side} @${r.entry_price}${outT === null ? " (open)" : ""}`, color, width: 1, points: [[a, r.entry_price], [z, r.entry_price]] });
+                }
                 const st = snap(inT);
                 if (st !== null && st >= fromTs - 86400000) markers.push({ t: st, dir: long ? 1 : -1, color, text: `${role} ${long ? "L" : "S"} @${r.entry_price}` });
                 if (outT !== null) { const et = snap(outT); if (et !== null && et >= fromTs - 86400000) markers.push({ t: et, dir: long ? -1 : 1, color, text: `${role} X @${r.exit_price}${Number.isFinite(r.pnl) ? ` (${r.pnl >= 0 ? "+" : ""}${Math.round(r.pnl)})` : ""}` }); }
             }
         }
         markers.sort((a, b) => a.t - b.t);
-        return { label: "Hedge pair — amber = core, cyan = hedge; arrows = fills from the pair's journals; lines = entry price of an open core / hedge", lines, markers };
+        return { label: "Hedge pair — amber = core, cyan = hedge; arrows = fills from the pair's journals; a horizontal line at every entry price, from the entry to the exit (or now while open)", lines, markers };
     } catch (err) { return { note: "pair markers unavailable: " + err.message }; }
 }
 
