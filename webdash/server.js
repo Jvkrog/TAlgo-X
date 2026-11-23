@@ -1395,10 +1395,11 @@ async function chartTarget(name) {
 const { pairChartOverlay, dualEntryOverlay } = require("./pairChartOverlay");
 const chartOverlayAny = async (p, tfBars, fromTs, tfMinutes) => {
     if (p.pair) return pairChartOverlay(p, tfBars, fromTs);
-    const ov = await applyJournalColors(p, chartOverlayFor(p, tfBars, fromTs), tfMinutes);
-    if (!p.dual || !ov) return ov;
-    const ex = await dualEntryOverlay(p, tfBars, fromTs);   // both accounts' fills + entry-price lines on top of the band
-    return { ...ov, lines: [...(ov.lines || []), ...ex.lines], markers: [...(ov.markers || []), ...ex.markers], label: (ov.label ? ov.label + " · " : "") + "A1 = LONG account (amber), A2 = SHORT account (cyan): arrows = fills, lines = entry prices" };
+    if (p.dual) {   // dual hedge: the Indicator tab shows BOTH accounts' fills + entry-price lines only (the DSB bands live under the DSB button)
+        const ex = await dualEntryOverlay(p, tfBars, fromTs);
+        return { label: "Dual hedge \u2014 A1 = LONG account (amber), A2 = SHORT account (cyan); arrows = fills (L/S side, X exit with P&L); an open trade's line carries its (account side @price) text near the right edge", lines: ex.lines, markers: ex.markers, ...(ex.note ? { note: ex.note } : {}) };
+    }
+    return applyJournalColors(p, chartOverlayFor(p, tfBars, fromTs), tfMinutes);
 };
 function chartContract(p, repo, exchange) {
     if (p.symbolOverride) {
