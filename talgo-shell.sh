@@ -1,5 +1,7 @@
 # talgo-shell.sh — makes `pm2 logs` show the coloured logs (logs.js) in this shell; every other pm2 command is untouched.
 # Install once:   echo "source $(pwd)/talgo-shell.sh" >> ~/.bashrc   (then open a new terminal)
+# Show the logs automatically on every login (optional, after the source line):
+#                 echo 'case $- in *i*) [ -z "$TMUX" ] && pm2 logs ;; esac' >> ~/.bashrc
 # Use as before:  pm2 logs   |   pm2 logs zinc   |   pm2 logs --lines 40   (--err adds stderr, --nostream prints and exits)
 # Coloured or normal: the toolbox [L] Logs prompt ("Coloured logs? [Y/n]") saves your choice in ~/.talgo_logs_color (y or n);
 #                     `pm2 logs` follows it. One-off override: TALGO_COLOR_LOGS=n pm2 logs   (or =y)
