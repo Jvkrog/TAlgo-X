@@ -411,6 +411,8 @@
       let prev = 0; const data = [];
       for (const [t, v, col] of l.points) { const time = Math.floor(t / 1000) + IST_S; if (time > prev) { data.push(col ? { time, value: v, color: col } : { time, value: v }); prev = time; } }
       ls.setData(data);
+      // l.tag: text written on the line at its right end (hedge-pair / dual entry lines: "(CORE LONG @338.6)"); dies with the series on redraw.
+      if (l.tag && data.length && ls.createPriceLine) ls.createPriceLine({ price: data[data.length - 1].value, color: l.color, lineWidth: 1, lineStyle: 0, axisLabelVisible: false, title: l.tag });
       S.lineSeries.push(ls);
     }
     drawMarkers();

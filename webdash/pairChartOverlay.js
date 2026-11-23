@@ -30,7 +30,7 @@ async function pairChartOverlay(p, tfBars, fromTs) {
                 // Entry-price line for EVERY trade in the window: from the entry bar to the exit bar (or to now while it is still open).
                 if (Number.isFinite(inT) && (outT === null || outT >= fromTs) && lines.length < 120) {
                     const a = snap(Math.max(inT, firstT)) ?? firstT, z = outT === null ? lastT : (snap(outT) ?? lastT);
-                    if (z > a) lines.push({ name: `${role.toLowerCase()} entry ${r.side} @${r.entry_price}${outT === null ? " (open)" : ""}`, color, width: 1, points: [[a, r.entry_price], [z, r.entry_price]] });
+                    if (z > a) lines.push({ name: `${role.toLowerCase()} entry ${r.side} @${r.entry_price}${outT === null ? " (open)" : ""}`, color, width: 1, points: [[a, r.entry_price], [z, r.entry_price]], ...(outT === null ? { tag: `(${role} ${r.side} @${r.entry_price})` } : {}) });   // tag: text written on the line at the right edge, open trades only (they run to the edge)
                 }
                 const st = snap(inT);
                 if (st !== null && st >= fromTs - 86400000) markers.push({ t: st, dir: long ? 1 : -1, color, text: `${role[0]} ${long ? "L" : "S"}` });
@@ -38,7 +38,7 @@ async function pairChartOverlay(p, tfBars, fromTs) {
             }
         }
         markers.sort((a, b) => a.t - b.t);
-        return { label: "Hedge pair — amber = core, cyan = hedge; arrows = fills (C = core, H = hedge; L/S side, X exit with P&L) — prices are in the line names / axis tags; a horizontal line at every entry price, from the entry to the exit (or now while open)", lines, markers };
+        return { label: "Hedge pair — amber = core, cyan = hedge; arrows = fills (C = core, H = hedge; L/S side, X exit with P&L) — an open trade's line carries its (role side @price) text at the right edge; a horizontal line at every entry price, from the entry to the exit (or now while open)", lines, markers };
     } catch (err) { return { note: "pair markers unavailable: " + err.message }; }
 }
 
@@ -70,7 +70,7 @@ async function dualEntryOverlay(d, tfBars, fromTs) {
                 const inT = Date.parse(r.entry_time), outT = r.exit_time ? Date.parse(r.exit_time) : null, long = r.side === "LONG";
                 if (Number.isFinite(inT) && (outT === null || outT >= fromTs) && lines.length < 120) {
                     const a = snap(Math.max(inT, firstT)) ?? firstT, z = outT === null ? lastT : (snap(outT) ?? lastT);
-                    if (z > a) lines.push({ name: `${role} entry ${r.side} @${r.entry_price}${outT === null ? " (open)" : ""}`, color, width: 1, points: [[a, r.entry_price], [z, r.entry_price]] });
+                    if (z > a) lines.push({ name: `${role} entry ${r.side} @${r.entry_price}${outT === null ? " (open)" : ""}`, color, width: 1, points: [[a, r.entry_price], [z, r.entry_price]], ...(outT === null ? { tag: `(${role === "LONG-acct" ? "A1" : "A2"} ${r.side} @${r.entry_price})` } : {}) });
                 }
                 const st = snap(inT);
                 if (st !== null && st >= fromTs - 86400000) markers.push({ t: st, dir: long ? 1 : -1, color, text: `${role === "LONG-acct" ? "A1" : "A2"} ${long ? "L" : "S"}` });

@@ -20,6 +20,7 @@ const mk = (f, rows) => new Promise(r => { const d = new sqlite3.Database(path.j
     assert.strictEqual(ov.lines.length, 3, "one entry-price line per trade: core (open), hedge (closed), hedge (open)");
     const closed = ov.lines.find(l => /hedge entry SHORT @337.3$/.test(l.name)); assert.ok(closed && closed.points[1][0] < ov.lines.find(l => /core/.test(l.name)).points[1][0], "closed hedge line ends at its exit bar, the open core runs to now");
     assert.ok(ov.lines.every(l => l.width === 1 && l.points.length === 2));
+    assert.ok(ov.lines.filter(l => l.tag).length === 2 && ov.lines.some(l => l.tag === "(CORE LONG @338.6)"), "open trades carry bracketed text; the closed hedge does not");
     const none = await pairChartOverlay({ underlying: "ZZZ" }, bars, t0);
     assert.ok(none.note || none.markers, "unknown underlying doesn't throw");
     console.log("pair chart overlay test passed"); process.exit(0);
