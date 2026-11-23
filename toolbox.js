@@ -4148,8 +4148,14 @@ function tailFile(filePath, n, colored = true) {
     }
 }
 
-async function viewLogs(procs) {
-    if (procs.length === 0) { console.log(c.yellow("  No instruments running")); return; }
+async function viewLogs(instrumentProcs) {
+    const [hedgePairs, dualHedges] = await Promise.all([getHedgePairProcesses().catch(() => []), getDualHedgeProcesses().catch(() => [])]);
+    const procs = [
+        ...instrumentProcs.map(q => ({ ...q, label: `${q.underlying}/${(STRATEGY_INFO[q.strategy] || { short: q.strategy }).short}` })),
+        ...hedgePairs.map(q => ({ ...q, label: `${q.name}  (hedge pair)` })),
+        ...dualHedges.map(q => ({ ...q, label: `${q.name}  (${q.strategy === "PRICE_MA" ? "Price-MA" : "dual hedge"})` })),
+    ];
+    if (procs.length === 0) { console.log(c.yellow("  Nothing running — no instruments, hedge pairs or dual-hedge deployments")); return; }
 
     // The coloured/normal choice lives right here, next to the instrument list. It is remembered in ~/.talgo_logs_color: the
     // default for this screen and what `pm2 logs` follows in a new terminal (talgo-shell.sh).
@@ -4158,9 +4164,9 @@ async function viewLogs(procs) {
     const savePref = () => { try { fs.writeFileSync(prefFile, colored ? "y\n" : "n\n"); } catch (e) { console.log(c.dim(`  (could not save the choice: ${e.message})`)); } };
     let p = null;
     for (;;) {
-        procs.forEach((q, i) => console.log(`  ${String(i + 1).padStart(2)}. ${q.underlying}/${(STRATEGY_INFO[q.strategy] || { short: q.strategy }).short}`));
+        procs.forEach((q, i) => console.log(`  ${String(i + 1).padStart(2)}. ${q.label}`));
         console.log(c.dim(`  Coloured logs: ${colored ? "ON" : "OFF"}  (type C to switch; also used by pm2 logs in new terminals)`));
-        const pick = (await ask("  Select instrument (blank to cancel, C = coloured on/off): ")).trim();
+        const pick = (await ask("  Select process (blank to cancel, C = coloured on/off): ")).trim();
         if (!pick) return;
         if (pick.toLowerCase() === "c") { colored = !colored; savePref(); console.log(c.green(`  Coloured logs ${colored ? "ON" : "OFF"}`)); continue; }
         p = procs[Number(pick) - 1];
