@@ -13,7 +13,7 @@ const mk = (f, rows) => new Promise(r => { const d = new sqlite3.Database(path.j
     const ov = await dualEntryOverlay({ underlying: "ZINCMINI", longContract: "ZINCMINI25DECFUT" }, bars, t0);
     assert.strictEqual(ov.markers.length, 2, "one entry per account on the current contract; old contract excluded");
     assert.strictEqual(ov.lines.length, 2);
-    assert.ok(ov.markers.some(m => /^A1 L @388/.test(m.text) && m.dir === 1) && ov.markers.some(m => /^A2 S @389/.test(m.text) && m.dir === -1));
+    assert.ok(ov.markers.some(m => /^A1 L$/.test(m.text) && m.dir === 1) && ov.markers.some(m => /^A2 S$/.test(m.text) && m.dir === -1));
     assert.ok(!ov.lines.some(l => /300/.test(l.name)));
     console.log("dual chart overlay test passed"); process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });
