@@ -11,11 +11,20 @@ async function pairChartOverlay(p, tfBars, fromTs) {
         const times = tfBars.map(b => b.date.getTime()), firstT = times[0], lastT = times[times.length - 1];
         const snap = t => { if (!(t >= firstT)) return null; let lo = 0, hi = times.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (times[mid] <= t) lo = mid; else hi = mid - 1; } return times[lo]; };
         const lines = [], markers = [];
+        // The journals span every contract the pair has traded; the chart shows ONE contract, so keep only that contract's trades
+        // (the pair's configured core contract, else the contract of the newest core trade).
+        let curCore = p.coreSymbol || null;
+        if (!curCore) {
+            const cdb = await ai.openRo(g.baseJournal);
+            if (cdb) { try { const r0 = await ai.all(cdb, "SELECT instrument FROM trades ORDER BY id DESC LIMIT 1"); curCore = r0[0] && r0[0].instrument || null; } catch { /* no table */ } cdb.close(); }
+        }
         for (const [file, role, color] of [[g.baseJournal, "CORE", "#ffb347"], [g.hedgeJournal, "HEDGE", "#5cd6ff"]]) {
             const db = await ai.openRo(file); if (!db) continue;
+            const want = role === "CORE" ? curCore : (p.hedgeSymbol || curCore);
             let rows = [];
-            try { rows = await ai.all(db, "SELECT side, entry_price, entry_time, exit_price, exit_time, pnl, status FROM trades ORDER BY id DESC LIMIT 300"); } catch { /* no table yet */ }
+            try { rows = await ai.all(db, "SELECT instrument, side, entry_price, entry_time, exit_price, exit_time, pnl, status FROM trades ORDER BY id DESC LIMIT 300"); } catch { /* no table yet */ }
             db.close();
+            if (want) rows = rows.filter(r => !r.instrument || r.instrument === want);
             for (const r of rows) {
                 const inT = Date.parse(r.entry_time), outT = r.exit_time ? Date.parse(r.exit_time) : null, long = r.side === "LONG";
                 // Entry-price line for EVERY trade in the window: from the entry bar to the exit bar (or to now while it is still open).
