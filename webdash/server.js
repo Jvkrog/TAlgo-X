@@ -1401,6 +1401,12 @@ const chartOverlayAny = async (p, tfBars, fromTs, tfMinutes) => {
     }
     return applyJournalColors(p, chartOverlayFor(p, tfBars, fromTs), tfMinutes);
 };
+function validateLock(step, giveback) {
+    const st = step === undefined || step === "" ? 0 : Number(step), gb = giveback === undefined || giveback === "" ? 1 : Number(giveback);
+    if (!Number.isFinite(st) || st < 0) return "Lock step must be 0 (off) or a positive number of points";
+    if (st > 0 && !(Number.isFinite(gb) && gb >= 0 && gb < st)) return "Lock giveback must be >= 0 and smaller than the step";
+    return null;
+}
 function chartContract(p, repo, exchange) {
     if (p.symbolOverride) {
         const row = repo.findBySymbol(p.symbolOverride);
@@ -2568,6 +2574,8 @@ async function getHedgePairProcesses() {
             checkMin:        p.pm2_env.env?.HEDGE_CHECK_MINUTES || "5",
             coreSide:        p.pm2_env.env?.CORE_SIDE_OVERRIDE || "",
             pnlBand:         p.pm2_env.env?.HEDGE_PNL_BAND || "0",
+            lockStep:        p.pm2_env.env?.HEDGE_LOCK_STEP || "0",
+            lockGiveback:    p.pm2_env.env?.HEDGE_LOCK_GIVEBACK || "1",
             carryOvernight:  p.pm2_env.env?.CORE_CARRY_OVERRIDE !== "false",
             live:            p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:        p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -2696,7 +2704,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
     const {
         coreUnderlying, hedgeUnderlying, coreLots, hedgeLots,
         coreLotMultOverride, hedgeLotMultOverride, unwindMode, carryOvernight, coreSymbol, hedgeSymbol,
-        live, confirmLive, hedgeRule, checkMin, pnlBand, coreSide, holdCore,
+        live, confirmLive, hedgeRule, checkMin, pnlBand, coreSide, holdCore, lockStep, lockGiveback,
     } = req.body || {};
     const rule = String(hedgeRule || "DSB").toUpperCase();
     if (rule !== "DSB" && rule !== "BASE_LOSS") return res.status(400).json({ error: "HedgeRule must be DSB or BASE_LOSS" });
@@ -2708,6 +2716,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
         if (!["LONG", "SHORT"].includes(String(coreSide || "").toUpperCase())) return res.status(400).json({ error: "CoreSide must be LONG or SHORT for the base-loss rule" });
     }
 
+    const lockErr = validateLock(lockStep, lockGiveback); if (lockErr) return res.status(400).json({ error: lockErr });
     if (!coreUnderlying || !hedgeUnderlying) {
         return res.status(400).json({ error: "CoreUnderlying and hedgeUnderlying are both required" });
     }
@@ -2733,6 +2742,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
         CORE_UNDERLYING: coreUnderlying, HEDGE_UNDERLYING: hedgeUnderlying, EXCHANGE_OVERRIDE: "MCX",
         CORE_LOTS_OVERRIDE: String(coreLots || 1), HEDGE_LOTS_OVERRIDE: String(hedgeLots || (rule === "BASE_LOSS" ? (coreLots || 1) : 5)),
         HEDGE_RULE: rule, ...(rule === "BASE_LOSS" ? { CORE_SIDE_OVERRIDE: String(coreSide).toUpperCase() } : {}), HEDGE_CHECK_MINUTES: String(rule === "BASE_LOSS" ? (Number(checkMin) || 5) : 5), HEDGE_PNL_BAND: String(rule === "BASE_LOSS" ? (Number(pnlBand) || 0) : 0), ...(rule === "BASE_LOSS" && holdCore === true ? { HEDGE_CORE_HOLD_OVERNIGHT: "true" } : {}),
+        HEDGE_LOCK_STEP: String(Number(lockStep) || 0), HEDGE_LOCK_GIVEBACK: String(lockGiveback === undefined || lockGiveback === "" ? 1 : Number(lockGiveback)),
         UNWIND_MODE_OVERRIDE: resolvedUnwindMode, CORE_CARRY_OVERRIDE: String(carryOvernight !== false), LIVE_ORDERS_OVERRIDE: String(!!live),
     };
     for (const [k, v, u] of [["CORE_SYMBOL_OVERRIDE", coreSymbol, coreUnderlying], ["HEDGE_SYMBOL_OVERRIDE", hedgeSymbol, hedgeUnderlying]]) {
@@ -2846,7 +2856,7 @@ function pmaDeployment(p) {
         contractSymbol: e.PMA_CONTRACT_OVERRIDE || null,
         baseTime: hhmmPad(e.PMA_BASE_HOUR ?? 9, e.PMA_BASE_MINUTE ?? 15),
         eodTime: (e.PMA_EOD_HOUR !== undefined && e.PMA_EOD_HOUR !== "") ? hhmmPad(e.PMA_EOD_HOUR, e.PMA_EOD_MINUTE ?? 0) : null,
-        carry: String(e.PMA_CARRY).toLowerCase() !== "false", pnlBand: e.PMA_PNL_BAND || "0", pnlSmooth: e.PMA_PNL_SMOOTH || "1", checkMin: e.PMA_CHECK_MINUTES || "1", hedgeContract: e.PMA_HEDGE_CONTRACT || "SAME",
+        carry: String(e.PMA_CARRY).toLowerCase() !== "false", lockStep: e.PMA_LOCK_STEP || "0", lockGiveback: e.PMA_LOCK_GIVEBACK || "1", pnlBand: e.PMA_PNL_BAND || "0", pnlSmooth: e.PMA_PNL_SMOOTH || "1", checkMin: e.PMA_CHECK_MINUTES || "1", hedgeContract: e.PMA_HEDGE_CONTRACT || "SAME",
         outLogPath: p.pm2_env.pm_out_log_path, errLogPath: p.pm2_env.pm_err_log_path,
     };
 }
@@ -3003,7 +3013,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         strategy: strategyIn, unwindMode: unwindIn, bandTimeframe: bandTfIn, entryTime, eodTime,
         coreSignal: coreSignalIn, bandHa: bandHaIn, coreEod: coreEodIn, coreAccount: coreAccountIn, flipCore: flipCoreIn,
         realizeRupees, lossAlertRupees, contractSymbol, longContract, shortContract,
-        baseTime, pnlBand, pnlSmooth, checkMin, hedgeContract, carry, editName,
+        baseTime, pnlBand, pnlSmooth, checkMin, hedgeContract, carry, editName, lockStep, lockGiveback,
     } = req.body || {};
 
     const strategy = String(strategyIn || "DUAL").toUpperCase();
@@ -3080,6 +3090,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         if (!eod) return res.status(400).json({ error: "EodTime must be HH:MM (IST)" });
         if (eod.hour * 60 + eod.minute <= base.hour * 60 + base.minute) return res.status(400).json({ error: "BaseTime must be before EOD" });
         const pb = pnlBand === undefined || pnlBand === "" ? 0 : Number(pnlBand), ps = pnlSmooth === undefined || pnlSmooth === "" ? 1 : Number(pnlSmooth);
+        { const lockErr = validateLock(lockStep, lockGiveback); if (lockErr) return res.status(400).json({ error: lockErr }); }
         const hcRaw = String(hedgeContract || "SAME").trim().toUpperCase();
         if (hcRaw !== "SAME" && hcRaw !== "NEXT" && !/^[A-Z0-9]+$/.test(hcRaw)) return res.status(400).json({ error: "HedgeContract must be SAME, NEXT or a tradingsymbol" });
         const hedgeContractVal = hcRaw;   // always written (PM2 restart merges env)
@@ -3092,6 +3103,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
             PMA_LOTS_OVERRIDE: env.DH_LOTS_OVERRIDE, LIVE_ORDERS_OVERRIDE: env.LIVE_ORDERS_OVERRIDE,
             PMA_CONTRACT_OVERRIDE: env.DH_CONTRACT_OVERRIDE,   // always written (PM2 restart merges env)
             PMA_BASE_HOUR: String(base.hour), PMA_BASE_MINUTE: String(base.minute), PMA_EOD_HOUR: String(eod.hour), PMA_EOD_MINUTE: String(eod.minute),
+            PMA_LOCK_STEP: String(Number(lockStep) || 0), PMA_LOCK_GIVEBACK: String(lockGiveback === undefined || lockGiveback === "" ? 1 : Number(lockGiveback)),
             PMA_PNL_BAND: String(pb), PMA_PNL_SMOOTH: String(ps), PMA_CHECK_MINUTES: String(cm), PMA_HEDGE_CONTRACT: hedgeContractVal, PMA_CARRY: String(carry !== false),   // always written (PM2 restart merges env)
         };
         if (lotMultOverride) pmaEnv.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);

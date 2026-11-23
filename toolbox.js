@@ -2703,6 +2703,15 @@ async function addHedgePairBaseLoss() {
     const bandIn = (await ask("  Loss band in points (0 = hedge as soon as core P&L < 0, default 0): ")).trim();
     const pnlBand = bandIn ? Number(bandIn) : 0;
     if (!Number.isFinite(pnlBand) || pnlBand < 0) { console.log(c.yellow("  Invalid loss band")); await pauseForReview(); return; }
+    const lkIn = (await ask("  Hedge profit lock step in points (0 = off; 5, 10, 15 …: reaching +step locks +step minus giveback, +2×step locks +2×step minus giveback; default 0): ")).trim();
+    const lockStep = lkIn ? Number(lkIn) : 0;
+    if (!Number.isFinite(lockStep) || lockStep < 0) { console.log(c.yellow("  Invalid lock step")); await pauseForReview(); return; }
+    let lockGiveback = 1;
+    if (lockStep > 0) {
+        const gbIn = (await ask("  Lock giveback in points (default 1: step 5 → reached +5 locks +4): ")).trim();
+        lockGiveback = gbIn ? Number(gbIn) : 1;
+        if (!Number.isFinite(lockGiveback) || lockGiveback < 0 || lockGiveback >= lockStep) { console.log(c.yellow("  Giveback must be >= 0 and smaller than the step")); await pauseForReview(); return; }
+    }
     const holdCore = (await ask("  Carry the NRML core overnight? only the MIS hedge closes at EOD [y/N]: ")).trim().toLowerCase() === "y";
     const modeInput = (await ask("  [L] Live  [P] Paper (default Paper): ")).trim().toUpperCase();
     let isLive = modeInput === "L";
@@ -2714,7 +2723,7 @@ async function addHedgePairBaseLoss() {
     const env = {
         CORE_UNDERLYING: underlying, HEDGE_UNDERLYING: underlying, EXCHANGE_OVERRIDE: "MCX",
         CORE_LOTS_OVERRIDE: String(lots), HEDGE_LOTS_OVERRIDE: String(lots), UNWIND_MODE_OVERRIDE: "HA_FLIP", CORE_CARRY_OVERRIDE: "true",
-        HEDGE_RULE: "BASE_LOSS", CORE_SIDE_OVERRIDE: coreSide, HEDGE_CHECK_MINUTES: String(checkMin), HEDGE_PNL_BAND: String(pnlBand), LIVE_ORDERS_OVERRIDE: String(isLive),
+        HEDGE_RULE: "BASE_LOSS", CORE_SIDE_OVERRIDE: coreSide, HEDGE_CHECK_MINUTES: String(checkMin), HEDGE_PNL_BAND: String(pnlBand), HEDGE_LOCK_STEP: String(lockStep), HEDGE_LOCK_GIVEBACK: String(lockGiveback), LIVE_ORDERS_OVERRIDE: String(isLive),
         ...(holdCore ? { HEDGE_CORE_HOLD_OVERNIGHT: "true" } : {}),
     };
     if (contract) { env.CORE_SYMBOL_OVERRIDE = contract; env.HEDGE_SYMBOL_OVERRIDE = contract; }
@@ -3088,6 +3097,15 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
     const bandIn = (await ask("  Loss band in points (0 = hedge as soon as base P&L < 0, default 0): ")).trim();
     const pnlBand = bandIn ? Number(bandIn) : 0;
     if (!Number.isFinite(pnlBand) || pnlBand < 0) { console.log(c.yellow("  Invalid loss band")); await pauseForReview(); return; }
+    const lkIn = (await ask("  Hedge profit lock step in points (0 = off; 5, 10, 15 …: reaching +step locks +step minus giveback, +2×step locks +2×step minus giveback; default 0): ")).trim();
+    const lockStep = lkIn ? Number(lkIn) : 0;
+    if (!Number.isFinite(lockStep) || lockStep < 0) { console.log(c.yellow("  Invalid lock step")); await pauseForReview(); return; }
+    let lockGiveback = 1;
+    if (lockStep > 0) {
+        const gbIn = (await ask("  Lock giveback in points (default 1: step 5 → reached +5 locks +4): ")).trim();
+        lockGiveback = gbIn ? Number(gbIn) : 1;
+        if (!Number.isFinite(lockGiveback) || lockGiveback < 0 || lockGiveback >= lockStep) { console.log(c.yellow("  Giveback must be >= 0 and smaller than the step")); await pauseForReview(); return; }
+    }
     const smIn = (await ask("  Smoothing: average of the last N P&L samples (one per check) (default 1 = raw): ")).trim();
     const pnlSmooth = smIn ? Number(smIn) : 1;
     if (!Number.isInteger(pnlSmooth) || pnlSmooth < 1) { console.log(c.yellow("  Invalid smoothing")); await pauseForReview(); return; }
@@ -3110,7 +3128,7 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
         PMA_UNDERLYING: underlying, PMA_LONG_USER: longUser.name, PMA_SHORT_USER: shortUser.name, PMA_EXCHANGE_OVERRIDE: "MCX",
         PMA_LOTS_OVERRIDE: String(lots), LIVE_ORDERS_OVERRIDE: String(isLive), PMA_CONTRACT_OVERRIDE: contractSymbol || "",
         PMA_BASE_HOUR: String(baseHour), PMA_BASE_MINUTE: String(baseMinute), PMA_EOD_HOUR: String(eod.eodHour), PMA_EOD_MINUTE: String(eod.eodMinute),
-        PMA_PNL_BAND: String(pnlBand), PMA_PNL_SMOOTH: String(pnlSmooth), PMA_CHECK_MINUTES: String(checkMin), PMA_HEDGE_CONTRACT: hedgeContract, PMA_CARRY: String(carry),
+        PMA_LOCK_STEP: String(lockStep), PMA_LOCK_GIVEBACK: String(lockGiveback), PMA_PNL_BAND: String(pnlBand), PMA_PNL_SMOOTH: String(pnlSmooth), PMA_CHECK_MINUTES: String(checkMin), PMA_HEDGE_CONTRACT: hedgeContract, PMA_CARRY: String(carry),
     };
     if (lotMultOverride) env.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
     try {

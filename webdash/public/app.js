@@ -4599,6 +4599,8 @@ async function renderHpBaseLossForm() {
     <div class="tb-form-row" style="display:${lm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">Lot multiplier — REQUIRED <span class="req-star" title="required">*</span>, no context.js override on file for ${u}. Real contract multiplier, not broker lot_size.</div><input type="number" id="blLotMult" min="1" step="any"></div>
     <div class="tb-form-row"><div class="tb-form-label">Check core P&amp;L every N minutes (5 = at :00, :05, :10 … IST)</div><input type="number" id="blCheck" min="1" max="60" step="1" value="5"></div>
     <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge when core P&amp;L &lt; 0)</div><input type="number" id="blBand" min="0" step="any" value="0"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Hedge profit lock — step in points (0 = off; 5, 10, 15 …): reaching +step locks +step minus the giveback, +2×step locks +2×step minus the giveback; the hedge closes when it falls back to the floor</div><input type="number" id="blLock" min="0" step="5" value="0"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Lock giveback in points (default 1: step 5 → reached +5 locks +4)</div><input type="number" id="blLockGb" min="0" step="any" value="1"></div>
     <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="blHold"><span>Carry the NRML core overnight — at EOD only the MIS hedge is closed (restart the engine each morning; the core resumes)</span></label></div>
     <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="blLive"><span>Go LIVE (real orders: NRML core + MIS hedge) — unchecked = paper</span></label></div>
     <div id="blErrBox"></div>
@@ -4610,7 +4612,7 @@ async function renderHpBaseLossForm() {
     if (live) { confirmLive = prompt('This starts REAL orders (NRML core + MIS hedge). Type "LIVE" to confirm:'); if (confirmLive !== "LIVE") { errBox.innerHTML = `<div class="tb-err-box">Not confirmed — not started</div>`; return; } }
     const lots = q("#blLots").value || 1, sym = q("#blSym").value || undefined, lmv = q("#blLotMult") ? (q("#blLotMult").value || undefined) : undefined;
     const body = { coreUnderlying: u, hedgeUnderlying: u, coreLots: lots, hedgeLots: lots, coreSymbol: sym, hedgeSymbol: sym, coreLotMultOverride: lmv, hedgeLotMultOverride: lmv,
-      carryOvernight: true, hedgeRule: "BASE_LOSS", coreSide: q("#blSide").value, checkMin: q("#blCheck").value || 5, pnlBand: q("#blBand").value || 0, holdCore: q("#blHold").checked, live, confirmLive };
+      carryOvernight: true, hedgeRule: "BASE_LOSS", coreSide: q("#blSide").value, checkMin: q("#blCheck").value || 5, pnlBand: q("#blBand").value || 0, holdCore: q("#blHold").checked, lockStep: q("#blLock").value || 0, lockGiveback: q("#blLockGb").value || 1, live, confirmLive };
     const btn = q("#blSubmit"); btn.disabled = true; btn.textContent = "Starting...";
     try {
       const res = await fetch("/api/toolbox/hedgepairs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -5023,7 +5025,9 @@ async function renderDualHedgeAddForm() {
       <div class="tb-form-row"><div class="tb-form-label">Base entry time IST (LONG NRML on the long account, SHORT NRML on the short account)</div><input type="time" id="dhPmaBase" value="09:15"></div>
       <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (default 23:15) \u2014 the MIS hedge is closed</div><input type="time" id="dhPmaEod" value="23:15"></div>
       <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dhPmaCarry" checked><span>Carry overnight: NRML bases held constant (long in the long account, short in the short account, never closed by the engine); the hedge is MIS and is closed at EOD. Unchecked = day mode (MIS bases + NRML hedge, all flat at EOD)</span></label></div>
-      <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge as soon as base P&amp;L &lt; 0, close when &gt; 0)</div><input type="number" id="dhPmaBand" min="0" step="any" value="0"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Hedge profit lock — step in points (0 = off; 5, 10, 15 …): reaching +step locks +step minus the giveback, +2×step locks +2×step minus the giveback; the hedge closes when it falls back to the floor</div><input type="number" id="dhPmaLock" min="0" step="5" value="0"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Lock giveback in points (default 1: step 5 → reached +5 locks +4)</div><input type="number" id="dhPmaLockGb" min="0" step="any" value="1"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge as soon as base P&amp;L &lt; 0, close when &gt; 0)</div><input type="number" id="dhPmaBand" min="0" step="any" value="0"></div>
       <div class="tb-form-row"><div class="tb-form-label">Smoothing (average of last N P&amp;L samples (one per check); 1 = raw)</div><input type="number" id="dhPmaSmooth" min="1" step="1" value="1"></div>
       <div class="tb-form-row"><div class="tb-form-label">Check hedge every N minutes (1 = every minute; 5 = at :00, :05, :10 …)</div><input type="number" id="dhPmaCheck" min="1" max="60" step="1" value="1"></div>
       <div class="tb-form-row"><div class="tb-form-label">Hedge contract (NEXT = next-month future: calendar-spread margin benefit, but the hedge then carries basis risk)</div><select id="dhPmaHedgeContract"><option value="SAME" selected>Same contract as the base</option><option value="NEXT">Next month</option></select></div>
@@ -5110,7 +5114,7 @@ async function renderDualHedgeAddForm() {
     set("#dhBandHa", dhEdit.bandHa === undefined ? "" : String(dhEdit.bandHa)); set("#dhCoreEod", dhEdit.coreEod); set("#dhUnwind", dhEdit.unwindMode); set("#dhBandTf", dhEdit.bandTimeframe); set("#dhEntryTime", dhEdit.entryTime);
     Q("#dhGap").checked = !!dhEdit.gapCapture; Q("#dhLive").checked = !!dhEdit.live;
     if (dhEdit.strategy === "PRICE_MA") {
-      set("#dhPmaBase", dhEdit.baseTime); set("#dhPmaEod", dhEdit.eodTime); set("#dhPmaBand", dhEdit.pnlBand); set("#dhPmaSmooth", dhEdit.pnlSmooth); set("#dhPmaCheck", dhEdit.checkMin);
+      set("#dhPmaBase", dhEdit.baseTime); set("#dhPmaEod", dhEdit.eodTime); set("#dhPmaBand", dhEdit.pnlBand); set("#dhPmaLock", dhEdit.lockStep); set("#dhPmaLockGb", dhEdit.lockGiveback); set("#dhPmaSmooth", dhEdit.pnlSmooth); set("#dhPmaCheck", dhEdit.checkMin);
       Q("#dhPmaCarry").checked = dhEdit.carry !== false;
       const hc = Q("#dhPmaHedgeContract");
       if (dhEdit.hedgeContract && ![...hc.options].some(o => o.value === dhEdit.hedgeContract)) hc.insertAdjacentHTML("beforeend", `<option value="${escHtml(dhEdit.hedgeContract)}">${escHtml(dhEdit.hedgeContract)}</option>`);
@@ -5164,7 +5168,7 @@ async function renderDualHedgeAddForm() {
       gapCapture: tbDualHedgeBody.querySelector("#dhStrategy").value === "DUAL" && tbDualHedgeBody.querySelector("#dhGap").checked,
       gcEntry: "23:20", gcExit: "23:25",
       baseTime: tbDualHedgeBody.querySelector("#dhPmaBase").value || "09:15", eodTime: tbDualHedgeBody.querySelector("#dhPmaEod").value || undefined,
-      carry: tbDualHedgeBody.querySelector("#dhPmaCarry").checked, pnlBand: tbDualHedgeBody.querySelector("#dhPmaBand").value || 0, pnlSmooth: tbDualHedgeBody.querySelector("#dhPmaSmooth").value || 1, checkMin: tbDualHedgeBody.querySelector("#dhPmaCheck").value || 1, hedgeContract: tbDualHedgeBody.querySelector("#dhPmaHedgeContract").value,
+      carry: tbDualHedgeBody.querySelector("#dhPmaCarry").checked, lockStep: tbDualHedgeBody.querySelector("#dhPmaLock").value || 0, lockGiveback: tbDualHedgeBody.querySelector("#dhPmaLockGb").value || 1, pnlBand: tbDualHedgeBody.querySelector("#dhPmaBand").value || 0, pnlSmooth: tbDualHedgeBody.querySelector("#dhPmaSmooth").value || 1, checkMin: tbDualHedgeBody.querySelector("#dhPmaCheck").value || 1, hedgeContract: tbDualHedgeBody.querySelector("#dhPmaHedgeContract").value,
           };
     const btn = tbDualHedgeBody.querySelector("#dhAddSubmit");
     btn.disabled = true; btn.textContent = "Starting...";
@@ -5264,6 +5268,8 @@ async function renderDualHedgeBacktestForm() {
       <div class="tb-form-row"><div class="tb-form-label">Base entry time IST</div><input type="time" id="dbPmaBase" value="09:15"></div>
       <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (default 23:15)</div><input type="time" id="dbPmaEod" value="23:15"></div>
       <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dbPmaCarry" checked><span>Carry overnight: NRML bases held constant (long in the long account, short in the short account, never closed by the engine); the hedge is MIS and is closed at EOD. Unchecked = day mode (MIS bases + NRML hedge, all flat at EOD)</span></label></div>
+    <div class="tb-form-row"><div class="tb-form-label">Hedge profit lock — step in points (0 = off; 5, 10, 15 …): reaching +step locks +step minus the giveback, +2×step locks +2×step minus the giveback; the hedge closes when it falls back to the floor</div><input type="number" id="dbPmaLock" min="0" step="5" value="0"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Lock giveback in points (default 1: step 5 → reached +5 locks +4)</div><input type="number" id="dbPmaLockGb" min="0" step="any" value="1"></div>
       <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge when base P&amp;L &lt; 0)</div><input type="number" id="dbPmaBand" min="0" step="any" value="0"></div>
       <div class="tb-form-row"><div class="tb-form-label">Smoothing (last N samples (one per check); 1 = raw)</div><input type="number" id="dbPmaSmooth" min="1" step="1" value="1"></div>
       <div class="tb-form-row"><div class="tb-form-label">Check hedge every N minutes (1 = every minute; 5 = at :00, :05 …)</div><input type="number" id="dbPmaCheck" min="1" max="60" step="1" value="1"></div>
@@ -5332,7 +5338,7 @@ async function renderDualHedgeBacktestForm() {
     q("#dbGap").checked = !!pf.gapCapture;
     set("#dbLotMult", pf.lotMult); set("#dbBandStep", pf.bandStep);
     if (pf.strategy === "PRICE_MA") {
-      set("#dbPmaBase", pf.baseTime); set("#dbPmaEod", pf.eodTime); set("#dbPmaBand", pf.pnlBand); set("#dbPmaSmooth", pf.pnlSmooth); set("#dbPmaCheck", pf.checkMin);
+      set("#dbPmaBase", pf.baseTime); set("#dbPmaEod", pf.eodTime); set("#dbPmaBand", pf.pnlBand); set("#dbPmaLock", pf.lockStep); set("#dbPmaLockGb", pf.lockGiveback); set("#dbPmaSmooth", pf.pnlSmooth); set("#dbPmaCheck", pf.checkMin);
       q("#dbPmaCarry").checked = pf.carry !== false;
       if (pf.hedgeContract === "SAME" || pf.hedgeContract === "NEXT") set("#dbPmaHedgeContract", pf.hedgeContract);
     }
@@ -5357,7 +5363,7 @@ async function renderDualHedgeBacktestForm() {
       realizeRupees: q("#dbRealizeRupees").value || undefined, lossAlertRupees: q("#dbLossAlert").value || undefined,
       gapCapture: q("#dbStrategy").value === "DUAL" && q("#dbGap").checked,
       gcEntry: "23:20", gcExit: "23:25",
-      baseTime: q("#dbPmaBase").value || "09:15", eodTime: q("#dbPmaEod").value || undefined, carry: q("#dbPmaCarry").checked, pnlBand: q("#dbPmaBand").value || 0, pnlSmooth: q("#dbPmaSmooth").value || 1, checkMin: q("#dbPmaCheck").value || 1, hedgeContract: q("#dbPmaHedgeContract").value,
+      baseTime: q("#dbPmaBase").value || "09:15", eodTime: q("#dbPmaEod").value || undefined, carry: q("#dbPmaCarry").checked, lockStep: q("#dbPmaLock").value || 0, lockGiveback: q("#dbPmaLockGb").value || 1, pnlBand: q("#dbPmaBand").value || 0, pnlSmooth: q("#dbPmaSmooth").value || 1, checkMin: q("#dbPmaCheck").value || 1, hedgeContract: q("#dbPmaHedgeContract").value,
           };
     const btn = q("#dbSubmit");
     btn.disabled = true; btn.textContent = "Running...";
