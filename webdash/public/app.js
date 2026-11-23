@@ -79,6 +79,7 @@ async function loadDayRef() {
     Object.keys(dayRef).forEach(k => delete dayRef[k]);
     Object.assign(dayRef, d);
     instruments.forEach(i => { const el = document.getElementById(cardId(i)); const pe = el && el.querySelector('[data-role="price"]'); if (pe && Number.isFinite(Number(pe.textContent))) paintPrice(el, i, Number(pe.textContent)); });
+    hedgePairs.forEach(p => { const el = document.getElementById(`hp-${p.name}`); const pe = el && el.querySelector('[data-role="price"]'); if (pe && Number.isFinite(Number(pe.textContent))) paintPrice(el, { name: p.name }, Number(pe.textContent)); });
   } catch { /* best effort */ }
 }
 // Day change of a price: { pts, pct, up } or null when the previous close isn't known.
@@ -279,8 +280,11 @@ function buildHedgePairCard(p) {
       </div>
     </div>
     <div class="card-price-row">
-      <span class="card-price">${p.hedgeRule === "BASE_LOSS" ? `${p.coreLots} lot \u00b7 NRML core + MIS hedge (one account)` : `core ${p.coreLots} lot NRML \u00b7 hedge ${p.hedgeLots} lots`}</span>
+      <span class="state-marker flat" data-role="marker">\u25cf</span>
+      <span class="card-price" data-role="price">\u2014</span>
+      <span class="card-chg" data-role="chg"></span>
     </div>
+    <div class="card-strategy" style="margin:2px 0 6px">${p.hedgeRule === "BASE_LOSS" ? `${p.coreLots} lot \u00b7 NRML core + MIS hedge (one account)` : `core ${p.coreLots} lot NRML \u00b7 hedge ${p.hedgeLots} lots`}</div>
     <div class="pnl-row">
       <div class="pnl-box">
         <span class="pnl-label">${p.hedgeRule === "BASE_LOSS" ? `${p.coreUnderlying} core (NRML)` : `${p.coreUnderlying} (full lot)`}</span>
@@ -998,6 +1002,7 @@ function handleEvent(msg) {
   if (msg.type === "LTP") {
     if (window.chartOnLtp) window.chartOnLtp(msg);
     if (updatePmaLeg(msg)) return;
+    { const hit = hedgePairLegIndex.get(msg.engine); if (hit && hit.leg === "core") { const pel = document.getElementById(`hp-${hit.pairName}`); if (pel) paintPrice(pel, { name: hit.pairName }, Number(msg.price)); } }
     cardsForEvent(msg.engine, msg.proc).forEach(i => {
       const el = document.getElementById(cardId(i));
       if (el) paintPrice(el, i, Number(msg.price));

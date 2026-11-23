@@ -1427,6 +1427,17 @@ app.get("/api/daychange", async (req, res) => {
                 keyByName[p.name] = `${contract.exchange || exchange}:${contract.symbol}`;
             } catch { /* instrument not resolvable right now: no day change for it */ }
         }
+        // Hedge pairs: day change of the pair's CORE contract (the price the pair card shows).
+        try {
+            for (const hp of await getHedgePairProcesses()) {
+                try {
+                    const exchange = hp.exchange || "MCX";
+                    const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
+                    if (hp.coreSymbol) keyByName[hp.name] = `${exchange}:${hp.coreSymbol}`;
+                    else { const { contract } = resolveCurrent(hp.coreUnderlying, getDefinition(hp.coreUnderlying, exchange), repo, pinStore); keyByName[hp.name] = `${contract.exchange || exchange}:${contract.symbol}`; }
+                } catch { /* unresolvable: no day change for this pair */ }
+            }
+        } catch { /* pair list unavailable */ }
         const keys = [...new Set(Object.values(keyByName))];
         const quotes = keys.length ? await ensureToolboxKite().getQuote(keys) : {};
         const data = {};
