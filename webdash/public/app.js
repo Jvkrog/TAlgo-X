@@ -303,12 +303,19 @@ function buildHedgePairCard(p) {
       <button class="btn btn-start" data-action="start">Start</button>
       <button class="btn btn-stop" data-action="stop">Stop</button>
       <button class="btn btn-restart" data-action="restart">Restart</button>
+      <button class="btn btn-chart" data-action="chart">Chart</button>
     </div>
   `;
   el.querySelectorAll("[data-action]").forEach(btn => {
-    btn.addEventListener("click", () => control(p.name, btn.dataset.action, el));
+    btn.addEventListener("click", () => {
+      if (btn.dataset.action === "chart") { window.openInstrumentChart && window.openInstrumentChart(hedgePairChartInst(p)); return; }
+      control(p.name, btn.dataset.action, el);
+    });
   });
   return el;
+}
+function hedgePairChartInst(p) {
+  return { name: p.name, underlying: p.coreUnderlying, strategy: "HEDGE_PAIR", label: "HEDGE PAIR", candleType: "RAW", timeframe: p.hedgeRule === "BASE_LOSS" ? "5m" : "15m", pair: true };
 }
 
 // Called from handleEvent() for any TICK/ENTRY/EXIT whose msg.engine

@@ -49,7 +49,9 @@
       window.nativeCandleOf = k => native[k] || "RAW";
       const dh = await fetch("/api/toolbox/dualhedge").then(r => r.json()).catch(() => ({}));
       const dual = (dh.deployments || []).map(d => ({ name: d.name, underlying: d.underlying, strategy: "DYNAMIC_MID_COLOR", label: "DUAL HEDGE", candleType: d.bandHa ? "HA" : "RAW", timeframe: d.bandTimeframe, bandStep: d.bandStep || null, dual: true }));
-      const list = (Array.isArray(insts) ? insts : []).concat(dual).filter(i => i && i.name);
+      const hpr = await fetch("/api/toolbox/hedgepairs").then(r => r.json()).catch(() => ({}));
+      const pairs = (hpr.pairs || hpr.deployments || []).map(p => ({ name: p.name, underlying: p.coreUnderlying, strategy: "HEDGE_PAIR", label: "HEDGE PAIR", candleType: "RAW", timeframe: p.hedgeRule === "BASE_LOSS" ? "5m" : "15m", pair: true }));
+      const list = (Array.isArray(insts) ? insts : []).concat(dual, pairs).filter(i => i && i.name);
       if (!list.length) { say("No instruments found."); return; }
       window.chartInstruments = list;
       window.chartFillPicker(list);

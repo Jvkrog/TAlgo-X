@@ -2636,6 +2636,8 @@ async function getHedgePairProcesses() {
             carryOvernight:  p.pm2_env.env?.CORE_CARRY_OVERRIDE !== "false",
             live:            p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:        p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
+            coreSymbol:      p.pm2_env.env?.CORE_SYMBOL_OVERRIDE || null,
+            hedgeSymbol:     p.pm2_env.env?.HEDGE_SYMBOL_OVERRIDE || null,
             outLogPath:      p.pm2_env.pm_out_log_path,
             errLogPath:      p.pm2_env.pm_err_log_path,
         }));

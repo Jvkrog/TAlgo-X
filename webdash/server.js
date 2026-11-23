@@ -1362,7 +1362,7 @@ app.get("/api/chart/:name/overlay", async (req, res) => {
         const win = chartWindow(tf, now, req.query.range);
         const tfBars = await fetchHistoricalCandles({ kc: ensureToolboxKite(), token: contract.token, timeframe: tf, from: win.fetchFrom, to: new Date(now) });
         if (win.max && tfBars.length) win.fromTs = tfBars[0].date.getTime();
-        res.json({ overlay: await applyJournalColors(p, chartOverlayFor(p, tfBars, win.fromTs), TIMEFRAME_MINUTES[tf]), blocks: blocksForDay(p.underlying, win.fromTs, p.outLogPath, p.name) });
+        res.json({ overlay: await chartOverlayAny(p, tfBars, win.fromTs, TIMEFRAME_MINUTES[tf]), blocks: blocksForDay(p.underlying, win.fromTs, p.outLogPath, p.name) });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -1377,6 +1377,12 @@ const depthCache = new Map();
 async function chartTarget(name) {
     const p = (await getEngineProcesses()).find(x => x.name === name);
     if (p) return p;
+    const hp = (await getHedgePairProcesses()).find(x => x.name === name);
+    if (hp) return {
+        name: hp.name, underlying: hp.coreUnderlying, exchange: hp.exchange || "MCX", strategy: "HEDGE_PAIR", candleType: "RAW",
+        timeframe: hp.hedgeRule === "BASE_LOSS" ? "5m" : "15m", outLogPath: hp.outLogPath, pair: hp,
+        symbolOverride: hp.coreSymbol || null, ltpEngine: `${hp.coreUnderlying}_CORE`,
+    };
     const d = (await getDualHedgeProcesses()).find(x => x.name === name);
     if (!d) return null;
     return {
@@ -1386,6 +1392,8 @@ async function chartTarget(name) {
         symbolOverride: d.longContract || d.contractSymbol || null, ltpEngine: `${d.underlying}_DH_LONG`,
     };
 }
+const { pairChartOverlay } = require("./pairChartOverlay");
+const chartOverlayAny = async (p, tfBars, fromTs, tfMinutes) => p.pair ? pairChartOverlay(p, tfBars, fromTs) : applyJournalColors(p, chartOverlayFor(p, tfBars, fromTs), tfMinutes);
 function chartContract(p, repo, exchange) {
     if (p.symbolOverride) {
         const row = repo.findBySymbol(p.symbolOverride);
@@ -1494,7 +1502,7 @@ app.get("/api/chart/:name", async (req, res) => {
         res.json({
             name: p.name, underlying: p.underlying, exchange, timeframe: tf, tfMinutes: TIMEFRAME_MINUTES[tf], day, fromTs: win.fromTs,
             strategy: p.strategy, ltpEngine: p.ltpEngine || null, symbol: contract.symbol || null,
-            overlay: await applyJournalColors(p, chartOverlayFor(p, tfBars, win.fromTs), TIMEFRAME_MINUTES[tf]),
+            overlay: await chartOverlayAny(p, tfBars, win.fromTs, TIMEFRAME_MINUTES[tf]),
             blocks: blocksForDay(p.underlying, win.fromTs, p.outLogPath, p.name),
             tfBars: tfBars.filter(b => b.date.getTime() >= win.fromTs - 8 * 86400000).map(row), minuteBars: mins.map(row),
             suggestedRange: a ? Math.max(0.05, Math.round(a * 20) / 20) : 1,
