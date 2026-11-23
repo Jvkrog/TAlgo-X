@@ -79,6 +79,7 @@ async function loadDayRef() {
     Object.keys(dayRef).forEach(k => delete dayRef[k]);
     Object.assign(dayRef, d);
     instruments.forEach(i => { const el = document.getElementById(cardId(i)); const pe = el && el.querySelector('[data-role="price"]'); if (pe && Number.isFinite(Number(pe.textContent))) paintPrice(el, i, Number(pe.textContent)); });
+    dualHedges.forEach(d => { const el = document.getElementById(`dh-${d.name}`); const pe = el && el.querySelector('[data-role="price"]'); if (pe && Number.isFinite(Number(pe.textContent))) paintPrice(el, { name: d.name }, Number(pe.textContent)); });
     hedgePairs.forEach(p => { const el = document.getElementById(`hp-${p.name}`); const pe = el && el.querySelector('[data-role="price"]'); if (pe && Number.isFinite(Number(pe.textContent))) paintPrice(el, { name: p.name }, Number(pe.textContent)); });
   } catch { /* best effort */ }
 }
@@ -423,8 +424,11 @@ function buildDualHedgeCard(d) {
       </div>
     </div>
     <div class="card-price-row">
-      <span class="card-price">LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot ${d.strategy === "PRICE_MA" ? "each" : d.strategy === "BIAS" ? (d.coreEod === "CARRY" ? "each \u00b7 core carried" : "each \u00b7 flat at EOD") : "NRML each"}</span>
+      <span class="state-marker flat" data-role="marker">\u25cf</span>
+      <span class="card-price" data-role="price">\u2014</span>
+      <span class="card-chg" data-role="chg"></span>
     </div>
+    <div class="card-strategy" style="margin:2px 0 6px">LONG:${d.longUser} \u00b7 SHORT:${d.shortUser} \u00b7 ${d.lots} lot ${d.strategy === "PRICE_MA" ? "each" : d.strategy === "BIAS" ? (d.coreEod === "CARRY" ? "each \u00b7 core carried" : "each \u00b7 flat at EOD") : "NRML each"}</div>
     ${d.strategy === "PRICE_MA" ? `<div class="pnl-row">
       <div class="pnl-box"><span class="pnl-label">LONG base (${d.longUser})</span><span class="pnl-value flat" data-role="LONG_BASE-pnl">+0</span><span class="pnl-label" data-role="LONG_BASE-pos">flat</span></div>
       <div class="pnl-box"><span class="pnl-label">LONG hedge (${d.longUser})</span><span class="pnl-value flat" data-role="LONG_HEDGE-pnl">+0</span><span class="pnl-label" data-role="LONG_HEDGE-pos">flat</span></div>
@@ -1002,6 +1006,7 @@ function handleEvent(msg) {
   if (msg.type === "LTP") {
     if (window.chartOnLtp) window.chartOnLtp(msg);
     if (updatePmaLeg(msg)) return;
+    { const dh = dualHedgeLegIndex.get(msg.engine); if (dh && dh.leg === "long") { const del = document.getElementById(`dh-${dh.dealName}`); if (del) paintPrice(del, { name: dh.dealName }, Number(msg.price)); } }
     { const hit = hedgePairLegIndex.get(msg.engine); if (hit && hit.leg === "core") { const pel = document.getElementById(`hp-${hit.pairName}`); if (pel) paintPrice(pel, { name: hit.pairName }, Number(msg.price)); } }
     cardsForEvent(msg.engine, msg.proc).forEach(i => {
       const el = document.getElementById(cardId(i));

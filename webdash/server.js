@@ -1392,8 +1392,14 @@ async function chartTarget(name) {
         symbolOverride: d.longContract || d.contractSymbol || null, ltpEngine: `${d.underlying}_DH_LONG`,
     };
 }
-const { pairChartOverlay } = require("./pairChartOverlay");
-const chartOverlayAny = async (p, tfBars, fromTs, tfMinutes) => p.pair ? pairChartOverlay(p, tfBars, fromTs) : applyJournalColors(p, chartOverlayFor(p, tfBars, fromTs), tfMinutes);
+const { pairChartOverlay, dualEntryOverlay } = require("./pairChartOverlay");
+const chartOverlayAny = async (p, tfBars, fromTs, tfMinutes) => {
+    if (p.pair) return pairChartOverlay(p, tfBars, fromTs);
+    const ov = await applyJournalColors(p, chartOverlayFor(p, tfBars, fromTs), tfMinutes);
+    if (!p.dual || !ov) return ov;
+    const ex = await dualEntryOverlay(p, tfBars, fromTs);   // both accounts' fills + entry-price lines on top of the band
+    return { ...ov, lines: [...(ov.lines || []), ...ex.lines], markers: [...(ov.markers || []), ...ex.markers], label: (ov.label ? ov.label + " · " : "") + "A1 = LONG account (amber), A2 = SHORT account (cyan): arrows = fills, lines = entry prices" };
+};
 function chartContract(p, repo, exchange) {
     if (p.symbolOverride) {
         const row = repo.findBySymbol(p.symbolOverride);
@@ -1438,6 +1444,18 @@ app.get("/api/daychange", async (req, res) => {
                 } catch { /* unresolvable: no day change for this pair */ }
             }
         } catch { /* pair list unavailable */ }
+        // Dual-hedge deployments: day change of the instrument they both trade.
+        try {
+            for (const d of await getDualHedgeProcesses()) {
+                if (keyByName[d.name]) continue;
+                try {
+                    const exchange = d.exchange || "MCX";
+                    const repo = exchange === "NSE" ? await ensureEquityCsvLoaded() : await ensureCsvLoaded();
+                    if (d.longContract || d.contractSymbol) keyByName[d.name] = `${exchange}:${d.longContract || d.contractSymbol}`;
+                    else { const { contract } = resolveCurrent(d.underlying, getDefinition(d.underlying, exchange), repo, pinStore); keyByName[d.name] = `${contract.exchange || exchange}:${contract.symbol}`; }
+                } catch { /* unresolvable */ }
+            }
+        } catch { /* dual list unavailable */ }
         const keys = [...new Set(Object.values(keyByName))];
         const quotes = keys.length ? await ensureToolboxKite().getQuote(keys) : {};
         const data = {};
