@@ -70,21 +70,25 @@ function createOrders(context, tg, kcOverride) {
     const fills = new Map();
     let lastEntry = null, lastExit = null;
     const EXIT_GUARD_MS = 8000;
-    async function fillPriceFor(id, timeoutMs = 4000) {
-        if (!id) return null;
-        if (fills.has(id)) return fills.get(id);
+    // What actually happened to an order the API accepted: FILLED (with the broker's average price), REJECTED / CANCELLED (the exchange or RMS refused it AFTER
+    // the API call returned an id — e.g. "outside of trading hours", margin), or PENDING (no final status within the timeout). Callers must not treat a
+    // REJECTED order as an open position.
+    async function orderOutcome(id, timeoutMs = 4000) {
+        if (!id) return { state: "PENDING" };
+        if (fills.has(id)) return { state: "FILLED", price: fills.get(id) };
         const until = Date.now() + timeoutMs;
         while (Date.now() < until) {
             try {
                 const history = await kc.getOrderHistory(id);
                 const last = history[history.length - 1];
-                if (last?.status === "COMPLETE" && Number(last.average_price) > 0) { fills.set(id, Number(last.average_price)); return fills.get(id); }
-                if (last && ["REJECTED", "CANCELLED"].includes(last.status)) return null;
+                if (last?.status === "COMPLETE" && Number(last.average_price) > 0) { fills.set(id, Number(last.average_price)); return { state: "FILLED", price: fills.get(id) }; }
+                if (last && ["REJECTED", "CANCELLED"].includes(last.status)) return { state: "REJECTED", status: last.status, message: last.status_message || last.status_message_raw || last.status };
             } catch { /* keep polling */ }
             await new Promise(r => setTimeout(r, 400));
         }
-        return null;
+        return { state: "PENDING" };
     }
+    async function fillPriceFor(id, timeoutMs = 4000) { const o = await orderOutcome(id, timeoutMs); return o.state === "FILLED" ? o.price : null; }
 
     // ─── B. ORDER ACKNOWLEDGEMENT LOG ────────────────────────────────────────
     // CHANGED: split from one long line into two shorter ones — the single-line
@@ -274,6 +278,7 @@ function createOrders(context, tg, kcOverride) {
                 console.log(c.green(`RECONCILE  [${context.tgPrefix}]  ok  (${brokerQty >= 0 ? "+" : ""}${brokerQty} lots)`));
                 console.log();
             }
+            return { brokerQty, internalQty, ok: brokerQty === internalQty };
 
         } catch (err) {
             console.error(c.red(`RECONCILE  [${context.tgPrefix}] failed: ${err.message}`));
@@ -321,7 +326,7 @@ function createOrders(context, tg, kcOverride) {
 
     // Called by positions-close wiring once the trade is booked.
     function clearTrade() { lastEntry = null; lastExit = null; }
-    return { enter, exit, slExit, targetExit, reconcile, dailyHaGate, fillPriceFor, clearTrade, blockEntries,
+    return { enter, exit, slExit, targetExit, reconcile, dailyHaGate, fillPriceFor, orderOutcome, clearTrade, blockEntries,
              getLastEntry: () => lastEntry, getLastExit: () => lastExit };
 }
 

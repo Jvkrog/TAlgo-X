@@ -259,6 +259,8 @@ function createDb(context) {
     }
 
     // Live: replace the signal-price entry with the broker's actual entry fill.
+    // A trade that never happened (its order was rejected after being booked): remove the row so it can't pollute P&L, stats or AI review.
+    function voidTrade(id) { return new Promise(resolve => db.run(`DELETE FROM trades WHERE id = ?`, [id], () => resolve())); }
     function updateTradeEntry(id, entryPrice) {
         if (!id || !Number.isFinite(entryPrice)) return Promise.resolve();
         return new Promise(resolve => db.run(`UPDATE trades SET entry_price = ? WHERE id = ?`, [entryPrice, id], () => resolve()));
@@ -445,7 +447,7 @@ function createDb(context) {
 
     return {
         initDB, savePosition, loadPosition, saveRegime, loadRegime, clearAllPositions,
-        saveRiskState, loadRiskState, insertOpenTrade, closeTrade, updateTradeEntry, getOpenTrade, getRealizedPnlToday, getRealizedPnlSince, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince, countWinningTradesSince, countScalpTpSince, setEntryContext, logRiskEvent,
+        saveRiskState, loadRiskState, insertOpenTrade, closeTrade, voidTrade, updateTradeEntry, getOpenTrade, getRealizedPnlToday, getRealizedPnlSince, getTradeCountToday, getTradesForDate, countLosingFlipExitsSince, countLosingTradesSince, countWinningTradesSince, countScalpTpSince, setEntryContext, logRiskEvent,
     };
 }
 
