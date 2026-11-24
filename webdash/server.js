@@ -2576,6 +2576,10 @@ async function getHedgePairProcesses() {
             pnlBand:         p.pm2_env.env?.HEDGE_PNL_BAND || "0",
             lockStep:        p.pm2_env.env?.HEDGE_LOCK_STEP || "0",
             lockGiveback:    p.pm2_env.env?.HEDGE_LOCK_GIVEBACK || "1",
+            holdCore:        p.pm2_env.env?.HEDGE_CORE_HOLD_OVERNIGHT === "true",
+            coreSymbol:      p.pm2_env.env?.CORE_SYMBOL_OVERRIDE || null,
+            hedgeSymbol:     p.pm2_env.env?.HEDGE_SYMBOL_OVERRIDE || null,
+            coreLotMult:     p.pm2_env.env?.CORE_LOTMULT_OVERRIDE || null,
             carryOvernight:  p.pm2_env.env?.CORE_CARRY_OVERRIDE !== "false",
             live:            p.pm2_env.env?.LIVE_ORDERS_OVERRIDE === "true",
             exchange:        p.pm2_env.env?.EXCHANGE_OVERRIDE || "MCX",
@@ -2704,7 +2708,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
     const {
         coreUnderlying, hedgeUnderlying, coreLots, hedgeLots,
         coreLotMultOverride, hedgeLotMultOverride, unwindMode, carryOvernight, coreSymbol, hedgeSymbol,
-        live, confirmLive, hedgeRule, checkMin, pnlBand, coreSide, holdCore, lockStep, lockGiveback,
+        live, confirmLive, hedgeRule, checkMin, pnlBand, coreSide, holdCore, lockStep, lockGiveback, editName,
     } = req.body || {};
     const rule = String(hedgeRule || "DSB").toUpperCase();
     if (rule !== "DSB" && rule !== "BASE_LOSS") return res.status(400).json({ error: "HedgeRule must be DSB or BASE_LOSS" });
@@ -2756,7 +2760,15 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
     if (coreLotMultOverride)  env.CORE_LOTMULT_OVERRIDE  = String(coreLotMultOverride);
     if (hedgeLotMultOverride) env.HEDGE_LOTMULT_OVERRIDE = String(hedgeLotMultOverride);
 
+    // EDIT: same deployment, new settings. The old process is deleted WITHOUT archiving its databases, so the carried NRML core / any open hedge is
+    // recovered from them on boot (the engine resumes positions, never re-enters) — only when the user saves, never on its own.
+    if (editName) {
+        if (editName !== name) return res.status(400).json({ error: `Instrument and rule can't be changed in an edit (this deployment is ${editName}) — remove it and add a new one instead` });
+        let existing = []; try { existing = await getHedgePairProcesses(); } catch { /* checked below */ }
+        if (!existing.some(x => x.name === editName)) return res.status(404).json({ error: `${editName} not found` });
+    }
     try {
+        if (editName) await pm2Delete(name).catch(() => {});
         await pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name, cwd: ROOT, env });
         res.json({ ok: true, name });
     } catch (err) {

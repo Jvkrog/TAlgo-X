@@ -4238,6 +4238,7 @@ async function loadHedgePairsList() {
               <div class="tb-watch-inst">${p.name}</div>
               <div class="tb-watch-meta">core ${p.coreUnderlying} (${p.coreLots} lot, ${p.carryOvernight === false ? "MIS" : "NRML"}) \u00b7 hedge ${p.hedgeUnderlying} (${p.hedgeLots} lots) \u00b7 unwind:${p.unwindMode} \u00b7 ${modeTag} \u00b7 [${p.status}]</div>
             </div>
+            ${p.hedgeRule === "BASE_LOSS" ? `<button class="tb-cli-action" data-hp-edit="${p.name}" style="padding:4px 8px;font-size:11px">Edit</button>` : ""}
             <button class="tb-cli-action" data-hp-logs="${p.name}" style="padding:4px 8px;font-size:11px">Logs</button>
             <button class="tb-cli-action" data-hp-toggle="${p.name}" data-hp-status="${p.status}" style="padding:4px 8px;font-size:11px">${p.status === "online" ? "stop" : "start"}</button>
             <button class="tb-watch-remove" data-hp-remove="${p.name}" title="remove">\u2715</button>
@@ -4290,6 +4291,14 @@ async function loadHedgePairsList() {
         if (!confirm(`Remove ${btn.dataset.hpRemove}? This stops and deletes the PM2 process.`)) return;
         await fetch(`/api/toolbox/hedgepairs/${encodeURIComponent(btn.dataset.hpRemove)}`, { method: "DELETE" });
         loadHedgePairsList();
+      });
+    });
+    tbHedgePairsBody.querySelectorAll("[data-hp-edit]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const d = pairs.find(x => x.name === btn.dataset.hpEdit);
+        if (!d) return;
+        hpAddState = { mode: "edit", rule: "BASE_LOSS", core: d.coreUnderlying, hedge: d.coreUnderlying, edit: d };
+        renderHpBaseLossForm();
       });
     });
     tbHedgePairsBody.querySelectorAll("[data-hp-logs]").forEach(btn => {
@@ -4606,20 +4615,29 @@ async function renderHpBaseLossForm() {
     <div id="blErrBox"></div>
     <button class="tb-submit-btn" id="blSubmit">Start base-loss hedge pair</button>`;
   const q = s => tbHedgePairsBody.querySelector(s);
-  q("#hpBack").addEventListener("click", () => startHpBaseLoss());
+  const hpEdit = hpAddState.mode === "edit" ? hpAddState.edit : null;
+  q("#hpBack").addEventListener("click", () => { if (hpEdit) { hpAddState = null; loadHedgePairsList(); } else startHpBaseLoss(); });
+  if (hpEdit) {   // EDIT: prefill from the running deployment; the instrument stays fixed
+    const set = (id, v) => { const el = q(id); if (el && v !== undefined && v !== null && v !== "") el.value = v; };
+    set("#blSym", hpEdit.coreSymbol); set("#blSide", hpEdit.coreSide); set("#blLots", hpEdit.coreLots); set("#blLotMult", hpEdit.coreLotMult);
+    set("#blCheck", hpEdit.checkMin); set("#blBand", hpEdit.pnlBand); set("#blLock", hpEdit.lockStep); set("#blLockGb", hpEdit.lockGiveback);
+    q("#blHold").checked = !!hpEdit.holdCore; q("#blLive").checked = !!hpEdit.live;
+    q("#blSubmit").textContent = "Save & restart (the carried core is resumed, not re-entered)";
+    q("#hpBack").insertAdjacentHTML("afterend", `<div class="tb-form-hint" style="margin:6px 0"><b>Editing ${escHtml(hpEdit.name)}</b> \u2014 saving restarts this engine with the new settings. An open NRML core / hedge is recovered from its journal on boot (never re-entered).</div>`);
+  }
   q("#blSubmit").addEventListener("click", async () => {
     const errBox = q("#blErrBox"), live = q("#blLive").checked; let confirmLive;
     if (live) { confirmLive = prompt('This starts REAL orders (NRML core + MIS hedge). Type "LIVE" to confirm:'); if (confirmLive !== "LIVE") { errBox.innerHTML = `<div class="tb-err-box">Not confirmed — not started</div>`; return; } }
     const lots = q("#blLots").value || 1, sym = q("#blSym").value || undefined, lmv = q("#blLotMult") ? (q("#blLotMult").value || undefined) : undefined;
     const body = { coreUnderlying: u, hedgeUnderlying: u, coreLots: lots, hedgeLots: lots, coreSymbol: sym, hedgeSymbol: sym, coreLotMultOverride: lmv, hedgeLotMultOverride: lmv,
-      carryOvernight: true, hedgeRule: "BASE_LOSS", coreSide: q("#blSide").value, checkMin: q("#blCheck").value || 5, pnlBand: q("#blBand").value || 0, holdCore: q("#blHold").checked, lockStep: q("#blLock").value || 0, lockGiveback: q("#blLockGb").value || 1, live, confirmLive };
-    const btn = q("#blSubmit"); btn.disabled = true; btn.textContent = "Starting...";
+      carryOvernight: true, hedgeRule: "BASE_LOSS", coreSide: q("#blSide").value, checkMin: q("#blCheck").value || 5, pnlBand: q("#blBand").value || 0, holdCore: q("#blHold").checked, lockStep: q("#blLock").value || 0, lockGiveback: q("#blLockGb").value || 1, live, confirmLive, ...(hpEdit ? { editName: hpEdit.name } : {}) };
+    const btn = q("#blSubmit"), btnLabel = btn.textContent; btn.disabled = true; btn.textContent = hpEdit ? "Restarting..." : "Starting...";
     try {
       const res = await fetch("/api/toolbox/hedgepairs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await res.json();
-      if (!res.ok) { errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Failed to start")}</div>`; btn.disabled = false; btn.textContent = "Start base-loss hedge pair"; return; }
+      if (!res.ok) { errBox.innerHTML = `<div class="tb-err-box">${escHtml(data.error || "Failed to start")}</div>`; btn.disabled = false; btn.textContent = btnLabel; return; }
       hpAddState = null; loadHedgePairsList();
-    } catch (err) { errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`; btn.disabled = false; btn.textContent = "Start base-loss hedge pair"; }
+    } catch (err) { errBox.innerHTML = `<div class="tb-err-box">${escHtml(err.message)}</div>`; btn.disabled = false; btn.textContent = btnLabel; }
   });
 }
 
