@@ -2578,6 +2578,7 @@ async function getHedgePairProcesses() {
             lockGiveback:    p.pm2_env.env?.HEDGE_LOCK_GIVEBACK || "1",
             holdCore:        p.pm2_env.env?.HEDGE_CORE_HOLD_OVERNIGHT === "true",
             coreLockStep:    p.pm2_env.env?.HEDGE_CORE_LOCK_STEP || "0",
+            coreLockCheck:   p.pm2_env.env?.HEDGE_CORE_LOCK_CHECK_MINUTES ?? "5",
             coreLockGiveback: p.pm2_env.env?.HEDGE_CORE_LOCK_GIVEBACK || "1",
             coreSymbol:      p.pm2_env.env?.CORE_SYMBOL_OVERRIDE || null,
             hedgeSymbol:     p.pm2_env.env?.HEDGE_SYMBOL_OVERRIDE || null,
@@ -2710,7 +2711,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
     const {
         coreUnderlying, hedgeUnderlying, coreLots, hedgeLots,
         coreLotMultOverride, hedgeLotMultOverride, unwindMode, carryOvernight, coreSymbol, hedgeSymbol,
-        live, confirmLive, hedgeRule, checkMin, pnlBand, coreSide, holdCore, lockStep, lockGiveback, coreLockStep, coreLockGiveback, editName,
+        live, confirmLive, hedgeRule, checkMin, pnlBand, coreSide, holdCore, lockStep, lockGiveback, coreLockStep, coreLockGiveback, coreLockCheck, editName,
     } = req.body || {};
     const rule = String(hedgeRule || "DSB").toUpperCase();
     if (rule !== "DSB" && rule !== "BASE_LOSS") return res.status(400).json({ error: "HedgeRule must be DSB or BASE_LOSS" });
@@ -2722,7 +2723,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
         if (!["LONG", "SHORT"].includes(String(coreSide || "").toUpperCase())) return res.status(400).json({ error: "CoreSide must be LONG or SHORT for the base-loss rule" });
     }
 
-    const lockErr = validateLock(lockStep, lockGiveback) || (rule === "BASE_LOSS" ? validateLock(coreLockStep, coreLockGiveback) : null); if (lockErr) return res.status(400).json({ error: lockErr });
+    const lockErr = validateLock(lockStep, lockGiveback) || (rule === "BASE_LOSS" ? validateLock(coreLockStep, coreLockGiveback) : null) || (rule === "BASE_LOSS" && coreLockCheck !== undefined && coreLockCheck !== "" && !(Number.isInteger(Number(coreLockCheck)) && Number(coreLockCheck) >= 0 && Number(coreLockCheck) <= 60) ? "Core lock check must be a whole number of minutes 0-60 (0 = every tick)" : null); if (lockErr) return res.status(400).json({ error: lockErr });
     if (!coreUnderlying || !hedgeUnderlying) {
         return res.status(400).json({ error: "CoreUnderlying and hedgeUnderlying are both required" });
     }
@@ -2748,7 +2749,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
         CORE_UNDERLYING: coreUnderlying, HEDGE_UNDERLYING: hedgeUnderlying, EXCHANGE_OVERRIDE: "MCX",
         CORE_LOTS_OVERRIDE: String(coreLots || 1), HEDGE_LOTS_OVERRIDE: String(hedgeLots || (rule === "BASE_LOSS" ? (coreLots || 1) : 5)),
         HEDGE_RULE: rule, ...(rule === "BASE_LOSS" ? { CORE_SIDE_OVERRIDE: String(coreSide).toUpperCase() } : {}), HEDGE_CHECK_MINUTES: String(rule === "BASE_LOSS" ? (Number(checkMin) || 5) : 5), HEDGE_PNL_BAND: String(rule === "BASE_LOSS" ? (Number(pnlBand) || 0) : 0), ...(rule === "BASE_LOSS" && holdCore === true ? { HEDGE_CORE_HOLD_OVERNIGHT: "true" } : {}),
-        ...(rule === "BASE_LOSS" ? { HEDGE_CORE_LOCK_STEP: String(Number(coreLockStep) || 0), HEDGE_CORE_LOCK_GIVEBACK: String(coreLockGiveback === undefined || coreLockGiveback === "" ? 1 : Number(coreLockGiveback)) } : {}),
+        ...(rule === "BASE_LOSS" ? { HEDGE_CORE_LOCK_CHECK_MINUTES: String(coreLockCheck === undefined || coreLockCheck === "" ? 5 : Number(coreLockCheck)), HEDGE_CORE_LOCK_STEP: String(Number(coreLockStep) || 0), HEDGE_CORE_LOCK_GIVEBACK: String(coreLockGiveback === undefined || coreLockGiveback === "" ? 1 : Number(coreLockGiveback)) } : {}),
         HEDGE_LOCK_STEP: String(Number(lockStep) || 0), HEDGE_LOCK_GIVEBACK: String(lockGiveback === undefined || lockGiveback === "" ? 1 : Number(lockGiveback)),
         UNWIND_MODE_OVERRIDE: resolvedUnwindMode, CORE_CARRY_OVERRIDE: String(carryOvernight !== false), LIVE_ORDERS_OVERRIDE: String(!!live),
     };

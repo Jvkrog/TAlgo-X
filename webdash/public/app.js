@@ -4609,6 +4609,7 @@ async function renderHpBaseLossForm() {
     <div class="tb-form-row"><div class="tb-form-label">Check core P&amp;L every N minutes (5 = at :00, :05, :10 … IST)</div><input type="number" id="blCheck" min="1" max="60" step="1" value="5"></div>
     <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge when core P&amp;L &lt; 0)</div><input type="number" id="blBand" min="0" step="any" value="0"></div>
     <div class="tb-form-row"><div class="tb-form-label">CORE profit lock — step in points (0 = off; 5, 10, 15 …): when the core reaches +step, a floor of +step minus the giveback is locked; if the core falls back to the floor an opposite MIS hedge opens to freeze that profit, and it is closed when the core recovers to +step plus the giveback (step 5: reached +5, locked at +4, released at +6; then +10 locks +9, released at +11)</div><input type="number" id="blCoreLock" min="0" step="5" value="0"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Core lock: check every N minutes (5 = at :00, :05, … IST; 0 = every live tick)</div><input type="number" id="blCoreLockCheck" min="0" max="60" step="1" value="5"></div>
     <div class="tb-form-row"><div class="tb-form-label">Core lock giveback in points (default 1)</div><input type="number" id="blCoreLockGb" min="0" step="any" value="1"></div>
     <div class="tb-form-row"><div class="tb-form-label">Hedge profit lock — step in points (0 = off; 5, 10, 15 …): reaching +step locks +step minus the giveback, +2×step locks +2×step minus the giveback; the hedge closes when it falls back to the floor</div><input type="number" id="blLock" min="0" step="5" value="0"></div>
     <div class="tb-form-row"><div class="tb-form-label">Lock giveback in points (default 1: step 5 → reached +5 locks +4)</div><input type="number" id="blLockGb" min="0" step="any" value="1"></div>
@@ -4622,7 +4623,7 @@ async function renderHpBaseLossForm() {
   if (hpEdit) {   // EDIT: prefill from the running deployment; the instrument stays fixed
     const set = (id, v) => { const el = q(id); if (el && v !== undefined && v !== null && v !== "") el.value = v; };
     set("#blSym", hpEdit.coreSymbol); set("#blSide", hpEdit.coreSide); set("#blLots", hpEdit.coreLots); set("#blLotMult", hpEdit.coreLotMult);
-    set("#blCheck", hpEdit.checkMin); set("#blBand", hpEdit.pnlBand); set("#blLock", hpEdit.lockStep); set("#blLockGb", hpEdit.lockGiveback); set("#blCoreLock", hpEdit.coreLockStep); set("#blCoreLockGb", hpEdit.coreLockGiveback);
+    set("#blCheck", hpEdit.checkMin); set("#blBand", hpEdit.pnlBand); set("#blLock", hpEdit.lockStep); set("#blLockGb", hpEdit.lockGiveback); set("#blCoreLock", hpEdit.coreLockStep); set("#blCoreLockGb", hpEdit.coreLockGiveback); set("#blCoreLockCheck", hpEdit.coreLockCheck);
     q("#blHold").checked = !!hpEdit.holdCore; q("#blLive").checked = !!hpEdit.live;
     q("#blSubmit").textContent = "Save & restart (the carried core is resumed, not re-entered)";
     q("#hpBack").insertAdjacentHTML("afterend", `<div class="tb-form-hint" style="margin:6px 0"><b>Editing ${escHtml(hpEdit.name)}</b> \u2014 saving restarts this engine with the new settings. An open NRML core / hedge is recovered from its journal on boot (never re-entered).</div>`);
@@ -4632,7 +4633,7 @@ async function renderHpBaseLossForm() {
     if (live) { confirmLive = prompt('This starts REAL orders (NRML core + MIS hedge). Type "LIVE" to confirm:'); if (confirmLive !== "LIVE") { errBox.innerHTML = `<div class="tb-err-box">Not confirmed — not started</div>`; return; } }
     const lots = q("#blLots").value || 1, sym = q("#blSym").value || undefined, lmv = q("#blLotMult") ? (q("#blLotMult").value || undefined) : undefined;
     const body = { coreUnderlying: u, hedgeUnderlying: u, coreLots: lots, hedgeLots: lots, coreSymbol: sym, hedgeSymbol: sym, coreLotMultOverride: lmv, hedgeLotMultOverride: lmv,
-      carryOvernight: true, hedgeRule: "BASE_LOSS", coreSide: q("#blSide").value, checkMin: q("#blCheck").value || 5, pnlBand: q("#blBand").value || 0, holdCore: q("#blHold").checked, lockStep: q("#blLock").value || 0, lockGiveback: q("#blLockGb").value || 1, coreLockStep: q("#blCoreLock").value || 0, coreLockGiveback: q("#blCoreLockGb").value || 1, live, confirmLive, ...(hpEdit ? { editName: hpEdit.name } : {}) };
+      carryOvernight: true, hedgeRule: "BASE_LOSS", coreSide: q("#blSide").value, checkMin: q("#blCheck").value || 5, pnlBand: q("#blBand").value || 0, holdCore: q("#blHold").checked, lockStep: q("#blLock").value || 0, lockGiveback: q("#blLockGb").value || 1, coreLockStep: q("#blCoreLock").value || 0, coreLockGiveback: q("#blCoreLockGb").value || 1, coreLockCheck: q("#blCoreLockCheck").value === "" ? 5 : q("#blCoreLockCheck").value, live, confirmLive, ...(hpEdit ? { editName: hpEdit.name } : {}) };
     const btn = q("#blSubmit"), btnLabel = btn.textContent; btn.disabled = true; btn.textContent = hpEdit ? "Restarting..." : "Starting...";
     try {
       const res = await fetch("/api/toolbox/hedgepairs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
