@@ -2718,13 +2718,13 @@ async function addHedgePairBaseLoss() {
     const clIn = (await ask("  CORE profit lock step in points (0 = off; 5, 10, …): core reaching +step locks +step minus giveback by HEDGING when it falls back; hedge released at +step plus giveback (default 0): ")).trim();
     const coreLockStep = clIn ? Number(clIn) : 0;
     if (!Number.isFinite(coreLockStep) || coreLockStep < 0) { console.log(c.yellow("  Invalid core lock step")); await pauseForReview(); return; }
-    let coreLockGiveback = 1, coreLockCheck = 5;
+    let coreLockGiveback = 0, coreLockCheck = 5;
     if (coreLockStep > 0) {
         const ccIn = (await ask("  Core lock: check every N minutes (5 = at :00, :05, … IST; 0 = every live tick; default 5): ")).trim();
         coreLockCheck = ccIn ? Number(ccIn) : 5;
         if (!Number.isInteger(coreLockCheck) || coreLockCheck < 0 || coreLockCheck > 60) { console.log(c.yellow("  Invalid check interval")); await pauseForReview(); return; }
-        const cgIn = (await ask("  Core lock giveback in points (default 1): ")).trim();
-        coreLockGiveback = cgIn ? Number(cgIn) : 1;
+        const cgIn = (await ask("  Core lock giveback in points (default 0 = no buffer): ")).trim();
+        coreLockGiveback = cgIn ? Number(cgIn) : 0;
         if (!Number.isFinite(coreLockGiveback) || coreLockGiveback < 0 || coreLockGiveback >= coreLockStep) { console.log(c.yellow("  Giveback must be >= 0 and smaller than the step")); await pauseForReview(); return; }
     }
     const holdCore = (await ask("  Carry the NRML core overnight? only the MIS hedge closes at EOD [y/N]: ")).trim().toLowerCase() === "y";

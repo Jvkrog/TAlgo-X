@@ -2580,7 +2580,7 @@ async function getHedgePairProcesses() {
             coreLockStep:    p.pm2_env.env?.HEDGE_CORE_LOCK_STEP || "0",
             coreLockCheck:   p.pm2_env.env?.HEDGE_CORE_LOCK_CHECK_MINUTES ?? "5",
             hedgeDelay:      p.pm2_env.env?.HEDGE_START_DELAY_MINUTES ?? "5",
-            coreLockGiveback: p.pm2_env.env?.HEDGE_CORE_LOCK_GIVEBACK || "1",
+            coreLockGiveback: p.pm2_env.env?.HEDGE_CORE_LOCK_GIVEBACK || "0",
             coreSymbol:      p.pm2_env.env?.CORE_SYMBOL_OVERRIDE || null,
             hedgeSymbol:     p.pm2_env.env?.HEDGE_SYMBOL_OVERRIDE || null,
             coreLotMult:     p.pm2_env.env?.CORE_LOTMULT_OVERRIDE || null,
@@ -2750,7 +2750,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
         CORE_UNDERLYING: coreUnderlying, HEDGE_UNDERLYING: hedgeUnderlying, EXCHANGE_OVERRIDE: "MCX",
         CORE_LOTS_OVERRIDE: String(coreLots || 1), HEDGE_LOTS_OVERRIDE: String(hedgeLots || (rule === "BASE_LOSS" ? (coreLots || 1) : 5)),
         HEDGE_RULE: rule, ...(rule === "BASE_LOSS" ? { CORE_SIDE_OVERRIDE: String(coreSide).toUpperCase() } : {}), HEDGE_CHECK_MINUTES: String(rule === "BASE_LOSS" ? (Number(checkMin) || 5) : 5), HEDGE_PNL_BAND: String(rule === "BASE_LOSS" ? (Number(pnlBand) || 0) : 0), ...(rule === "BASE_LOSS" && holdCore === true ? { HEDGE_CORE_HOLD_OVERNIGHT: "true" } : {}),
-        ...(rule === "BASE_LOSS" ? { HEDGE_START_DELAY_MINUTES: String(hedgeStartDelay === undefined || hedgeStartDelay === "" ? 5 : Number(hedgeStartDelay)), HEDGE_CORE_LOCK_CHECK_MINUTES: String(coreLockCheck === undefined || coreLockCheck === "" ? 5 : Number(coreLockCheck)), HEDGE_CORE_LOCK_STEP: String(Number(coreLockStep) || 0), HEDGE_CORE_LOCK_GIVEBACK: String(coreLockGiveback === undefined || coreLockGiveback === "" ? 1 : Number(coreLockGiveback)) } : {}),
+        ...(rule === "BASE_LOSS" ? { HEDGE_START_DELAY_MINUTES: String(hedgeStartDelay === undefined || hedgeStartDelay === "" ? 5 : Number(hedgeStartDelay)), HEDGE_CORE_LOCK_CHECK_MINUTES: String(coreLockCheck === undefined || coreLockCheck === "" ? 5 : Number(coreLockCheck)), HEDGE_CORE_LOCK_STEP: String(Number(coreLockStep) || 0), HEDGE_CORE_LOCK_GIVEBACK: String(coreLockGiveback === undefined || coreLockGiveback === "" ? 0 : Number(coreLockGiveback)) } : {}),
         HEDGE_LOCK_STEP: String(Number(lockStep) || 0), HEDGE_LOCK_GIVEBACK: String(lockGiveback === undefined || lockGiveback === "" ? 1 : Number(lockGiveback)),
         UNWIND_MODE_OVERRIDE: resolvedUnwindMode, CORE_CARRY_OVERRIDE: String(carryOvernight !== false), LIVE_ORDERS_OVERRIDE: String(!!live),
     };
