@@ -2703,15 +2703,6 @@ async function addHedgePairBaseLoss() {
     const bandIn = (await ask("  Loss band in points (0 = hedge as soon as core P&L < 0, default 0): ")).trim();
     const pnlBand = bandIn ? Number(bandIn) : 0;
     if (!Number.isFinite(pnlBand) || pnlBand < 0) { console.log(c.yellow("  Invalid loss band")); await pauseForReview(); return; }
-    const lkIn = (await ask("  Hedge profit lock step in points (0 = off; 5, 10, 15 …: reaching +step locks +step minus giveback, +2×step locks +2×step minus giveback; default 0): ")).trim();
-    const lockStep = lkIn ? Number(lkIn) : 0;
-    if (!Number.isFinite(lockStep) || lockStep < 0) { console.log(c.yellow("  Invalid lock step")); await pauseForReview(); return; }
-    let lockGiveback = 1;
-    if (lockStep > 0) {
-        const gbIn = (await ask("  Lock giveback in points (default 1: step 5 → reached +5 locks +4): ")).trim();
-        lockGiveback = gbIn ? Number(gbIn) : 1;
-        if (!Number.isFinite(lockGiveback) || lockGiveback < 0 || lockGiveback >= lockStep) { console.log(c.yellow("  Giveback must be >= 0 and smaller than the step")); await pauseForReview(); return; }
-    }
     const dlIn = (await ask("  Hedge may open this many minutes after the engine starts (0, 5, 10, 15, 20 …; default 5; the NRML core is placed at once): ")).trim();
     const hedgeStartDelay = dlIn ? Number(dlIn) : 5;
     if (!Number.isInteger(hedgeStartDelay) || hedgeStartDelay < 0 || hedgeStartDelay > 60) { console.log(c.yellow("  Invalid delay")); await pauseForReview(); return; }
@@ -2738,7 +2729,7 @@ async function addHedgePairBaseLoss() {
     const env = {
         CORE_UNDERLYING: underlying, HEDGE_UNDERLYING: underlying, EXCHANGE_OVERRIDE: "MCX",
         CORE_LOTS_OVERRIDE: String(lots), HEDGE_LOTS_OVERRIDE: String(lots), UNWIND_MODE_OVERRIDE: "HA_FLIP", CORE_CARRY_OVERRIDE: "true",
-        HEDGE_RULE: "BASE_LOSS", CORE_SIDE_OVERRIDE: coreSide, HEDGE_CHECK_MINUTES: String(checkMin), HEDGE_PNL_BAND: String(pnlBand), HEDGE_LOCK_STEP: String(lockStep), HEDGE_LOCK_GIVEBACK: String(lockGiveback), HEDGE_START_DELAY_MINUTES: String(hedgeStartDelay), HEDGE_CORE_LOCK_CHECK_MINUTES: String(coreLockCheck), HEDGE_CORE_LOCK_STEP: String(coreLockStep), HEDGE_CORE_LOCK_GIVEBACK: String(coreLockGiveback), LIVE_ORDERS_OVERRIDE: String(isLive),
+        HEDGE_RULE: "BASE_LOSS", CORE_SIDE_OVERRIDE: coreSide, HEDGE_CHECK_MINUTES: String(checkMin), HEDGE_PNL_BAND: String(pnlBand), HEDGE_START_DELAY_MINUTES: String(hedgeStartDelay), HEDGE_CORE_LOCK_CHECK_MINUTES: String(coreLockCheck), HEDGE_CORE_LOCK_STEP: String(coreLockStep), HEDGE_CORE_LOCK_GIVEBACK: String(coreLockGiveback), LIVE_ORDERS_OVERRIDE: String(isLive),
         ...(holdCore ? { HEDGE_CORE_HOLD_OVERNIGHT: "true" } : {}),
     };
     if (contract) { env.CORE_SYMBOL_OVERRIDE = contract; env.HEDGE_SYMBOL_OVERRIDE = contract; }
