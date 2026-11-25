@@ -243,10 +243,11 @@ function createOrders(context, tg, kcOverride) {
             // Only THIS engine's product row counts: another engine on the same symbol with the other product (MIS vs NRML) is a
             // different broker position and must not be added to this engine's quantity (that produced false "mismatch" alerts).
             const myProduct = productFor();
-            const brokerMap = {};
+            const brokerMap = {}, brokerAvgMap = {};
             for (const p of (net || [])) {
                 if (p.product && p.product !== myProduct) continue;
                 brokerMap[p.tradingsymbol] = (brokerMap[p.tradingsymbol] || 0) + p.quantity;
+                if (p.quantity !== 0 && p.average_price > 0) brokerAvgMap[p.tradingsymbol] = p.average_price;
             }
 
             // A contract roll changes context.symbol: a position still open on the PREVIOUS contract of this instrument
@@ -278,7 +279,7 @@ function createOrders(context, tg, kcOverride) {
                 console.log(c.green(`RECONCILE  [${context.tgPrefix}]  ok  (${brokerQty >= 0 ? "+" : ""}${brokerQty} lots)`));
                 console.log();
             }
-            return { brokerQty, internalQty, ok: brokerQty === internalQty };
+            return { brokerQty, internalQty, ok: brokerQty === internalQty, brokerAvg: brokerAvgMap[context.symbol] || 0 };
 
         } catch (err) {
             console.error(c.red(`RECONCILE  [${context.tgPrefix}] failed: ${err.message}`));
