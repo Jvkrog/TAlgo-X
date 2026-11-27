@@ -12,10 +12,11 @@ function optionalRequire(rel, fallback) {
         throw e;
     }
 }
+const UNDER_DEV = "Under development — not available in this build.";
 const isInstalled = rel => fs.existsSync(path.join(ROOT, rel));
 /** Throws a plain error when an engine script is not installed (used before pm2 start). */
 function assertInstalled(rel) {
-    if (!isInstalled(rel)) throw new Error(`${rel} is not installed — it is part of the private core files. Run scripts/sync-core.sh, then try again.`);
+    if (!isInstalled(rel)) throw new Error(UNDER_DEV);
 }
-const missing = what => async () => { throw new Error(`${what} needs the private core files (not installed). Run scripts/sync-core.sh.`); };
-module.exports = { optionalRequire, isInstalled, assertInstalled, missing };
+const missing = () => async () => { throw new Error(UNDER_DEV); };
+module.exports = { optionalRequire, isInstalled, assertInstalled, missing, UNDER_DEV };

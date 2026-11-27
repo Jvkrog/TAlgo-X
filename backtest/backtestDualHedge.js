@@ -144,7 +144,7 @@ const positions = require("../core/positions");
 const { computeMetrics } = require("./backtestMetrics");
 const { setEmitSuppressed } = require("../core/eventBridge");
 const { buildDualHedgeReport, saveDualHedgeReport } = require("./backtestDualHedgeReport");
-const { replayPriceMaHedge } = require("../utils/optionalCore").optionalRequire("backtest/backtestPriceMaHedge", { replayPriceMaHedge: () => { throw new Error("the Price-MA replay needs the private core files (scripts/sync-core.sh)"); } });
+const { replayPriceMaHedge } = require("../utils/optionalCore").optionalRequire("backtest/backtestPriceMaHedge", { replayPriceMaHedge: () => { throw new Error("Under development — not available in this build."); } });
 const engineConfig = require("../core/engineConfig");
 const c = require("../utils/c");
 

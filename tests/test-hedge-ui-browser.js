@@ -5,7 +5,7 @@ let chromium; try { ({ chromium } = require("playwright")); } catch { console.lo
 const PUB = path.join(__dirname, "..", "webdash/public"); const mime = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css" };
 const inst = (name, x) => ({ name, underlying: "NATGASMINI", status: "online", live: false, lots: "1", product: "MIS", exchange: "MCX", timeframe: "15m", ...x });
 const INSTR = [inst("NATGASMINI-DSB", { strategy: "DSB_DUAL", hedgeGroup: "NGLink", hedgeRole: "A" }), inst("NATGASMINI-DHAB", { strategy: "DAILY_HA_BIAS", product: "NRML", hedgeGroup: "NGLink", hedgeRole: "B" }), inst("GOLDM-x", { underlying: "GOLDM", strategy: "DSB_DUAL" })];
-const posted = [];
+const posted = []; let CORE = { hedgePair: true, baseLossBacktest: true, priceMa: true };
 (async () => {
     const srv = http.createServer((req, res) => { const f = path.join(PUB, req.url.split("?")[0] === "/" ? "index.html" : req.url.split("?")[0]); if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.statusCode = 404; return res.end(); } res.setHeader("Content-Type", mime[path.extname(f)] || "application/octet-stream"); res.end(fs.readFileSync(f)); }).listen(0);
     const base = `http://127.0.0.1:${srv.address().port}`;
@@ -15,6 +15,7 @@ const posted = [];
         const u = new URL(route.request().url()), p = u.pathname, m = route.request().method(), json = o => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(o) });
         if (m !== "GET") posted.push({ p, body: route.request().postData() ? JSON.parse(route.request().postData()) : null });
         if (p === "/api/auth/status") return json({ enabled: false });
+        if (p === "/api/core-status") return json(CORE);
         if (p === "/api/instruments") return json(INSTR);
         if (p === "/api/toolbox/hedgepairs") return json({ pairs: [] });
         if (p === "/api/toolbox/dualhedge") return json({ deployments: [] });
@@ -60,6 +61,16 @@ const posted = [];
     // classic flow still works
     await page.click("#hpBack"); await page.waitForSelector("#hpAddBtn"); await page.click("#hpAddBtn"); await page.waitForSelector("#hpSearchInput");
     assert.ok((await page.textContent("#tbHedgePairsBody")).includes("core underlying")); ok("classic add flow still starts at the core picker");
+    // optional modules not installed: the buttons answer "under development" at once and open no form
+    CORE = { hedgePair: false, baseLossBacktest: false, priceMa: false }; await page.evaluate(() => { _coreStatus = null; });
+    await page.click("#hpBack"); await page.waitForSelector("#hpBaseLossBtn");
+    for (const id of ["#hpBaseLossBtn", "#hpBaseLossBtBtn", "#hpAddBtn"]) {
+        await page.click(id); await page.waitForSelector("#tbHedgePairsBody .under-dev");
+        const t = await page.textContent("#tbHedgePairsBody"); assert.ok(t.includes("Under development"), id + ": notice shown"); assert.ok(!/sync-core|not installed|\.js/.test(t), id + ": notice names no file");
+        assert.strictEqual(await page.locator("#blSubmit, #hpSearchInput").count(), 0, id + ": no form opened");
+    }
+    ok("not-installed build: base-loss / base-loss backtest / add pair say 'Under development' immediately, no form, no file names");
+    CORE = { hedgePair: true, baseLossBacktest: true, priceMa: true }; await page.evaluate(() => { _coreStatus = null; });
     assert.deepStrictEqual(errors, [], errors.join("\n"));
     console.log(`\nall ${n} passed`); await browser.close(); srv.close(); process.exit(0);
 })().catch(e => { console.error("FAIL", e && (e.stack || e.message)); process.exit(1); });

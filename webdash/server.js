@@ -2591,6 +2591,12 @@ async function getHedgePairProcesses() {
         }));
 }
 
+// Which optional modules are installed in this build (the dashboard shows "under development" for the rest).
+app.get("/api/core-status", (req, res) => {
+    const { isInstalled } = require("../utils/optionalCore");
+    res.json({ hedgePair: isInstalled("hedgePairEngine.js"), baseLossBacktest: isInstalled("backtest/backtestHedgePairBaseLoss.js"), priceMa: isInstalled("priceMaHedgeEngine.js") });
+});
+
 app.get("/api/toolbox/hedgepairs", async (req, res) => {
     try {
         res.json({ pairs: await getHedgePairProcesses() });

@@ -399,7 +399,7 @@ function dualHedgeStrategyText(d) {
   }
   if (d.strategy === "PRICE_MA") {
     const carry = d.carry !== false, extras = [Number(d.pnlBand) > 0 ? `band ${d.pnlBand}pt` : "", Number(d.pnlSmooth) > 1 ? `smooth ${d.pnlSmooth}` : "", Number(d.checkMin) > 1 ? `check ${d.checkMin}m` : "", String(d.hedgeContract || "SAME").toUpperCase() !== "SAME" ? `hedge ${String(d.hedgeContract).toUpperCase() === "NEXT" ? "next month" : d.hedgeContract}` : ""].filter(Boolean);
-    return `Base-loss hedge \u00b7 ${carry ? `NRML bases hedged by MIS till ${d.eodTime || "EOD"}` : `MIS bases @${d.baseTime} hedged by NRML till ${d.eodTime || "EOD"}`}${extras.length ? ` \u00b7 ${extras.join(" \u00b7 ")}` : ""}`;
+    return `Hedge \u00b7 ${carry ? `NRML bases hedged by MIS till ${d.eodTime || "EOD"}` : `MIS bases @${d.baseTime} hedged by NRML till ${d.eodTime || "EOD"}`}${extras.length ? ` \u00b7 ${extras.join(" \u00b7 ")}` : ""}`;
   }
   if (d.strategy === "BIAS") {
     const unwind = d.unwindMode === "EOD_ONLY" ? "held to EOD" : "unwinds when the band flips back";
@@ -4199,6 +4199,18 @@ async function openHedgePairsModal() {
   await loadHedgePairsList();
 }
 
+// Optional modules (not part of every build): which are installed, and the shared "under development" notice.
+let _coreStatus = null;
+async function coreHas(k) {
+  if (!_coreStatus) { try { _coreStatus = await (await fetch("/api/core-status")).json(); } catch { _coreStatus = {}; } }
+  return !!_coreStatus[k];
+}
+function underDev(container) {
+  let box = container.querySelector(".under-dev");
+  if (!box) { box = document.createElement("div"); box.className = "tb-form-hint under-dev"; box.style.cssText = "margin:8px 0;padding:8px 10px;border:1px solid var(--yellow,#d9a400);border-radius:6px"; container.prepend(box); }
+  box.textContent = "Under development — not available in this build.";
+}
+
 async function loadHedgePairsList() {
   try {
     const [{ pairs }, allInst] = await Promise.all([
@@ -4247,10 +4259,10 @@ async function loadHedgePairsList() {
     }
 
     tbHedgePairsBody.innerHTML = html;
-    tbHedgePairsBody.querySelector("#hpAddBtn").addEventListener("click", () => { hpAddState = { mode: "deploy" }; renderHedgePairAddCorePicker(); });
+    tbHedgePairsBody.querySelector("#hpAddBtn").addEventListener("click", async () => { if (!(await coreHas("hedgePair"))) return underDev(tbHedgePairsBody); hpAddState = { mode: "deploy" }; renderHedgePairAddCorePicker(); });
     tbHedgePairsBody.querySelector("#hpBacktestBtn").addEventListener("click", () => { hpAddState = { mode: "backtest" }; renderHedgePairAddCorePicker(); });
-    tbHedgePairsBody.querySelector("#hpBaseLossBtn").addEventListener("click", startHpBaseLoss);
-    tbHedgePairsBody.querySelector("#hpBaseLossBtBtn").addEventListener("click", () => startHpBaseLoss("backtest"));
+    tbHedgePairsBody.querySelector("#hpBaseLossBtn").addEventListener("click", async () => { if (!(await coreHas("hedgePair"))) return underDev(tbHedgePairsBody); startHpBaseLoss(); });
+    tbHedgePairsBody.querySelector("#hpBaseLossBtBtn").addEventListener("click", async () => { if (!(await coreHas("baseLossBacktest"))) return underDev(tbHedgePairsBody); startHpBaseLoss("backtest"); });
     // Linked pair: pick leg A's mini contract, then leg B's (same contract = one MIS + one NRML), then the linked form.
     const startLinked = mode => {
       hpAddState = { mode, linked: true };
@@ -4996,7 +5008,7 @@ function renderDualHedgeAddUnderlyingPicker() {
 function dhSubmitLabel() {
   if (dhAddState && dhAddState.mode === "edit") return "Save changes & restart";
   const st = tbDualHedgeBody.querySelector("#dhStrategy").value;
-  return st === "BIAS" ? "Start bias hedge" : st === "REALIZE" ? "Start realize & re-open" : st === "PRICE_MA" ? "Start base-loss hedge" : "Start dual hedge";
+  return st === "BIAS" ? "Start bias hedge" : st === "REALIZE" ? "Start realize & re-open" : st === "PRICE_MA" ? "Start hedge" : "Start dual hedge";
 }
 
 async function renderDualHedgeAddForm() {
@@ -5042,15 +5054,15 @@ async function renderDualHedgeAddForm() {
       <div class="tb-form-row"><div class="tb-form-label">Core entry time IST (previous daily HA candle decides, once a day)</div><input type="time" id="dhEntryTime" value="10:00"></div>
     </div>
     <div id="dhPmaOnly" style="display:none">
-      <div class="tb-form-row"><div class="tb-form-label">Base entry time IST (LONG NRML on the long account, SHORT NRML on the short account)</div><input type="time" id="dhPmaBase" value="09:15"></div>
-      <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (default 23:15) \u2014 the MIS hedge is closed</div><input type="time" id="dhPmaEod" value="23:15"></div>
-      <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dhPmaCarry" checked><span>Carry overnight: NRML bases held constant (long in the long account, short in the short account, never closed by the engine); the hedge is MIS and is closed at EOD. Unchecked = day mode (MIS bases + NRML hedge, all flat at EOD)</span></label></div>
-      <div class="tb-form-row"><div class="tb-form-label">Hedge profit lock — step in points (0 = off; 5, 10, 15 …): reaching +step locks +step minus the giveback, +2×step locks +2×step minus the giveback; the hedge closes when it falls back to the floor</div><input type="number" id="dhPmaLock" min="0" step="5" value="0"></div>
-    <div class="tb-form-row"><div class="tb-form-label">Lock giveback in points (default 1: step 5 → reached +5 locks +4)</div><input type="number" id="dhPmaLockGb" min="0" step="any" value="1"></div>
-    <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge as soon as base P&amp;L &lt; 0, close when &gt; 0)</div><input type="number" id="dhPmaBand" min="0" step="any" value="0"></div>
-      <div class="tb-form-row"><div class="tb-form-label">Smoothing (average of last N P&amp;L samples (one per check); 1 = raw)</div><input type="number" id="dhPmaSmooth" min="1" step="1" value="1"></div>
-      <div class="tb-form-row"><div class="tb-form-label">Check hedge every N minutes (1 = every minute; 5 = at :00, :05, :10 …)</div><input type="number" id="dhPmaCheck" min="1" max="60" step="1" value="1"></div>
-      <div class="tb-form-row"><div class="tb-form-label">Hedge contract (NEXT = next-month future: calendar-spread margin benefit, but the hedge then carries basis risk)</div><select id="dhPmaHedgeContract"><option value="SAME" selected>Same contract as the base</option><option value="NEXT">Next month</option></select></div>
+      <div class="tb-form-row"><div class="tb-form-label">Base entry time IST</div><input type="time" id="dhPmaBase" value="09:15"></div>
+      <div class="tb-form-row"><div class="tb-form-label">EOD close time IST (default 23:15)</div><input type="time" id="dhPmaEod" value="23:15"></div>
+      <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="dhPmaCarry" checked><span>Carry overnight</span></label></div>
+      <div class="tb-form-row"><div class="tb-form-label">Lock step (points; 0 = off)</div><input type="number" id="dhPmaLock" min="0" step="5" value="0"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Lock giveback (points)</div><input type="number" id="dhPmaLockGb" min="0" step="any" value="1"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Band (points)</div><input type="number" id="dhPmaBand" min="0" step="any" value="0"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Smoothing (samples)</div><input type="number" id="dhPmaSmooth" min="1" step="1" value="1"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Check interval (minutes)</div><input type="number" id="dhPmaCheck" min="1" max="60" step="1" value="1"></div>
+      <div class="tb-form-row"><div class="tb-form-label">Hedge contract</div><select id="dhPmaHedgeContract"><option value="SAME" selected>Same contract as the base</option><option value="NEXT">Next month</option></select></div>
     </div>
     <div id="dhRealizeOnly" style="display:none">
       <div class="tb-form-row"><div class="tb-form-label">Realize when a leg's profit exceeds \u20b9 (default 3000) \u2014 the leg is closed, then the same side is opened again</div><input type="number" id="dhRealizeRupees" min="1" step="1" value="3000"></div>
@@ -5094,8 +5106,9 @@ async function renderDualHedgeAddForm() {
     PRICE_MA: "",
     BIAS: "The daily Dynamic Step Band (on daily HA candles) or the previous daily HA candle sets the core (green = LONG account, red = SHORT account). The OTHER account hedges when the Dynamic Band (default 1h HA is your pick below) turns against the core. The core is carried overnight (NRML) or closed at EOD (MIS) \u2014 your choice. No gap capture.",
   };
-  const dhSyncStrategy = () => {
-    const st = tbDualHedgeBody.querySelector("#dhStrategy").value;
+  const dhSyncStrategy = async () => {
+    let st = tbDualHedgeBody.querySelector("#dhStrategy").value;
+    if (st === "PRICE_MA" && !(await coreHas("priceMa"))) { tbDualHedgeBody.querySelector("#dhStrategy").value = "DUAL"; st = "DUAL"; underDev(tbDualHedgeBody); }
     tbDualHedgeBody.querySelector("#dhStrategyHint").textContent = dhHints[st];
     tbDualHedgeBody.querySelector("#dhDualOnly").style.display = st === "DUAL" ? "" : "none";
     tbDualHedgeBody.querySelector("#dhDualOnly2").style.display = st === "DUAL" ? "" : "none";
