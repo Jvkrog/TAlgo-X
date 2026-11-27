@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Remove never-happened trades (e.g. an order the exchange rejected that an older build booked as filled) from the hedge-pair journals,
-// WITHOUT touching the open NRML core: only CLOSED trades can be removed, OPEN rows and the saved positions table are never changed.
+// WITHOUT touching any open position: only CLOSED trades can be removed, OPEN rows and the saved positions table are never changed.
 //
 //   node scripts/void-trades.js                      list the last 3 days of trades of every hedge-pair journal (ids to pick from)
 //   node scripts/void-trades.js --days 7             longer window

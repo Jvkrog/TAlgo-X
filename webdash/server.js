@@ -2763,7 +2763,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
     if (coreLotMultOverride)  env.CORE_LOTMULT_OVERRIDE  = String(coreLotMultOverride);
     if (hedgeLotMultOverride) env.HEDGE_LOTMULT_OVERRIDE = String(hedgeLotMultOverride);
 
-    // EDIT: same deployment, new settings. The old process is deleted WITHOUT archiving its databases, so the carried NRML core / any open hedge is
+    // EDIT: same deployment, new settings. The old process is deleted WITHOUT archiving its databases, so any open position is
     // recovered from them on boot (the engine resumes positions, never re-enters) — only when the user saves, never on its own.
     if (editName) {
         if (editName !== name) return res.status(400).json({ error: `Instrument and rule can't be changed in an edit (this deployment is ${editName}) — remove it and add a new one instead` });
