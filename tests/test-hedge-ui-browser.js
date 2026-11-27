@@ -64,6 +64,8 @@ const posted = []; let CORE = { hedgePair: true, baseLossBacktest: true, priceMa
     // optional modules not installed: the buttons answer "under development" at once and open no form
     CORE = { hedgePair: false, baseLossBacktest: false, priceMa: false }; await page.evaluate(() => { _coreStatus = null; });
     await page.click("#hpBack"); await page.waitForSelector("#hpBaseLossBtn");
+    await page.waitForFunction(() => document.querySelector("#hpBaseLossBtn").textContent.includes("coming soon"));
+    assert.ok(!/base-?loss/i.test(await page.textContent("#tbHedgePairsBody")), "labels carry no strategy name when the modules are missing");
     for (const id of ["#hpBaseLossBtn", "#hpBaseLossBtBtn", "#hpAddBtn"]) {
         await page.click(id); await page.waitForSelector("#tbHedgePairsBody .under-dev");
         const t = await page.textContent("#tbHedgePairsBody"); assert.ok(t.includes("Under development"), id + ": notice shown"); assert.ok(!/sync-core|not installed|\.js/.test(t), id + ": notice names no file");

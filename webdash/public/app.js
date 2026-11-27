@@ -4259,6 +4259,9 @@ async function loadHedgePairsList() {
     }
 
     tbHedgePairsBody.innerHTML = html;
+    // build without the optional modules: neutral button labels (the click still answers "under development")
+    coreHas("hedgePair").then(ok => { const b = tbHedgePairsBody.querySelector("#hpBaseLossBtn"); if (!ok && b) b.textContent = "+ Hedge (coming soon)"; });
+    coreHas("baseLossBacktest").then(ok => { const b = tbHedgePairsBody.querySelector("#hpBaseLossBtBtn"); if (!ok && b) b.textContent = "Backtest hedge (coming soon)"; });
     tbHedgePairsBody.querySelector("#hpAddBtn").addEventListener("click", async () => { if (!(await coreHas("hedgePair"))) return underDev(tbHedgePairsBody); hpAddState = { mode: "deploy" }; renderHedgePairAddCorePicker(); });
     tbHedgePairsBody.querySelector("#hpBacktestBtn").addEventListener("click", () => { hpAddState = { mode: "backtest" }; renderHedgePairAddCorePicker(); });
     tbHedgePairsBody.querySelector("#hpBaseLossBtn").addEventListener("click", async () => { if (!(await coreHas("hedgePair"))) return underDev(tbHedgePairsBody); startHpBaseLoss(); });
@@ -5124,6 +5127,7 @@ async function renderDualHedgeAddForm() {
     tbDualHedgeBody.querySelector("#dhAddSubmit").textContent = dhSubmitLabel();
   };
   tbDualHedgeBody.querySelector("#dhStrategy").addEventListener("change", dhSyncStrategy);
+  coreHas("priceMa").then(ok => { const o = tbDualHedgeBody.querySelector('#dhStrategy option[value="PRICE_MA"]'); if (!ok && o) o.textContent = "Advanced hedge (coming soon)"; });
   dhSyncStrategy();
   const dhSyncSl = () => {
     const atrMode = tbDualHedgeBody.querySelector("#dhSlMode").value === "ATR";
