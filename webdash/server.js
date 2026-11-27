@@ -51,7 +51,8 @@ const { runBacktest } = require("../backtest/backtestRun");
 const { runDualHedgeBacktest } = require("../backtest/backtestDualHedge");
 const { SL_MODES: DH_SL_MODES, ATR_TIMEFRAMES: DH_ATR_TIMEFRAMES } = require("../hedge/dualHedgeAtr");
 const { runHedgePairBacktest } = require("../backtest/backtestHedgePair");
-const { runHedgePairBaseLossBacktest } = require("../backtest/backtestHedgePairBaseLoss");
+const { optionalRequire, assertInstalled, missing } = require("../utils/optionalCore");
+const { runHedgePairBaseLossBacktest } = optionalRequire("backtest/backtestHedgePairBaseLoss", { runHedgePairBaseLossBacktest: missing("this backtest") });
 const { runLinkedPairBacktest } = require("../backtest/backtestLinkedPair");
 const { STRATEGY_PARAMS } = require("../backtest/backtestFlow");
 const { setEmitSuppressed } = require("../core/eventBridge");
@@ -2771,6 +2772,7 @@ app.post("/api/toolbox/hedgepairs", async (req, res) => {
     }
     try {
         if (editName) await pm2Delete(name).catch(() => {});
+        assertInstalled("hedgePairEngine.js");
         await pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name, cwd: ROOT, env });
         res.json({ ok: true, name });
     } catch (err) {
@@ -2782,6 +2784,7 @@ app.post("/api/toolbox/hedgepairs/start", async (req, res) => {
     const { name } = req.body || {};
     if (!name) return res.status(400).json({ error: "Name is required" });
     try {
+        assertInstalled("hedgePairEngine.js");
         await pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name, cwd: ROOT });
         res.json({ ok: true });
     } catch (err) {
@@ -3122,6 +3125,7 @@ app.post("/api/toolbox/dualhedge", async (req, res) => {
         };
         if (lotMultOverride) pmaEnv.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
         try {
+            assertInstalled("priceMaHedgeEngine.js");
             await launch({ ...PM2_BASE_OPTS, script: "priceMaHedgeEngine.js", name, cwd: ROOT, env: pmaEnv });
             return res.json({ ok: true, name });
         } catch (err) {

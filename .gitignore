@@ -6,3 +6,24 @@ databases/
 access_code.txt
 backtests/
 node_modules/
+
+# private core modules (separate private repo, installed by scripts/sync-core.sh)
+hedgePairEngine.js
+priceMaHedgeEngine.js
+hedge/profitLock.js
+hedge/lockStore.js
+hedge/priceMaHedgeController.js
+backtest/backtestHedgePairBaseLoss.js
+backtest/backtestPriceMaHedge.js
+tests/test-hedge-pair-base-loss-backtest.js
+tests/test-hedge-pair-base-loss.js
+tests/test-hedge-pair-rejected.js
+tests/test-price-ma-backtest.js
+tests/test-price-ma-carry-live.js
+tests/test-price-ma-deploy.js
+tests/test-price-ma-engine-paper.js
+tests/test-price-ma-engine-stale-state.js
+tests/test-price-ma-hedge-controller.js
+tests/test-price-ma-next-hedge.js
+tests/test-price-ma-premarket.js
+tests/test-profit-lock.js

@@ -45,7 +45,8 @@ const { TIMEFRAME_TO_INTERVAL, fetchDailyCandles } = require("./data/historicalF
 const { adx } = require("./indicators/indicators");
 const { backtestFlow } = require("./backtest/backtestFlow");
 const { runHedgePairBacktest } = require("./backtest/backtestHedgePair");
-const { runHedgePairBaseLossBacktest } = require("./backtest/backtestHedgePairBaseLoss");
+const { optionalRequire, assertInstalled, missing } = require("./utils/optionalCore");
+const { runHedgePairBaseLossBacktest } = optionalRequire("backtest/backtestHedgePairBaseLoss", { runHedgePairBaseLossBacktest: missing("this backtest") });
 const { runDualHedgeBacktest } = require("./backtest/backtestDualHedge");
 const { playBootAnimation, renderStaticBanner, animateBoxUpward } = require("./utils/bootAnimation");
 
@@ -2735,6 +2736,7 @@ async function addHedgePairBaseLoss() {
     if (contract) { env.CORE_SYMBOL_OVERRIDE = contract; env.HEDGE_SYMBOL_OVERRIDE = contract; }
     if (lotMultOverride) { env.CORE_LOTMULT_OVERRIDE = String(lotMultOverride); env.HEDGE_LOTMULT_OVERRIDE = String(lotMultOverride); }
     try {
+        assertInstalled("hedgePairEngine.js");
         await pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name, cwd: __dirname, env });
         console.log(c.green(`  Started ${name} (${underlying}, ${coreSide} NRML core, base-loss hedge, check ${checkMin}m, ${isLive ? "LIVE" : "PAPER"})`));
     } catch (err) {
@@ -2827,6 +2829,7 @@ async function addHedgePair() {
     if (hedgeLotMultOverride) env.HEDGE_LOTMULT_OVERRIDE = String(hedgeLotMultOverride);
 
     try {
+        assertInstalled("hedgePairEngine.js");
         await pm2Start({ ...PM2_BASE_OPTS, script: "hedgePairEngine.js", name, cwd: __dirname, env });
         console.log(c.green(`  Started ${name} (core:${coreUnderlying} hedge:${hedgeUnderlying}, unwind:${unwindMode}, ${isLive ? "LIVE" : "PAPER"})`));
     } catch (err) {
@@ -3138,6 +3141,7 @@ async function addPriceMaHedge({ underlying, longUser, shortUser, lotMultOverrid
     };
     if (lotMultOverride) env.PMA_LOTMULT_OVERRIDE = String(lotMultOverride);
     try {
+        assertInstalled("priceMaHedgeEngine.js");
         await pm2Start({ ...PM2_BASE_OPTS, script: "priceMaHedgeEngine.js", name, cwd: __dirname, env });
         console.log(c.green(`  Started ${name} (${underlying}  LONG:${longUser.name}  SHORT:${shortUser.name}  bases ${btIn}  ${isLive ? "LIVE" : "paper"})`));
         console.log(c.dim("  The engine exits at EOD — start it again each trading morning."));

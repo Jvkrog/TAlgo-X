@@ -44,6 +44,9 @@ Several hedge runtimes exist, each with its own lifecycle and risk semantics —
 - **Hedge pair, band-following (two instruments):** paired core/hedge processes driven by daily/hourly Dynamic Step Bands, with WebDash controls and backtesting.
 - **Dual hedge (two accounts, one instrument):** a dedicated process for two separately configured Kite accounts — one LONG-only, one SHORT-only. Variants: *band-following* (shared Dynamic Step Band signal; flipped legs exit on take-profit/stop-loss; NRML, carried), *bias* (daily Heikin-Ashi core in one account, band-driven hedge in the other) and *realize* (profit-lock: a winning leg is closed and re-opened at once, the loser is never closed by the engine). Per-leg order placement uses that leg's own broker client. Optional gap-capture behavior is configured separately.
 
+### Private modules
+Some strategy modules are not in this repository. They live in a separate private repository and are copied into this tree by `scripts/sync-core.sh` (they are git-ignored here, so a normal pull never touches them). Features that need them report "not installed" instead of failing; `utils/optionalCore.js` handles the optional loading.
+
 Review the relevant engine/context files and runtime configuration before using any of these live. A Kite static-IP rule applies to API orders: one IP can serve only the account holder and immediate family under one developer account, so two-account strategies need to be reviewed against that rule for your setup.
 
 ### Backtesting
