@@ -273,7 +273,7 @@ function buildHedgePairCard(p) {
     <div class="card-top">
       <div class="card-id">
         <span class="card-underlying">${p.coreUnderlying}/${p.hedgeUnderlying}</span>
-        <span class="card-strategy">${p.hedgeRule === "BASE_LOSS" ? `hedge pair \u00b7 base-loss \u00b7 ${p.coreSide || ""} NRML core, MIS hedge when core P&amp;L &lt; ${Number(p.pnlBand) > 0 ? p.pnlBand + "pt" : "0"} \u00b7 check ${p.checkMin}m \u00b7 flat at EOD` : `hedge pair \u00b7 unwind:${p.unwindMode}`}</span>
+        <span class="card-strategy">${p.hedgeRule === "BASE_LOSS" ? `hedge pair \u00b7 ${p.coreSide || ""} core \u00b7 check ${p.checkMin}m` : `hedge pair \u00b7 unwind:${p.unwindMode}`}</span>
       </div>
       <div>
         <span class="status-pill ${p.status === "online" ? "online" : "offline"}" data-role="status">${p.status}</span>
@@ -4594,28 +4594,28 @@ async function renderHedgePairAddForm() {
 
 function startHpBaseLoss(mode) {
   hpAddState = { mode: mode === "backtest" ? "backtest" : "deploy", rule: "BASE_LOSS" };
-  renderHedgePairSearchStep("instrument — one account: NRML core (Long/Short you pick) + MIS hedge on the same contract when the core's P&amp;L &lt; 0", u => { hpAddState.core = u; hpAddState.hedge = u; (hpAddState.mode === "backtest" ? renderHpBaseLossBacktestForm : renderHpBaseLossForm)(); });
+  renderHedgePairSearchStep("instrument — one account, core and hedge on the same contract", u => { hpAddState.core = u; hpAddState.hedge = u; (hpAddState.mode === "backtest" ? renderHpBaseLossBacktestForm : renderHpBaseLossForm)(); });
 }
 async function renderHpBaseLossForm() {
   const u = hpAddState.core;
   const [opts, lm] = await Promise.all([hpContractOptions(u), fetch(`/api/toolbox/hedgepairs/lotmult/${encodeURIComponent(u)}`).then(r => r.json()).catch(() => ({}))]);
   tbHedgePairsBody.innerHTML = `
     <button class="tb-back-link" id="hpBack">‹ back</button>
-    <div class="tb-form-hint" style="margin:8px 0"><b>${u}</b> — one account. <b>Core</b>: NRML, on the side you pick below (no HA bias), placed once the algo is on and it is 09:15 IST or later (nothing before 09:15). <b>Hedge</b>: opposite MIS on the SAME contract and lots when the core's P&amp;L is below 0 at a check; closed when it is above 0. Core and hedge are both closed at EOD (23:15).</div>
+    <div class="tb-form-hint" style="margin:8px 0"><b>${u}</b> — one account; core and hedge on the same contract.</div>
     <div class="tb-form-row"><div class="tb-form-label">Contract (core and hedge)</div><select id="blSym">${opts}</select></div>
     <div class="tb-form-row"><div class="tb-form-label">Core position (NRML)</div><select id="blSide"><option value="LONG">Long</option><option value="SHORT">Short</option></select></div>
     <div class="tb-form-row"><div class="tb-form-label">Lots (core and hedge)</div><input type="number" id="blLots" min="1" step="1" value="1"></div>
     <div class="tb-form-row" style="display:${lm.lotMultRequired ? "" : "none"}"><div class="tb-form-label">Lot multiplier — REQUIRED <span class="req-star" title="required">*</span>, no context.js override on file for ${u}. Real contract multiplier, not broker lot_size.</div><input type="number" id="blLotMult" min="1" step="any"></div>
-    <div class="tb-form-row"><div class="tb-form-label">Check core P&amp;L every N minutes (5 = at :00, :05, :10 … IST)</div><input type="number" id="blCheck" min="1" max="60" step="1" value="5"></div>
-    <div class="tb-form-row"><div class="tb-form-label">Loss band in points (0 = hedge when core P&amp;L &lt; 0)</div><input type="number" id="blBand" min="0" step="any" value="0"></div>
-    <div class="tb-form-row"><div class="tb-form-label">Hedge may open this many minutes after the engine starts (0, 5, 10, 15, 20 …; default 5). The NRML core is placed at once; closing a hedge is never delayed</div><input type="number" id="blDelay" min="0" max="60" step="1" value="5"></div>
-    <div class="tb-form-row"><div class="tb-form-label">CORE profit lock — step in points (0 = off; 5, 10, 15 …): when the core reaches +step, a floor of +step minus the giveback is locked; if the core falls back to the floor an opposite MIS hedge opens to freeze that profit, and it is closed when the core recovers to +step plus the giveback (step 5: reached +5, locked at +4, released at +6; then +10 locks +9, released at +11)</div><input type="number" id="blCoreLock" min="0" step="5" value="0"></div>
-    <div class="tb-form-row"><div class="tb-form-label">Core lock: check every N minutes (5 = at :00, :05, … IST; 0 = every live tick)</div><input type="number" id="blCoreLockCheck" min="0" max="60" step="1" value="5"></div>
-    <div class="tb-form-row"><div class="tb-form-label">Core lock giveback in points (default 0 = hedge the moment it drops below the level)</div><input type="number" id="blCoreLockGb" min="0" step="any" value="0"></div>
-    <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="blHold"><span>Carry the NRML core overnight — at EOD only the MIS hedge is closed (restart the engine each morning; the core resumes)</span></label></div>
+    <div class="tb-form-row"><div class="tb-form-label">Check interval (minutes)</div><input type="number" id="blCheck" min="1" max="60" step="1" value="5"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Band (points)</div><input type="number" id="blBand" min="0" step="any" value="0"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Hedge start delay (minutes after engine start)</div><input type="number" id="blDelay" min="0" max="60" step="1" value="5"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Lock step (points; 0 = off)</div><input type="number" id="blCoreLock" min="0" step="5" value="0"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Lock check interval (minutes; 0 = every tick)</div><input type="number" id="blCoreLockCheck" min="0" max="60" step="1" value="5"></div>
+    <div class="tb-form-row"><div class="tb-form-label">Lock giveback (points)</div><input type="number" id="blCoreLockGb" min="0" step="any" value="0"></div>
+    <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="blHold"><span>Carry the core overnight</span></label></div>
     <div class="tb-form-row"><label class="tb-form-row-inline"><input type="checkbox" id="blLive"><span>Go LIVE (real orders: NRML core + MIS hedge) — unchecked = paper</span></label></div>
     <div id="blErrBox"></div>
-    <button class="tb-submit-btn" id="blSubmit">Start base-loss hedge pair</button>`;
+    <button class="tb-submit-btn" id="blSubmit">Start hedge pair</button>`;
   const q = s => tbHedgePairsBody.querySelector(s);
   const hpEdit = hpAddState.mode === "edit" ? hpAddState.edit : null;
   q("#hpBack").addEventListener("click", () => { if (hpEdit) { hpAddState = null; loadHedgePairsList(); } else startHpBaseLoss(); });
