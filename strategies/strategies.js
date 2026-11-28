@@ -7764,4 +7764,13 @@ const STRATEGY_TIMEFRAME = {
 
 const DEFAULT_STRATEGY = "DPI_TREND_MEANREV";
 
+// Optional strategy modules that are not part of this repository (see scripts/sync-core.sh): registered only when installed.
+{
+    const ext = require("../utils/optionalCore").optionalRequire("strategies/reversal.private", null);
+    if (ext) {
+        STRATEGIES[ext.KEY] = ext.create; STRATEGY_INFO[ext.KEY] = ext.info; STRATEGY_TIMEFRAME[ext.KEY] = ext.timeframe;
+        require("./strategyParams").STRATEGY_PARAM_SPEC[ext.KEY] = ext.spec;
+    }
+}
+
 module.exports = { STRATEGIES, STRATEGY_INFO, STRATEGY_TIMEFRAME, DEFAULT_STRATEGY, createDpiTrendMeanrevStrategy, createDpiMeanrevStrategy, createAlmaBandStrategy, createAlmaDsbStrategy, createDsbDualStrategy, createVwapSdStrategy, createAlmaFastStrategy, createDualStChopStrategy, createDpiSma5ExitStrategy, createAlmaDualBandStrategy, createMaSlopeStrategy, createDynamicBandStrategy, createDynamicMidColorStrategy, createDynamicMidColorHLStrategy, createAlmaTriBandStrategy, createAlmaProFastStrategy, createAlmaProSlowStrategy, createVolumeDeltaCvdStrategy, createPureHaStrategy, createDailyHaBiasStrategy };

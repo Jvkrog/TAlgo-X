@@ -77,6 +77,7 @@ async function runBacktestInner({ strategyKey, strategyLabel, context, timeframe
     const engineConfig = Object.assign({}, engineConfigDefaults, params, {
         LIVE_ORDERS: false,
         ENGINE_ENABLED: true,
+        BACKTEST: true,
     });
 
     // Fetch extra calendar days BEFORE the requested `from` so the strategy's

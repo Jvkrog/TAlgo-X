@@ -67,6 +67,7 @@ function coerce(spec, raw) {
         const m = String(raw).trim().match(/^(\d{1,2}):(\d{2})$/);
         return m && Number(m[1]) <= 23 && Number(m[2]) <= 59 ? { ok: true, value: `${m[1].padStart(2, "0")}:${m[2]}` } : { ok: false, why: `${spec.label}: "${raw}" is not HH:MM` };
     }
+    if (spec.type === "text") return { ok: true, value: String(raw).trim() };
     return { ok: false, why: `unknown param type ${spec.type}` };
 }
 

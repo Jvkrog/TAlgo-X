@@ -908,6 +908,7 @@ function spFormHtml(spec, values, prefix) {
     const id = `${prefix}_${sp.key}`, cur = vals[sp.key] !== undefined ? vals[sp.key] : "";
     const label = `<div class="tb-form-label">${escHtml(sp.label)} \u2014 ${escHtml(sp.help || "")} <span class="tb-native-tag">default ${escHtml(String(sp.default))}</span></div>`;
     if (sp.type === "enum") return `<div class="tb-form-row">${label}<select id="${id}"><option value="">Default (${escHtml(String(sp.default))})</option>${sp.choices.map(c => `<option value="${escHtml(String(c))}"${String(cur) === String(c) ? " selected" : ""}>${escHtml(String(c))}</option>`).join("")}</select></div>`;
+    if (sp.type === "text") return `<div class="tb-form-row">${label}<input type="text" id="${id}" value="${escHtml(String(cur))}" placeholder="${escHtml(String(sp.default))}"></div>`;
     if (sp.type === "time") return `<div class="tb-form-row">${label}<input type="time" id="${id}" value="${escHtml(String(cur))}"></div>`;
     return `<div class="tb-form-row">${label}<input type="number" id="${id}" value="${escHtml(String(cur))}" placeholder="${escHtml(String(sp.default))}" min="${sp.min}" max="${sp.max}" step="${sp.type === "int" ? 1 : "any"}"></div>`;
   }).join("");
