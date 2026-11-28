@@ -27,3 +27,6 @@ tests/test-price-ma-hedge-controller.js
 tests/test-price-ma-next-hedge.js
 tests/test-price-ma-premarket.js
 tests/test-profit-lock.js
+
+# private strategy modules (any *.private.js)
+*.private.js
